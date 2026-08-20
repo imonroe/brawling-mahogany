@@ -64,3 +64,10 @@ These come from PRD §8 and should guide the eventual build:
 - The version we run locally and in CI/CD should be as reasonably close to production as possible, and if we need to override things in the docker-compose file, we should do so with includes to simplify setup and deployments.
 - All environment variables and secrets should be stored in a gitignored .env file in the root of the project. They should be passed into the container which uses them transparently.
 - Branching strategy. The `main` branch is for tagged releases only. Feature branches should target the `dev` branch for merging. When we have accumulated enough work in the `dev` branch to cut a tagged release, we'll do a PR to merge `dev` into `main`. That will keep things clean and give us a target for deployments.
+- Try to re-use components when possible to try to keep everything DRY.  Prefer pre-built components to rolling your own when practical.
+- Keeping the documentation up to date is critical.  For every PR, make sure that any documentation which needs to be updated, gets updated.  Documentation is part of the development process here, so it's imperative that we keep it as accurate as possible.
+
+## Adversarial Review
+
+Any time you make a PR, subscribe to the PR and make sure that all tests are passing.  Then, you should use a sub-agent to do an adversarial review of the PR.  The sub-agent should make any notes necessary in the PR, and you should respond by making any corrections which make sense.  After you have made updates, conduct the adversarial review again.  Do this loop up to five times, or until there is no feedback left to address.  If, after five rounds of review, it's still not done, then flag me for followup.  If you find that there is no more feedback to address, you may merge the PR into the `dev` branch.  All the reviews should be done in the Github PR, and you should stay subscribed to the PR until it's merged.
+
