@@ -26,7 +26,7 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 
 | Slice | Name | Issues | What it buys |
 |---|---|---|---|
-| **0** | Scaffolding, platform, design system | 18 | A stack that runs, a pipeline that blocks, and a component kit the other 70 screens assemble from |
+| **0** | Scaffolding, platform, design system | 19 | A stack that runs, a pipeline that blocks, and a component kit the other 70 screens assemble from |
 | **1** | Tenancy, identity, people | 19 | A team can exist, log in, and hold contacts — with isolation proven |
 | **2** | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
 | **3** | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
@@ -36,7 +36,7 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 | **7** | Commercial | 3 (+3 gates) | It becomes a business |
 | — | Cross-cutting decisions | 11 | The non-code work that gates the code work |
 
-**126 issues, 9 of them epics.**
+**127 issues, 9 of them epics.**
 
 ### Why Slice 0 exists
 
@@ -149,13 +149,26 @@ Per `CLAUDE.md`:
 
 One branch per issue. CI blocks the merge.
 
+### Pull requests
+
+Also per `CLAUDE.md`, and applying to every PR in this repo:
+
+1. **Subscribe to the PR** and confirm the tests pass.
+2. **Adversarial review by a sub-agent**, recorded in the PR itself rather than in a chat window.
+3. **Address what makes sense**, then review again — up to five rounds, or until there is no feedback left.
+4. **Five rounds without convergence means flagging Ian**, not merging anyway.
+5. **Documentation is updated in the same PR.** *"Keeping the documentation up to date is critical… Documentation is part of the development process here."* A PR that changes behaviour and leaves the PRD, IA, Screen Inventory, or Design System stale is not done.
+
+That last rule is why several issues in this backlog name the document they have to write back into — #78 records the honest row count in Design System §4.3, #48 settles the vendor flag question in IA §13.3, #105 records the calendar library decision, and #16 records the Tailwind Plus outcome.
+
 ### Definition of done, everywhere
 
-Every issue carries its own acceptance criteria, but three apply universally:
+Every issue carries its own acceptance criteria, but four apply universally:
 
 1. **Tests exist and pass in CI.** `CLAUDE.md`: *"For anything we build, we must have tests. This should be a basic principle from the very beginning of the build."*
 2. **Vocabulary matches [[Information Architecture]].** No `projects`, no `milestones` in the old sense, no "Client Portal". IA wins over every other document on naming.
 3. **No raw colours in components.** Semantic tokens only. Design System §2.1 calls it the one rule worth being pedantic about in review.
+4. **Reused, not rebuilt.** `CLAUDE.md`: *"Try to re-use components when possible to try to keep everything DRY. Prefer pre-built components to rolling your own when practical."* Design System §13.2 gives the decision order — shadcn-vue first, then a composite in `components/app/`, then a third-party library, and only then something bespoke. A pattern used three times gets promoted with a name.
 
 ---
 
