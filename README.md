@@ -51,6 +51,7 @@ This project is in the planning stage — no application code yet. The [`docs/`]
 - [`Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) — the PRD: goals, personas, feature scope, data model, release slices, and open questions
 - [`Information Architecture.md`](docs/Information%20Architecture.md) — the naming authority for the product's vocabulary
 - [`Screen Inventory.md`](docs/Screen%20Inventory.md) — the full screen list
+- [`Build Plan.md`](docs/Build%20Plan.md) — the build order and the map to the GitHub issue backlog
 - [`Design System.md`](docs/Design%20System.md) and [`Design references.md`](docs/Design%20references.md) — visual direction
 - [`The basic idea.md`](docs/The%20basic%20idea.md) — the originating concept
 - [`Rough data model.canvas`](docs/Rough%20data%20model.canvas) — the first-pass data model

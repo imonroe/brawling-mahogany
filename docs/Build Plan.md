@@ -1,0 +1,200 @@
+---
+created: 2026-08-20
+modified: 2026-08-20
+project: Brawling Mahogany
+type: plan
+status: draft
+version: 1.0
+tags:
+  - monroe-digital
+  - plan
+  - brawling-mahogany
+---
+
+# Build Plan
+
+> [!info] What this document is for
+> The order of operations for building Brawling Mahogany, and the map from that order to the GitHub issue backlog.
+>
+> It does not restate scope. [[Product Requirements Document]] is the source of truth for what gets built, [[Information Architecture]] for what everything is called, [[Screen Inventory]] for which screens exist, and [[Design System]] for how they look. This document answers only: **in what order, and why that order.**
+
+---
+
+## 1. The shape of the build
+
+The PRD defines seven release slices. This plan adds a **Slice 0** in front of them and otherwise follows the PRD's sequence exactly.
+
+| Slice | Name | Issues | What it buys |
+|---|---|---|---|
+| **0** | Scaffolding, platform, design system | 18 | A stack that runs, a pipeline that blocks, and a component kit the other 70 screens assemble from |
+| **1** | Tenancy, identity, people | 19 | A team can exist, log in, and hold contacts — with isolation proven |
+| **2** | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
+| **3** | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
+| **4** | Calendar, key dates, status page | 8 | Deadlines drive the work, and the client can look without calling |
+| **5** | AI document intelligence | 6 (+2 gates) | Parity with the competitor's headline feature |
+| **6** | Post-close and Keep in Touch | 5 | A closed deal stays an asset |
+| **7** | Commercial | 3 (+3 gates) | It becomes a business |
+| — | Cross-cutting decisions | 11 | The non-code work that gates the code work |
+
+**126 issues, 9 of them epics.**
+
+### Why Slice 0 exists
+
+The PRD folds "CI, staging" into Slice 1 alongside auth, people, and contact import. That understates it. `CLAUDE.md` requires tests from the first commit, a Docker stack, and a GitHub Actions pipeline — and the Design System requires the token layer and `AppLayout` before any screen is drawn. None of the Slice 1 product work can be built, tested, or reviewed until that exists.
+
+Splitting it out does not change scope. It makes the first two weeks honest.
+
+### Why the rest of the order is unchanged
+
+Each slice's exit criterion is a sentence about a person doing something real, and each depends on the one before it:
+
+- Slice 2 cannot run a deal without a team to own it.
+- Slice 3 has nothing to send until there are stages to advance.
+- Slice 4's contingency calendar needs deals to hang dates on.
+- **Slice 5 has nowhere to put its output until Slice 4 exists.** The PRD is explicit: *"Extraction with no contingency calendar to populate has nowhere to put its output. Build the destination, then build the shortcut."*
+- Slice 6 needs deals that can close.
+
+The one place to stop and reconsider is after **Slice 2** — the PRD calls it *"the first genuinely useful build and the right place to stop for feedback."*
+
+---
+
+## 2. The critical path
+
+Ignoring everything that can run in parallel, this is the chain that determines the date:
+
+```
+Scaffold + Docker + CI            (#21 #22 #24)
+        ↓
+Tokens → AppLayout → StatusBadge → list kit    (#29 #31 #32 #33)
+        ↓
+Tenancy enforcement + isolation suite          (#41 #42)
+        ↓
+Deals + participants                           (#59 #60)
+        ↓
+Template layer → runtime layer → snapshot      (#64 #65 #66)
+        ↓
+Gate evaluators → AdvanceWorkflow              (#67 #68)
+        ↓
+Timeline + advance modal                       (#76 #77)
+        ↓
+Seeded template packs   ← blocked on Emily's lists (#87 ← #11)
+        ↓
+        Slice 2 exit: one real deal, end to end
+```
+
+Three things on that path are worth naming.
+
+**`AppLayout` (#31) is the highest-leverage single piece of work in the project.** Seventy screens inherit its decisions about density, type scale, and mobile collapse. The Design System requires a review with Heather before anything else is built. A week there saves a month.
+
+**`AdvanceWorkflow` (#68) is the architectural keystone.** Every workflow mutation goes through it. If a controller ever writes `stages.state` directly, the audit trail, the automation dispatch, and the gate guarantees all become optional — and nobody notices until something has been silently skipped.
+
+**The seeded template packs (#87) are blocked on input we do not have.** Emily's consolidated task list, including a buyer-side list that does not yet exist, is the direct input. Build the pack *mechanism* against a placeholder; do not invent the content to unblock the schedule.
+
+---
+
+## 3. What runs in parallel
+
+Three tracks can proceed independently of the critical path, and should:
+
+| Track | Issues | Why it is independent |
+|---|---|---|
+| **Long-lead externals** | #12 SES production access, #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 3, 5, and 7 |
+| **Research spikes** | #14 extraction corpus, #19 iPhone web push, #16 Tailwind Plus | Answer questions whose answers change the build. All three are throwaway code or conversations |
+| **Design ahead of build** | Empty states (#33), mobile collapse (#31), S16 prototype (#76) | Design System §15 lists these as gaps. Designing them while Slice 1 is being built keeps Slice 2 unblocked |
+
+---
+
+## 4. The rules that survive every slice
+
+These come from `CLAUDE.md` and PRD §8, and they are the reason several issues that look like plumbing are marked P0.
+
+**Tenancy fails closed.** Single database, `team_id` on every business table, a global scope that throws rather than leaking, and a test suite (#42) whose entire job is proving cross-tenant access returns 403 or 404. A gap here is a release blocker, not a follow-up.
+
+**Template and instance never merge.** Instantiating snapshots (#66). Editing a template in September must not touch a deal that closed in August, and must not reorder the stages of a deal sitting at stage four today.
+
+**One mutation path for workflow state.** `AdvanceWorkflow` (#68), in a transaction, dispatching to the queue *after* commit.
+
+**Gates are data, not conditionals.** One evaluator class per type (#67), resolved from `gate_type`. An unknown gate type throws — it never evaluates as met.
+
+**Automation is the highest-blast-radius feature in the product.** The approval queue (#93) and the safety rails (#96) are launch blockers, stated as such in the PRD. An email to the wrong client cannot be recalled.
+
+**Uploads are the largest liability.** Restricted categories are refused outright, the PII warning appears at every upload point, and the scan runs in memory before anything is written (#99, #100). The terms describe what this actually does, not what it sounds like it does.
+
+**Nothing a model proposes reaches a live record unconfirmed.** `extracted_fields` is the only path into `key_dates` and `tasks` (#115, #116).
+
+**No PII in logs. Ever.** Built into the log scrubber on day one (#37), not audited in later.
+
+---
+
+## 5. Working the backlog
+
+### Labels
+
+| Group | Labels |
+|---|---|
+| Slice | `slice-0` … `slice-7` |
+| Type | `epic`, `infra`, `backend`, `frontend`, `design-system`, `security`, `testing`, `docs`, `decision` |
+| Priority | `P0` (blocks the slice), `P1` (in the slice), `P2` (cut candidate) |
+| State | `blocked` |
+
+Each slice has an epic issue carrying a checklist of its children, its exit criterion, and the architectural rules that apply inside it.
+
+### Branching
+
+Per `CLAUDE.md`:
+
+- Feature branches target **`dev`**
+- `main` is for **tagged releases only**
+- `dev` → `main` by pull request when a release is cut
+
+One branch per issue. CI blocks the merge.
+
+### Definition of done, everywhere
+
+Every issue carries its own acceptance criteria, but three apply universally:
+
+1. **Tests exist and pass in CI.** `CLAUDE.md`: *"For anything we build, we must have tests. This should be a basic principle from the very beginning of the build."*
+2. **Vocabulary matches [[Information Architecture]].** No `projects`, no `milestones` in the old sense, no "Client Portal". IA wins over every other document on naming.
+3. **No raw colours in components.** Semantic tokens only. Design System §2.1 calls it the one rule worth being pedantic about in review.
+
+---
+
+## 6. Sequencing risks, and what is being done about them
+
+| Risk | Mitigation in this plan |
+|---|---|
+| **Scope expectation mismatch between Ian and Emily** (PRD §14.3) | The slice plan itself. Each slice has a visible exit criterion agreed in advance rather than argued about later |
+| **Slice 2 is a third of the build** — 32 issues, 8 of the 15 hard screens | Known before it starts. The workflow engine issues (#64–#68) are sequenced ahead of the screens so the hard architecture lands before the hard design |
+| **Seeded templates blocked on input** (#11) | The mechanism is built against a placeholder; only the content waits |
+| **Slice 5 blocked on a DPA** (#13) | Started in parallel from day one. If the DPA does not land, Slice 5 does not start and nothing else is affected |
+| **Extraction may not be accurate enough to ship** (#14) | Measured against a hand-checked corpus *before* the build, not after. Zero tolerance on missed critical dates is a ship gate |
+| **AI cost scales with deal volume, not team count** (PRD §14.3) | Cost tracking and a spend cap are in the first extraction issue (#113), not a follow-up |
+| **iOS web push may not work well enough** (PRD A11) | Verified on a real device (#19) before the PWA work is committed to |
+| **Building for one team** (PRD §14.3) | #20 — five willingness-to-pay conversations outside Emily's circle |
+
+---
+
+## 7. What is deliberately not in the backlog
+
+Filed nowhere, on purpose, with the reason:
+
+| Not built | Why |
+|---|---|
+| **F11.6 social life-event monitoring** | Would require scraping against platform terms; Meta's APIs do not expose third-party life events. PRD §4.11 recommends dropping it, and this plan does |
+| **E-signature** | Confirmed unnecessary. Emily's market signs through CTM |
+| **Client document upload** | Confirmed unnecessary. Clients sign and return through CTM |
+| **MLS/IDX data ingestion** | Licensing, not preference. v1 stores links only |
+| **Ongoing rental and property management** | Out permanently, for a licensing reason. Tenant placement stays in |
+| **Commercial transactions** | Deferred to a later template pack, blocked on someone who knows commercial timelines |
+| **Native mobile apps** | Superseded by the PWA. Revisit after it proves demand |
+| **Blank-canvas workflow builder** | v1 is clone-and-edit. The builder is the graduation, not the start |
+| **SMS** | Gated on TCPA consent handling, which is the hard part |
+
+---
+
+## Related notes
+
+- [[Product Requirements Document]]: what gets built and why
+- [[Information Architecture]]: what everything is named
+- [[Screen Inventory]]: which screens exist and what they cost
+- [[Design System]]: tokens, components, and the build order for the front end
