@@ -4,7 +4,7 @@ modified: 2026-08-20
 project: Brawling Mahogany
 type: reference
 status: draft
-version: 1.0
+version: 2.0
 tags:
   - monroe-digital
   - design-system
@@ -17,12 +17,23 @@ tags:
 > [!info] What this document is for
 > The visual and component contract for Brawling Mahogany. What we borrow, what we build, what everything is worth, and the rules that stop 91 screens from drifting apart.
 >
+> **This document is the implementation source of truth.** It is written so that someone who cannot open `designs/Basic Designs.pen` can still build the screens correctly. Every number here is measured from the built designs, not aspirational.
+>
 > Companions: [[Information Architecture]] (what things are named), [[Screen Inventory]] (which screens exist), [[Design references]] (what to look at), [[Monroe Digital/brawling mahogany (real estate software)/docs/Product Requirements Document]] (what gets built).
 
 > [!abstract] The governing principle
 > **Borrow the wheel. Build only the axle nobody sells.**
 >
 > Roughly 76 of the 91 screens in [[Screen Inventory]] are assembly work if a component library is doing its job. The other 15 are where the product actually lives. Every hour spent hand-rolling a dropdown is an hour not spent on the stage timeline, which is the only thing here nobody else has built.
+
+> [!warning] What changed in v2.0
+> v1.0 was written before anything was drawn. v2.0 is written after 17 screens were built in Pencil, and it replaces principles with measurements wherever the two differ.
+>
+> **New:** [[#7. Component contracts]] (exact anatomy and Tailwind for every component), [[#8. Application chrome]] (shell, headers, cards, tables, dialogs), [[#9. Page patterns and composition recipes]], [[#14. The design file]].
+>
+> **Two corrections to v1.0:**
+> 1. **The "25 deals above the fold" claim in §4.2 was wrong.** See [[#4.3 The density claim, corrected]].
+> 2. **The composite list in v1.0 §7.1 was a wish list.** Section 7 now marks what exists versus what is still to build, and adds eight components v1.0 did not anticipate.
 
 ---
 
@@ -42,11 +53,24 @@ tags:
 
 `npx shadcn-vue@latest add button` writes `components/ui/button/` into the repo. There is no package to upgrade and no version to be trapped by. The tradeoff is that fixes upstream do not arrive automatically, so a component adopted today is a component maintained here forever.
 
-That is the right trade for this project. It also creates the one rule that matters most: **do not hand-edit `components/ui/`.** Extend through variants and wrappers instead, so re-running the CLI never silently destroys work. Section 12 covers governance.
+That is the right trade for this project. It also creates the one rule that matters most: **do not hand-edit `components/ui/`.** Extend through variants and wrappers instead, so re-running the CLI never silently destroys work. Section 13 covers governance.
 
 ### 1.2 Starting point
 
 Laravel ships an official Vue starter kit with Inertia, Vue 3, Tailwind, and shadcn-vue already wired together. Start there rather than assembling it by hand. shadcn-vue also publishes a Laravel-specific installation guide if the starter kit is not a fit.
+
+### 1.3 Lucide icon names, verified
+
+Lucide has renamed several icons. These are the names that actually resolve, and the ones the designs use:
+
+| Want | Correct name | Not |
+|---|---|---|
+| Filter | `funnel` | ~~`filter`~~ |
+| Help | `circle-question-mark` | ~~`help-circle`~~ |
+| Overflow menu | `ellipsis`, `ellipsis-vertical` | ~~`more-horizontal`~~ |
+| Success tick | `circle-check` | ~~`check-circle`~~ |
+| Warning ring | `circle-alert` | ~~`alert-circle`~~ |
+| Danger triangle | `triangle-alert` | ~~`alert-triangle`~~ |
 
 ---
 
@@ -66,33 +90,33 @@ Layer 3  Tailwind utilities  bg-primary, text-state-blocked
 
 ### 2.2 Base tokens
 
-shadcn's standard set, unmodified in structure. Values in oklch, per Tailwind v4 convention.
+shadcn's standard set, unmodified in structure. Values in oklch, per Tailwind v4 convention. **Use the oklch values in code.** The hex column exists only because the design file cannot store oklch, and is listed here so design and code can be checked against each other.
 
 ```css
 :root {
-  --background:            oklch(1 0 0);
-  --foreground:            oklch(0.16 0.01 250);
-  --card:                  oklch(1 0 0);
-  --card-foreground:       oklch(0.16 0.01 250);
-  --popover:               oklch(1 0 0);
-  --popover-foreground:    oklch(0.16 0.01 250);
+  --background:            oklch(1 0 0);          /* #FFFFFF */
+  --foreground:            oklch(0.16 0.01 250);  /* #0A0E11 */
+  --card:                  oklch(1 0 0);          /* #FFFFFF */
+  --card-foreground:       oklch(0.16 0.01 250);  /* #0A0E11 */
+  --popover:               oklch(1 0 0);          /* #FFFFFF */
+  --popover-foreground:    oklch(0.16 0.01 250);  /* #0A0E11 */
 
-  --primary:               oklch(0.45 0.11 250);   /* deep slate blue */
-  --primary-foreground:    oklch(0.98 0.005 250);
+  --primary:               oklch(0.45 0.11 250);  /* #1A588F  deep slate blue */
+  --primary-foreground:    oklch(0.98 0.005 250); /* #F6F9FC */
 
-  --secondary:             oklch(0.96 0.005 250);
-  --secondary-foreground:  oklch(0.28 0.02 250);
-  --muted:                 oklch(0.96 0.005 250);
-  --muted-foreground:      oklch(0.52 0.015 250);
-  --accent:                oklch(0.95 0.015 250);
-  --accent-foreground:     oklch(0.28 0.02 250);
+  --secondary:             oklch(0.96 0.005 250); /* #EFF2F5 */
+  --secondary-foreground:  oklch(0.28 0.02 250);  /* #212A33 */
+  --muted:                 oklch(0.96 0.005 250); /* #EFF2F5 */
+  --muted-foreground:      oklch(0.52 0.015 250); /* #636A71 */
+  --accent:                oklch(0.95 0.015 250); /* #E7F0F8 */
+  --accent-foreground:     oklch(0.28 0.02 250);  /* #212A33 */
 
-  --destructive:           oklch(0.55 0.20 27);
-  --destructive-foreground:oklch(0.98 0.01 27);
+  --destructive:           oklch(0.55 0.20 27);   /* #CC2827 */
+  --destructive-foreground:oklch(0.98 0.01 27);   /* #FFF6F5 */
 
-  --border:                oklch(0.91 0.005 250);
-  --input:                 oklch(0.91 0.005 250);
-  --ring:                  oklch(0.45 0.11 250);
+  --border:                oklch(0.91 0.005 250); /* #DFE1E4 */
+  --input:                 oklch(0.91 0.005 250); /* #DFE1E4 */
+  --ring:                  oklch(0.45 0.11 250);  /* #1A588F */
 
   --radius:                0.5rem;
 }
@@ -106,62 +130,87 @@ This is the layer shadcn does not ship, and the layer that matters most here. Ev
 
 ```css
 :root {
-  --state-neutral:        oklch(0.52 0.015 250);
-  --state-neutral-bg:     oklch(0.96 0.005 250);
+  --state-neutral:        oklch(0.52 0.015 250);  /* #636A71 */
+  --state-neutral-bg:     oklch(0.96 0.005 250);  /* #EFF2F5 */
 
-  --state-info:           oklch(0.52 0.12 250);
-  --state-info-bg:        oklch(0.95 0.03 250);
+  --state-info:           oklch(0.52 0.12 250);   /* #286CAB */
+  --state-info-bg:        oklch(0.95 0.03 250);   /* #E0F1FF */
 
-  --state-success:        oklch(0.50 0.13 150);
-  --state-success-bg:     oklch(0.95 0.04 150);
+  --state-success:        oklch(0.50 0.13 150);   /* #137738 */
+  --state-success-bg:     oklch(0.95 0.04 150);   /* #DCF7E1 */
 
-  --state-warning:        oklch(0.52 0.12 75);
-  --state-warning-bg:     oklch(0.96 0.05 85);
+  --state-warning:        oklch(0.52 0.12 75);    /* #905D00 */
+  --state-warning-bg:     oklch(0.96 0.05 85);    /* #FFF0CC */
 
-  --state-danger:         oklch(0.53 0.19 27);
-  --state-danger-bg:      oklch(0.96 0.03 27);
+  --state-danger:         oklch(0.53 0.19 27);    /* #C22826 */
+  --state-danger-bg:      oklch(0.96 0.03 27);    /* #FFEBE7 */
+}
+```
+
+Expose them to Tailwind so `text-state-warning` and `bg-state-warning-bg` exist as utilities:
+
+```css
+@theme inline {
+  --color-state-neutral:    var(--state-neutral);
+  --color-state-neutral-bg: var(--state-neutral-bg);
+  --color-state-info:       var(--state-info);
+  --color-state-info-bg:    var(--state-info-bg);
+  --color-state-success:    var(--state-success);
+  --color-state-success-bg: var(--state-success-bg);
+  --color-state-warning:    var(--state-warning);
+  --color-state-warning-bg: var(--state-warning-bg);
+  --color-state-danger:     var(--state-danger);
+  --color-state-danger-bg:  var(--state-danger-bg);
 }
 ```
 
 ### 2.4 State mapping
 
-One table, and it is the single source of truth for every badge in the product.
+One table, and it is the single source of truth for every badge in the product. The **Tone** column is the value passed to `<StatusBadge :tone="…">`.
 
-| Entity | State | Token | Reads as |
+| Entity | State (UI label) | Tone | Reads as |
 |---|---|---|---|
-| **Stage** | Upcoming | neutral | Not started |
-| | In Progress | info | Happening now |
-| | Blocked | warning | Needs attention, not broken |
-| | Complete | success | Done |
-| | Skipped | neutral | Not applicable |
-| **Task** | Open | neutral | |
-| | Completed | success | |
-| | Overdue | danger | |
-| **Gate** | Met | success | |
-| | Not Met | neutral | Expected, not alarming |
-| | Overridden | warning | Deliberate, auditable |
-| **Deal** | Active | info | |
-| | Closed | success | |
-| | Past Client | neutral | |
-| | Fell Through | danger | |
-| | Cancelled | neutral | |
-| **Message** | Scheduled | neutral | |
-| | Needs Review | warning | |
-| | Sent | success | |
-| | Failed | danger | |
-| **Extracted field** | Needs Review | warning | |
-| | Confirmed | success | |
-| | Edited | info | |
-| | Rejected | neutral | |
+| **Stage** | Upcoming | `neutral` | Not started |
+| | In Progress | `info` | Happening now |
+| | Blocked | `warning` | Needs attention, not broken |
+| | Complete | `success` | Done |
+| | Skipped | `neutral` | Not applicable |
+| **Task** | Open | `neutral` | |
+| | Completed | `success` | |
+| | Overdue | `danger` | |
+| **Gate** | Met | `success` | |
+| | Not Met | `neutral` | Expected, not alarming |
+| | Overridden | `warning` | Deliberate, auditable |
+| **Deal** | Active | `info` | |
+| | Closed | `success` | |
+| | Past Client | `neutral` | |
+| | Fell Through | `danger` | |
+| | Cancelled | `neutral` | |
+| **Message** | Scheduled | `neutral` | |
+| | Needs Review | `warning` | |
+| | Sent | `success` | |
+| | Failed | `danger` | |
+| **Extracted field** | Needs Review | `warning` | |
+| | Confirmed | `success` | |
+| | Edited | `info` | |
+| | Rejected | `neutral` | |
+| **Document** | Refused by scan | `danger` | |
 
 > [!warning] Blocked is amber, not red
-> A blocked stage usually means a checkbox is unticked, not that something has gone wrong. Red is reserved for things that are actually broken: a failed send, an overdue deadline, a deal that fell through. Spending red on the ordinary case means it stops working when something genuinely burns.
+> A blocked stage usually means a checkbox is unticked, not that something has gone wrong. Red is reserved for things that are actually broken: a failed send, an overdue deadline, a refused upload, a deal that fell through. Spending red on the ordinary case means it stops working when something genuinely burns.
 
-### 2.5 Dark mode
+### 2.5 Confidence is not a state
+
+AI extraction (S66) shows a **confidence** level alongside a **review state**. They are different vocabularies and must not share a visual treatment, or a reader will think "Low confidence" is a status.
+
+- **Review state** → a `StatusBadge` (pill, background fill). Needs Review / Confirmed / Edited / Rejected.
+- **Confidence** → an icon plus text, no pill: `signal-high` in `text-state-success`, `signal-low` in `text-state-danger`.
+
+### 2.6 Dark mode
 
 **Tokens built now, light mode shipped in v1.** Define every value in the `.dark` block and keep it correct as tokens are added. Do not test, screenshot, or support dark mode until after v1.
 
-This costs nearly nothing today, because shadcn ships both blocks anyway and the discipline is simply not to break the dark half. It converts "enable dark mode" from an archaeology project into about a week of visual QA. The alternative, hardcoding light values now, means auditing 91 screens by hand later.
+The design file is **light-mode only** by deliberate choice, so there are no dark values to copy from it. Author them in CSS from the rule below and leave them untested until v1 ships.
 
 The `.dark` block inverts lightness and lifts chroma slightly on state colors so they survive on a dark ground:
 
@@ -175,7 +224,7 @@ The `.dark` block inverts lightness and lifts chroma slightly on state colors so
 }
 ```
 
-### 2.6 Team branding
+### 2.7 Team branding
 
 **Team branding applies to client-facing surfaces only:** the status page (S61 to S64) and transactional emails (S86 to S91). The internal app always wears the product's own palette.
 
@@ -190,7 +239,9 @@ Implementation: the client layout scopes a small set of overrides, and nothing e
 }
 ```
 
-**A team accent is used for headings, the progress indicator, and links. It is never used for state.** A team whose brand colour is red does not get red "complete" badges.
+The design file carries a single `brand-client` token set to `#8A5A2B` purely as a stand-in, so the client screens demonstrate a brand that is visibly *not* the product blue. It is not a product value and must not be copied into code as a default.
+
+**A team accent is used for headings, the progress indicator, markers, and links. It is never used for state.** A team whose brand colour is red does not get red "complete" badges.
 
 > [!note] Validate contrast on the way in
 > A team owner picking their brand colour in S72 can pick something illegible. Check contrast at save time and either warn or auto-adjust the foreground. Do not discover it when a client cannot read their own timeline.
@@ -211,7 +262,13 @@ Implementation: the client layout scopes a small set of overrides, and nothing e
 Self-host through Fontsource rather than linking Google Fonts. It removes a third-party request, avoids a privacy question in the terms, and keeps the client status page fast on a phone.
 
 > [!tip] Tabular numerals are not optional here
-> This product is dates and dollar amounts in columns. Apply `font-variant-numeric: tabular-nums` to every table cell, every date, and every currency value. Without it, digits have different widths and columns visibly wobble. It is one line of CSS and it is the difference between a table that looks engineered and one that looks improvised.
+> This product is dates and dollar amounts in columns. Apply `font-variant-numeric: tabular-nums` to every table cell, every date, and every currency value. Without it, digits have different widths and columns visibly wobble.
+>
+> Do it once, globally, rather than per component:
+> ```css
+> table, .tabular, [data-slot="table"] { font-variant-numeric: tabular-nums; }
+> ```
+> Everything in the designs that shows a date, an amount, a count, or a deadline assumes this is on.
 
 ### 3.2 Scale
 
@@ -222,22 +279,34 @@ Two base sizes, because the audiences differ.
 
 | Token | Size | Line height | Use |
 |---|---|---|---|
-| `text-xs` | 12px | 16px | Badges, table meta, timestamps, helper text |
-| `text-sm` | 14px | 20px | **Internal app default.** Body, tables, forms, labels |
+| `text-xs` | 12px | 16px | Badges, table meta, timestamps, helper text, column headers |
+| `text-sm` | 14px | 20px | **Internal app default.** Body, forms, labels, nav, tabs |
 | `text-base` | 16px | 24px | **Client surface default.** Long-form internal text |
-| `text-lg` | 18px | 28px | Card titles, section headings |
+| `text-lg` | 18px | 28px | Card titles, dialog titles |
 | `text-xl` | 20px | 28px | Page titles |
 | `text-2xl` | 24px | 32px | Deal name, client page headings |
 | `text-3xl` | 30px | 36px | Client page hero only |
 
-### 3.3 Weight
+### 3.3 The 13px exception
+
+Table and list rows use **13px**, not 14px. This is deliberate and is used throughout the built designs: `DealRow` cells, card list rows, participant cards, document rows.
+
+Fourteen is right for controls and prose. In a 36px row with six columns it is a fraction too loose, and 13 buys back roughly one extra visible row per screenful without hurting legibility. Add it as a token rather than reaching for an arbitrary value:
+
+```css
+@theme { --text-13: 0.8125rem; --text-13--line-height: 1rem; }
+```
+
+Use `text-13` for row content. Do not use it for form controls, buttons, or anything a user types into.
+
+### 3.4 Weight
 
 | Weight | Use |
 |---|---|
-| 400 Regular | Body, table cells |
-| 500 Medium | Labels, table headers, nav items, emphasis in dense contexts |
-| 600 Semibold | Headings, page titles, primary buttons |
-| 700 Bold | Client page hero only. Never in the internal app. |
+| 400 Regular | Body, table cells, secondary row text |
+| 500 Medium | Labels, table headers, nav items, tabs, badges, emphasis in dense contexts |
+| 600 Semibold | Headings, page titles, primary buttons, row primary column, card titles |
+| 700 Bold | Client page hero and brand mark only. Never in the internal app. |
 
 In a dense interface, 500 does the work 700 does in a roomy one. Reaching for bold in a table is usually a sign that something else needs fixing.
 
@@ -247,26 +316,69 @@ In a dense interface, 500 does the work 700 does in a roomy one. Reaching for bo
 
 ### 4.1 Scale
 
-Tailwind's default 4px scale, unmodified. Use `1, 2, 3, 4, 6, 8, 12, 16`. Skipping around the scale is how spacing becomes arbitrary.
+Tailwind's default 4px scale. Use `1, 2, 3, 4, 6, 8, 12, 16`. Skipping around the scale is how spacing becomes arbitrary.
 
-### 4.2 Density rules
+Four odd values earn their place and appear repeatedly in the designs. Treat these as sanctioned, and anything else as a mistake:
 
-**Compact tables, comfortable forms.** Two densities with a clear boundary between them.
+| Value | Tailwind | Where |
+|---|---|---|
+| 9px | `gap-[9px]` | Avatar-to-text in sidebar, person rows, activity rows |
+| 13px | `py-[13px]` | Card header vertical padding |
+| 14px | `px-3.5` | Button horizontal padding, compact card padding |
+| 22px | `gap-[22px]` | Deal header tab spacing |
 
-| Context | Spec |
+### 4.2 Measured control sizes
+
+Every one of these is used in the built designs. Match them exactly.
+
+| Context | Height | Padding | Type |
+|---|---|---|---|
+| **Table row** | 36px (`h-9`) | `px-4` | `text-13` |
+| Table row, two-line | 44px (`h-11`) | `px-4` | 13 / 11 |
+| Table column header | 32px (`h-8`) | `px-4`, `bg-muted` | `text-xs` / 500 |
+| **List row (non-table)** | 44px (`h-11`) | `px-3`–`px-4` | 14 / 12 |
+| List row, rich (icon + 2 lines + badge) | 52px (`h-13`) | `px-4` | 13 / 12 |
+| **Primary / secondary button** | 36px (`h-9`) | `px-3.5` | 14 / 600 or 500 |
+| Ghost button | 32px (`h-8`) | `px-2.5` | 14 / 500 |
+| Compact button (in card headers, dialogs) | 28–30px | `px-2.5` | 12 / 600 |
+| **Form control** | 40px (`h-10`) | `px-3` | 14 |
+| **Inline filter control / chip** | 32px (`h-8`) | `px-2.5`–`px-3` | 12 |
+| Icon button | 32×32 (`size-8`) | — | 18px icon |
+| Nav item | 32px (`h-8`) | `px-2.5 py-[7px]` | 14 / 500 |
+| Tab | 38px (`h-[38px]`) | `px-[3px]` | 14 |
+| **Mobile touch target** | **44px minimum, always** | — | — |
+
+| Region | Spec |
 |---|---|
-| Table row height | 36px, `px-3 py-2`, `text-sm` |
-| Table header | 32px, `text-xs`, weight 500, uppercase off |
-| List item (non-table) | 44px minimum |
-| Form control height | 40px (`h-10`) |
-| Inline filter control | 32px (`h-8`) |
+| Page gutter | 24px desktop (`p-6`), 16px mobile |
+| Card padding | 24px for prose cards; **card headers use `px-4 py-[13px]`, card rows `px-4`** |
 | Form field vertical rhythm | 16px between fields, 32px between groups |
-| Card padding | 24px desktop, 16px mobile |
-| Page gutter | 24px desktop, 16px mobile |
-| Section gap | 24px, 32px between major blocks |
-| **Mobile touch target** | **44px minimum, always, no exceptions** |
+| Section gap | 16px within a region, 20–24px between major blocks |
+| Two-column page grid | 20–24px gap; right rail 330–352px fixed, left column `flex-1` |
 
-At 36px rows, roughly 25 deals fit above the fold on a 1080p screen with the header and filter bar in place. That is Emily's bar from the 2026-08-20 session, and it is the reason tables are compact.
+### 4.3 The density claim, corrected
+
+v1.0 asserted that "roughly 25 deals fit above the fold on a 1080p screen with the header and filter bar in place." **That is not true, and the arithmetic is worth writing down so nobody re-derives it.**
+
+On a 1080px-tall display, a maximised browser gives roughly 1024px of viewport. Subtract:
+
+| | |
+|---|---|
+| App top bar | 56 |
+| Page gutter, top and bottom | 48 |
+| Page header (title + subtitle + actions) | 44 |
+| Gap | 16 |
+| Filter bar | 32 |
+| Gap | 16 |
+| Table column header | 32 |
+| Table footer (count + pagination) | 44 |
+| **Remaining for rows** | **736 → 20 rows at 36px** |
+
+**Twenty rows, not twenty-five.** To fit 25 you need about 1200px of viewport, which means a 1440px-tall display or a browser in full-screen.
+
+Two consequences:
+1. **Design to 20 visible rows** as the realistic desktop case. Emily's "25 concurrent deals" requirement is about the dashboard and the data model coping with 25, not about all 25 being simultaneously visible.
+2. The deals index (S13) is drawn on a **1440×1200** frame precisely so all 25 rows can be seen and judged. That frame is a design convenience, not a viewport target.
 
 > [!warning] Density is for the desktop internal app only
 > Everything on a phone is comfortable. Everything on the client status page is comfortable. Compact is a desktop-power-user affordance, not a house style.
@@ -277,25 +389,40 @@ At 36px rows, roughly 25 deals fit above the fold on a 1080p screen with the hea
 
 ### 5.1 Radius
 
-`--radius: 0.5rem` (8px), giving shadcn's derived scale: `sm` 4px, `md` 6px, `lg` 8px, `xl` 12px.
+`--radius: 0.5rem` (8px), giving shadcn's derived scale:
+
+| Token | Value | Use |
+|---|---|---|
+| `rounded-sm` | 4px | Date chips, small inline tags, kbd, inline alert strips |
+| `rounded-md` | 6px | Buttons, inputs, nav items, chips, filter controls, markers |
+| `rounded-lg` | 8px | Cards, tables, dialogs, panels |
+| `rounded-xl` | 12px | Not currently used |
+| `rounded-full` | — | Avatars, status badges, count pills, timeline markers |
 
 Slightly tighter than shadcn's 10px default. Eight reads a little more serious, which suits software handling somebody's house sale.
-
-Full rounding (`rounded-full`) is reserved for avatars and badges.
 
 ### 5.2 Borders and elevation
 
 **Borders over shadows.** The internal app separates regions with 1px `--border` lines, not drop shadows. Shadows are noise at density, and 25 stacked cards with shadows look like a mess.
 
-Shadows appear only where something genuinely floats above the page:
-
 | Element | Elevation |
 |---|---|
-| Card, panel, table | Border only, no shadow |
+| Card, panel, table | `border` only, no shadow |
+| Active/selected card (current stage, selected template) | `border` in `--primary` at **1.5px**, plus an `--accent` header |
 | Dropdown, popover, tooltip, command palette | `shadow-md` |
 | Dialog, sheet, drawer | `shadow-lg` plus a scrim |
 | Mobile bottom nav | `shadow-lg` upward |
 | Sticky table header | 1px bottom border, no shadow |
+
+Two shadow recipes are used in the designs:
+
+```css
+/* Dialog */        box-shadow: 0 10px 30px -6px oklch(0.16 0.01 250 / 0.25);
+/* Document page */ box-shadow: 0 2px 10px oklch(0.16 0.01 250 / 0.09);
+/* Scrim */         background: oklch(0.16 0.01 250 / 0.45);
+```
+
+**Row separation is a bottom border on the row, not a gap.** Every list and table row carries `border-b`, and the last row in a card drops it (the card's own `overflow-hidden` and border close the box).
 
 ### 5.3 Motion
 
@@ -321,13 +448,16 @@ Rules that matter more than the numbers:
 
 | Context | Size | Stroke |
 |---|---|---|
-| Inline with text | 16px | 2 |
-| Button icon | 16px | 2 |
-| Nav item | 18px | 2 |
+| Inline with `text-13` row content | 12–13px | 2 |
+| Inline with text, buttons | 14–16px | 2 |
+| Nav item, icon button | 18px | 2 |
+| Section heading, alert | 16–17px | 2 |
 | Empty state | 24px | 1.5 |
 | Standalone feature icon | 32px | 1.5 |
 
 Icons never carry meaning alone. A status is a badge with a word in it, optionally with an icon. This is both an accessibility requirement and a hedge against the fact that nobody agrees what any icon means.
+
+**Icon-in-a-circle** is a recurring motif for activity and category markers: a `size-6` (24px) `rounded-full` frame filled `bg-muted`, holding a 14px icon tinted with the relevant state token. For row-level category markers the frame is `size-7` (28px) `rounded-md` filled with the state background.
 
 ---
 
@@ -393,49 +523,273 @@ Confirmed against the current shadcn-vue roster. Mapped to the screens in [[Scre
 
 ---
 
-## 7. What we have to build
+## 7. Component contracts
 
-Split into composites, which are shadcn parts arranged into a repeatable unit, and bespoke, which is genuinely new work.
+Everything in this section is measured from the built designs. Tailwind classes assume the tokens in section 2 are registered with `@theme`.
 
-### 7.1 Composites (`components/app/`)
+### 7.1 Status
 
-Build once, use everywhere. Each of these appears on three or more screens, which is the bar for promotion.
-
-| Component | Made from | Used by |
+| Component | Location | Status |
 |---|---|---|
-| `StatusBadge` | Badge + section 2.4 mapping | Every list and detail screen |
-| `DealRow` | Table row + StatusBadge + Avatar | S10, S13 |
-| `DealHeader` | Breadcrumb + Tabs + StatusBadge + Dropdown | Every deal tab |
-| `PersonPicker` | Combobox + Avatar + create-inline | S25, S14, forms |
-| `TaskItem` | Item + Checkbox + Avatar + due date | S11, S17 |
-| `DateChip` | Badge + tabular numerals + urgency colouring | S18, S59, S10 |
-| `PageHeader` | Title, count, primary action, filter slot | Every list page |
-| `FilterBar` | Popover + Toggle Group + saved views | S13, S30, S35 |
-| `EmptyState` | Empty + icon + copy + action | Every screen |
-| `ConfirmDestructive` | Alert Dialog + typed confirmation | Deletes |
-| `ActivityItem` | Item + icon + timestamp + actor | S12, deal timeline |
-| `UploadZone` | Progress + Alert + **PII warning** | S51 |
+| `StatusBadge` | `components/app/` | **Built in design** |
+| `DealRow` | `components/app/` | **Built in design** |
+| `TaskItem` | `components/app/` | **Built in design** |
+| `ActivityItem` | `components/app/` | **Built in design** |
+| `DateChip` | `components/app/` | **Built in design** |
+| `NavItem` | `layouts/` | **Built in design** |
+| `Tab` | `components/app/` | **Built in design** |
+| `AppShell`, `Sidebar`, `TopBar` | `layouts/AppLayout.vue` | **Built in design** |
+| `DealHeader` | `components/app/` | **Built in design** |
+| `IconButton` | `components/app/` | **Built in design** |
+| `PageHeader` | `components/app/` | Pattern established, not extracted |
+| `FilterBar` | `components/app/` | Pattern established, not extracted |
+| `PersonPicker` | `components/app/` | Not yet designed |
+| `EmptyState` | `components/app/` | **Not yet designed** — see [[#9.3 Required states]] |
+| `ConfirmDestructive` | `components/app/` | Not yet designed |
+| `UploadZone` | `components/app/` | Not yet designed (S51) |
 
-### 7.2 Bespoke
+### 7.2 Atoms
 
-The real design work. These are the L-effort screens from [[Screen Inventory]].
+#### StatusBadge
 
-| What | Screen | Why it is not off the shelf |
+The most-used component in the product. Dot plus word, always both, never the dot alone.
+
+```
+[•] Label          rounded-full  px-2 py-[3px]  gap-1.5
+                   dot: size-1.5 rounded-full
+                   label: text-xs font-medium
+                   height: 21px
+```
+
+```html
+<span class="inline-flex items-center gap-1.5 rounded-full px-2 py-[3px]
+             text-xs font-medium bg-state-warning-bg text-state-warning">
+  <span class="size-1.5 rounded-full bg-state-warning"></span>
+  Blocked
+</span>
+```
+
+Tone drives three properties together: container `bg-state-{tone}-bg`, dot `bg-state-{tone}`, label `text-state-{tone}`. Never mix tones across the three.
+
+**Dotless variant.** When the badge is a *count* or a *terminal status* rather than a live state, drop the dot: header counts (`4`), "Met", "Confirmed", table status columns. Keep the pill and the colour.
+
+#### Buttons
+
+| Variant | Height | Padding | Fill | Border | Label |
+|---|---|---|---|---|---|
+| Primary | 36 (`h-9`) | `px-3.5` | `bg-primary` | — | 14 / **600** / `text-primary-foreground` |
+| Secondary | 36 (`h-9`) | `px-3.5` | `bg-background` | `border` | 14 / 500 / `text-secondary-foreground` |
+| Ghost | 32 (`h-8`) | `px-2.5` | none | — | 14 / 500 / `text-muted-foreground` |
+| Compact | 28–30 | `px-2.5` | either | either | 12 / 600 |
+
+All share `rounded-md gap-1.5` and a 16px leading icon. Icon colour follows the label colour.
+
+**Destructive and warning actions** reuse the primary shape with the fill swapped: `bg-destructive` for delete, `bg-state-warning` for Override. A warning-filled primary is how "Override and Advance" reads as consequential without reading as broken.
+
+**Disabled primary** is `bg-muted` with `text-muted-foreground` — see the blocked Advance button in S23.
+
+#### IconButton
+
+`size-8 rounded-md`, 18px icon in `text-muted-foreground`, centred. Optional unread dot: `size-2 rounded-full bg-destructive ring-2 ring-background`, absolutely positioned at top-right (offset 19,5 within the 32px box).
+
+#### Avatar
+
+`rounded-full bg-accent`, initials centred in `text-primary` at 600 weight. Sizes actually used:
+
+| Size | Initials | Where |
 |---|---|---|
-| **Stage timeline** | S16 | The core interaction. Ordered stages, mixed states, gates, concurrent workflows, overrides. Nothing in any library is shaped like this. |
-| **Advance dialog with gate checklist** | S23 | Must explain a refusal clearly enough to act on, with each unmet gate linking to the thing that clears it. |
-| **Workflow and stage template editors** | S41, S42 | Reordering with in-flight deals to protect. Needs a sortable library. |
-| **Automation editor** | S44 | Trigger, action type, recipient rule, and approval, all interdependent. |
-| **Merge-field email editor** | S46 | Needs a rich text editor with a custom token node. Not a shadcn concern. |
-| **Extraction review split pane** | S66 | Source PDF beside proposed dates, with confidence and per-field confirmation. Highest-risk screen in the product. |
-| **Field mapping** | S33 | Contact import column mapping and duplicate resolution. Always harder than it looks. |
-| **Permission matrix** | S75 | A grid of checkboxes that has to stay legible. |
-| **Scheduling calendar** | S57 | shadcn's Calendar is a date picker, not a month grid with events. Needs a real calendar library. |
-| **Photo gallery manager** | S38 | Drag-to-reorder, primary image, captions. |
-| **Client status timeline** | S62 | Separate visual language entirely: mobile-first, team-branded, jargon-free, WCAG AA. |
-| **Email templates** | S86 to S91 | HTML email cannot use any of this system. See section 11. |
+| 20 | 9px | Inline in dense stage task rows |
+| 24 (default) | 10px | Table rows, task items |
+| 26 | 10px | Card list rows |
+| 30 | 11px | Sidebar user block |
+| 32 | 12px | Participant cards |
+| 46 | 17px | Client page agent block (brand-filled) |
 
-### 7.3 Third-party additions
+#### DateChip
+
+`rounded-sm px-[7px] py-[3px] gap-[5px]`, 12px `calendar` icon, `text-xs font-medium`. Tone follows urgency, not stage state: `neutral` normally, `danger` when overdue or due today. All three properties (bg, icon, text) move together.
+
+#### Checkbox
+
+`size-4 rounded-sm border bg-background`. Checked: `bg-primary border-primary` with a 12px `check` in `text-primary-foreground`.
+
+#### Tab
+
+Vertical frame, `h-[38px]`, containing a horizontal inner row (`px-[3px] gap-1.5`) with a 14px label and an optional count pill (`rounded-full px-1.5 py-px text-[11px] font-medium bg-muted`).
+
+**The active indicator is a 2px bottom border on the tab itself**, not a separate element: `border-b-2 border-primary`, label `text-foreground font-semibold`. Inactive: no border, label `text-muted-foreground font-medium`.
+
+Tabs sit in a row with `gap-[22px]` and the container carries the full-width bottom border.
+
+### 7.3 Composites
+
+#### DealRow
+
+The workhorse of every list screen. A fixed-height horizontal row of fixed-width cell frames.
+
+```
+h-9  px-4  border-b   ·   each cell is its own flex container, items-center, gap-1.5
+┌────┬──────────────┬────────┬────────┬────────┬────────┬──────┐
+│ 30 │ flex-1       │  170   │  150   │  140   │  115   │  40  │
+│ ☐  │ Primary      │ Meta 1 │ Meta 2 │ State  │ Date   │ Owner│
+└────┴──────────────┴────────┴────────┴────────┴────────┴──────┘
+```
+
+| Cell | Width | Content |
+|---|---|---|
+| Select | 30 | Checkbox, centred. Hidden unless the screen supports bulk select. |
+| Primary | `flex-1` | `text-13 font-medium text-foreground` — the deal name / address |
+| Meta 1 | 170 | `text-13 text-muted-foreground` — client |
+| Meta 2 | 150 | `text-13 text-muted-foreground` — current stage |
+| State | 140 | `StatusBadge` |
+| Date | 115 | `DateChip` |
+| Owner | 40 | `Avatar` 24 |
+
+**The column header must use identical widths** (`h-8 px-4 bg-muted`, labels `text-xs font-medium text-muted-foreground`). Misaligning header and body by even 2px is visible.
+
+Cells are generic on purpose. On the dashboard the row hides Meta 1 and narrows Meta 2; on S13 all seven show. Do not rename the cells after their S13 content.
+
+#### TaskItem
+
+```
+h-11  px-3  gap-2.5  border-b
+[☐] [ Title 14 / Meta 12 ]  [DateChip]  [Avatar 24]
+```
+
+Title `text-sm text-foreground`; completed tasks get `line-through text-muted-foreground` and a filled checkbox. Meta is `text-xs text-muted-foreground` and carries the deal context (`123 Main St · Under Contract`) on cross-deal screens, or the completion attribution (`Completed by Heather`) within a deal.
+
+The assignee avatar is hidden on My Work, where it is always the current user.
+
+#### ActivityItem
+
+```
+py-2.5  gap-2.5  items-start
+[icon circle 24] [ Text 14 (wraps) / Time 12 ]
+```
+
+The icon circle is `size-6 rounded-full bg-muted` holding a 14px icon tinted by event type: completion `state-success`, message sent `state-info`, override `state-warning`, everything else `state-neutral`. The text must be allowed to wrap; the timestamp must not.
+
+#### NavItem
+
+```
+h-8  px-2.5 py-[7px]  gap-2.5  rounded-md
+[icon 18] [ Label 14/500 ] [flex-1 spacer] [count 12]
+```
+
+Active: `bg-accent`, icon and label `text-primary`, label 600. Inactive: label `text-secondary-foreground`, icon `text-muted-foreground`. A section the user lacks permission for is **hidden, never disabled**.
+
+### 7.4 Bespoke anatomies
+
+These are the L-effort pieces. Nothing off the shelf is shaped like them, so they are specified in full.
+
+#### The stage rail (S16) — the core interaction
+
+A vertical list of rows. Each row is `flex gap-3` with a fixed rail column and a flexible card column.
+
+```
+┌──────┬────────────────────────────────────────┐
+│ rail │ card                                   │
+│ w-26 │ flex-1, pb-3.5                         │
+│      │                                        │
+│ ◉    │ ┌────────────────────────────────────┐ │
+│ │    │ │ collapsed: h-11                    │ │
+│ │    │ └────────────────────────────────────┘ │
+│ │    │                                        │
+└──────┴────────────────────────────────────────┘
+```
+
+**Rail column**: `w-[26px]` vertical flex, `items-center`, full row height. Contains a marker then a connector.
+
+- **Marker**: `rounded-full` with a 1.5px border, 22px for a normal stage, **26px with a 2px border for the active stage**. Fill is the state background, border and 12px icon are the state colour.
+- **Connector**: `w-0.5 flex-1 bg-border`, hidden on the last row.
+
+**Row heights are explicit**, because the connector needs a definite height to stretch into: collapsed rows are **58px** (44px card + 14px bottom spacing), the expanded active row is **302px**.
+
+**Marker by state:**
+
+| Stage state | Fill / border | Icon |
+|---|---|---|
+| Complete | `state-success-bg` / `state-success` | `check` |
+| Complete + milestone | `state-success-bg` / `state-success` | `flag` |
+| Overridden | `state-warning-bg` / `state-warning` | `shield-alert` |
+| In Progress | `state-info-bg` / `state-info` | `loader` |
+| Blocked | `state-warning-bg` / `state-warning` | `loader` |
+| Upcoming | `muted` / `state-neutral` | `circle` |
+| Skipped | `muted` / `state-neutral` | `minus`, card text muted |
+
+**Collapsed stage card**: `h-11 px-3.5 gap-2.5 rounded-lg border bg-card`, laid out as
+`[name 14/600] [milestone pill?] [flex-1] [meta 12 muted] [StatusBadge] [chevron-down 15]`.
+
+The meta string carries dates, duration, and counts: `15 Jul–2 Aug · 18 days · 8 of 8 tasks`.
+
+**Milestone pill**: `rounded-full px-[7px] py-0.5 gap-1` with an 11px `flag` icon and `Milestone` at 11px/600. Tinted `state-success` when the stage is complete, `state-neutral` when it is still ahead.
+
+**Expanded active stage card**: `rounded-lg border-[1.5px] border-primary bg-card overflow-hidden`, four bands stacked vertically:
+
+1. **Header**, `h-12 px-3.5 bg-accent border-b`: `[name 15/600] [StatusBadge] [flex-1] [meta 12 muted] [chevron-up]`
+2. **Body**, a two-pane split with a 1px vertical divider: **Tasks** on the left (`flex-1 p-3.5 gap-[9px]`), **Requirements** on the right (`w-[340px] p-3.5 gap-[9px]`)
+3. **Footer**, `h-13 px-3.5 bg-muted border-t`: `[zap icon] [what advancing will do, 12 muted] [flex-1] [Override] [Advance Stage]`
+
+Each pane opens with a 12px/600 muted heading carrying its own count (`Tasks · 5 of 7 complete`, `Requirements to advance · 2 of 3 met`, the latter in `state-warning` when unmet).
+
+#### Requirement (gate) row
+
+Used in the stage card, the deal overview, and the advance dialog. Three densities, one anatomy.
+
+```
+[icon 15–17] [ Label 13/500 · Sub 12 muted ] [flex-1] [action or Met badge]
+```
+
+- Met: `circle-check` in `state-success`, label `text-foreground` (or `text-secondary-foreground` in compact contexts)
+- Unmet: `circle-alert` in `state-warning`, label `text-state-warning font-medium`
+
+The sub-line always states the **gate type and its evidence**: `Manual confirmation · Heather Nguyen, 12 Aug`, `Document present · title-commitment.pdf`, `Approval required from Emily Roth`. This is what makes a refusal actionable.
+
+In the advance dialog the row is promoted to a bordered box: `p-3 rounded-md border`, unmet rows getting `bg-state-warning-bg border-state-warning` and a right-aligned outlined action button that clears the gate.
+
+#### "What happens when you advance" block
+
+Sits in the advance dialog (S23) and, condensed to one line, in the stage card footer. Each entry is `[icon 15 muted] [ Label 13/500 · Detail 12 muted ]`, and the four entries are always in this order: emails, tasks, calendar events, stage completion.
+
+Never ship the advance action without this block. An automation that emails the wrong client cannot be recalled, and this is the last place a human can catch it.
+
+#### Progress strip (S15)
+
+A compact whole-workflow view above the fold. A horizontal row of equal-width segments, `gap-1.5`, each a vertical stack of a bar and a label.
+
+- Bar: `h-1.5 rounded` (`h-2` for the current stage), filled `state-success` / `state-warning` (overridden) / `state-info` (current) / `border` (upcoming and skipped)
+- Label: 11px below the bar, 600 and `state-info` for the current stage, otherwise 400 `text-muted-foreground`; skipped stages append `(skipped)`
+
+#### Extraction review card (S66)
+
+The highest-risk component in the product. `p-3.5 rounded-lg border bg-card`, three or four bands:
+
+1. `[Label 13/600] [flex-1] [confidence: icon + 11px/600] [source page link: file-search + 11px/600 primary]`
+2. `[date field: w-[170px] h-[34px] rounded-md border, calendar icon + 13/600 value] [verbatim quote, 12 muted, wrapping]`
+3. *(conditional)* conflict strip: `p-2.5 rounded-sm bg-state-warning-bg` with `git-compare-arrows` and an explicit statement of what confirming will move
+4. `[flex-1] [Reject] [Edit] [Confirm]` — or, once reviewed, `[StatusBadge Confirmed] [attribution 11 muted] [flex-1] [Undo]`
+
+Three rules, all of them non-negotiable and all of them traceable to PRD §4.10:
+
+- **There is no confirm-all, and no select-all.** Each field is confirmed individually.
+- **The source page link is mandatory** on every field, and must jump the left pane to the highlighted region.
+- **A conflict with an existing date must state the consequence** ("shifts 4 derived deadlines"), not just flag a difference.
+
+The selected card carries `border-[1.5px] border-primary`; a conflicting card carries `border-state-warning`.
+
+#### PII warning (S21, S51)
+
+A compliance control, not a UI nicety. PRD §10 and the Screen Inventory both flag it. `p-3.5 rounded-lg bg-state-warning-bg border border-state-warning`, with `shield-alert` at 16px, a 13px/600 title in `state-warning`, and a 12px body in `text-secondary-foreground`.
+
+It must name the alternative ("belong in CTM eContracts"), not merely prohibit. It is persistent on the documents surface and is repeated inside the upload dialog. **It must not be collapsed, dismissed, or softened for being repetitive.**
+
+A refused upload renders as a table row with `bg-state-danger-bg`, a `file-x` icon, a `Refused` badge, and a sub-line stating plainly that the file was not stored.
+
+#### Client status timeline (S62)
+
+A separate visual language. See [[#9.5 P7 Client surface]].
+
+### 7.5 Third-party additions
 
 Beyond shadcn and its own dependencies. Keep this list short and justify every addition.
 
@@ -454,21 +808,247 @@ Beyond shadcn and its own dependencies. Keep this list short and justify every a
 
 ---
 
-## 8. Page patterns
+## 8. Application chrome
+
+The frame every internal screen sits in. Built once in `AppLayout.vue`; roughly 70 screens inherit these decisions.
+
+### 8.1 AppShell
+
+```
+┌────────┬──────────────────────────────────────┐
+│        │ TopBar                        h-14   │
+│Sidebar ├──────────────────────────────────────┤
+│ w-60   │                                      │
+│        │ <slot />           bg-background     │
+│        │                                      │
+└────────┴──────────────────────────────────────┘
+```
+
+Design frame is **1440×1024**. Sidebar 240px fixed; main column `flex-1`, vertical, with the top bar fixed at 56px and the content region filling the rest.
+
+### 8.2 Sidebar — 240px
+
+| Band | Spec |
+|---|---|
+| **Team switcher** | `h-14 px-3 gap-[9px] border-b`. Logo `size-7 rounded-md bg-primary` with 11px/700 mark; name 14/600; plan line 11/400 muted; `chevrons-up-down` 14px. |
+| **Nav groups** | Three groups, each `p-2.5 px-3 gap-0.5`, separated by full-width 1px dividers. |
+| **Spacer** | `flex-1` |
+| **User block** | `h-15 px-3 gap-[9px] border-t`. Avatar 30; name 13/500; role 11/400 muted; `ellipsis-vertical` 16px. |
+
+Group membership is fixed by [[Information Architecture]] §5.1 and the order is deliberate:
+
+1. Dashboard · My Work · Deals
+2. People · Properties · Calendar · Keep in Touch
+3. Templates · Settings
+
+Icons: `layout-dashboard`, `list-checks`, `briefcase`, `users`, `house`, `calendar-days`, `heart`, `layout-template`, `settings`. My Work carries a count.
+
+### 8.3 TopBar — 56px
+
+`h-14 px-6 gap-3 border-b bg-background`, laid out as
+`[Breadcrumb] [flex-1] [Search 300×32] [Notifications] [Help]`.
+
+- **Breadcrumb**: root 14/600 `text-foreground`; on a detail screen a 13px `chevron-right` and a 14/500 muted leaf appear.
+- **Search**: `w-[300px] h-8 rounded-md border px-2.5 gap-2` — 14px `search` icon, 13px muted placeholder, `flex-1`, then a `⌘K` kbd pill (`rounded-sm px-[5px] py-0.5 bg-muted`, 11px/500).
+- The top bar carries **no primary action**. One primary button per screen, and it belongs to the page header.
+
+### 8.4 DealHeader — 120px
+
+Shared by all eight deal tabs (S15–S22).
+
+| Band | Spec |
+|---|---|
+| **Title row** | `py-4 px-6 gap-3`. Left: deal name `text-2xl/600` + deal-state `StatusBadge`, then a meta row `gap-3.5` of `[icon 13][text 13 muted]` pairs — client, deal type, location, owner. Right: `Log Contact` (ghost), `Add Task` (secondary), **`Advance Stage` (primary)**, overflow icon button. |
+| **Tab row** | `px-6 gap-[22px]`, tabs per §7.2, container carries the bottom border. |
+
+Tabs, in order: Overview · Timeline · Tasks · Dates · People · Properties · Documents · Offers. Counts appear on Tasks, Dates, People, Documents, Offers. Offers is hidden when the deal type has none.
+
+### 8.5 PageHeader
+
+`flex items-center gap-3`, roughly 44px tall.
+
+```
+[ Title text-xl/600 · Subtitle 13 muted ]  [flex-1]  [secondary actions]  [primary]
+```
+
+The subtitle is not decoration — it carries the count and the temporal context that makes the screen legible at a glance: `25 active · 4 closed this quarter`, `12 tasks assigned to you across 7 deals · 3 overdue`.
+
+### 8.6 FilterBar
+
+A single `h-8` row, `gap-2`. Left to right: search input (`w-[260px]`), filter chips, `flex-1` spacer, then view controls.
+
+**Filter chip**: `h-8 px-2.5 rounded-md border gap-1.5` holding `[Key: 12 muted] [Value 12/600] [chevron-down 12]`. Active chips take `border-primary bg-accent` and tint both texts `text-primary`.
+
+**Segmented control** (used on My Work): a `rounded-md border overflow-hidden` container with zero gap; each segment `h-8 px-3` with `border-r`, active segment `bg-accent` with `text-primary` label at 600 and its count alongside.
+
+### 8.7 Card
+
+```html
+<div class="rounded-lg border bg-card overflow-hidden">
+  <header class="flex items-center gap-2 px-4 py-[13px] border-b">
+    <h3 class="text-13 font-semibold">Needs attention</h3>
+    <StatusBadge tone="warning" dotless>4</StatusBadge>
+    <div class="flex-1"></div>
+    <a class="text-xs font-medium text-primary">View all</a>
+  </header>
+  <!-- rows, each border-b, last one without -->
+</div>
+```
+
+Card titles are 13–14px/600. The header action is a 12px/500 `text-primary` link, never a button. Rows are `px-4` at 44px or 52px depending on how many lines they carry.
+
+### 8.8 Table
+
+Three parts, all sharing one set of column widths.
+
+1. **Column header** — `h-8 px-4 bg-muted border-b`, labels `text-xs font-medium text-muted-foreground`, sortable columns adding a 12px `chevron-down`.
+2. **Rows** — `h-9` (or 40/44 when a row needs a second line), `px-4 border-b`. **No zebra striping**; the border does the separating.
+3. **Footer** — `h-11 px-4 border-t`, `[count 12 muted] [flex-1] [Previous] [Next]`, both pagination buttons `h-7 px-2.5 rounded-md border` at 12/500.
+
+### 8.9 Dialog
+
+Width **600px** for a focused decision, **660px** when a checklist or preview needs the room. `rounded-lg bg-popover overflow-hidden` plus the dialog shadow, over a scrim at 45% `--foreground`.
+
+| Band | Spec |
+|---|---|
+| Header | `py-5 px-6 gap-1 border-b`. Title 18/600, subtitle 13/400 muted. A consequential dialog leads with a `size-[34px] rounded-full` tinted icon circle. |
+| Section | `py-[18px] px-6 gap-3 border-b`. Opens with a 12/600 muted heading. |
+| Inline alert | `py-3.5 px-6 border-b`, filled with the relevant state background, full-bleed to the dialog edges. |
+| Footer | `py-4 px-6 gap-2.5 bg-muted`. Left: an optional 12px muted note. Right: cancel (ghost) → alternate (secondary) → primary. |
+
+**Dialogs must not scroll their own header or footer away.** If content exceeds the viewport, the middle sections scroll.
+
+### 8.10 Modal screens in the design file
+
+A modal is drawn as a full 1440×1024 frame containing an `AppShell` instance, a scrim rectangle, and the dialog positioned at `y = 150`. That is a design-file convention for reviewing the modal in context; in code it is just a `Dialog`.
+
+---
+
+## 9. Page patterns and composition recipes
 
 Seven layouts cover every screen in the inventory. A new screen picks one rather than inventing an eighth.
 
 | Pattern | Structure | Used by |
 |---|---|---|
 | **P1 List** | PageHeader, FilterBar, Table, Pagination, EmptyState | S13, S30, S35, S50, S69 |
-| **P2 Detail** | Breadcrumb, DealHeader, Tabs, tab content | S15 to S22, S31, S36 |
+| **P2 Detail** | DealHeader, tab content | S15 to S22, S31, S36 |
 | **P3 Form** | Field groups, sticky footer actions | S72 to S80 |
 | **P4 Dashboard** | Stat row, then panels in a responsive grid | S10, S81 |
 | **P5 Wizard** | Stepper, step content, back and next footer | S14, S33 |
 | **P6 Split review** | Resizable two-pane: source on the left, proposals on the right | S66, S67 |
-| **P7 Client** | Single centred column, `max-w-lg`, 16px base, team branding | S61 to S64 |
+| **P7 Client** | Single centred column, 16px base, team branding | S61 to S64 |
 
-### 8.1 Required states
+### 9.1 P1 List
+
+Content region is `p-6 flex flex-col gap-4`:
+
+```
+PageHeader
+FilterBar
+Table card (flex-1)
+```
+
+The table card is `flex-1` so the footer sits at the bottom of the viewport rather than floating under a short list.
+
+### 9.2 P2 Detail
+
+Content region is `flex flex-col` with **no padding** — the `DealHeader` is full-bleed. The tab body below it carries its own `p-6`.
+
+Tab bodies vary but stay within three shapes:
+- **List** (Tasks, Dates, Documents): filter row, then a full-height card
+- **Grid of cards** (People, Properties): a heading row, then a horizontal grid of equal columns
+- **Composed** (Overview): see below
+
+**S15 Overview** is the densest composition in the product and the reference for "six kinds of information on one screen":
+
+```
+p-6, gap-5
+├─ Progress strip                     full width, ~85px
+└─ Grid  (flex, gap-5, flex-1)
+   ├─ Column A  (flex-1)
+   │  ├─ Current stage card           header + 2-pane body, ~126px body
+   │  └─ Activity card                flex-1
+   └─ Column B  (w-[340px])
+      ├─ Property card                photo 116 + body
+      ├─ People card                  4 rows at 42px
+      └─ Documents card               4 rows at 40px
+```
+
+The right rail is fixed-width and its cards are `fit-content`; the left column's last card takes `flex-1`. **Budget the rail carefully** — it overflowed twice during design before the photo was cut to 116px.
+
+### 9.3 P4 Dashboard
+
+```
+p-6, gap-6
+├─ PageHeader
+├─ Stat row            4 cards, gap-4, each flex-1
+└─ Grid (flex-1, gap-6)
+   ├─ Column A (flex-1): Needs attention card, Active deals card (flex-1)
+   └─ Column B (w-[352px]): Dates & Deadlines card, Activity card (flex-1)
+```
+
+**Stat card**: `p-4 gap-2 rounded-lg border bg-card`, containing `[label 12/500 muted] [flex-1] [icon 14]`, then the value at **26px/600**, then a 12px delta line tinted by the metric's own state (`state-warning` for blocked, `state-danger` for overdue, muted otherwise).
+
+The four stats are fixed: Active deals · Blocked stages · Overdue tasks · Closing in 14 days. They answer "is anything on fire" before anything else loads.
+
+### 9.4 P5 Wizard
+
+A centred column, `w-[1000px]`, `py-7 px-6 gap-5.5`:
+
+```
+Title text-2xl/600
+Stepper
+Card (flex-1)  →  header · body · footer
+```
+
+**Stepper**: horizontal, alternating step and connector. Step = `[circle size-6.5] [label 13]`; connector = `h-px flex-1 bg-border`. Circle states: done `bg-primary` + white `check`; current `bg-accent border-2 border-primary` with the number in `text-primary`; upcoming `border` with a muted number. Labels follow the same three tints.
+
+The card footer carries `[Back] [flex-1] [autosave note 12 muted] [Continue]`.
+
+### 9.5 P6 Split review
+
+A full-bleed review header (`h-16 px-6 border-b bg-card`) above a two-pane split.
+
+- **Left, source**: fixed `w-[610px]`, `bg-muted`, with its own 44px toolbar and the document rendered on a padded white page.
+- **Right, proposals**: `flex-1`, opening with a full-bleed guard alert, then a `p-4 gap-3` list of review cards.
+
+The review header carries the review progress as a dotless badge (`3 of 11 reviewed`), the extraction provenance as a 12px muted line (**model, prompt version, and cost — required by PRD F10.4**), and two actions where the primary is scoped to what has actually been reviewed: `Confirm 3 reviewed dates`, never `Confirm all`.
+
+### 9.6 P7 Client surface
+
+**A different design language, deliberately.** Nothing in sections 4 or 7 applies except the tokens.
+
+| Rule | Value |
+|---|---|
+| Frame | 390px wide, mobile-first, single column, no navigation |
+| Base type | **16px**, headings 17–18, hero 30/700 |
+| Touch targets | 52px for actions, 44px absolute minimum |
+| Section padding | `p-5` (20px) |
+| Accent | `--brand`, never a state token |
+| Density | Comfortable everywhere. No 36px rows, no `text-13`, no compact controls. |
+
+Composition, top to bottom: brand bar (60px, brand-filled) · hero (kicker + address + city) · property photo (190px) · **status card** · timeline · contact block · documents link · footer.
+
+**The status card is the most important element on the page.** It states in plain sentences what is happening and, critically, whether the client needs to do anything:
+
+> Your home is under contract, and the buyer's inspection is booked for Thursday 22 August.
+>
+> There is nothing you need to do right now. Emily will call you as soon as the inspection report comes back.
+
+That second paragraph is the "nothing is happening" state the Screen Inventory flags as mattering most. It is not an empty state to be designed later — it is the default copy, present in every status.
+
+**Client timeline** reuses the rail idea at client scale: markers 24px (28px with a 3px brand border for the current step), connectors tinted brand for completed segments and `border` ahead, rows 76px. Labels are 17px; sub-lines are 15px and say `Finished 2 August` / `Happening now` / `Expected 22 August`.
+
+**Language rules** come from [[Information Architecture]] §9 and are absolute:
+
+- The client sees the `milestone_label`, never the internal stage name. "Pre-Listing Preparation" → "Getting your home ready".
+- **`blocked` is never shown.** A blocked stage renders as "Happening now".
+- Skipped stages are hidden entirely.
+- No gates, no workflows, no overrides, no tasks, no checkboxes.
+
+The footer must state that this page is a summary and that signed documents live in the e-signature system of record. That is a compliance position from PRD §10, not a courtesy.
+
+### 9.7 Required states
 
 Every screen defines all five. This is the column that gets skipped in design and then invented at 11pm during implementation.
 
@@ -480,29 +1060,43 @@ Every screen defines all five. This is the column that gets skipped in design an
 | **Permission denied** | Prefer hiding the entry point entirely. If the URL is reachable, explain who can grant access. |
 | **Overloaded** | What 25 deals, 500 people, or 50 tasks looks like. Design it, do not discover it. |
 
+> [!warning] Empty states are the largest gap in the design file
+> The 17 built screens are all populated states. `EmptyState` is specified in section 7.1 as a component but has not been designed, and no screen currently shows one. Until that is done, an implementer has no reference for the single most common state a new team will see. **This is the first thing to draw next.**
+
 ---
 
-## 9. Forms
+## 10. Forms
 
 | Rule | Detail |
 |---|---|
 | Label position | Above the field, always. Never floating, never inline. |
 | Label style | `text-sm`, weight 500 |
+| Required marker | The word `Required` in `text-destructive` at 12/500, beside the label. Mark required fields, not optional ones. |
 | Help text | Below the field, `text-xs`, `--muted-foreground` |
 | Errors | Replace help text, `--destructive`, with an icon |
-| Required | Mark required fields, not optional ones |
 | Validation timing | On blur first, then on change once a field has errored |
-| Field width | Match the expected content. A ZIP field is not 400px wide. |
+| Field width | Match the expected content. A ZIP field is not 400px wide. A date field is 170px. |
 | Grouping | Related fields in a group with a heading, 32px between groups |
 | Actions | Bottom right, primary last. Sticky footer in modals and long forms. |
 | Destructive confirm | Type the object's name for anything irreversible |
-| Autosave | Only in the template editors. Everywhere else, explicit save. |
+| Autosave | Only in the template editors and the create-deal wizard. Everywhere else, explicit save. |
+
+**Textarea**: `rounded-md border p-[11px]` at 13–14px, roughly 86px tall for a reason field.
 
 **One primary button per screen.** If two things look equally primary, neither is.
 
+**Consequential inputs carry their consequence beneath them.** The override reason field (S24) is followed by "This is written to the permanent audit log with your name and the time. It cannot be edited or deleted," and then by a preview of the follow-up task the override will create. Copy that pattern anywhere an action is irreversible or auditable.
+
+### 10.1 Action verbs
+
+Button labels are not a styling choice. [[Information Architecture]] §7 fixes one verb per action, and the banned alternatives are banned because they create ambiguity. The two that matter most:
+
+- **Advance** moves a workflow to its next stage. Never Progress, Move, Next, or Complete.
+- **Override** forces past an unmet gate with a reason. **Skip** marks a stage not applicable. Conflating them destroys the audit trail's meaning, and they are different buttons with different colours.
+
 ---
 
-## 10. Accessibility
+## 11. Accessibility
 
 Baseline for the internal app, and a hard requirement on the client status page per PRD section 9.
 
@@ -511,15 +1105,18 @@ Baseline for the internal app, and a hard requirement on the client status page 
 | Contrast | 4.5:1 body text, 3:1 large text and UI boundaries. Verify every state token against both its background and the card background. |
 | Colour independence | Never colour alone. Every badge carries a word. |
 | Focus | Visible focus ring on every interactive element. Never `outline: none` without a replacement. |
-| Keyboard | Every action reachable. Reka handles most of it; custom composites in 7.2 do not get it free. |
+| Keyboard | Every action reachable. Reka handles most of it; the bespoke pieces in 7.4 do not get it free. |
 | Touch targets | 44px minimum on mobile, without exception |
 | Labels | Every input bound to a label. Placeholder is not a label. |
 | Motion | Honour `prefers-reduced-motion` |
 | Client page | **WCAG 2.1 AA, verified.** Older audience, unfamiliar interface, one chance to be understood. |
 
+> [!warning] Two contrast checks still outstanding
+> `--state-warning` (#905D00) on `--state-warning-bg` (#FFF0CC) and `--state-success` (#137738) on `--state-success-bg` (#DCF7E1) are used for 11px and 12px badge text throughout. Both look comfortable but neither has been measured. Verify before launch, and if either fails, darken the foreground token rather than enlarging the badge.
+
 ---
 
-## 11. Email design system
+## 12. Email design system
 
 A separate universe. None of the above applies, and pretending otherwise produces broken email.
 
@@ -529,46 +1126,48 @@ A separate universe. None of the above applies, and pretending otherwise produce
 | Styles | Inline. A `<style>` block is a progressive enhancement at best. |
 | Width | 600px maximum, single column |
 | Fonts | Web-safe stack only. Inter will not load in most clients. |
-| Colours | Literal hex, duplicated from the app palette by eye and recorded below |
+| Colours | Literal hex, duplicated from the app palette and recorded below |
 | Images | Always with alt text. Assume they are blocked. |
 | Buttons | Bulletproof table-cell buttons, never a styled `<a>` alone |
 | Dark mode | `prefers-color-scheme` where supported, and it must degrade gracefully where not |
 | Plain text | A real plain-text alternative for every message, not a stripped-tag afterthought |
 | Testing | Litmus or Email on Acid before launch. Outlook will surprise you. |
 
-### 11.1 Email palette
+### 12.1 Email palette
 
-Approximations of the app tokens, needing confirmation with a converter and a real client test.
+Now reconciled against the design tokens rather than eyeballed.
 
 | Role | Hex | Matches |
 |---|---|---|
-| Primary | `#3D5A96` | `--primary` |
-| Text | `#1A1F2B` | `--foreground` |
-| Muted text | `#6B7280` | `--muted-foreground` |
-| Border | `#E4E7EC` | `--border` |
+| Primary | `#1A588F` | `--primary` |
+| Text | `#0A0E11` | `--foreground` |
+| Muted text | `#636A71` | `--muted-foreground` |
+| Border | `#DFE1E4` | `--border` |
 | Background | `#FFFFFF` | `--background` |
-| Panel | `#F7F8FA` | `--muted` |
-| Success | `#2F7A55` | `--state-success` |
-| Warning | `#8A6516` | `--state-warning` |
-| Danger | `#B3261E` | `--state-danger` |
+| Panel | `#EFF2F5` | `--muted` |
+| Success | `#137738` | `--state-success` |
+| Warning | `#905D00` | `--state-warning` |
+| Danger | `#C22826` | `--state-danger` |
 
 **Team branding overrides the primary and the logo only.** Everything else stays fixed, so no tenant can accidentally produce an unreadable email.
 
+Client-facing emails follow the [[#9.6 P7 Client surface]] language rules. A milestone email uses the `milestone_label`, never the stage name.
+
 ---
 
-## 12. Organization and governance
+## 13. Organization and governance
 
-### 12.1 Structure
+### 13.1 Structure
 
 ```
 resources/js/
 ├── components/
 │   ├── ui/          shadcn output. Do not hand-edit.
-│   ├── app/         Our composites (section 7.1)
+│   ├── app/         Our composites (section 7)
 │   └── forms/       Domain field wrappers
 ├── layouts/
-│   ├── AppLayout.vue        Internal, sidebar
-│   ├── ClientLayout.vue     Status page, branded
+│   ├── AppLayout.vue        Internal, sidebar + top bar (section 8)
+│   ├── ClientLayout.vue     Status page, branded, 16px base
 │   ├── AuthLayout.vue       Login and invitations
 │   └── AdminLayout.vue      Super admin, visually distinct
 ├── pages/           Mirrors routes: Deals/Index.vue, Deals/Documents.vue
@@ -576,7 +1175,7 @@ resources/js/
 └── lib/             utils, formatters, the state token map
 ```
 
-### 12.2 Rules
+### 13.2 Rules
 
 1. **Need a component? Check shadcn-vue first.** It is probably there.
 2. **Not there? Can it compose from two or three shadcn parts?** Then it belongs in `components/app/`.
@@ -586,28 +1185,66 @@ resources/js/
 6. **A pattern used three times gets promoted** into `components/app/` with a name.
 7. **New state? Add it to section 2.4 first,** then build the badge. The table is the source of truth, not the code.
 8. **Both light and dark values, always.** Adding a token means adding it to both blocks, even though dark ships later.
+9. **A tone is three properties.** Background, foreground, and any icon move together or not at all.
 
-### 12.3 Build order
+### 13.3 Build order
 
-1. Tokens and Tailwind theme
-2. `AppLayout` and the sidebar, which is S06 and the highest-leverage screen in the inventory
+1. Tokens and the Tailwind theme, including the `state-*` utilities and `text-13`
+2. `AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.
 3. `StatusBadge`, since it appears on nearly every screen
 4. `PageHeader`, `FilterBar`, `EmptyState`, which unlock every P1 list page
-5. One real list screen end to end (S13), to prove the pattern
-6. Then the bespoke work, starting with S16
+5. One real list screen end to end (S13), to prove the density spec at 20 rows
+6. Then the bespoke work, starting with the stage rail (S16)
 
 Review step 2 with Heather before proceeding. Seventy screens inherit its decisions about density, type scale, and mobile collapse.
 
 ---
 
-## 13. Open questions
+## 14. The design file
+
+`designs/Basic Designs.pen`, opened with Pencil. **The markdown in this document is authoritative; the `.pen` file is the visual reference.** Where they disagree, this document has been checked and the file has not.
+
+### 14.1 Canvas conventions
+
+| Region | Contents |
+|---|---|
+| `y ≈ 0–1300` | Reusable components. Editing one updates every instance. |
+| `x ≈ 1560, y ≈ 0` | `AppShell` and `DealHeader` (large components, kept out of the small-component rows) |
+| `x ≈ 3200, y ≈ 0` | A README note repeating these conventions |
+| `y ≥ 2500` | Screens, in rows, left to right in priority order |
+
+Every screen is a **`ref` instance of the `AppShell` component** with its `Content` slot replaced. That is why changing the sidebar once changes all of them, and it is the mechanism that keeps the set coherent.
+
+### 14.2 Frame sizes
+
+| Size | Use |
+|---|---|
+| 1440×1024 | Standard internal screen. The default. |
+| 1440×1200 | Dense lists that need to show their full data set (S13 at 25 rows) |
+| 390×1607 | Client status page, full scroll height |
+| 600–660 wide | Dialogs, drawn over a shell instance and a scrim |
+
+### 14.3 Screens built so far
+
+Seventeen, covering all seven page patterns:
+
+**S06** app shell · **S10** dashboard · **S11** My Work · **S13** deals index · **S14** create deal · **S15** deal overview · **S16** deal timeline · **S17** tasks · **S18** dates · **S19** people · **S20** properties · **S21** documents · **S22** offers · **S23** advance stage · **S24** override gate · **S62** client status · **S66** extraction review
+
+The remaining 74 are listed in [[Screen Inventory]]. Anything built from this document should match what is already drawn — if it does not, one of the two is wrong and it is worth finding out which before building 74 more.
+
+---
+
+## 15. Open questions
 
 1. **Product name.** Blocks the logo, the favicon, the email header, and the sending subdomain, which is painful to change once reputation is established.
-2. **Calendar library for S57.** Evaluate building the month grid by hand against adopting one, since most calendar libraries bring heavy styling opinions that will fight this system.
-3. **Rich text for S46.** Try the simple token-insert textarea first.
-4. **Does anything need charts?** Only S85 and the optional F9.6 reporting. If it stays that small, shadcn's Chart component may be more than is needed.
-5. **Team accent contrast validation.** Warn the owner, or auto-adjust silently? Warning is more honest and generates support questions. Auto-adjusting is invisible and occasionally produces a colour they did not pick.
-6. **Density preference as a user setting.** Deliberately out of scope for v1. Revisit if Heather asks.
+2. **Empty states.** Not designed, and the most common state a new team meets. Highest-priority design gap.
+3. **Calendar library for S57.** Evaluate building the month grid by hand against adopting one, since most calendar libraries bring heavy styling opinions that will fight this system.
+4. **Rich text for S46.** Try the simple token-insert textarea first.
+5. **Does anything need charts?** Only S85 and the optional F9.6 reporting. If it stays that small, shadcn's Chart component may be more than is needed.
+6. **Team accent contrast validation.** Warn the owner, or auto-adjust silently? Warning is more honest and generates support questions. Auto-adjusting is invisible and occasionally produces a colour they did not pick.
+7. **Density preference as a user setting.** Deliberately out of scope for v1. Revisit if Heather asks.
+8. **Mobile collapse is unspecified.** The PWA (F12.1) needs the sidebar to become a bottom tab bar and deal tabs to become a scrollable strip, per [[Information Architecture]] §5.3. No mobile internal screen has been designed, so the breakpoint behaviour is undefined.
+9. **`text-13` versus `text-sm`.** Introduced in section 3.3 to match the built rows. Worth one deliberate look on a real screen before it is baked into 91 of them.
 
 ---
 
@@ -620,11 +1257,14 @@ Review step 2 with Heather before proceeding. Seventy screens inherit its decisi
 
 ## Next actions
 
+- [ ] Design the empty states, starting with a new team's dashboard and deals index 📅 2026-08-27
 - [ ] Scaffold from the Laravel Vue starter kit and confirm shadcn-vue is wired 📅 2026-08-27
-- [ ] Write the token block, both light and dark, and validate every state pair for contrast 📅 2026-08-27
-- [ ] Build `AppLayout` plus the sidebar (S06), then review with Heather 📅 2026-08-31
+- [ ] Write the token block, both light and dark, plus the `state-*` and `text-13` theme entries 📅 2026-08-27
+- [ ] Measure contrast on the warning and success badge pairs at 11px 📅 2026-08-27
+- [ ] Build `AppLayout` plus the sidebar (section 8), then review with Heather 📅 2026-08-31
 - [ ] Build `StatusBadge` against the section 2.4 table 📅 2026-08-31
-- [ ] Build S13 end to end at 25 rows and confirm the density spec holds 📅 2026-09-07
+- [ ] Build S13 end to end and confirm 20 rows is the honest desktop number 📅 2026-09-07
+- [ ] Design the mobile collapse for the shell before the PWA slice 📅 2026-09-07
 - [ ] Choose the sortable library, needed by S38, S41, and S42 📅 2026-09-07
 - [ ] Decide the calendar approach for S57 📅 2026-09-14
 
