@@ -1,0 +1,42 @@
+{
+	"nodes":[
+		{"id":"e202edf6d5bcc196","type":"text","text":"# Roles\n- Team Owner\n- Team Member\n- Agent\n- Client\n\t- Buyer\n\t- Seller\n- Service Provider\n- New Contact (a lead)\n- \n\nRoles decorate Users, and users can have more than one role\n","x":-40,"y":-340,"width":250,"height":400,"color":"3"},
+		{"id":"efbc1030bfabbee5","type":"text","text":"# User\n- name\n- email\n- phone\n- Date added\n- Roles []\n- Notes\n- Contact Log","x":-565,"y":-300,"width":250,"height":320,"color":"3"},
+		{"id":"991938701a9c237e","x":540,"y":-303,"width":250,"height":323,"color":"3","type":"text","text":"# Permissions\n\nExamples may include: \n- Create a project\n- update a project\n- Create a workflow\n- Update a workflow\n- Mark a milestone complete (bypass state checks)"},
+		{"id":"4e2851e7b4d75975","x":-1240,"y":793,"width":250,"height":360,"color":"3","type":"text","text":"# Project Types\n\n- Buyers Agent project\n- Sellers Agent project\n- Consulting\n\nProject Types have one or more workflows\n"},
+		{"id":"99d384acc596f872","x":-610,"y":680,"width":400,"height":586,"color":"3","type":"text","text":"# Workflows\n\n- Selling a property workflow\n- Buying a property workflow\n- Renting out an existing property workflow\n- Renting someone else's property workflow\n\nA workflow has milestones.\nA workflow has a start and end date\n\nA workflow has a status, probably associated with the current milestone\n\nA workflow cannot proceed to the next milestone until the necessary steps have been taken, e.g., a finite state machine.\n\nA Workflow is like a Standard Operation Procedure for one part of a project\n\nTeam members should be able to work with, and make notes on, workflows\n\n\n"},
+		{"id":"20a59e4b3a273aa1","x":-565,"y":-660,"width":250,"height":220,"color":"3","type":"text","text":"# Contact Log Entry\n- Datetime\n- description/notes\n- Type of contact"},
+		{"id":"8b217dba65e6f0ec","type":"text","text":"# Milestones\n- Property listed\n- Open House\n- Property Staged\n- To be staged\n- Closing\n- Initial Consultation\n\nEach milestone has a start date associated with it.\n\nEach milestone has an end date associated with it.\n\nEach milestone requires certain gates to clear before moving to the next one\n","x":210,"y":767,"width":410,"height":413,"color":"3"},
+		{"id":"77dd01d08ad14f31","x":-1321,"y":207,"width":412,"height":354,"color":"3","type":"text","text":"# Projects\n\n- A Team owns a project.\n- A project has a workflow.\n- A project has a client or clients\n- A project has a project type\n- A project has zero or more Propteries (for instance, houses a client is considering, or a house that a client is selling)\n- A project may have a generated name, based on the client or the address of the property being sold\n\n"},
+		{"id":"bd6d2ae9e2f368e9","type":"text","text":"# Team\n- Members (Users)\n- Projects\n- \n","x":-1240,"y":-231,"width":250,"height":179,"color":"3"},
+		{"id":"a8413809dc17dd98","x":-210,"y":-650,"width":250,"height":200,"color":"3","type":"text","text":"# Contact types\n- Phone call\n- email\n- meeting\n- other (?)"},
+		{"id":"e011e7876ec39b8d","x":210,"y":106,"width":250,"height":238,"color":"3","type":"text","text":"# Property Type\n- Single Family Home\n- Multi Family Home\n- Commercial\n- Condo\n- Apartment\n- Other"},
+		{"id":"cd7874343e621358","x":210,"y":384,"width":340,"height":277,"color":"3","type":"text","text":"# Property Status\n- For Sale\n- Sold\n- Pre-listing\n- Pending forclusure\n- Undergoing improvements\n- Staged\n- Off the market"},
+		{"id":"bec0504f0a3c1918","type":"text","text":"# Property\n- Address\n- Parcel\n- Zillow Link\n- Photos\n- MLS link\n- Notes\n- Property Type\n- Property Status","x":-565,"y":225,"width":250,"height":316,"color":"3"},
+		{"id":"685b3de795612661","x":-2200,"y":767,"width":250,"height":197,"color":"3","type":"text","text":"# Action Instance\n- What was the action?\n- When did the action occur?"},
+		{"id":"f42eae746dbe8895","x":-1760,"y":764,"width":250,"height":200,"color":"3","type":"text","text":"# Action Log\n- project\n\t- Workflow\n\t\t- Milestone\n- Datetime of occurrance"},
+		{"id":"362ea244c7495253","x":-1760,"y":1560,"width":250,"height":246,"color":"3","type":"text","text":"# Email Template\n\nWhat action is it associated with?\nWhat is the template?\nHow should it be filled in?\nTo whom should it be sent?\nFrom whom is it sent?\n"},
+		{"id":"d03dbf007b571852","x":-1760,"y":1180,"width":250,"height":292,"color":"3","type":"text","text":"# Action\n- Manual or automatic\n- Action type\n- Action description\n- "},
+		{"id":"0ccc5e72c7f6a0a4","x":-2210,"y":1180,"width":260,"height":297,"color":"3","type":"text","text":"# Action Type\n- Email\n- Phone call\n- Put out signs\n- Schedule something\n- Text message\n- "}
+	],
+	"edges":[
+		{"id":"0331db770c48a8a1","fromNode":"efbc1030bfabbee5","fromSide":"right","toNode":"e202edf6d5bcc196","toSide":"left"},
+		{"id":"7adf24efb6ca1e2a","fromNode":"efbc1030bfabbee5","fromSide":"right","toNode":"e202edf6d5bcc196","toSide":"left","fromEnd":"arrow","color":"3","label":"Many to many\n\n"},
+		{"id":"53bbf1cc5d39149b","fromNode":"bd6d2ae9e2f368e9","fromSide":"right","toNode":"efbc1030bfabbee5","toSide":"left","color":"3","label":"Many Users to one team\n\n"},
+		{"id":"b409a8da4a4dbab7","fromNode":"e202edf6d5bcc196","fromSide":"right","toNode":"991938701a9c237e","toSide":"left","fromEnd":"arrow","color":"3","label":"Many to many"},
+		{"id":"55e41b1ddb23b952","fromNode":"77dd01d08ad14f31","fromSide":"bottom","toNode":"4e2851e7b4d75975","toSide":"top","color":"3","label":"one to one"},
+		{"id":"99cff91d6fd2b705","fromNode":"99d384acc596f872","fromSide":"right","toNode":"8b217dba65e6f0ec","toSide":"left","color":"3","label":"one workflow, \nmany milestones"},
+		{"id":"790ea849ef8f4e3f","fromNode":"4e2851e7b4d75975","fromSide":"right","toNode":"99d384acc596f872","toSide":"left","color":"3","label":"one project type can \nhave many workflows"},
+		{"id":"00022db5a47b2ca9","fromNode":"bd6d2ae9e2f368e9","fromSide":"bottom","toNode":"77dd01d08ad14f31","toSide":"top","color":"3","label":"One team \nto Many projects"},
+		{"id":"1a3fc10d0762f92e","fromNode":"bec0504f0a3c1918","fromSide":"right","toNode":"e011e7876ec39b8d","toSide":"left","color":"3","label":"one to one"},
+		{"id":"2462198c7250cb1a","fromNode":"bec0504f0a3c1918","fromSide":"right","toNode":"cd7874343e621358","toSide":"left","color":"3","label":"one to one"},
+		{"id":"c77cb6c4a6162a41","fromNode":"77dd01d08ad14f31","fromSide":"right","toNode":"bec0504f0a3c1918","toSide":"left","fromEnd":"arrow","color":"3","label":"Many to many"},
+		{"id":"2369f6fbc067feae","fromNode":"efbc1030bfabbee5","fromSide":"top","toNode":"20a59e4b3a273aa1","toSide":"bottom","color":"3"},
+		{"id":"5dee3fe9674444c9","fromNode":"20a59e4b3a273aa1","fromSide":"right","toNode":"a8413809dc17dd98","toSide":"left","color":"3"},
+		{"id":"994329c23a8751f5","fromNode":"f42eae746dbe8895","fromSide":"top","toNode":"77dd01d08ad14f31","toSide":"left","fromEnd":"arrow","color":"3"},
+		{"id":"c6c20db22c0a7db8","fromNode":"685b3de795612661","fromSide":"right","toNode":"f42eae746dbe8895","toSide":"left","color":"3"},
+		{"id":"8df2ad3f6deba7a2","fromNode":"0ccc5e72c7f6a0a4","fromSide":"right","toNode":"d03dbf007b571852","toSide":"left","color":"3"},
+		{"id":"8384030f382610fe","fromNode":"d03dbf007b571852","fromSide":"top","toNode":"685b3de795612661","toSide":"bottom","color":"3"},
+		{"id":"de03a5d27d8ec362","fromNode":"8b217dba65e6f0ec","fromSide":"bottom","toNode":"d03dbf007b571852","toSide":"right","color":"3"}
+	]
+}
