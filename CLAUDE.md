@@ -63,6 +63,7 @@ These come from PRD §8 and should guide the eventual build:
 - The version we run locally and in CI/CD should be as reasonably close to production as possible, and if we need to override things in the docker-compose file, we should do so with includes to simplify setup and deployments.
 - All environment variables and secrets should be stored in a gitignored .env file in the root of the project. They should be passed into the container which uses them transparently.
 - Branching strategy. The `main` branch is for tagged releases only. Feature branches should target the `dev` branch for merging. When we have accumulated enough work in the `dev` branch to cut a tagged release, we'll do a PR to merge `dev` into `main`. That will keep things clean and give us a target for deployments.
+- Try to re-use components when possible to try to keep everything DRY.  Prefer pre-built components to rolling your own when practical.
 
 ## Adversarial Review
 
