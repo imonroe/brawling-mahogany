@@ -7,11 +7,19 @@
  * both themes, so a change can be judged rather than guessed at.
  */
 import { Head } from '@inertiajs/vue3';
-import { Briefcase, CircleCheck, Funnel, Mail, ShieldAlert, Search } from '@lucide/vue';
+import {
+    Briefcase,
+    CircleCheck,
+    Funnel,
+    Mail,
+    ShieldAlert,
+    Search,
+} from '@lucide/vue';
 import { ref } from 'vue';
 import ActivityItem from '@/components/app/ActivityItem.vue';
 import Card from '@/components/app/Card.vue';
 import DateChip from '@/components/app/DateChip.vue';
+import { dealRowColumns } from '@/components/app/dealRow';
 import DealRow from '@/components/app/DealRow.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import FilterBar from '@/components/app/FilterBar.vue';
@@ -25,8 +33,8 @@ import Tab from '@/components/app/Tab.vue';
 import TabBar from '@/components/app/TabBar.vue';
 import Table from '@/components/app/Table.vue';
 import TaskItem from '@/components/app/TaskItem.vue';
-import { dealRowColumns } from '@/components/app/dealRow';
-import { STATES, type StateDomain } from '@/lib/states';
+import { STATES } from '@/lib/states';
+import type { StateDomain } from '@/lib/states';
 
 defineOptions({
     layout: {
@@ -47,7 +55,10 @@ const domains: StateDomain[] = [
 ];
 
 const columns = dealRowColumns({ selectable: true });
-const dashboardColumns = dealRowColumns({ hide: ['meta1'], widths: { meta2: 120 } });
+const dashboardColumns = dealRowColumns({
+    hide: ['meta1'],
+    widths: { meta2: 120 },
+});
 
 const search = ref('');
 const segment = ref('today');
@@ -71,8 +82,12 @@ const owner = { firstName: 'Heather', lastName: 'Nguyen' };
 
         <template v-for="theme in ['light', 'dark']" :key="theme">
             <section :class="theme === 'dark' ? 'dark' : ''">
-                <div class="flex flex-col gap-6 rounded-lg bg-background p-6 text-foreground">
-                    <h2 class="text-lg font-semibold capitalize">{{ theme }}</h2>
+                <div
+                    class="flex flex-col gap-6 rounded-lg bg-background p-6 text-foreground"
+                >
+                    <h2 class="text-lg font-semibold capitalize">
+                        {{ theme }}
+                    </h2>
 
                     <Card title="State badges — every state in IA §8">
                         <div class="flex flex-col gap-4 p-4">
@@ -81,9 +96,10 @@ const owner = { firstName: 'Heather', lastName: 'Nguyen' };
                                 :key="domain"
                                 class="flex flex-wrap items-center gap-2"
                             >
-                                <span class="w-32 text-xs font-medium text-muted-foreground">{{
-                                    domain
-                                }}</span>
+                                <span
+                                    class="w-32 text-xs font-medium text-muted-foreground"
+                                    >{{ domain }}</span
+                                >
                                 <StatusBadge
                                     v-for="(descriptor, code) in STATES[domain]"
                                     :key="code"
@@ -92,12 +108,21 @@ const owner = { firstName: 'Heather', lastName: 'Nguyen' };
                                 />
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
-                                <span class="w-32 text-xs font-medium text-muted-foreground"
+                                <span
+                                    class="w-32 text-xs font-medium text-muted-foreground"
                                     >dotless</span
                                 >
                                 <StatusBadge tone="warning" dotless label="4" />
-                                <StatusBadge tone="success" dotless label="Met" />
-                                <StatusBadge tone="neutral" dotless label="3 of 11 reviewed" />
+                                <StatusBadge
+                                    tone="success"
+                                    dotless
+                                    label="Met"
+                                />
+                                <StatusBadge
+                                    tone="neutral"
+                                    dotless
+                                    label="3 of 11 reviewed"
+                                />
                             </div>
                         </div>
                     </Card>
@@ -118,19 +143,37 @@ const owner = { firstName: 'Heather', lastName: 'Nguyen' };
 
                     <Card title="List page kit">
                         <div class="flex flex-col gap-4 p-4">
-                            <FilterBar v-model="search" placeholder="Search deals">
-                                <FilterChip filter-key="Status" value="Active" active />
+                            <FilterBar
+                                v-model="search"
+                                placeholder="Search deals"
+                            >
+                                <FilterChip
+                                    filter-key="Status"
+                                    value="Active"
+                                    active
+                                />
                                 <FilterChip filter-key="Owner" value="Anyone" />
                                 <template #controls>
-                                    <IconButton :icon="Funnel" label="More filters" />
+                                    <IconButton
+                                        :icon="Funnel"
+                                        label="More filters"
+                                    />
                                 </template>
                             </FilterBar>
 
                             <SegmentedControl
                                 v-model="segment"
                                 :segments="[
-                                    { value: 'today', label: 'Today', count: 3 },
-                                    { value: 'week', label: 'This week', count: 11 },
+                                    {
+                                        value: 'today',
+                                        label: 'Today',
+                                        count: 3,
+                                    },
+                                    {
+                                        value: 'week',
+                                        label: 'This week',
+                                        count: 11,
+                                    },
                                     { value: 'all', label: 'All', count: 42 },
                                 ]"
                             />
@@ -162,7 +205,10 @@ const owner = { firstName: 'Heather', lastName: 'Nguyen' };
                                 />
                             </Table>
 
-                            <Table :columns="dashboardColumns" footer-note="Dashboard variant">
+                            <Table
+                                :columns="dashboardColumns"
+                                footer-note="Dashboard variant"
+                            >
                                 <DealRow
                                     :columns="dashboardColumns"
                                     primary="123 Main St"

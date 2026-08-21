@@ -23,15 +23,31 @@ const props = defineProps<{
         "
         data-slot="filter-chip"
     >
-        <span :class="cn('text-xs', props.active ? 'text-primary' : 'text-muted-foreground')"
+        <span
+            :class="
+                cn(
+                    'text-xs',
+                    props.active ? 'text-primary' : 'text-muted-foreground',
+                )
+            "
             >{{ filterKey }}:</span
         >
         <span
-            :class="cn('text-xs font-semibold', props.active ? 'text-primary' : 'text-foreground')"
+            :class="
+                cn(
+                    'text-xs font-semibold',
+                    props.active ? 'text-primary' : 'text-foreground',
+                )
+            "
             >{{ value }}</span
         >
         <ChevronDown
-            :class="cn('size-3', props.active ? 'text-primary' : 'text-muted-foreground')"
+            :class="
+                cn(
+                    'size-3',
+                    props.active ? 'text-primary' : 'text-muted-foreground',
+                )
+            "
             aria-hidden="true"
         />
     </button>

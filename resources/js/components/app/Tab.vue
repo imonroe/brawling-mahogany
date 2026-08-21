@@ -36,7 +36,9 @@ withDefaults(defineProps<Props>(), { active: false, count: null });
                 :class="
                     cn(
                         'text-sm',
-                        active ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground',
+                        active
+                            ? 'font-semibold text-foreground'
+                            : 'font-medium text-muted-foreground',
                     )
                 "
                 >{{ label }}</span

@@ -1,12 +1,17 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Providers;
 
+use App\Support\Database\BlueprintMacros;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -24,6 +29,37 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureMailGuardrail();
+
+        BlueprintMacros::register();
+    }
+
+    /**
+     * Every outbound message is rewritten to one address when
+     * MAIL_REDIRECT_TO is set.
+     *
+     * This is the safety net behind the whole of Slice 3 (PRD §8.6): staging
+     * runs SES in sandbox mode with mail redirected, so no test ever reaches a
+     * real client. An email to the wrong client cannot be recalled, which is
+     * why this lives in the framework boot rather than in a mailer somewhere.
+     */
+    protected function configureMailGuardrail(): void
+    {
+        $redirectTo = config('mail.redirect_to');
+
+        if (! is_string($redirectTo) || $redirectTo === '') {
+            return;
+        }
+
+        if (app()->isProduction()) {
+            // Production redirecting its mail would silently stop every client
+            // update. Fail at boot instead of discovering it a week later.
+            throw new RuntimeException(
+                'MAIL_REDIRECT_TO must be empty in production. It is a staging guardrail.',
+            );
+        }
+
+        Mail::alwaysTo($redirectTo);
     }
 
     /**

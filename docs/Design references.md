@@ -179,7 +179,7 @@ Inspiration is cheap. Implementation eats the evenings. Given a solo developer o
 
 | Resource | URL | Why |
 |---|---|---|
-| **Tailwind Plus** (formerly Tailwind UI) | https://tailwindcss.com/plus | Production-quality application shells, tables, forms, and stacked lists. All Tailwind, all copy-paste. For a one-developer build on this exact stack, probably the highest-leverage purchase available. |
+| ~~**Tailwind Plus**~~ (formerly Tailwind UI) | https://tailwindcss.com/plus | **Rejected, 2026-08-20** ([#16](https://github.com/imonroe/brawling-mahogany/issues/16)). Production-quality Tailwind markup, but not Vue components, and everything pasted from it would be rebuilt against shadcn-vue and the token layer anyway. See [[Design System#1.4 Tailwind Plus, rejected]]. |
 | **shadcn-vue** | https://www.shadcn-vue.com | Composable Vue 3 primitives with sane defaults. Own the code rather than the dependency. |
 | **Preline** | https://preline.co | More prebuilt Tailwind blocks, fewer decisions to make. |
 | **Flowbite** | https://flowbite.com | Same idea, different component coverage. |
@@ -216,4 +216,4 @@ Also treat with caution:
 - [ ] Capture the Trackxi marketing site and demo video in full 📅 2026-08-26
 - [ ] Request demos from Trackxi and Open To Close 📅 2026-09-02
 - [ ] Screenshot GitHub Actions and Vercel step states for the timeline design 📅 2026-08-26
-- [ ] Evaluate Tailwind Plus against shadcn-vue and commit to one 📅 2026-09-09
+- [x] Evaluate Tailwind Plus against shadcn-vue and commit to one ✅ 2026-08-20 — rejected; building from shadcn-vue alone

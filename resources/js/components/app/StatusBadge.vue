@@ -11,8 +11,9 @@
  * The bare `tone` form exists for counts and one-off pills.
  */
 import { computed } from 'vue';
+import { resolveState } from '@/lib/states';
+import type { StateDomain, Tone } from '@/lib/states';
 import { cn } from '@/lib/utils';
-import { resolveState, type StateDomain, type Tone } from '@/lib/states';
 
 type Props = {
     domain?: StateDomain;
@@ -33,10 +34,14 @@ const props = defineProps<Props>();
 // Resolved eagerly rather than lazily: an unknown state must fail where it is
 // written, not silently render an unstyled badge somewhere downstream.
 const descriptor =
-    props.domain && props.state ? resolveState(props.domain, props.state) : null;
+    props.domain && props.state
+        ? resolveState(props.domain, props.state)
+        : null;
 
 if (!descriptor && !props.tone) {
-    throw new Error('StatusBadge needs either a `domain` and `state`, or a `tone`.');
+    throw new Error(
+        'StatusBadge needs either a `domain` and `state`, or a `tone`.',
+    );
 }
 
 const tone = computed<Tone>(() => props.tone ?? descriptor!.tone);
@@ -71,7 +76,10 @@ const DOT_CLASSES: Record<Tone, string> = {
         data-slot="status-badge"
         :data-tone="tone"
     >
-        <span v-if="!dotless" :class="cn('size-1.5 rounded-full', DOT_CLASSES[tone])" />
+        <span
+            v-if="!dotless"
+            :class="cn('size-1.5 rounded-full', DOT_CLASSES[tone])"
+        />
         <slot>{{ label }}</slot>
     </span>
 </template>

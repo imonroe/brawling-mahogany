@@ -5,9 +5,10 @@ import {
     resolveState,
     STATES,
     stateLabel,
-    stateTone,
-    type StateDomain,
+    stateTone
+    
 } from '@/lib/states';
+import type {StateDomain} from '@/lib/states';
 
 describe('state vocabulary', () => {
     it('resolves a documented state', () => {

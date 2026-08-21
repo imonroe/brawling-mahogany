@@ -41,7 +41,10 @@ const props = withDefaults(
         />
         <div class="flex flex-col gap-1">
             <p class="text-sm font-semibold text-foreground">{{ title }}</p>
-            <p v-if="description" class="max-w-md text-13 text-muted-foreground">
+            <p
+                v-if="description"
+                class="max-w-md text-13 text-muted-foreground"
+            >
                 {{ description }}
             </p>
         </div>

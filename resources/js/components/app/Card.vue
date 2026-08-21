@@ -10,12 +10,21 @@
  */
 import { cn } from '@/lib/utils';
 
-const props = defineProps<{ title?: string; class?: string; bodyClass?: string }>();
+const props = defineProps<{
+    title?: string;
+    class?: string;
+    bodyClass?: string;
+}>();
 </script>
 
 <template>
     <section
-        :class="cn('flex flex-col overflow-hidden rounded-lg border bg-card', props.class)"
+        :class="
+            cn(
+                'flex flex-col overflow-hidden rounded-lg border bg-card',
+                props.class,
+            )
+        "
         data-slot="card"
     >
         <header
@@ -23,7 +32,9 @@ const props = defineProps<{ title?: string; class?: string; bodyClass?: string }
             class="flex items-center gap-2 border-b px-4 py-[13px]"
         >
             <slot name="header">
-                <h3 class="text-13 font-semibold text-card-foreground">{{ title }}</h3>
+                <h3 class="text-13 font-semibold text-card-foreground">
+                    {{ title }}
+                </h3>
             </slot>
             <slot name="badge" />
             <div class="flex-1"></div>

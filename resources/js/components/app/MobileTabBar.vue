@@ -10,6 +10,7 @@
 import { Link } from '@inertiajs/vue3';
 import { Ellipsis } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import NavItem from '@/components/app/NavItem.vue';
 import {
     Sheet,
     SheetContent,
@@ -18,18 +19,21 @@ import {
     SheetTitle,
     SheetTrigger,
 } from '@/components/ui/sheet';
-import NavItem from '@/components/app/NavItem.vue';
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
 import { usePermissions } from '@/composables/usePermissions';
-import { cn } from '@/lib/utils';
 import { mobileTabs, moreEntries } from '@/lib/navigation';
+import { cn } from '@/lib/utils';
 
 const { can } = usePermissions();
 const { isCurrentOrParentUrl } = useCurrentUrl();
 const open = ref(false);
 
-const tabs = computed(() => mobileTabs().filter((entry) => can(entry.permission)));
-const more = computed(() => moreEntries().filter((entry) => can(entry.permission)));
+const tabs = computed(() =>
+    mobileTabs().filter((entry) => can(entry.permission)),
+);
+const more = computed(() =>
+    moreEntries().filter((entry) => can(entry.permission)),
+);
 </script>
 
 <template>
@@ -42,15 +46,24 @@ const more = computed(() => moreEntries().filter((entry) => can(entry.permission
             v-for="entry in tabs"
             :key="entry.href"
             :href="entry.href"
-            :aria-current="isCurrentOrParentUrl(entry.href) ? 'page' : undefined"
+            :aria-current="
+                isCurrentOrParentUrl(entry.href) ? 'page' : undefined
+            "
             :class="
                 cn(
                     'flex min-h-11 flex-1 flex-col items-center justify-center gap-1',
-                    isCurrentOrParentUrl(entry.href) ? 'text-primary' : 'text-muted-foreground',
+                    isCurrentOrParentUrl(entry.href)
+                        ? 'text-primary'
+                        : 'text-muted-foreground',
                 )
             "
         >
-            <component :is="entry.icon" class="size-5" :stroke-width="2" aria-hidden="true" />
+            <component
+                :is="entry.icon"
+                class="size-5"
+                :stroke-width="2"
+                aria-hidden="true"
+            />
             <span class="text-[11px] font-medium">{{ entry.label }}</span>
         </Link>
 

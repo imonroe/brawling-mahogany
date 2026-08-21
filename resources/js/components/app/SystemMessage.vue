@@ -7,9 +7,9 @@
  * the client variant follows IA §9 — no alarming words, no jargon, and a
  * route back to a human.
  */
-import type { Component } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import { ShieldAlert } from '@lucide/vue';
+import type { Component } from 'vue';
 import { cn } from '@/lib/utils';
 
 withDefaults(
@@ -31,7 +31,9 @@ withDefaults(
         :class="
             cn(
                 'flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center',
-                variant === 'admin' ? 'bg-foreground text-background' : 'bg-background',
+                variant === 'admin'
+                    ? 'bg-foreground text-background'
+                    : 'bg-background',
                 variant === 'client' && 'client-surface',
             )
         "
@@ -49,7 +51,14 @@ withDefaults(
         <component
             :is="icon"
             v-if="icon"
-            :class="cn('size-8', variant === 'admin' ? 'text-background' : 'text-muted-foreground')"
+            :class="
+                cn(
+                    'size-8',
+                    variant === 'admin'
+                        ? 'text-background'
+                        : 'text-muted-foreground',
+                )
+            "
             :stroke-width="1.5"
             aria-hidden="true"
         />
@@ -60,7 +69,9 @@ withDefaults(
                 :class="
                     cn(
                         'tabular text-xs font-medium',
-                        variant === 'admin' ? 'text-background/70' : 'text-muted-foreground',
+                        variant === 'admin'
+                            ? 'text-background/70'
+                            : 'text-muted-foreground',
                     )
                 "
             >
@@ -71,7 +82,9 @@ withDefaults(
                     cn(
                         'font-semibold',
                         variant === 'client' ? 'text-2xl' : 'text-xl',
-                        variant === 'admin' ? 'text-background' : 'text-foreground',
+                        variant === 'admin'
+                            ? 'text-background'
+                            : 'text-foreground',
                     )
                 "
             >
@@ -82,7 +95,9 @@ withDefaults(
                     cn(
                         'max-w-md',
                         variant === 'client' ? 'text-base' : 'text-sm',
-                        variant === 'admin' ? 'text-background/70' : 'text-muted-foreground',
+                        variant === 'admin'
+                            ? 'text-background/70'
+                            : 'text-muted-foreground',
                     )
                 "
             >

@@ -112,11 +112,20 @@ export interface AddressParts {
 }
 
 /** Street on line one, "City, ST ZIP" on line two. */
-export function formatAddress(address: AddressParts): { line1: string; line2: string } {
-    const line1 = [address.street, address.unit].filter(Boolean).join(' ').trim();
+export function formatAddress(address: AddressParts): {
+    line1: string;
+    line2: string;
+} {
+    const line1 = [address.street, address.unit]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
 
     const cityState = [address.city, address.state].filter(Boolean).join(', ');
-    const line2 = [cityState, address.postalCode].filter(Boolean).join(' ').trim();
+    const line2 = [cityState, address.postalCode]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
 
     return { line1, line2 };
 }
@@ -133,7 +142,10 @@ export function formatAddressOneLine(address: AddressParts): string {
  * ---------------------------------------------------------------------- */
 
 /** Internal: "Thu, Aug 20". */
-export function formatDate(value: DateInput, options?: FormatDateOptions): string {
+export function formatDate(
+    value: DateInput,
+    options?: FormatDateOptions,
+): string {
     return new Intl.DateTimeFormat('en-US', {
         weekday: 'short',
         month: 'short',
@@ -143,7 +155,10 @@ export function formatDate(value: DateInput, options?: FormatDateOptions): strin
 }
 
 /** Internal, without the weekday: "Aug 20". */
-export function formatDateShort(value: DateInput, options?: FormatDateOptions): string {
+export function formatDateShort(
+    value: DateInput,
+    options?: FormatDateOptions,
+): string {
     return new Intl.DateTimeFormat('en-US', {
         month: 'short',
         day: 'numeric',
@@ -160,7 +175,10 @@ export interface ClientDateOptions extends FormatDateOptions {
  * Client-facing: "Thursday, August 20", with the year only when it differs
  * from the year the client is reading in.
  */
-export function formatDateForClient(value: DateInput, options?: ClientDateOptions): string {
+export function formatDateForClient(
+    value: DateInput,
+    options?: ClientDateOptions,
+): string {
     const date = toDate(value);
     const timeZone = zone(options);
     const reference = options?.now ? toDate(options.now) : new Date();
@@ -177,7 +195,10 @@ export function formatDateForClient(value: DateInput, options?: ClientDateOption
 }
 
 /** 12-hour, lowercase meridiem, team timezone: "2:30pm". */
-export function formatTime(value: DateInput, options?: FormatDateOptions): string {
+export function formatTime(
+    value: DateInput,
+    options?: FormatDateOptions,
+): string {
     const formatted = new Intl.DateTimeFormat('en-US', {
         hour: 'numeric',
         minute: '2-digit',
@@ -185,13 +206,17 @@ export function formatTime(value: DateInput, options?: FormatDateOptions): strin
         timeZone: zone(options),
     }).format(toDate(value));
 
-    return formatted.replace(/\s?([AP])M$/i, (_match, meridiem: string) =>
-        meridiem.toLowerCase() + 'm',
+    return formatted.replace(
+        /\s?([AP])M$/i,
+        (_match, meridiem: string) => meridiem.toLowerCase() + 'm',
     );
 }
 
 /** "Thu, Aug 20 at 2:30pm". */
-export function formatDateTime(value: DateInput, options?: FormatDateOptions): string {
+export function formatDateTime(
+    value: DateInput,
+    options?: FormatDateOptions,
+): string {
     return `${formatDate(value, options)} at ${formatTime(value, options)}`;
 }
 
@@ -199,7 +224,10 @@ export function formatDateTime(value: DateInput, options?: FormatDateOptions): s
  * Relative only within seven days, then absolute (Information Architecture
  * §10): "today", "in 3 days", "5 days ago", then "Aug 30".
  */
-export function formatRelativeDate(value: DateInput, options?: ClientDateOptions): string {
+export function formatRelativeDate(
+    value: DateInput,
+    options?: ClientDateOptions,
+): string {
     const timeZone = zone(options);
     const target = toDate(value);
     const reference = options?.now ? toDate(options.now) : new Date();
@@ -234,7 +262,11 @@ export function formatRelativeDate(value: DateInput, options?: ClientDateOptions
  * so "tomorrow" means the next date on the wall calendar rather than 24
  * hours from now.
  */
-export function calendarDaysBetween(from: DateInput, to: DateInput, timeZone?: string): number {
+export function calendarDaysBetween(
+    from: DateInput,
+    to: DateInput,
+    timeZone?: string,
+): number {
     const tz = timeZone ?? teamTimeZone;
     const fromDay = Date.parse(`${isoDateIn(toDate(from), tz)}T00:00:00Z`);
     const toDay = Date.parse(`${isoDateIn(toDate(to), tz)}T00:00:00Z`);
@@ -268,7 +300,10 @@ function yearIn(value: Date, timeZone: string): string {
  * dollars above $1,000: "$485,000". Below that, cents still matter — a $250.50
  * receipt is not "$251".
  */
-export function formatCurrency(cents: number, options?: { showCents?: boolean }): string {
+export function formatCurrency(
+    cents: number,
+    options?: { showCents?: boolean },
+): string {
     const dollars = cents / 100;
     const showCents = options?.showCents ?? Math.abs(cents) < 100_000;
 
@@ -281,7 +316,11 @@ export function formatCurrency(cents: number, options?: { showCents?: boolean })
 }
 
 /** Numeral plus noun, pluralised: "3 deals", "1 task". */
-export function formatCount(count: number, singular: string, plural?: string): string {
+export function formatCount(
+    count: number,
+    singular: string,
+    plural?: string,
+): string {
     const noun = count === 1 ? singular : (plural ?? `${singular}s`);
 
     return `${new Intl.NumberFormat('en-US').format(count)} ${noun}`;

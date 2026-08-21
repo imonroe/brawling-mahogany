@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 return [
     'login' => 'resources/js/pages/auth/Login.vue',
     'register' => 'resources/js/pages/auth/Register.vue',

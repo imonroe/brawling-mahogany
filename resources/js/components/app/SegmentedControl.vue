@@ -4,7 +4,11 @@ import { cn } from '@/lib/utils';
 
 type Segment = { value: string; label: string; count?: number | null };
 
-const props = defineProps<{ modelValue: string; segments: Segment[]; class?: string }>();
+const props = defineProps<{
+    modelValue: string;
+    segments: Segment[];
+    class?: string;
+}>();
 defineEmits<{ 'update:modelValue': [value: string] }>();
 </script>
 
@@ -31,9 +35,11 @@ defineEmits<{ 'update:modelValue': [value: string] }>();
             @click="$emit('update:modelValue', segment.value)"
         >
             {{ segment.label }}
-            <span v-if="segment.count !== undefined && segment.count !== null" class="tabular">{{
-                segment.count
-            }}</span>
+            <span
+                v-if="segment.count !== undefined && segment.count !== null"
+                class="tabular"
+                >{{ segment.count }}</span
+            >
         </button>
     </div>
 </template>

@@ -6,14 +6,26 @@
  */
 import { cn } from '@/lib/utils';
 
-const props = defineProps<{ title: string; subtitle?: string | null; class?: string }>();
+const props = defineProps<{
+    title: string;
+    subtitle?: string | null;
+    class?: string;
+}>();
 </script>
 
 <template>
-    <header :class="cn('flex items-center gap-3', props.class)" data-slot="page-header">
+    <header
+        :class="cn('flex items-center gap-3', props.class)"
+        data-slot="page-header"
+    >
         <div class="flex min-w-0 flex-col">
-            <h1 class="truncate text-xl font-semibold text-foreground">{{ title }}</h1>
-            <p v-if="subtitle" class="tabular truncate text-13 text-muted-foreground">
+            <h1 class="truncate text-xl font-semibold text-foreground">
+                {{ title }}
+            </h1>
+            <p
+                v-if="subtitle"
+                class="tabular truncate text-13 text-muted-foreground"
+            >
                 {{ subtitle }}
             </p>
         </div>

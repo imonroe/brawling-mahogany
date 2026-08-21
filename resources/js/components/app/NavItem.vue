@@ -4,8 +4,8 @@
  * Active: accent background, icon and label in primary, label at 600.
  */
 import { Link } from '@inertiajs/vue3';
-import { cn } from '@/lib/utils';
 import type { NavEntry } from '@/lib/navigation';
+import { cn } from '@/lib/utils';
 
 const props = withDefaults(
     defineProps<{
@@ -35,7 +35,12 @@ const props = withDefaults(
     >
         <component
             :is="entry.icon"
-            :class="cn('size-[18px] shrink-0', props.active ? 'text-primary' : 'text-muted-foreground')"
+            :class="
+                cn(
+                    'size-[18px] shrink-0',
+                    props.active ? 'text-primary' : 'text-muted-foreground',
+                )
+            "
             :stroke-width="2"
             aria-hidden="true"
         />
@@ -44,7 +49,9 @@ const props = withDefaults(
                 :class="
                     cn(
                         'flex-1 truncate text-sm',
-                        props.active ? 'font-semibold text-primary' : 'font-medium text-secondary-foreground',
+                        props.active
+                            ? 'font-semibold text-primary'
+                            : 'font-medium text-secondary-foreground',
                     )
                 "
                 >{{ entry.label }}</span

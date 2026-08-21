@@ -29,30 +29,104 @@ It's built alongside existing tools rather than replacing them — e.g. contract
 
 Multi-tenancy is deliberate and commercial: the goal is to sell subscriptions to other small, independent real estate teams, not just build a one-off internal tool.
 
-## Planned stack
+## The stack
 
 | Layer | Choice |
 |---|---|
-| Backend | Laravel (PHP) |
-| Frontend | Vue 3 via Inertia.js |
-| CSS | Tailwind |
+| Backend | Laravel 13 (PHP 8.4) |
+| Frontend | Vue 3 via Inertia.js, built with Vite |
+| CSS | Tailwind CSS v4, CSS-first `@theme` tokens |
+| Components | shadcn-vue over Reka UI |
 | Database | PostgreSQL |
 | Cache/Queue | Redis + Laravel Horizon |
 | Auth/Roles | Laravel Fortify + `spatie/laravel-permission` (teams mode) |
 | File storage | DigitalOcean Spaces (private, signed URLs) |
 | Email | Amazon SES |
 | Push | Web Push (VAPID), delivered via an installable PWA |
-| Hosting | Docker Compose on a DigitalOcean droplet |
+| Hosting | Docker Compose (FrankenPHP) on a DigitalOcean droplet |
+| Monitoring | Sentry, Horizon, structured JSON logs |
 
 ## Status
 
-This project is in the planning stage — no application code yet. The [`docs/`](docs) folder holds the working documentation:
+**Slice 0 is landing:** the application skeleton, the container stack, CI, and
+the design system foundations. The product features begin at Slice 1 — see
+[`Build Plan.md`](docs/Build%20Plan.md) for the order and why.
+
+## Running it locally
+
+Everything runs in containers: PHP, Postgres, Redis, the Horizon worker, the
+scheduler, Mailpit, and Vite. Docker and Docker Compose are the only
+prerequisites.
+
+```bash
+cp .env.example .env
+# Set DB_PASSWORD. It is the only value you have to choose.
+make setup
+```
+
+That builds the images, starts the stack, generates an application key, and
+migrates the database. When it finishes:
+
+| | |
+|---|---|
+| App | http://localhost:8000 |
+| Mailpit | http://localhost:8025 — every local send lands here and nowhere else |
+| Horizon | http://localhost:8000/horizon — add your address to `HORIZON_AUTHORIZED_EMAILS` |
+| Design system gallery | http://localhost:8000/design-system — every component, both themes |
+
+Day to day:
+
+```bash
+make up          # start
+make down        # stop
+make logs        # follow the app and worker logs
+make shell       # a shell in the app container
+make test        # the PHP test suite
+make check       # everything CI runs
+```
+
+### Without containers
+
+The stack expects Postgres 16 and Redis 7 reachable at the host and port in
+`.env`:
+
+```bash
+composer install
+npm install
+php artisan key:generate
+php artisan migrate
+npm run dev        # and, in another terminal:
+php artisan serve
+```
+
+### Running the checks
+
+```bash
+composer check     # Pint, PHPStan, Pest
+npm run check      # Wayfinder, ESLint, Prettier, vue-tsc, Vitest
+```
+
+Both are exactly what the pipeline runs, so the local loop and CI cannot
+disagree. Tests run against a real Postgres — see
+[`docs/Testing.md`](docs/Testing.md) for why, and for the conventions every
+later slice inherits.
+
+## The documentation
+
+The [`docs/`](docs) folder is the source of truth for scope, naming, and
+design. Keeping it current is part of the development process, not an
+afterthought.
 
 - [`Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) — the PRD: goals, personas, feature scope, data model, release slices, and open questions
 - [`Information Architecture.md`](docs/Information%20Architecture.md) — the naming authority for the product's vocabulary
 - [`Screen Inventory.md`](docs/Screen%20Inventory.md) — the full screen list
 - [`Build Plan.md`](docs/Build%20Plan.md) — the build order and the map to the GitHub issue backlog
 - [`Design System.md`](docs/Design%20System.md) and [`Design references.md`](docs/Design%20references.md) — visual direction
+- [`Frontend conventions.md`](docs/Frontend%20conventions.md) — formatters, the state map, and the content rules in code
+- [`Testing.md`](docs/Testing.md) — the test suites and conventions
+- [`Environment and secrets.md`](docs/Environment%20and%20secrets.md) — what exists where, and how it is rotated
+- [`Deployment.md`](docs/Deployment.md) — staging, production, backups, and the restore drill
+- [`adr/`](docs/adr) — architecture decisions, starting with persistence conventions and multi-tenancy
 - [`The basic idea.md`](docs/The%20basic%20idea.md) — the originating concept
 - [`Rough data model.canvas`](docs/Rough%20data%20model.canvas) — the first-pass data model
 - [`Conversation with Emily and Heather.md`](docs/Conversation%20with%20Emily%20and%20Heather.md) — the working session that shaped v0.2 of the PRD

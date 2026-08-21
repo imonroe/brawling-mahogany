@@ -14,7 +14,10 @@ const props = defineProps<{ title: string; screen: string; slice: number }>();
 <template>
     <Head :title="props.title" />
     <div class="flex h-full flex-col gap-4 p-6">
-        <PageHeader :title="props.title" :subtitle="`${props.screen} · not built yet`" />
+        <PageHeader
+            :title="props.title"
+            :subtitle="`${props.screen} · not built yet`"
+        />
         <div class="flex flex-1 rounded-lg border bg-card">
             <EmptyState
                 :icon="Hammer"

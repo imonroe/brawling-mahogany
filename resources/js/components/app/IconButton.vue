@@ -28,7 +28,12 @@ const props = defineProps<Props>();
         "
         data-slot="icon-button"
     >
-        <component :is="icon" class="size-[18px]" :stroke-width="2" aria-hidden="true" />
+        <component
+            :is="icon"
+            class="size-[18px]"
+            :stroke-width="2"
+            aria-hidden="true"
+        />
         <span
             v-if="unread"
             class="absolute top-[5px] right-[5px] size-2 rounded-full bg-destructive ring-2 ring-background"

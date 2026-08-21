@@ -29,7 +29,11 @@ enum TaskState: string implements HasLabel
         };
     }
 
-    /** The states a task row may actually hold in the database. */
+    /**
+     * The states a task row may actually hold in the database.
+     *
+     * @return list<self>
+     */
     public static function stored(): array
     {
         return [self::Open, self::Completed];

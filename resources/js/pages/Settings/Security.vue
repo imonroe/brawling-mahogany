@@ -2,18 +2,18 @@
 import { Form, Head } from '@inertiajs/vue3';
 import SecurityController from '@/actions/App/Http/Controllers/Settings/SecurityController';
 import Heading from '@/components/app/Heading.vue';
+import type { Props as ManagePasskeysProps } from '@/components/app/ManagePasskeys.vue';
+import ManagePasskeys from '@/components/app/ManagePasskeys.vue';
+import type { Props as ManageTwoFactorProps } from '@/components/app/ManageTwoFactor.vue';
+import ManageTwoFactor from '@/components/app/ManageTwoFactor.vue';
 import InputError from '@/components/forms/InputError.vue';
 import PasswordInput from '@/components/forms/PasswordInput.vue';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { edit } from '@/routes/security';
 /* @chisel-passkeys */
-import type { Props as ManagePasskeysProps } from '@/components/app/ManagePasskeys.vue';
-import ManagePasskeys from '@/components/app/ManagePasskeys.vue';
 /* @end-chisel-passkeys */
 /* @chisel-2fa */
-import type { Props as ManageTwoFactorProps } from '@/components/app/ManageTwoFactor.vue';
-import ManageTwoFactor from '@/components/app/ManageTwoFactor.vue';
 /* @end-chisel-2fa */
 
 type Props = {

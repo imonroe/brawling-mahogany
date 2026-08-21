@@ -22,10 +22,7 @@ defineOptions({
 <template>
     <Head title="Dashboard" />
     <div class="flex h-full flex-col gap-6 p-6">
-        <PageHeader
-            title="Dashboard"
-            subtitle="No deals yet · nothing due"
-        />
+        <PageHeader title="Dashboard" subtitle="No deals yet · nothing due" />
         <div class="flex flex-1 rounded-lg border bg-card">
             <EmptyState
                 :icon="Briefcase"

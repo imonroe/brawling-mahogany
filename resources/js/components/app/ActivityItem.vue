@@ -5,8 +5,8 @@
  */
 import type { Component } from 'vue';
 import { computed } from 'vue';
-import { cn } from '@/lib/utils';
 import type { Tone } from '@/lib/states';
+import { cn } from '@/lib/utils';
 
 const props = withDefaults(
     defineProps<{
@@ -36,7 +36,9 @@ const iconClass = computed(() => TONE_TEXT[props.tone]);
         :class="cn('flex items-start gap-2.5 py-2.5', props.class)"
         data-slot="activity-item"
     >
-        <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted">
+        <span
+            class="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted"
+        >
             <component
                 :is="icon"
                 :class="cn('size-3.5', iconClass)"
@@ -46,7 +48,10 @@ const iconClass = computed(() => TONE_TEXT[props.tone]);
         </span>
         <div class="flex min-w-0 flex-1 flex-col">
             <p class="text-sm text-foreground">{{ text }}</p>
-            <span class="tabular text-xs whitespace-nowrap text-muted-foreground">{{ time }}</span>
+            <span
+                class="tabular text-xs whitespace-nowrap text-muted-foreground"
+                >{{ time }}</span
+            >
         </div>
     </div>
 </template>

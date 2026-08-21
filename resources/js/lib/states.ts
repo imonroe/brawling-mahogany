@@ -84,7 +84,11 @@ const person: StateTable = {
 
 const automation: StateTable = {
     pending: { label: 'Scheduled', tone: 'neutral', clientLabel: null },
-    awaiting_approval: { label: 'Needs Review', tone: 'warning', clientLabel: null },
+    awaiting_approval: {
+        label: 'Needs Review',
+        tone: 'warning',
+        clientLabel: null,
+    },
     sent: { label: 'Sent', tone: 'success', clientLabel: null },
     failed: { label: 'Failed', tone: 'danger', clientLabel: null },
     cancelled: { label: 'Cancelled', tone: 'neutral', clientLabel: null },
@@ -120,7 +124,10 @@ export const STATES: Record<StateDomain, StateTable> = {
  * Throws on an unknown code. An unstyled badge carrying a raw snake_case
  * string is worse than a loud failure: it ships.
  */
-export function resolveState(domain: StateDomain, code: string): StateDescriptor {
+export function resolveState(
+    domain: StateDomain,
+    code: string,
+): StateDescriptor {
     const table = STATES[domain];
 
     if (!table) {
@@ -153,7 +160,10 @@ export function stateTone(domain: StateDomain, code: string): Tone {
  * state is never surfaced (Information Architecture §9: no jargon, no
  * alarming words, and `blocked` never reaches a client).
  */
-export function clientStateLabel(domain: StateDomain, code: string): string | null {
+export function clientStateLabel(
+    domain: StateDomain,
+    code: string,
+): string | null {
     return resolveState(domain, code).clientLabel;
 }
 

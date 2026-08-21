@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Tests\Feature\Settings;
 
 use App\Models\User;
@@ -13,7 +15,7 @@ class SecurityTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_security_page_is_displayed()
+    public function test_security_page_is_displayed(): void
     {
         $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
 
@@ -39,7 +41,7 @@ class SecurityTest extends TestCase
             );
     }
 
-    public function test_security_page_requires_password_confirmation_when_enabled()
+    public function test_security_page_requires_password_confirmation_when_enabled(): void
     {
         $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
 
@@ -56,7 +58,7 @@ class SecurityTest extends TestCase
         $response->assertRedirect(route('password.confirm'));
     }
 
-    public function test_security_page_renders_without_two_factor_when_feature_is_disabled()
+    public function test_security_page_renders_without_two_factor_when_feature_is_disabled(): void
     {
         $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
 
@@ -78,7 +80,7 @@ class SecurityTest extends TestCase
             );
     }
 
-    public function test_password_can_be_updated()
+    public function test_password_can_be_updated(): void
     {
         $user = User::factory()->create();
 
@@ -98,7 +100,7 @@ class SecurityTest extends TestCase
         $this->assertTrue(Hash::check('new-password', $user->refresh()->password));
     }
 
-    public function test_correct_password_must_be_provided_to_update_password()
+    public function test_correct_password_must_be_provided_to_update_password(): void
     {
         $user = User::factory()->create();
 

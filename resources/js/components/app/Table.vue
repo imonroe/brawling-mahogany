@@ -22,7 +22,12 @@ const props = defineProps<{
 
 <template>
     <div
-        :class="cn('flex flex-col overflow-hidden rounded-lg border bg-card', props.class)"
+        :class="
+            cn(
+                'flex flex-col overflow-hidden rounded-lg border bg-card',
+                props.class,
+            )
+        "
         data-slot="table-card"
     >
         <div class="flex-1 overflow-x-auto">
@@ -36,7 +41,11 @@ const props = defineProps<{
                     <col
                         v-for="column in columns"
                         :key="column.key"
-                        :style="column.width ? { width: `${column.width}px` } : undefined"
+                        :style="
+                            column.width
+                                ? { width: `${column.width}px` }
+                                : undefined
+                        "
                     />
                 </colgroup>
                 <thead>
@@ -72,9 +81,11 @@ const props = defineProps<{
             v-if="$slots.footer || footerNote"
             class="flex h-11 items-center gap-2 border-t px-4"
         >
-            <span v-if="footerNote" class="tabular text-xs text-muted-foreground">{{
-                footerNote
-            }}</span>
+            <span
+                v-if="footerNote"
+                class="tabular text-xs text-muted-foreground"
+                >{{ footerNote }}</span
+            >
             <div class="flex-1"></div>
             <slot name="footer" />
         </footer>

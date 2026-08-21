@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Form, Head } from '@inertiajs/vue3';
+import PasskeyVerify from '@/components/app/PasskeyVerify.vue';
+import TextLink from '@/components/app/TextLink.vue';
 import InputError from '@/components/forms/InputError.vue';
 import PasswordInput from '@/components/forms/PasswordInput.vue';
-import TextLink from '@/components/app/TextLink.vue';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,6 @@ import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 /* @chisel-passkeys */
-import PasskeyVerify from '@/components/app/PasskeyVerify.vue';
 /* @end-chisel-passkeys */
 
 defineOptions({
@@ -35,7 +35,7 @@ defineProps<{
 
     <div
         v-if="status"
-        class="mb-4 text-center text-sm font-medium text-green-600"
+        class="mb-4 text-center text-sm font-medium text-state-success"
     >
         {{ status }}
     </div>

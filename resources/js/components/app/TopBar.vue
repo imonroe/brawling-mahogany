@@ -5,7 +5,13 @@
  * it belongs to the page header.
  */
 import { Link } from '@inertiajs/vue3';
-import { Bell, ChevronRight, CircleQuestionMark, PanelLeft, Search } from '@lucide/vue';
+import {
+    Bell,
+    ChevronRight,
+    CircleQuestionMark,
+    PanelLeft,
+    Search,
+} from '@lucide/vue';
 import IconButton from '@/components/app/IconButton.vue';
 import { toUrl } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
@@ -34,7 +40,10 @@ defineEmits<{ 'toggle-sidebar': [] }>();
         />
 
         <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-1.5">
-            <template v-for="(crumb, index) in breadcrumbs" :key="toUrl(crumb.href)">
+            <template
+                v-for="(crumb, index) in breadcrumbs"
+                :key="toUrl(crumb.href)"
+            >
                 <ChevronRight
                     v-if="index > 0"
                     class="size-3.5 shrink-0 text-muted-foreground"
@@ -42,7 +51,9 @@ defineEmits<{ 'toggle-sidebar': [] }>();
                 />
                 <Link
                     :href="crumb.href"
-                    :aria-current="index === breadcrumbs.length - 1 ? 'page' : undefined"
+                    :aria-current="
+                        index === breadcrumbs.length - 1 ? 'page' : undefined
+                    "
                     :class="
                         index === breadcrumbs.length - 1 && index > 0
                             ? 'truncate text-sm font-medium text-muted-foreground'
@@ -68,7 +79,11 @@ defineEmits<{ 'toggle-sidebar': [] }>();
             >
         </button>
 
-        <IconButton :icon="Bell" label="Notifications" :unread="unreadNotifications" />
+        <IconButton
+            :icon="Bell"
+            label="Notifications"
+            :unread="unreadNotifications"
+        />
         <IconButton :icon="CircleQuestionMark" label="Help" />
     </header>
 </template>

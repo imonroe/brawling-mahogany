@@ -6,12 +6,12 @@
  */
 import { Link } from '@inertiajs/vue3';
 import type { InertiaLinkProps } from '@inertiajs/vue3';
+import type { NameParts } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import DateChip from './DateChip.vue';
+import type { DealRowColumn } from './dealRow';
 import PersonAvatar from './PersonAvatar.vue';
 import StatusBadge from './StatusBadge.vue';
-import type { DealRowColumn } from './dealRow';
-import type { NameParts } from '@/lib/formatters';
 
 type Props = {
     columns: DealRowColumn[];
@@ -30,28 +30,48 @@ type Props = {
 const props = defineProps<Props>();
 defineEmits<{ 'update:selected': [value: boolean] }>();
 
-const has = (key: DealRowColumn['key']) => props.columns.some((column) => column.key === key);
+const has = (key: DealRowColumn['key']) =>
+    props.columns.some((column) => column.key === key);
 </script>
 
 <template>
-    <tr :class="cn('h-9 border-b last:border-b-0', props.class)" data-slot="deal-row">
+    <tr
+        :class="cn('h-9 border-b last:border-b-0', props.class)"
+        data-slot="deal-row"
+    >
         <td v-if="has('select')" class="px-4 text-center">
             <input
                 type="checkbox"
                 class="size-4 rounded-sm border accent-primary"
                 :checked="selected"
                 :aria-label="`Select ${primary}`"
-                @change="$emit('update:selected', ($event.target as HTMLInputElement).checked)"
+                @change="
+                    $emit(
+                        'update:selected',
+                        ($event.target as HTMLInputElement).checked,
+                    )
+                "
             />
         </td>
-        <td v-if="has('primary')" class="truncate px-4 text-13 font-medium text-foreground">
-            <Link v-if="href" :href="href" class="hover:text-primary">{{ primary }}</Link>
+        <td
+            v-if="has('primary')"
+            class="truncate px-4 text-13 font-medium text-foreground"
+        >
+            <Link v-if="href" :href="href" class="hover:text-primary">{{
+                primary
+            }}</Link>
             <template v-else>{{ primary }}</template>
         </td>
-        <td v-if="has('meta1')" class="truncate px-4 text-13 text-muted-foreground">
+        <td
+            v-if="has('meta1')"
+            class="truncate px-4 text-13 text-muted-foreground"
+        >
             {{ meta1 }}
         </td>
-        <td v-if="has('meta2')" class="truncate px-4 text-13 text-muted-foreground">
+        <td
+            v-if="has('meta2')"
+            class="truncate px-4 text-13 text-muted-foreground"
+        >
             {{ meta2 }}
         </td>
         <td v-if="has('state')" class="px-4">

@@ -1,5 +1,6 @@
 export type User = {
-    id: number;
+    /** A ULID. Client-facing identifiers are never sequential (ADR 0001). */
+    id: string;
     name: string;
     email: string;
     avatar?: string;

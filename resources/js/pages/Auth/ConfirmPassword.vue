@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { Form, Head } from '@inertiajs/vue3';
+import {
+    index as confirmOptions,
+    store as confirmStore,
+} from '@/actions/Laravel/Passkeys/Http/Controllers/PasskeyConfirmationController';
+import PasskeyVerify from '@/components/app/PasskeyVerify.vue';
 import InputError from '@/components/forms/InputError.vue';
 import PasswordInput from '@/components/forms/PasswordInput.vue';
 import { Button } from '@/components/ui/button';
@@ -7,11 +12,6 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { store } from '@/routes/password/confirm';
 /* @chisel-passkeys */
-import {
-    index as confirmOptions,
-    store as confirmStore,
-} from '@/actions/Laravel/Passkeys/Http/Controllers/PasskeyConfirmationController';
-import PasskeyVerify from '@/components/app/PasskeyVerify.vue';
 /* @end-chisel-passkeys */
 
 defineOptions({

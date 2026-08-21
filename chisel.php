@@ -1,13 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 require getenv('LARAVEL_INSTALLER_AUTOLOADER') ?: __DIR__.'/vendor/autoload.php';
 
 use Laravel\Chisel\Chisel;
 use Laravel\Chisel\Question;
 use Laravel\Prompts\Support\Logger;
-use Symfony\Component\Process\Process;
 
 use function Laravel\Prompts\task;
+
+use Symfony\Component\Process\Process;
 
 function chiselRun(array $command, string $label): void
 {
@@ -16,7 +19,7 @@ function chiselRun(array $command, string $label): void
         keepSummary: true,
         callback: function (Logger $logger) use ($command) {
             $process = new Process($command);
-            $process->run(function ($type, $line) use ($logger) {
+            $process->run(function ($type, $line) use ($logger): void {
                 $logger->line($line);
             });
 
@@ -103,7 +106,7 @@ return Chisel::script(__DIR__)
     ->selected(
         'auth_features',
         'registration',
-        then: function (Chisel $c) use ($paths) {
+        then: function (Chisel $c) use ($paths): void {
             $c->files(
                 'config/fortify.php',
                 'app/Providers/FortifyServiceProvider.php',
@@ -111,7 +114,7 @@ return Chisel::script(__DIR__)
                 $paths['welcome'],
             )->removeSectionMarkers('registration');
         },
-        else: function (Chisel $c) use ($paths) {
+        else: function (Chisel $c) use ($paths): void {
             $c->file('config/fortify.php')->removeSection('registration');
 
             $c->files(
@@ -131,14 +134,14 @@ return Chisel::script(__DIR__)
     ->selected(
         'auth_features',
         'email-verification',
-        then: function (Chisel $c) use ($paths) {
+        then: function (Chisel $c) use ($paths): void {
             $c->files(
                 'config/fortify.php',
                 $paths['profile'],
                 'app/Providers/FortifyServiceProvider.php',
             )->removeSectionMarkers('email-verification');
         },
-        else: function (Chisel $c) use ($paths) {
+        else: function (Chisel $c) use ($paths): void {
             $c->php('app/Models/User.php')
                 ->removeImport('Illuminate\Contracts\Auth\MustVerifyEmail')
                 ->removeInterface('MustVerifyEmail');
@@ -160,7 +163,7 @@ return Chisel::script(__DIR__)
     ->selected(
         'auth_features',
         '2fa',
-        then: function (Chisel $c) use ($paths) {
+        then: function (Chisel $c) use ($paths): void {
             $c->files(
                 'app/Models/User.php',
                 'database/factories/UserFactory.php',
@@ -171,7 +174,7 @@ return Chisel::script(__DIR__)
                 'app/Http/Controllers/Settings/SecurityController.php',
             )->removeSectionMarkers('2fa');
         },
-        else: function (Chisel $c) use ($paths) {
+        else: function (Chisel $c) use ($paths): void {
             $c->php('app/Models/User.php')
                 ->removeImport('Laravel\Fortify\TwoFactorAuthenticatable')
                 ->removeTrait('TwoFactorAuthenticatable');
@@ -201,7 +204,7 @@ return Chisel::script(__DIR__)
     ->selected(
         'auth_features',
         'passkeys',
-        then: function (Chisel $c) use ($paths) {
+        then: function (Chisel $c) use ($paths): void {
             $c->files(
                 'config/fortify.php',
                 'app/Providers/FortifyServiceProvider.php',
@@ -215,7 +218,7 @@ return Chisel::script(__DIR__)
                 $paths['confirm_password'],
             )->removeSectionMarkers('passkeys');
         },
-        else: function (Chisel $c) use ($paths) {
+        else: function (Chisel $c) use ($paths): void {
             $c->php('app/Models/User.php')
                 ->removeImport('Laravel\Fortify\PasskeyAuthenticatable')
                 ->removeImport('Laravel\Fortify\Contracts\PasskeyUser')
@@ -247,11 +250,11 @@ return Chisel::script(__DIR__)
     ->selectedAny(
         'auth_features',
         ['2fa', 'passkeys'],
-        then: function (Chisel $c) use ($paths) {
+        then: function (Chisel $c) use ($paths): void {
             $c->file($paths['security'])
                 ->removeSectionMarkers('2fa-or-passkeys');
         },
-        else: function (Chisel $c) use ($paths) {
+        else: function (Chisel $c) use ($paths): void {
             $c->file($paths['security'])
                 ->removeSection('2fa-or-passkeys');
         },
@@ -259,14 +262,14 @@ return Chisel::script(__DIR__)
     ->selected(
         'auth_features',
         'password-confirmation',
-        then: function (Chisel $c) {
+        then: function (Chisel $c): void {
             $c->files(
                 'app/Providers/FortifyServiceProvider.php',
                 'routes/settings.php',
                 'tests/Feature/Settings/SecurityTest.php',
             )->removeSectionMarkers('password-confirmation');
         },
-        else: function (Chisel $c) use ($paths) {
+        else: function (Chisel $c) use ($paths): void {
             $c->file('config/fortify.php')
                 ->replace("'confirmPassword' => true,", "'confirmPassword' => false,");
 

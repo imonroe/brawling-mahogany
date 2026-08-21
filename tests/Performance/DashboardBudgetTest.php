@@ -14,7 +14,6 @@ use Illuminate\Support\Facades\DB;
  * The number is deliberately tight. Raise it when a feature genuinely needs
  * the queries, and say why in the commit.
  */
-
 it('renders the dashboard within its query budget', function (): void {
     $this->actingAs(User::factory()->create());
 

@@ -26,7 +26,11 @@ const { isCurrentOrParentUrl } = useCurrentUrl();
             data-slot="admin-top-bar"
         >
             <span class="flex items-center gap-2 text-sm font-semibold">
-                <ShieldAlert class="size-4" :stroke-width="2" aria-hidden="true" />
+                <ShieldAlert
+                    class="size-4"
+                    :stroke-width="2"
+                    aria-hidden="true"
+                />
                 Super admin
             </span>
             <nav class="flex items-center gap-1" aria-label="Admin">
@@ -34,7 +38,9 @@ const { isCurrentOrParentUrl } = useCurrentUrl();
                     v-for="section in sections"
                     :key="section.href"
                     :href="section.href"
-                    :aria-current="isCurrentOrParentUrl(section.href) ? 'page' : undefined"
+                    :aria-current="
+                        isCurrentOrParentUrl(section.href) ? 'page' : undefined
+                    "
                     :class="
                         cn(
                             'rounded-md px-2.5 py-1.5 text-sm font-medium',
@@ -47,7 +53,9 @@ const { isCurrentOrParentUrl } = useCurrentUrl();
                 >
             </nav>
             <div class="flex-1"></div>
-            <Link href="/dashboard" class="text-13 font-medium text-background/70 hover:text-background"
+            <Link
+                href="/dashboard"
+                class="text-13 font-medium text-background/70 hover:text-background"
                 >Back to the app</Link
             >
         </header>

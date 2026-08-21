@@ -33,18 +33,58 @@ export interface NavEntry {
 export const NAV_GROUPS: NavEntry[][] = [
     [
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-        { label: 'My Work', href: '/work', icon: ListChecks, countKey: 'myWork' },
-        { label: 'Deals', href: '/deals', icon: Briefcase, permission: 'deals.view' },
+        {
+            label: 'My Work',
+            href: '/work',
+            icon: ListChecks,
+            countKey: 'myWork',
+        },
+        {
+            label: 'Deals',
+            href: '/deals',
+            icon: Briefcase,
+            permission: 'deals.view',
+        },
     ],
     [
-        { label: 'People', href: '/people', icon: Users, permission: 'people.view' },
-        { label: 'Properties', href: '/properties', icon: House, permission: 'properties.view' },
-        { label: 'Calendar', href: '/calendar', icon: CalendarDays, permission: 'calendar.view' },
-        { label: 'Keep in Touch', href: '/keep-in-touch', icon: Heart, permission: 'nurture.manage' },
+        {
+            label: 'People',
+            href: '/people',
+            icon: Users,
+            permission: 'people.view',
+        },
+        {
+            label: 'Properties',
+            href: '/properties',
+            icon: House,
+            permission: 'properties.view',
+        },
+        {
+            label: 'Calendar',
+            href: '/calendar',
+            icon: CalendarDays,
+            permission: 'calendar.view',
+        },
+        {
+            label: 'Keep in Touch',
+            href: '/keep-in-touch',
+            icon: Heart,
+            permission: 'nurture.manage',
+        },
     ],
     [
-        { label: 'Templates', href: '/templates', icon: LayoutTemplate, permission: 'templates.manage' },
-        { label: 'Settings', href: '/settings', icon: Settings, permission: 'settings.manage' },
+        {
+            label: 'Templates',
+            href: '/templates',
+            icon: LayoutTemplate,
+            permission: 'templates.manage',
+        },
+        {
+            label: 'Settings',
+            href: '/settings',
+            icon: Settings,
+            permission: 'settings.manage',
+        },
     ],
 ];
 
@@ -67,5 +107,7 @@ export function mobileTabs(): NavEntry[] {
 }
 
 export function moreEntries(): NavEntry[] {
-    return navEntries().filter((entry) => !MOBILE_TAB_HREFS.includes(entry.href));
+    return navEntries().filter(
+        (entry) => !MOBILE_TAB_HREFS.includes(entry.href),
+    );
 }

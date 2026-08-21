@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Form, Head } from '@inertiajs/vue3';
+import TextLink from '@/components/app/TextLink.vue';
 import InputError from '@/components/forms/InputError.vue';
 import PasswordInput from '@/components/forms/PasswordInput.vue';
-import TextLink from '@/components/app/TextLink.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

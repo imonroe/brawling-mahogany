@@ -1,0 +1,93 @@
+# The shared, production-shaped definition of the stack.
+#
+# Local development and CI layer on top of this file with `include` rather than
+# forking it (CLAUDE.md), so what runs on a laptop, in the pipeline, and on the
+# droplet is the same set of services built from the same image.
+#
+#   docker compose up                                    local (see .env: COMPOSE_FILE)
+#   docker compose -f compose.yaml -f compose.ci.yaml …   CI
+#   docker compose -f compose.yaml up -d                  staging and production
+
+name: brawling-mahogany
+
+x-app: &app
+  build:
+    context: .
+    target: ${APP_BUILD_TARGET:-production}
+  image: ${APP_IMAGE:-brawling-mahogany:local}
+  env_file:
+    - .env
+  environment:
+    # The stack's own wiring. Everything else comes from .env, which is never
+    # baked into an image (issue #23).
+    DB_HOST: postgres
+    DB_PORT: 5432
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  app:
+    <<: *app
+    ports:
+      - '${APP_PORT:-8000}:80'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1/up']
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # Automation is asynchronous, and its failures have to be visible: Horizon in
+  # its own container means a stuck job never takes the web app down with it.
+  worker:
+    <<: *app
+    command: ['php', 'artisan', 'horizon']
+    healthcheck:
+      test: ['CMD', 'php', 'artisan', 'horizon:status']
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+  # Reminders and nurture (Slice 4 onward) are scheduled work.
+  scheduler:
+    <<: *app
+    command: ['php', 'artisan', 'schedule:work']
+
+  postgres:
+    # Pinned to the patch. "Matching production" is not a version range.
+    image: postgres:16.13-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-brawling_mahogany}
+      POSTGRES_USER: ${DB_USERNAME:-brawling_mahogany}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-brawling_mahogany} -d ${DB_DATABASE:-brawling_mahogany}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

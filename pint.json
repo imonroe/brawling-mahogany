@@ -1,3 +1,26 @@
 {
-    "preset": "laravel"
+    "preset": "laravel",
+    "notes": [
+        "The Laravel preset, plus the choices this project makes deliberately.",
+        "Design System §13.2 and PRD §8 rules that a formatter can hold are held here;",
+        "the ones it cannot are tests (see tests/Unit/CodeDisciplineTest.php)."
+    ],
+    "rules": {
+        "declare_strict_types": true,
+        "fully_qualified_strict_types": true,
+        "global_namespace_import": {
+            "import_classes": true,
+            "import_constants": false,
+            "import_functions": false
+        },
+        "no_unused_imports": true,
+        "ordered_imports": {
+            "sort_algorithm": "alpha"
+        },
+        "nullable_type_declaration_for_default_null_value": true,
+        "trailing_comma_in_multiline": {
+            "elements": ["arrays", "arguments", "parameters"]
+        },
+        "void_return": true
+    }
 }

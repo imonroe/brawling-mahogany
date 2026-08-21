@@ -4,8 +4,9 @@
  * designs actually use, so a screen picks a size rather than inventing one.
  */
 import { computed } from 'vue';
+import { personInitials } from '@/lib/formatters';
+import type { NameParts } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
-import { personInitials, type NameParts } from '@/lib/formatters';
 
 type Props = {
     person: NameParts & { name?: string | null };
@@ -42,7 +43,9 @@ const TEXT: Record<NonNullable<Props['size']>, string> = {
         :class="
             cn(
                 'inline-flex shrink-0 items-center justify-center rounded-full font-semibold',
-                brand ? 'bg-brand text-brand-foreground' : 'bg-accent text-primary',
+                brand
+                    ? 'bg-brand text-brand-foreground'
+                    : 'bg-accent text-primary',
                 TEXT[size],
                 props.class,
             )

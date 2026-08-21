@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 return [
 
     /*
@@ -109,6 +111,20 @@ return [
     | used globally for all emails that are sent by your application.
     |
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Redirect All Mail
+    |--------------------------------------------------------------------------
+    |
+    | When set, every outbound message is rewritten to this address. Staging
+    | sets it so that no test message can reach a real client (PRD §8.6);
+    | production must leave it empty, and the application refuses to boot in
+    | production if it is set.
+    |
+    */
+
+    'redirect_to' => env('MAIL_REDIRECT_TO'),
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),

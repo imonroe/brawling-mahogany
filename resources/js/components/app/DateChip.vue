@@ -6,8 +6,12 @@
  */
 import { Calendar } from '@lucide/vue';
 import { computed } from 'vue';
+import {
+    calendarDaysBetween,
+    formatDateShort,
+    formatRelativeDate,
+} from '@/lib/formatters';
 import { cn } from '@/lib/utils';
-import { calendarDaysBetween, formatDateShort, formatRelativeDate } from '@/lib/formatters';
 
 type Props = {
     date: string | number | Date;
@@ -26,12 +30,17 @@ const tone = computed(() => {
         return props.tone;
     }
 
-    return calendarDaysBetween(props.now ?? new Date(), props.date) <= 0 ? 'danger' : 'neutral';
+    return calendarDaysBetween(props.now ?? new Date(), props.date) <= 0
+        ? 'danger'
+        : 'neutral';
 });
 
 const label = computed(() =>
     props.relative
-        ? formatRelativeDate(props.date, props.now ? { now: props.now } : undefined)
+        ? formatRelativeDate(
+              props.date,
+              props.now ? { now: props.now } : undefined,
+          )
         : formatDateShort(props.date),
 );
 </script>

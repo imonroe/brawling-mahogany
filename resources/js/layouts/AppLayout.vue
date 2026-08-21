@@ -28,7 +28,11 @@ const props = withDefaults(
 const page = usePage();
 
 const impersonating = computed(
-    () => page.props.auth?.impersonating as { name: string; return_url?: string } | null,
+    () =>
+        page.props.auth?.impersonating as {
+            name: string;
+            return_url?: string;
+        } | null,
 );
 
 const collapsed = ref(page.props.sidebarOpen === false);
@@ -54,7 +58,10 @@ watch(collapsed, (value) => {
             </div>
 
             <div class="flex min-w-0 flex-1 flex-col">
-                <TopBar :breadcrumbs="breadcrumbs" @toggle-sidebar="collapsed = !collapsed" />
+                <TopBar
+                    :breadcrumbs="breadcrumbs"
+                    @toggle-sidebar="collapsed = !collapsed"
+                />
                 <main class="min-h-0 flex-1 overflow-y-auto">
                     <slot />
                 </main>

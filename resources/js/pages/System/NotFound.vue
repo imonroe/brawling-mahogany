@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { FileQuestionMark } from '@lucide/vue';
 import { Head } from '@inertiajs/vue3';
+import { FileQuestionMark } from '@lucide/vue';
 import SystemMessage from '@/components/app/SystemMessage.vue';
 
-withDefaults(defineProps<{ variant?: 'tenant' | 'admin' | 'client' }>(), { variant: 'tenant' });
+withDefaults(defineProps<{ variant?: 'tenant' | 'admin' | 'client' }>(), {
+    variant: 'tenant',
+});
 </script>
 
 <template>

@@ -7,7 +7,7 @@
 import { ChevronsUpDown } from '@lucide/vue';
 import { cn } from '@/lib/utils';
 
-const props = withDefaults(
+withDefaults(
     defineProps<{
         name: string;
         plan?: string | null;
@@ -26,7 +26,8 @@ const props = withDefaults(
         :class="
             cn(
                 'flex h-14 w-full items-center gap-[9px] border-b px-3 text-left',
-                switchable && 'transition-colors duration-150 ease-out hover:bg-accent/60',
+                switchable &&
+                    'transition-colors duration-150 ease-out hover:bg-accent/60',
             )
         "
         data-slot="team-switcher"
@@ -37,8 +38,14 @@ const props = withDefaults(
             >{{ mark ?? name.slice(0, 2).toUpperCase() }}</span
         >
         <span v-if="!collapsed" class="flex min-w-0 flex-1 flex-col">
-            <span class="truncate text-sm font-semibold text-foreground">{{ name }}</span>
-            <span v-if="plan" class="truncate text-[11px] text-muted-foreground">{{ plan }}</span>
+            <span class="truncate text-sm font-semibold text-foreground">{{
+                name
+            }}</span>
+            <span
+                v-if="plan"
+                class="truncate text-[11px] text-muted-foreground"
+                >{{ plan }}</span
+            >
         </span>
         <ChevronsUpDown
             v-if="switchable && !collapsed"

@@ -9,13 +9,7 @@
  */
 
 export type DealRowCellKey =
-    | 'select'
-    | 'primary'
-    | 'meta1'
-    | 'meta2'
-    | 'state'
-    | 'date'
-    | 'owner';
+    'select' | 'primary' | 'meta1' | 'meta2' | 'state' | 'date' | 'owner';
 
 export interface DealRowColumn {
     key: DealRowCellKey;
@@ -44,16 +38,20 @@ export interface DealRowColumnOptions {
     labels?: Partial<Record<DealRowCellKey, string>>;
 }
 
-export function dealRowColumns(options: DealRowColumnOptions = {}): DealRowColumn[] {
+export function dealRowColumns(
+    options: DealRowColumnOptions = {},
+): DealRowColumn[] {
     const hidden = new Set<DealRowCellKey>(options.hide ?? []);
 
     if (!options.selectable) {
         hidden.add('select');
     }
 
-    return DEFAULTS.filter((column) => !hidden.has(column.key)).map((column) => ({
-        ...column,
-        width: options.widths?.[column.key] ?? column.width,
-        label: options.labels?.[column.key] ?? column.label,
-    }));
+    return DEFAULTS.filter((column) => !hidden.has(column.key)).map(
+        (column) => ({
+            ...column,
+            width: options.widths?.[column.key] ?? column.width,
+            label: options.labels?.[column.key] ?? column.label,
+        }),
+    );
 }

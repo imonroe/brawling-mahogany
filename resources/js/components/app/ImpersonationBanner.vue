@@ -15,11 +15,19 @@ defineProps<{ personName: string; returnHref?: string }>();
         role="status"
         data-slot="impersonation-banner"
     >
-        <ShieldAlert class="size-4 shrink-0" :stroke-width="2" aria-hidden="true" />
+        <ShieldAlert
+            class="size-4 shrink-0"
+            :stroke-width="2"
+            aria-hidden="true"
+        />
         <p class="flex-1 text-13 font-medium">
-            You are viewing the app as {{ personName }}. Everything you do is logged.
+            You are viewing the app as {{ personName }}. Everything you do is
+            logged.
         </p>
-        <a v-if="returnHref" :href="returnHref" class="text-13 font-semibold underline"
+        <a
+            v-if="returnHref"
+            :href="returnHref"
+            class="text-13 font-semibold underline"
             >Stop impersonating</a
         >
     </div>

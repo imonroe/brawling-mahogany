@@ -28,14 +28,18 @@ const props = withDefaults(
 
 const brandStyle = computed(() => ({
     ...(props.brandColor ? { '--brand': props.brandColor } : {}),
-    ...(props.brandForeground ? { '--brand-foreground': props.brandForeground } : {}),
+    ...(props.brandForeground
+        ? { '--brand-foreground': props.brandForeground }
+        : {}),
 }));
 </script>
 
 <template>
     <div class="client-surface min-h-svh bg-background" :style="brandStyle">
         <header class="flex h-15 items-center bg-brand px-5">
-            <span class="text-base font-bold text-brand-foreground">{{ teamName }}</span>
+            <span class="text-base font-bold text-brand-foreground">{{
+                teamName
+            }}</span>
         </header>
 
         <main class="mx-auto w-full max-w-[480px]">
@@ -44,12 +48,20 @@ const brandStyle = computed(() => ({
 
         <footer class="mx-auto w-full max-w-[480px] border-t p-5">
             <p class="text-sm text-muted-foreground">
-                This page is a summary of where things stand. Signed documents are kept in
-                {{ eSignatureName ?? 'your agent’s e-signature system' }}, not here.
+                This page is a summary of where things stand. Signed documents
+                are kept in
+                {{ eSignatureName ?? 'your agent’s e-signature system' }}, not
+                here.
             </p>
-            <p v-if="agentName && agentPhone" class="mt-2 text-sm text-muted-foreground">
+            <p
+                v-if="agentName && agentPhone"
+                class="mt-2 text-sm text-muted-foreground"
+            >
                 Questions? Call {{ agentName }} at
-                <a class="font-semibold text-brand" :href="`tel:${agentPhone}`">{{ agentPhone }}</a
+                <a
+                    class="font-semibold text-brand"
+                    :href="`tel:${agentPhone}`"
+                    >{{ agentPhone }}</a
                 >.
             </p>
         </footer>

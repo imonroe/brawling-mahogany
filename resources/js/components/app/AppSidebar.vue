@@ -7,21 +7,21 @@
  * nothing left in it drops its divider too.
  */
 import { usePage } from '@inertiajs/vue3';
+import { EllipsisVertical } from '@lucide/vue';
 import { computed } from 'vue';
+import NavItem from '@/components/app/NavItem.vue';
+import PersonAvatar from '@/components/app/PersonAvatar.vue';
+import TeamSwitcher from '@/components/app/TeamSwitcher.vue';
+import UserMenuContent from '@/components/app/UserMenuContent.vue';
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import NavItem from '@/components/app/NavItem.vue';
-import PersonAvatar from '@/components/app/PersonAvatar.vue';
-import TeamSwitcher from '@/components/app/TeamSwitcher.vue';
-import UserMenuContent from '@/components/app/UserMenuContent.vue';
-import { usePermissions } from '@/composables/usePermissions';
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
-import { cn } from '@/lib/utils';
+import { usePermissions } from '@/composables/usePermissions';
 import { NAV_GROUPS } from '@/lib/navigation';
-import { EllipsisVertical } from '@lucide/vue';
+import { cn } from '@/lib/utils';
 
 const props = withDefaults(
     defineProps<{
@@ -37,9 +37,9 @@ const { can } = usePermissions();
 const { isCurrentOrParentUrl } = useCurrentUrl();
 
 const groups = computed(() =>
-    NAV_GROUPS.map((group) => group.filter((entry) => can(entry.permission))).filter(
-        (group) => group.length > 0,
-    ),
+    NAV_GROUPS.map((group) =>
+        group.filter((entry) => can(entry.permission)),
+    ).filter((group) => group.length > 0),
 );
 </script>
 
@@ -63,7 +63,12 @@ const groups = computed(() =>
             <div
                 v-for="(group, index) in groups"
                 :key="index"
-                :class="cn('flex flex-col gap-0.5 px-3 py-2.5', index > 0 && 'border-t')"
+                :class="
+                    cn(
+                        'flex flex-col gap-0.5 px-3 py-2.5',
+                        index > 0 && 'border-t',
+                    )
+                "
             >
                 <NavItem
                     v-for="entry in group"
@@ -71,7 +76,11 @@ const groups = computed(() =>
                     :entry="entry"
                     :collapsed="collapsed"
                     :active="isCurrentOrParentUrl(entry.href)"
-                    :count="entry.countKey ? (props.counts?.[entry.countKey] ?? null) : null"
+                    :count="
+                        entry.countKey
+                            ? (props.counts?.[entry.countKey] ?? null)
+                            : null
+                    "
                 />
             </div>
         </nav>
@@ -84,13 +93,18 @@ const groups = computed(() =>
                     data-test="sidebar-menu-button"
                 >
                     <PersonAvatar :person="{ name: user.name }" :size="30" />
-                    <span v-if="!collapsed" class="flex min-w-0 flex-1 flex-col">
-                        <span class="truncate text-13 font-medium text-foreground">{{
-                            user.name
-                        }}</span>
-                        <span class="truncate text-[11px] text-muted-foreground">{{
-                            user.email
-                        }}</span>
+                    <span
+                        v-if="!collapsed"
+                        class="flex min-w-0 flex-1 flex-col"
+                    >
+                        <span
+                            class="truncate text-13 font-medium text-foreground"
+                            >{{ user.name }}</span
+                        >
+                        <span
+                            class="truncate text-[11px] text-muted-foreground"
+                            >{{ user.email }}</span
+                        >
                     </span>
                     <EllipsisVertical
                         v-if="!collapsed"
@@ -99,7 +113,11 @@ const groups = computed(() =>
                     />
                 </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent class="min-w-56 rounded-lg" side="top" align="start">
+            <DropdownMenuContent
+                class="min-w-56 rounded-lg"
+                side="top"
+                align="start"
+            >
                 <UserMenuContent :user="user" />
             </DropdownMenuContent>
         </DropdownMenu>

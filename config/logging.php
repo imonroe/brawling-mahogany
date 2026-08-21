@@ -1,5 +1,9 @@
 <?php
 
+declare(strict_types=1);
+
+use App\Logging\ScrubPii;
+use App\Logging\StructuredLogging;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -58,11 +62,28 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        /*
+         * JSON to stdout, so the container platform can do something with a
+         * log line (PRD §9, Observability). This is what runs everywhere but
+         * a developer's own machine.
+         */
+        'stdout' => [
+            'driver' => 'monolog',
+            'level' => env('LOG_LEVEL', 'debug'),
+            'handler' => StreamHandler::class,
+            'handler_with' => [
+                'stream' => 'php://stdout',
+            ],
+            'processors' => [PsrLogMessageProcessor::class],
+            'tap' => [StructuredLogging::class],
+        ],
+
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
+            'tap' => [ScrubPii::class],
         ],
 
         'daily' => [
@@ -71,6 +92,7 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'max_files' => env('LOG_DAILY_DAYS', 14),
             'replace_placeholders' => true,
+            'tap' => [ScrubPii::class],
         ],
 
         'monthly' => [
@@ -111,6 +133,7 @@ return [
             ],
             'formatter' => env('LOG_STDERR_FORMATTER'),
             'processors' => [PsrLogMessageProcessor::class],
+            'tap' => [ScrubPii::class],
         ],
 
         'syslog' => [
