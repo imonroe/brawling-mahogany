@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia;
 
 /**
@@ -14,6 +15,23 @@ beforeEach(function (): void {
     // off. That is deliberate: a developer wants the stack trace.
     config()->set('app.debug', false);
 });
+
+it('renders a page for every status the handler maps', function (string $status, string $component): void {
+    // 403, 500, and 503 all reach a person. The 503 is the interesting one:
+    // maintenance mode is raised by PreventRequestsDuringMaintenance, before
+    // the session starts, while the Inertia middleware reaches for the user.
+    Route::get('/system-probe', fn () => abort((int) $status))->middleware('web');
+
+    $this->get('/system-probe')
+        ->assertStatus((int) $status)
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component($component)
+            ->where('variant', 'tenant'));
+})->with([
+    ['403', 'System/Forbidden'],
+    ['500', 'System/ServerError'],
+    ['503', 'System/Maintenance'],
+]);
 
 it('renders the tenant 404 for an unknown page', function (): void {
     $this->get('/no-such-page')

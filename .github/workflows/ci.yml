@@ -227,3 +227,25 @@ jobs:
       - name: Build the stack
         # The same base file local development and production use.
         run: docker compose -f compose.yaml -f compose.ci.yaml build
+
+      - name: Boot it and check it answers
+        # Building proves the image compiles; booting proves the entrypoint
+        # waits for Postgres, runs the migrations (AUTO_MIGRATE is set in the
+        # CI override), and serves a request. Issue #22's definition of done is
+        # "a working app", which a build alone cannot show.
+        run: |
+          docker compose -f compose.yaml -f compose.ci.yaml up -d app
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://localhost:${APP_PORT:-8000}/up" > /dev/null; then
+              echo "The application answered on attempt $attempt."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "The application never answered." >&2
+          docker compose -f compose.yaml -f compose.ci.yaml logs app
+          exit 1
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose -f compose.yaml -f compose.ci.yaml down -v

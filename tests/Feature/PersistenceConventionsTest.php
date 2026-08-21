@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Schema;
  */
 afterEach(function (): void {
     Schema::dropIfExists('convention_probe');
+    Schema::dropIfExists('teams');
 });
 
 it('gives a business table a ULID key, a team, timestamps, and soft deletes', function (): void {
@@ -44,26 +45,34 @@ it('allows a table that is deliberately not team-scoped', function (): void {
 
 it('can constrain team_id to the teams table', function (): void {
     // ADR 0002's second enforcement layer: the database's own half. `teams`
-    // arrives in Slice 1; this proves the macro produces a real constraint
-    // when it does, rather than leaving the layer to be remembered.
-    Schema::create('convention_teams', function (Blueprint $table): void {
+    // arrives in Slice 1, so it is created here — the point is to exercise
+    // the macro's flag, not Laravel's `constrained()`.
+    Schema::create('teams', function (Blueprint $table): void {
         $table->ulid('id')->primary();
     });
 
     Schema::create('convention_probe', function (Blueprint $table): void {
-        $table->ulid('id')->primary();
-        $table->foreignUlid('team_id')->constrained('convention_teams')->cascadeOnDelete();
+        $table->productDefaults(constrained: true);
     });
 
     $foreignKeys = collect(Schema::getForeignKeys('convention_probe'));
 
     expect($foreignKeys)->toHaveCount(1)
         ->and($foreignKeys->first()['columns'])->toBe(['team_id'])
-        ->and($foreignKeys->first()['foreign_table'])->toBe('convention_teams')
+        ->and($foreignKeys->first()['foreign_table'])->toBe('teams')
         ->and($foreignKeys->first()['on_delete'])->toBe('cascade');
+});
 
-    Schema::dropIfExists('convention_probe');
-    Schema::dropIfExists('convention_teams');
+it('leaves team_id unconstrained but indexed by default', function (): void {
+    // The default is off only because `teams` does not exist yet; the column
+    // and its index are not optional either way.
+    Schema::create('convention_probe', function (Blueprint $table): void {
+        $table->productDefaults();
+    });
+
+    expect(Schema::getForeignKeys('convention_probe'))->toBe([])
+        ->and(collect(Schema::getIndexes('convention_probe'))
+            ->contains(fn (array $index): bool => $index['columns'] === ['team_id']))->toBeTrue();
 });
 
 it('stores money as integer cents and config as JSONB', function (): void {
@@ -102,4 +111,31 @@ it('still refuses two live accounts with the same address', function (): void {
     expect(fn () => DB::transaction(
         fn () => User::factory()->create(['email' => 'emily@example.com']),
     ))->toThrow(QueryException::class);
+});
+
+it('lets somebody register again after deleting their account', function (): void {
+    // The partial index is only half of it: the validation rule counts rows
+    // itself, and this is the path a person actually travels.
+    $user = User::factory()->create(['email' => 'emily@example.com']);
+    $user->delete();
+
+    $this->post('/register', [
+        'name' => 'Emily Bosart',
+        'email' => 'emily@example.com',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertSessionHasNoErrors();
+
+    expect(User::query()->where('email', 'emily@example.com')->count())->toBe(1);
+});
+
+it('still refuses to register a live address twice', function (): void {
+    User::factory()->create(['email' => 'emily@example.com']);
+
+    $this->post('/register', [
+        'name' => 'Someone Else',
+        'email' => 'emily@example.com',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertSessionHasErrors('email');
 });

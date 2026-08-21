@@ -12,7 +12,9 @@ export type Rgb = [number, number, number];
 export function parseOklch(value: string): [number, number, number] {
     const match = value
         .trim()
-        .match(/^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*(?:\/\s*[\d.]+\s*)?\)$/);
+        .match(
+            /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*(?:\/\s*[\d.]+\s*)?\)$/,
+        );
 
     if (!match) {
         throw new Error(`Not an oklch value: ${value}`);
@@ -45,12 +47,17 @@ export function relativeLuminance([r, g, b]: Rgb): number {
 }
 
 export function contrastRatio(a: Rgb, b: Rgb): number {
-    const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+    const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort(
+        (x, y) => y - x,
+    );
 
     return (lighter + 0.05) / (darker + 0.05);
 }
 
-export function contrastOfOklch(foreground: string, background: string): number {
+export function contrastOfOklch(
+    foreground: string,
+    background: string,
+): number {
     return contrastRatio(
         oklchToLinearRgb(...parseOklch(foreground)),
         oklchToLinearRgb(...parseOklch(background)),

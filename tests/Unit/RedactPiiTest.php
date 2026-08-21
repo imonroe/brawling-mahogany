@@ -92,23 +92,42 @@ it('keeps the keys that make a log useful', function (): void {
     // Over-redaction has a cost too: a log with nothing identifying in it
     // cannot be followed. These are the ones worth protecting from the
     // scrubber — note `key_dates`, which is a table in this product.
-    $result = record('Advanced a stage', [
+    $useful = [
         'deal_id' => '01J8XZ',
         'stage_id' => '01J8XY',
         'key_dates' => 3,
         'job_name' => 'SendMilestoneEmail',
-        'queue_name' => 'default',
+        'queue_name' => 'automation',
         'gate_type' => 'document_present',
+        // The product's own process vocabulary. None of it is a person.
+        'stage_name' => 'Under Contract',
+        'workflow_name' => 'Seller — Standard',
+        'task_name' => 'Order the inspection',
+        'gate_name' => 'Inspection report received',
+        'action_name' => 'Send milestone email',
+        'milestone_label' => 'Your home is on the market',
+        'reason_code' => 'gate_unmet',
+        'attempts' => 3,
+        'namespace' => 'App\\Jobs',
+    ];
+
+    expect(record('Advanced a stage', $useful)->context)->toBe($useful);
+});
+
+it('still redacts the names that are somebody’s name', function (): void {
+    // `deal_name` is a street address (IA §10), and the rest are people.
+    $result = record('Deal renamed', [
+        'deal_name' => '123 Main St',
+        'client_name' => 'Emily Bosart',
+        'person_name' => 'Heather Nguyen',
+        'property_name' => '123 Main St',
+        // Free text a person typed, which routinely quotes a client.
+        'reason' => 'Seller said the buyer’s lender was slow',
     ]);
 
-    expect($result->context)->toBe([
-        'deal_id' => '01J8XZ',
-        'stage_id' => '01J8XY',
-        'key_dates' => 3,
-        'job_name' => 'SendMilestoneEmail',
-        'queue_name' => 'default',
-        'gate_type' => 'document_present',
-    ]);
+    foreach (array_keys($result->context) as $key) {
+        expect($result->context[$key])->toBe(RedactPii::REDACTED, $key.' should be redacted');
+    }
 });
 
 it('redacts credentials and tokens', function (): void {

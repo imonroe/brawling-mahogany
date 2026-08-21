@@ -43,6 +43,14 @@ return [
 
     'before_send' => [App\Logging\ScrubSentryEvents::class, 'event'],
 
+    /*
+     * Sentry Logs are a third pipeline: they use neither of the callbacks
+     * above — `LogsHandler::doWrite()` pushes the record's message and context
+     * straight out, and this is its only hook. The channel is off by default;
+     * this makes sure it is safe if it is ever turned on.
+     */
+    'before_send_log' => [App\Logging\ScrubSentryEvents::class, 'log'],
+
     'release' => env('SENTRY_RELEASE'),
 
     // When left empty or `null` the Laravel environment will be used (usually discovered from `APP_ENV` in your `.env`)

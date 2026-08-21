@@ -5,10 +5,9 @@ import {
     resolveState,
     STATES,
     stateLabel,
-    stateTone
-    
+    stateTone,
 } from '@/lib/states';
-import type {StateDomain} from '@/lib/states';
+import type { StateDomain } from '@/lib/states';
 
 describe('state vocabulary', () => {
     it('resolves a documented state', () => {
@@ -18,7 +17,9 @@ describe('state vocabulary', () => {
     });
 
     it('throws on an unknown state rather than rendering it unstyled', () => {
-        expect(() => resolveState('stage', 'in_progress')).toThrow(/Unknown stage state/);
+        expect(() => resolveState('stage', 'in_progress')).toThrow(
+            /Unknown stage state/,
+        );
         expect(() => resolveState('nonsense' as StateDomain, 'active')).toThrow(
             /Unknown state domain/,
         );
@@ -27,11 +28,17 @@ describe('state vocabulary', () => {
     it('gives every state a tone and a label', () => {
         for (const [domain, table] of Object.entries(STATES)) {
             for (const [code, descriptor] of Object.entries(table)) {
-                expect(code, `${domain}.${code} is snake_case`).toMatch(/^[a-z][a-z0-9_]*$/);
-                expect(descriptor.label).not.toBe('');
-                expect(['neutral', 'info', 'success', 'warning', 'danger']).toContain(
-                    descriptor.tone,
+                expect(code, `${domain}.${code} is snake_case`).toMatch(
+                    /^[a-z][a-z0-9_]*$/,
                 );
+                expect(descriptor.label).not.toBe('');
+                expect([
+                    'neutral',
+                    'info',
+                    'success',
+                    'warning',
+                    'danger',
+                ]).toContain(descriptor.tone);
             }
         }
     });
@@ -49,15 +56,23 @@ describe('state vocabulary', () => {
                 expect(
                     descriptor.clientLabel.toLowerCase(),
                     `${domain}.${code} client label`,
-                ).not.toMatch(/blocked|failed|overdue|error|gate|override|workflow/);
+                ).not.toMatch(
+                    /blocked|failed|overdue|error|gate|override|workflow/,
+                );
             }
         }
     });
 
     it('hides skipped stages from the client and never leaks the internal name', () => {
-        expect(clientStageName({ state: 'skipped', milestone_label: 'Anything' })).toBeNull();
-        expect(clientStageName({ state: 'complete', milestone_label: 'Your home is on the market' }))
-            .toBe('Your home is on the market');
+        expect(
+            clientStageName({ state: 'skipped', milestone_label: 'Anything' }),
+        ).toBeNull();
+        expect(
+            clientStageName({
+                state: 'complete',
+                milestone_label: 'Your home is on the market',
+            }),
+        ).toBe('Your home is on the market');
         // No milestone_label means nothing to say — not the internal name.
         expect(clientStageName({ state: 'complete' })).toBeNull();
     });

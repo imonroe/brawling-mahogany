@@ -19,8 +19,14 @@ describe('design tokens', () => {
         const isColour = ([, value]: [string, string]) =>
             value.startsWith('oklch(') || value.startsWith('var(');
 
-        const light = Object.entries(tokens('light')).filter(isColour).map(([key]) => key).sort();
-        const dark = Object.entries(tokens('dark')).filter(isColour).map(([key]) => key).sort();
+        const light = Object.entries(tokens('light'))
+            .filter(isColour)
+            .map(([key]) => key)
+            .sort();
+        const dark = Object.entries(tokens('dark'))
+            .filter(isColour)
+            .map(([key]) => key)
+            .sort();
 
         expect(dark).toEqual(light);
     });
@@ -28,28 +34,52 @@ describe('design tokens', () => {
     it.each(TONES)('keeps the %s badge pair readable in light mode', (tone) => {
         const light = tokens('light');
 
-        expect(contrastOfOklch(light[`--state-${tone}`], light[`--state-${tone}-bg`])).toBeGreaterThanOrEqual(4.5);
+        expect(
+            contrastOfOklch(
+                light[`--state-${tone}`],
+                light[`--state-${tone}-bg`],
+            ),
+        ).toBeGreaterThanOrEqual(4.5);
         // The same text also sits on a card, in a table's state column.
-        expect(contrastOfOklch(light[`--state-${tone}`], light['--card'])).toBeGreaterThanOrEqual(4.5);
+        expect(
+            contrastOfOklch(light[`--state-${tone}`], light['--card']),
+        ).toBeGreaterThanOrEqual(4.5);
     });
 
     it.each(TONES)('keeps the %s badge pair readable in dark mode', (tone) => {
         const dark = tokens('dark');
 
-        expect(contrastOfOklch(dark[`--state-${tone}`], dark[`--state-${tone}-bg`])).toBeGreaterThanOrEqual(4.5);
-        expect(contrastOfOklch(dark[`--state-${tone}`], dark['--card'])).toBeGreaterThanOrEqual(4.5);
+        expect(
+            contrastOfOklch(
+                dark[`--state-${tone}`],
+                dark[`--state-${tone}-bg`],
+            ),
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+            contrastOfOklch(dark[`--state-${tone}`], dark['--card']),
+        ).toBeGreaterThanOrEqual(4.5);
     });
 
     it('keeps body and muted text readable in both themes', () => {
         for (const theme of ['light', 'dark'] as const) {
             const t = tokens(theme);
 
-            expect(contrastOfOklch(t['--foreground'], t['--background'])).toBeGreaterThanOrEqual(4.5);
-            expect(contrastOfOklch(t['--muted-foreground'], t['--background'])).toBeGreaterThanOrEqual(4.5);
-            expect(contrastOfOklch(t['--muted-foreground'], t['--muted'])).toBeGreaterThanOrEqual(4.5);
-            expect(contrastOfOklch(t['--primary-foreground'], t['--primary'])).toBeGreaterThanOrEqual(4.5);
+            expect(
+                contrastOfOklch(t['--foreground'], t['--background']),
+            ).toBeGreaterThanOrEqual(4.5);
+            expect(
+                contrastOfOklch(t['--muted-foreground'], t['--background']),
+            ).toBeGreaterThanOrEqual(4.5);
+            expect(
+                contrastOfOklch(t['--muted-foreground'], t['--muted']),
+            ).toBeGreaterThanOrEqual(4.5);
+            expect(
+                contrastOfOklch(t['--primary-foreground'], t['--primary']),
+            ).toBeGreaterThanOrEqual(4.5);
             // Active nav items are primary text on the accent fill.
-            expect(contrastOfOklch(t['--primary'], t['--accent'])).toBeGreaterThanOrEqual(4.5);
+            expect(
+                contrastOfOklch(t['--primary'], t['--accent']),
+            ).toBeGreaterThanOrEqual(4.5);
         }
     });
 
@@ -57,12 +87,18 @@ describe('design tokens', () => {
         // resources/views/app.blade.php paints the page background before the
         // stylesheet loads, so it duplicates two token values by hand. This is
         // the only place that is allowed to, and it has to stay in step.
-        const blade = readFileSync(resolve(process.cwd(), 'resources/views/app.blade.php'), 'utf8');
-        const painted = [...blade.matchAll(/background-color:\s*(oklch\([^)]*\));/g)].map(
-            (match) => match[1],
+        const blade = readFileSync(
+            resolve(process.cwd(), 'resources/views/app.blade.php'),
+            'utf8',
         );
+        const painted = [
+            ...blade.matchAll(/background-color:\s*(oklch\([^)]*\));/g),
+        ].map((match) => match[1]);
 
-        expect(painted).toEqual([tokens('light')['--background'], tokens('dark')['--background']]);
+        expect(painted).toEqual([
+            tokens('light')['--background'],
+            tokens('dark')['--background'],
+        ]);
     });
 
     it('carries no raw hex in the token blocks', () => {

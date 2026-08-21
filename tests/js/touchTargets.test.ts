@@ -12,7 +12,9 @@ import IconButton from '@/components/app/IconButton.vue';
  */
 describe('touch targets', () => {
     it('gives IconButton a 44px target that shrinks only at md', () => {
-        const button = mount(IconButton, { props: { icon: Bell, label: 'Notifications' } });
+        const button = mount(IconButton, {
+            props: { icon: Bell, label: 'Notifications' },
+        });
 
         expect(button.classes()).toContain('size-11');
         expect(button.classes()).toContain('md:size-8');
@@ -20,13 +22,18 @@ describe('touch targets', () => {
 
     it('names the control for a screen reader', () => {
         // An icon never carries meaning alone (§5.4).
-        const button = mount(IconButton, { props: { icon: Bell, label: 'Notifications' } });
+        const button = mount(IconButton, {
+            props: { icon: Bell, label: 'Notifications' },
+        });
 
         expect(button.attributes('aria-label')).toBe('Notifications');
     });
 
     it('keeps the mobile tab bar above the minimum', () => {
-        const source = readFileSync('resources/js/components/app/MobileTabBar.vue', 'utf8');
+        const source = readFileSync(
+            'resources/js/components/app/MobileTabBar.vue',
+            'utf8',
+        );
 
         expect(source).toContain('min-h-11');
     });

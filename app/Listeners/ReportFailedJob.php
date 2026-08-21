@@ -8,9 +8,10 @@ use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Log;
 
 use function Sentry\captureException;
-use function Sentry\configureScope;
 
 use Sentry\State\Scope;
+
+use function Sentry\withScope;
 
 /**
  * A failed job is the product's loudest signal, and PRD §9 asks for an alert
@@ -35,17 +36,24 @@ final class ReportFailedJob
 
         Log::error('Queued job failed.', $context);
 
-        if (config('sentry.dsn') === null) {
+        if (blank(config('sentry.dsn'))) {
             return;
         }
 
-        configureScope(function (Scope $scope) use ($context): void {
+        /*
+         * withScope, not configureScope: a Horizon worker is long-lived, and
+         * configureScope would leave this job's tags on every later event from
+         * the same process — including unrelated failures.
+         */
+        withScope(function (Scope $scope) use ($context, $event): void {
             // Tags, not the payload: these are what an alert rule groups on.
             foreach ($context as $key => $value) {
                 $scope->setTag('job.'.$key, $value);
             }
-        });
 
-        captureException($event->exception);
+            // The hub's current scope is the one pushed above, so the capture
+            // picks up these tags and nothing later does.
+            captureException($event->exception);
+        });
     }
 }

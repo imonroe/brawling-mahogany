@@ -39,10 +39,11 @@ Multi-tenancy is deliberate and commercial: the goal is to sell subscriptions to
 | Components | shadcn-vue over Reka UI |
 | Database | PostgreSQL |
 | Cache/Queue | Redis + Laravel Horizon |
-| Auth/Roles | Laravel Fortify + `spatie/laravel-permission` (teams mode) |
-| File storage | DigitalOcean Spaces (private, signed URLs) |
-| Email | Amazon SES |
-| Push | Web Push (VAPID), delivered via an installable PWA |
+| Auth | Laravel Fortify (passwords, 2FA, passkeys) |
+| Roles | `spatie/laravel-permission` in teams mode — planned, arrives with tenancy in Slice 1 |
+| File storage | DigitalOcean Spaces (private, signed URLs) — planned, Slice 3 |
+| Email | Amazon SES — planned, Slice 3. Local mail lands in Mailpit |
+| Push | Web Push (VAPID) via an installable PWA — planned, Slice 3 |
 | Hosting | Docker Compose (FrankenPHP) on a DigitalOcean droplet |
 | Monitoring | Sentry, Horizon, structured JSON logs |
 

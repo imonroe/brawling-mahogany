@@ -46,9 +46,16 @@ trait ProfileValidationRules
             'string',
             'email',
             'max:255',
+            /*
+             * Unique among the living only, matching the partial index on the
+             * table. A plain unique rule counts soft-deleted rows, so somebody
+             * who deleted their account could never register again and an
+             * invitation to them would fail with "The email has already been
+             * taken" (PRD §9's 30-day recovery window makes that a live case).
+             */
             $userId === null
-                ? Rule::unique(User::class)
-                : Rule::unique(User::class)->ignore($userId),
+                ? Rule::unique(User::class)->whereNull('deleted_at')
+                : Rule::unique(User::class)->whereNull('deleted_at')->ignore($userId),
         ];
     }
 }

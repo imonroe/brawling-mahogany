@@ -40,10 +40,18 @@ up: ## Start the stack
 down: ## Stop the stack
 	$(COMPOSE) down
 
+.PHONY: deps
+deps: ## Install dependencies after a composer.json or package.json change
+	# Dependencies live in volumes so the host's are not shadowed, which means
+	# a rebuild does not pick up a new package — this does.
+	$(APP) composer install
+	$(APP) npm ci
+
 .PHONY: reset
-reset: ## Stop the stack and delete its volumes, including the dependency caches
-	# Dependencies live in volumes so the host's are not shadowed. That means
-	# a new package in composer.json or package.json needs this, not a rebuild.
+reset: ## Delete the stack's volumes — including the database. Destructive.
+	# `down -v` removes every volume in the project: the dependency caches,
+	# Caddy's certificates, and postgres-data. Local data is gone. For a new
+	# dependency you want `make deps`.
 	$(COMPOSE) down -v
 
 .PHONY: logs

@@ -45,20 +45,37 @@ final class Redactor
         'ssn', 'dob', 'birthdate', 'birthday',
         'account', 'routing', 'iban', 'card',
         'amount', 'price', 'value', 'salary', 'income',
-        'body', 'contents', 'snippet', 'payload', 'note', 'notes', 'reason',
+        'body', 'contents', 'snippet', 'payload', 'note', 'notes',
+        // Free text a person typed — an override reason routinely quotes a
+        // client. Log a `reason_code` instead when the value is enumerated.
+        'reason',
     ];
 
     /**
-     * Keys that contain a sensitive fragment but are not personal data, and
-     * are worth keeping because they are how a log stays useful.
+     * Keys that contain a sensitive fragment but are not personal data.
+     *
+     * Over-redaction has a cost of its own: a log with nothing identifying in
+     * it cannot be followed, and the block list always wins, so the exceptions
+     * have to be deliberate. Patterns rather than exact strings, because the
+     * product's own vocabulary generates families of them.
+     *
+     * Note which `*_name` keys are **not** here: `deal_name` is a street
+     * address (IA §10) and `person_name`, `client_name`, `property_name`, and
+     * `team_name` are all somebody's name. Those stay redacted.
      *
      * @var list<string>
      */
-    private const ALLOWED_KEYS = [
-        'name_of_check', 'queue_name', 'job_name', 'class_name', 'channel_name',
-        'connection_name', 'driver_name', 'command_name', 'event_name',
-        'template_name', 'model_name', 'field_name', 'column_name',
-        'exception', 'file', 'line', 'trace',
+    private const ALLOWED_KEY_PATTERNS = [
+        // The process vocabulary: none of these is a person or a place.
+        '/^(stage|workflow|task|gate|action|automation|template|pack|milestone|trigger)_(name|label|type|state|status|key)$/',
+        // Infrastructure.
+        '/^(job|queue|class|channel|connection|driver|command|event|handler|listener|mailer|disk|store)_(name|type|class)$/',
+        // Identifiers and counts are how a log line stays followable.
+        '/_(id|ids|type|types|code|codes|count|state|status|version|at)$/',
+        // Words that merely contain a sensitive fragment by accident:
+        // "namespace" holds "name", "author" holds "auth", "capacity" "city".
+        '/^(namespace|author|capacity|filename_extension|placeholder)$/',
+        '/^(exception|file|line|trace|level|message_id|duration_ms|attempts)$/',
     ];
 
     private const PATTERNS = [
@@ -119,8 +136,10 @@ final class Redactor
     {
         $normalised = mb_strtolower($key);
 
-        if (in_array($normalised, self::ALLOWED_KEYS, true)) {
-            return false;
+        foreach (self::ALLOWED_KEY_PATTERNS as $pattern) {
+            if (preg_match($pattern, $normalised) === 1) {
+                return false;
+            }
         }
 
         /*

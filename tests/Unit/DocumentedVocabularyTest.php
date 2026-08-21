@@ -28,7 +28,7 @@ use App\Enums\WorkflowState;
  */
 
 /** The values column of a PRD §6.3 row, split on commas. */
-function prdLookupValues(string $lookup): array
+function documented_prd_lookup_values(string $lookup): array
 {
     $document = file_get_contents(base_path('docs/Product Requirements Document.md'));
 
@@ -69,7 +69,7 @@ function prdLookupValues(string $lookup): array
  * cell is a backticked code, and an inline run of `code` → Label pairs
  * separated by a middle dot.
  */
-function iaStateVocabulary(string $heading): array
+function documented_ia_state_vocabulary(string $heading): array
 {
     $document = file_get_contents(base_path('docs/Information Architecture.md'));
 
@@ -118,7 +118,7 @@ dataset('lookups', [
 ]);
 
 it('matches the lookup values in PRD §6.3', function (string $lookup, string $enum): void {
-    expect($enum::labels())->toBe(prdLookupValues($lookup));
+    expect($enum::labels())->toBe(documented_prd_lookup_values($lookup));
 })->with('lookups');
 
 dataset('state vocabularies', [
@@ -133,7 +133,7 @@ dataset('state vocabularies', [
 ]);
 
 it('matches the state vocabulary in IA §8', function (string $heading, string $enum): void {
-    $documented = iaStateVocabulary($heading);
+    $documented = documented_ia_state_vocabulary($heading);
 
     expect($enum::options())->toBe($documented);
 })->with('state vocabularies');

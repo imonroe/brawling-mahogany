@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Symfony\Component\Finder\Finder;
+use Tests\Support\Sources;
 
 /**
  * Two project rules that a reviewer would have to remember, held mechanically
@@ -16,23 +17,6 @@ use Symfony\Component\Finder\Finder;
  *     "Always use the current terms below in code, routes, and UI — never the
  *     superseded ones, even if you see them in older doc passages."
  */
-
-/**
- * @return list<string>
- */
-function sourceFiles(array $directories, array $extensions): array
-{
-    $finder = (new Finder)
-        ->files()
-        ->in(array_map(fn (string $path): string => base_path($path), $directories))
-        ->name(array_map(fn (string $extension): string => '*.'.$extension, $extensions));
-
-    return array_values(array_map(
-        fn ($file): string => $file->getRelativePathname(),
-        iterator_to_array($finder),
-    ));
-}
-
 it('never interpolates a value into a log message', function (): void {
     $offenders = [];
 
@@ -105,7 +89,7 @@ it('never uses the superseded vocabulary', function (): void {
 
 it('keeps the page components mirroring the routes in PascalCase', function (): void {
     // IA §6: /deals renders Pages/Deals/Index.vue.
-    $pages = sourceFiles(['resources/js/pages'], ['vue']);
+    $pages = Sources::files(['resources/js/pages'], ['vue']);
 
     expect($pages)->not->toBeEmpty();
 

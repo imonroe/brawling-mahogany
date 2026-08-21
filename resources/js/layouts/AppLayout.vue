@@ -9,12 +9,13 @@
  * On a phone the sidebar is replaced by the bottom tab bar (IA §5.3).
  */
 import { usePage } from '@inertiajs/vue3';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, watchEffect } from 'vue';
 import AppSidebar from '@/components/app/AppSidebar.vue';
 import ImpersonationBanner from '@/components/app/ImpersonationBanner.vue';
 import MobileTabBar from '@/components/app/MobileTabBar.vue';
 import TopBar from '@/components/app/TopBar.vue';
 import { Toaster } from '@/components/ui/sonner';
+import { setTeamTimeZone } from '@/lib/formatters';
 import type { BreadcrumbItem } from '@/types';
 
 const props = withDefaults(
@@ -26,6 +27,22 @@ const props = withDefaults(
 );
 
 const page = usePage();
+
+/*
+ * Dates are stored in UTC and displayed in the team's timezone (PRD §9).
+ *
+ * This has to run where a page exists: `usePage()` at module scope resolves
+ * before `createInertiaApp` has mounted anything, so it would read nothing
+ * and never run again. A watcher here also survives a team switch.
+ */
+watchEffect(() => {
+    const timeZone = (page.props as { team?: { timezone?: string } }).team
+        ?.timezone;
+
+    if (timeZone) {
+        setTeamTimeZone(timeZone);
+    }
+});
 
 const impersonating = computed(
     () =>

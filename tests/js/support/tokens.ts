@@ -8,7 +8,10 @@ import { resolve } from 'node:path';
  * carelessly fails the build rather than the eye.
  */
 function css(): string {
-    return readFileSync(resolve(process.cwd(), 'resources/css/app.css'), 'utf8');
+    return readFileSync(
+        resolve(process.cwd(), 'resources/css/app.css'),
+        'utf8',
+    );
 }
 
 function block(selector: string): string {
@@ -35,4 +38,10 @@ export function tokens(theme: 'light' | 'dark'): Record<string, string> {
     return found;
 }
 
-export const TONES = ['neutral', 'info', 'success', 'warning', 'danger'] as const;
+export const TONES = [
+    'neutral',
+    'info',
+    'success',
+    'warning',
+    'danger',
+] as const;

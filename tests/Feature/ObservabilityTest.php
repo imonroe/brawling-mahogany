@@ -3,10 +3,17 @@
 declare(strict_types=1);
 
 use App\Logging\Redactor;
+use App\Logging\ScrubPii;
 use App\Logging\ScrubSentryEvents;
+use App\Logging\StructuredLogging;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Mail;
 use Sentry\Breadcrumb;
+use Sentry\Event;
+use Sentry\ExceptionDataBag;
+use Sentry\Logs\Log;
+use Sentry\Logs\LogLevel;
 
 it('keeps the Horizon dashboard away from ordinary people', function (): void {
     // PRD §4.1: Horizon shows queue payloads, so it is a super-admin surface.
@@ -69,18 +76,23 @@ it('scrubs PII from every channel that can write', function (): void {
      *  - `emergency` is built by the framework without taps and only fires
      *    when the configured channel itself throws (see config/logging.php).
      *  - `sentry` and `sentry_logs` are registered by the Sentry package and
-     *    write nothing locally; they go out through the SDK, which carries its
-     *    own redaction (the assertions below).
+     *    write nothing locally. `sentry` goes out through `before_send`;
+     *    `sentry_logs` is a custom driver a tap could not reach anyway, and
+     *    goes out through `before_send_log`. Both are asserted below.
      */
     $exempt = ['stack', 'null', 'emergency', 'sentry', 'sentry_logs'];
 
+    // Naming the tap, not just counting them: `filled()` would be satisfied
+    // by any tap at all, and the failure message claims something specific.
+    $scrubbing = [ScrubPii::class, StructuredLogging::class];
+
     $unscrubbed = collect(config('logging.channels'))
         ->reject(fn (array $config, string $name): bool => in_array($name, $exempt, true))
-        ->reject(fn (array $config): bool => filled($config['tap'] ?? []))
+        ->reject(fn (array $config): bool => array_intersect($scrubbing, $config['tap'] ?? []) !== [])
         ->keys()
         ->all();
 
-    expect($unscrubbed)->toBe([], 'Every writing log channel needs the ScrubPii tap.');
+    expect($unscrubbed)->toBe([], 'Every writing log channel needs a tap that installs RedactPii.');
 });
 
 it('sends nothing to Sentry that has not been redacted', function (): void {
@@ -102,4 +114,44 @@ it('sends nothing to Sentry that has not been redacted', function (): void {
     expect($breadcrumb->getMessage())->not->toContain('@example.com')
         ->and($breadcrumb->getMetadata()['email'])->toBe(Redactor::REDACTED)
         ->and($breadcrumb->getMetadata()['deal_id'])->toBe('01J8XZ');
+});
+
+it('redacts the exception value, which is where PII usually hides', function (): void {
+    /*
+     * Laravel interpolates query bindings into the exception message, so the
+     * most common exception in the framework carries whatever the query
+     * filtered on. This is the path a breadcrumb callback never sees.
+     */
+    $exception = new QueryException(
+        'pgsql',
+        'select * from users where email = ?',
+        ['emily@example.com'],
+        new RuntimeException('SQLSTATE[42P01]: relation "users" does not exist'),
+    );
+
+    $event = ScrubSentryEvents::event(
+        Event::createEvent()->setExceptions([new ExceptionDataBag($exception)]),
+    );
+
+    $value = $event->getExceptions()[0]->getValue();
+
+    expect($value)->not->toContain('emily@example.com')
+        ->and($value)->toContain(Redactor::REDACTED)
+        // The useful half survives: it is still obvious which query broke.
+        ->and($value)->toContain('select * from users');
+});
+
+it('redacts a Sentry Log record, which uses neither callback above', function (): void {
+    // Sentry Logs bypass before_breadcrumb and before_send entirely.
+    expect(config('sentry.before_send_log'))->toBe([ScrubSentryEvents::class, 'log']);
+
+    $log = (new Log(1_755_000_000.0, str_repeat('0', 32), LogLevel::info(), 'Emailed emily@example.com'))
+        ->setAttribute('client_email', 'emily@example.com')
+        ->setAttribute('deal_id', '01J8XZ');
+
+    $scrubbed = ScrubSentryEvents::log($log);
+
+    expect($scrubbed->getBody())->not->toContain('@example.com')
+        ->and($scrubbed->attributes()->toSimpleArray()['client_email'])->toBe(Redactor::REDACTED)
+        ->and($scrubbed->attributes()->toSimpleArray()['deal_id'])->toBe('01J8XZ');
 });

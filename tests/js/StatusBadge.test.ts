@@ -4,13 +4,17 @@ import StatusBadge from '@/components/app/StatusBadge.vue';
 
 describe('StatusBadge', () => {
     it('renders the label and the dot for a state', () => {
-        const badge = mount(StatusBadge, { props: { domain: 'stage', state: 'blocked' } });
+        const badge = mount(StatusBadge, {
+            props: { domain: 'stage', state: 'blocked' },
+        });
 
         expect(badge.text()).toBe('Blocked');
         // A tone is three properties: container, dot, and label move together.
         expect(badge.classes()).toContain('bg-state-warning-bg');
         expect(badge.classes()).toContain('text-state-warning');
-        expect(badge.find('span.rounded-full.bg-state-warning').exists()).toBe(true);
+        expect(badge.find('span.rounded-full.bg-state-warning').exists()).toBe(
+            true,
+        );
     });
 
     it('drops the dot for a count or a terminal status', () => {
@@ -26,7 +30,9 @@ describe('StatusBadge', () => {
         // Vue reuses instances when a keyed list re-renders with new data —
         // filtering the deals table, or an Inertia partial reload. A badge
         // that resolved once in setup() would keep the old row's colour.
-        const badge = mount(StatusBadge, { props: { domain: 'deal', state: 'active' } });
+        const badge = mount(StatusBadge, {
+            props: { domain: 'deal', state: 'active' },
+        });
 
         expect(badge.text()).toBe('Active');
         expect(badge.classes()).toContain('text-state-info');
@@ -40,7 +46,9 @@ describe('StatusBadge', () => {
 
     it('throws on an unknown state rather than rendering an unstyled badge', () => {
         expect(() =>
-            mount(StatusBadge, { props: { domain: 'stage', state: 'in_progress' } }),
+            mount(StatusBadge, {
+                props: { domain: 'stage', state: 'in_progress' },
+            }),
         ).toThrow(/Unknown stage state/);
     });
 

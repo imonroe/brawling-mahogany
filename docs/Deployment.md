@@ -145,8 +145,12 @@ issue rather than a line in this document. It is performed on staging:
 - **Horizon** at `/horizon`, gated to the addresses in
   `HORIZON_AUTHORIZED_EMAILS` — it shows queue payloads, so it is a super-admin
   surface.
-- **Structured JSON logs to stdout**, scrubbed by `App\Logging\RedactPii`
-  before anything is written.
+- **Structured JSON logs to stdout.** Redaction is `App\Logging\Redactor`,
+  reached from three places, because there are three ways out of the
+  application: `RedactPii` (the Monolog processor, on every writing channel),
+  and Sentry's `before_breadcrumb`, `before_send`, and `before_send_log` —
+  Sentry's log breadcrumbs are raised before Monolog sees them, and its
+  exception values carry interpolated query bindings.
 - **An uptime check** against `/up`. The endpoint exists and the deploy smoke
   test uses it; the external monitor that watches it is account configuration
   and is part of the staging checklist below, not of this repository.

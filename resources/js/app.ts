@@ -1,4 +1,4 @@
-import { createInertiaApp, usePage } from '@inertiajs/vue3';
+import { createInertiaApp } from '@inertiajs/vue3';
 import * as Sentry from '@sentry/vue';
 import { createApp, h } from 'vue';
 import { initializeTheme } from '@/composables/useAppearance';
@@ -7,7 +7,6 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import AuthLayout from '@/layouts/AuthLayout.vue';
 import SettingsLayout from '@/layouts/SettingsLayout.vue';
 import { initializeFlashToast } from '@/lib/flashToast';
-import { setTeamTimeZone } from '@/lib/formatters';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Brawling Mahogany';
 
@@ -87,17 +86,6 @@ createInertiaApp({
             .trim(),
     },
 });
-
-// Dates are stored in UTC and displayed in the team's timezone (PRD §9). The
-// team itself arrives with tenancy in Slice 1; until a team is on the page,
-// the shared prop is absent and formatting stays in UTC.
-const timeZone = (
-    usePage()?.props as { team?: { timezone?: string } } | undefined
-)?.team?.timezone;
-
-if (timeZone) {
-    setTeamTimeZone(timeZone);
-}
 
 // This will set light / dark mode on page load...
 initializeTheme();

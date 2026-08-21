@@ -77,6 +77,14 @@ The rules from Design System §13.2, in the order they get applied:
 9. **A tone is three properties.** Background, foreground, and any icon move
    together or not at all.
 
+> [!note] The gallery is not served in production, but it is built
+> `routes/web.php` registers `/design-system` only outside production, so the
+> page cannot be reached there. Inertia resolves pages with a glob, so the
+> component is still compiled — as its own lazily-loaded chunk that nothing
+> requests. That costs build time and a file in `public/build`, not bytes on a
+> customer's connection. If the gallery grows heavy, give it its own Vite
+> entry rather than trying to prune the glob.
+
 ### Where shadcn's defaults disagree with the Design System
 
 Rule 4 forbids editing generated files, so each disagreement is corrected
