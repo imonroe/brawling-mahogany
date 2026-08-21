@@ -20,6 +20,16 @@ FROM dunglas/frankenphp:${FRANKENPHP_VERSION}-php${PHP_VERSION} AS base
 
 WORKDIR /app
 
+# Who the application runs as, in every environment. Mapped rather than fixed:
+# locally the working tree is bind-mounted, so whatever the container writes
+# has to belong to the developer rather than to root, and a deploy target may
+# want its own service account. Compose passes both from .env.
+#
+# Declared here so `production`, `development`, and the `build` stage all
+# inherit one identity instead of each inventing its own.
+ARG APP_UID=1000
+ARG APP_GID=1000
+
 RUN install-php-extensions \
     pdo_pgsql \
     pgsql \
@@ -36,8 +46,24 @@ RUN install-php-extensions \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+# Repoint the image's existing `www-data` rather than adding a second account,
+# so there is one application user everywhere. `-o` permits a non-unique ID: a
+# macOS host is commonly 501:20, and GID 20 is already `dialout` here.
+#
+# `www-data` ships with /var/www as its home, which is root-owned — and HOME
+# stays /root from the base image unless it is set explicitly. Both npm and
+# Composer write into HOME, so a non-root user without a writable one fails on
+# the first install. Hence the dedicated home and the HOME below.
+#
+# /data and /config are Caddy's state, including the certificates it renews.
+RUN groupmod -o -g "${APP_GID}" www-data \
+    && usermod -o -u "${APP_UID}" -g "${APP_GID}" -d /home/www-data www-data \
+    && mkdir -p /home/www-data /data /config \
+    && chown -R www-data:www-data /home/www-data /app /data /config
+
 ENV COMPOSER_ALLOW_SUPERUSER=1 \
-    SERVER_NAME=:80
+    SERVER_NAME=:80 \
+    HOME=/home/www-data
 
 # ---------------------------------------------------------------------------
 # build — dependencies, Wayfinder output, and the compiled front end
@@ -75,10 +101,12 @@ FROM base AS production
 ENV APP_ENV=production
 
 # Source first, then the build's output on top of it: the artefacts win, and
-# nothing from the context can shadow them.
-COPY . .
-COPY --from=build /app/vendor ./vendor
-COPY --from=build /app/public/build ./public/build
+# nothing from the context can shadow them. Copied as the application user, so
+# `storage` and `bootstrap/cache` — which the entrypoint and the deploy's
+# `config:cache` step write to — are writable without a second chown layer.
+COPY --chown=www-data:www-data . .
+COPY --from=build --chown=www-data:www-data /app/vendor ./vendor
+COPY --from=build --chown=www-data:www-data /app/public/build ./public/build
 
 # Opcache settings for a long-lived process. JIT is deliberately off: this is
 # an I/O-bound web app, and JIT buys nothing while complicating crash reports.
@@ -88,11 +116,14 @@ RUN { \
     echo 'opcache.memory_consumption=192'; \
     echo 'opcache.max_accelerated_files=20000'; \
     echo 'opcache.validate_timestamps=0'; \
-    } > /usr/local/etc/php/conf.d/opcache.ini \
-    && chown -R www-data:www-data storage bootstrap/cache
+    } > /usr/local/etc/php/conf.d/opcache.ini
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
+
+# Everything above needed root. Nothing below does: FrankenPHP carries
+# CAP_NET_BIND_SERVICE on its binary, so it still binds :80 and :443.
+USER www-data
 
 ENTRYPOINT ["entrypoint"]
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
@@ -113,16 +144,25 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint
+RUN chmod +x /usr/local/bin/entrypoint
+
+# The mapped user, its home, and the ownership of /app, /data and /config all
+# come from `base`. Only the privilege drop belongs here: installing xdebug
+# above needed root.
+USER www-data
+
 # Dependencies are installed into the image, including the dev ones. The local
 # compose file mounts the working tree over /app but keeps /app/vendor and
 # /app/node_modules as volumes, which are seeded from here — so a Linux laptop
 # and a Mac run the same binaries, and neither needs PHP or Node installed.
-COPY . .
+#
+# Installed as www-data, not root-then-chowned: a volume is seeded with the
+# ownership the image directory carries, and chowning node_modules afterwards
+# would duplicate it into a second, very large layer.
+COPY --chown=www-data:www-data . .
 RUN composer install --no-interaction --prefer-dist --no-progress \
     && npm ci --no-audit --no-fund
-
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint
-RUN chmod +x /usr/local/bin/entrypoint
 
 ENTRYPOINT ["entrypoint"]
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]

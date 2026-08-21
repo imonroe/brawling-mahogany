@@ -111,6 +111,35 @@ Requirements from PRD §9:
   to undo.
 - Renewal is automatic. The uptime check catches the case where it is not.
 
+### Changing `APP_UID` or `APP_GID`
+
+The containers run as `APP_UID`:`APP_GID` from `.env` — the same mechanism in
+every environment, defaulting to `1000:1000`. The values are build arguments,
+so they are baked into the image: changing them means a rebuild, not just a
+restart.
+
+On a host that is already running, changing them (or adopting them for the
+first time on a host whose volumes were created while the app still ran as
+root) needs one extra step. Caddy's state is a volume, so it keeps the
+ownership it was created with, and a container that can no longer write to
+`/data` cannot renew a certificate.
+
+Re-own the volumes in place, with the stack down:
+
+```bash
+docker compose -f compose.yaml down
+for v in caddy-data caddy-config; do
+  docker run --rm -v "brawling-mahogany_$v:/v" alpine \
+    chown -R "${APP_UID:-1000}:${APP_GID:-1000}" /v
+done
+docker compose -f compose.yaml build
+docker compose -f compose.yaml up -d
+```
+
+**Re-own them; do not delete them.** Dropping `caddy-data` throws away the
+certificates along with the ownership, and the stack then re-requests them on
+every boot until Let's Encrypt rate-limits the domain.
+
 ---
 
 ## 4. Backups

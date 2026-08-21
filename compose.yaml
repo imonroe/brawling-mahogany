@@ -14,6 +14,13 @@ x-app: &app
   build:
     context: .
     target: ${APP_BUILD_TARGET:-production}
+    # Who the containers run as, in every environment. Baked into the image,
+    # so changing these in .env means rebuilding. See docs/Deployment.md §
+    # "Changing APP_UID or APP_GID" before changing them on a live target:
+    # Caddy's certificate volume has to be re-owned to match.
+    args:
+      APP_UID: ${APP_UID:-1000}
+      APP_GID: ${APP_GID:-1000}
   image: ${APP_IMAGE:-brawling-mahogany:local}
   env_file:
     - .env

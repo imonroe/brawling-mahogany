@@ -65,6 +65,13 @@ cp .env.example .env
 make setup
 ```
 
+The containers run as `APP_UID`:`APP_GID` from `.env`, defaulting to
+`1000:1000` — the same mechanism in every environment, so nothing runs as root.
+Locally it matters because the working tree is bind-mounted: whatever the
+containers write appears in the repository owned by that user. If `id -u` and
+`id -g` do not say 1000, set them in `.env` and run `make build` — they are
+baked into the image.
+
 That builds the images, starts the stack, generates an application key, and
 migrates the database. When it finishes:
 
