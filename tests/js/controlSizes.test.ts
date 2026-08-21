@@ -45,14 +45,52 @@ describe('control sizes', () => {
         expect(button.classes()).not.toContain('bg-primary');
     });
 
-    it('gives the form control §4.2’s 40px height', () => {
+    it('gives the form control §4.2’s 40px height, and 44px on a phone', () => {
         const input = mount(AppInput);
 
-        expect(input.classes()).toContain('h-10');
+        expect(input.classes()).toContain('md:h-10');
         expect(input.classes()).toContain('px-3');
+        // §11's minimum has no exceptions, and a field is a touch target too.
+        expect(input.classes()).toContain('min-h-11');
         // Never text-13: that is for rows, not for anything typed into (§3.3).
         expect(input.classes()).toContain('text-sm');
         expect(input.classes()).not.toContain('text-13');
+    });
+
+    it('keeps the compact weight at 600 whatever the fill', () => {
+        // §7.2 specifies compact as 12/600, and a secondary or ghost fill
+        // supplies font-medium — so the size has to win.
+        for (const variant of ['primary', 'secondary', 'ghost'] as const) {
+            const button = mount(AppButton, {
+                props: { variant, size: 'compact' },
+            });
+
+            expect(button.classes(), variant).toContain('font-semibold');
+            expect(button.classes(), variant).not.toContain('font-medium');
+        }
+    });
+
+    it('sizes a ghost button as a ghost button without being told twice', () => {
+        // §7.2's ghost is 32px. `variant="ghost"` alone used to render a
+        // ghost-coloured primary at 36px.
+        const button = mount(AppButton, { props: { variant: 'ghost' } });
+
+        expect(button.classes()).toContain('md:h-8');
+        expect(button.classes()).toContain('px-2.5');
+    });
+
+    it('never renders a disabled link, which would still navigate', () => {
+        // `disabled:pointer-events-none` does not match an anchor, and
+        // aria-disabled does not stop a click. A disabled control is a button.
+        const button = mount(AppButton, {
+            props: { href: '/deals', disabled: true },
+            global: {
+                stubs: { Link: { template: '<a href="/deals"><slot /></a>' } },
+            },
+        });
+
+        expect(button.element.tagName).toBe('BUTTON');
+        expect(button.attributes('disabled')).toBeDefined();
     });
 
     it('renders as a link when given an href, so navigation matches actions', () => {

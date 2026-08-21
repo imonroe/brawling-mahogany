@@ -116,9 +116,15 @@ and `AppButton` and `AppInput` apply them. **Use those, not `ui/button` and
 | Disabled primary | `bg-muted` | faded fill |
 | Form control | `h-10 px-3` | `h-9` |
 
-Every size is `min-h-11` below `md`, because §11's 44px minimum has no
-exceptions and §4.2 is explicit that the compact desktop density is a
-power-user affordance rather than a house style.
+Every size — buttons *and* inputs — is `min-h-11` below `md`, because §11's
+44px minimum has no exceptions and §4.2 is explicit that the compact desktop
+density is a power-user affordance rather than a house style.
+
+Two behaviours worth knowing rather than discovering: `variant="ghost"` sizes
+itself as a ghost button (32px) without being told twice, and a disabled
+`AppButton` renders a real `<button disabled>` even when given an `href` —
+an `<a aria-disabled>` is still clickable, and `disabled:pointer-events-none`
+never matches an anchor.
 
 `tests/js/controlSizes.test.ts` pins each of these, and they render in the
 gallery so they can be judged next to each other.

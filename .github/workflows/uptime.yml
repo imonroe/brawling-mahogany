@@ -2,18 +2,24 @@ name: Uptime
 
 # PRD §9 asks for an uptime check. This is it.
 #
-# A scheduled workflow is not as good as a dedicated monitor — GitHub delays
-# scheduled runs under load, sometimes by several minutes, and it cannot tell
-# you that GitHub itself is down. It is, however, a real check that lives in
-# the repository, needs no third-party account, and notifies the repository's
-# watchers when it fails. If a dedicated monitor is bought later, this becomes
-# redundant and should be deleted rather than left running alongside it.
+# Be clear about what this is and is not. A scheduled workflow is delayed under
+# load, sometimes by several minutes; it cannot tell you GitHub itself is down;
+# GitHub notifies only the person who last edited the workflow file, not the
+# repository's watchers; and GitHub disables cron schedules in a repository
+# with no activity for 60 days. It is the in-repository baseline, not a
+# monitoring product. If a dedicated monitor is bought later, delete this
+# rather than running both.
 #
 # It watches whichever of these repository *variables* are set, and skips the
 # ones that are not, so it stays quiet until there is something to watch:
 #
-#   STAGING_URL      e.g. https://staging.example.com
-#   PRODUCTION_URL   e.g. https://example.com
+#   UPTIME_STAGING_URL      e.g. https://staging.example.com
+#   UPTIME_PRODUCTION_URL   e.g. https://example.com
+#
+# The names are prefixed on purpose. `STAGING_URL` is already a *secret* used
+# by the deploy workflow, and a variable of the same name would read as empty
+# here — producing a job that passes while checking nothing, which is the worst
+# thing a monitor can do.
 
 on:
   schedule:
@@ -38,9 +44,9 @@ jobs:
       matrix:
         include:
           - environment: staging
-            url: ${{ vars.STAGING_URL }}
+            url: ${{ vars.UPTIME_STAGING_URL }}
           - environment: production
-            url: ${{ vars.PRODUCTION_URL }}
+            url: ${{ vars.UPTIME_PRODUCTION_URL }}
 
     steps:
       - name: Check the health endpoint
@@ -50,19 +56,27 @@ jobs:
         run: |
           # Two attempts, twenty seconds apart: one refused connection during a
           # deploy is not an outage, and a monitor that cries wolf gets muted.
+          # Trailing slashes are easy to leave on a repository variable.
+          endpoint="${URL%/}/up"
+
           for attempt in 1 2; do
-            status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$URL/up" || echo "000")
+            # curl already prints 000 when it cannot connect; a `|| echo`
+            # here would append a second one and print 000000.
+            status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --location "$endpoint" || true)
 
             if [ "$status" = "200" ]; then
-              echo "$URL/up answered 200 on attempt $attempt."
+              echo "$endpoint answered 200 on attempt $attempt."
               exit 0
             fi
 
-            echo "Attempt $attempt: $URL/up answered $status." >&2
-            [ "$attempt" = "1" ] && sleep 20
+            echo "Attempt $attempt: $endpoint answered ${status:-000}." >&2
+
+            if [ "$attempt" = "1" ]; then
+              sleep 20
+            fi
           done
 
-          echo "::error::${{ matrix.environment }} is not answering on /up." >&2
+          echo "::error::${{ matrix.environment }} is not answering on /up."
           exit 1
 
       - name: Nothing to watch

@@ -45,8 +45,11 @@ export const appButtonVariants = cva(
                 default:
                     'min-h-11 px-3.5 text-sm md:h-9 md:min-h-0 [&_svg]:size-4',
                 ghost: 'min-h-11 px-2.5 text-sm md:h-8 md:min-h-0 [&_svg]:size-4',
+                // §7.2 specifies compact as 12/600 whatever the fill, so the
+                // weight belongs to the size rather than the variant. cva emits
+                // size after variant, and tailwind-merge takes the last one.
                 compact:
-                    'min-h-11 px-2.5 text-xs md:h-7 md:min-h-0 [&_svg]:size-3.5',
+                    'min-h-11 px-2.5 text-xs font-semibold md:h-7 md:min-h-0 [&_svg]:size-3.5',
             },
             disabled: {
                 // §7.2: a disabled primary is muted, not a faded fill.
@@ -69,11 +72,17 @@ export const appInputVariants = cva(
     {
         variants: {
             size: {
-                // §4.2: the form control is 40px. Never `text-13` — that is for
-                // rows, not for anything a person types into (§3.3).
-                default: 'h-10',
+                /*
+                 * §4.2: the form control is 40px on a pointer device — and 44px
+                 * on a phone, because §11's minimum has no exceptions and a
+                 * field is a touch target like any other.
+                 *
+                 * Never `text-13`: that is for rows, not for anything a person
+                 * types into (§3.3).
+                 */
+                default: 'min-h-11 md:h-10 md:min-h-0',
                 // §8.6: the inline filter control.
-                filter: 'h-8 text-xs',
+                filter: 'min-h-11 text-xs md:h-8 md:min-h-0',
             },
         },
         defaultVariants: {

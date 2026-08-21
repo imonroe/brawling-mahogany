@@ -152,13 +152,20 @@ issue rather than a line in this document. It is performed on staging:
   Sentry's log breadcrumbs are raised before Monolog sees them, and its
   exception values carry interpolated query bindings.
 - **An uptime check** against `/up`: `.github/workflows/uptime.yml`, every
-  fifteen minutes, watching whichever of the `STAGING_URL` and
-  `PRODUCTION_URL` repository variables are set. It retries once before
-  failing, because a refused connection during a deploy is not an outage.
+  fifteen minutes, watching whichever of the `UPTIME_STAGING_URL` and
+  `UPTIME_PRODUCTION_URL` repository **variables** are set. It retries once
+  before failing, because a refused connection during a deploy is not an
+  outage.
 
-  Be honest about what it is: a scheduled workflow is delayed under load and
-  cannot tell you GitHub itself is down. It is the in-repository baseline. If
-  a dedicated monitor is bought later, delete this rather than running both.
+  The `UPTIME_` prefix matters: `STAGING_URL` is a *secret* used by the deploy
+  workflow, and a variable of the same name would read as empty — a job that
+  passes while checking nothing.
+
+  Be honest about what it is: a scheduled workflow is delayed under load,
+  cannot tell you GitHub itself is down, notifies only whoever last edited the
+  file, and is disabled automatically after 60 days without repository
+  activity. It is the in-repository baseline. If a dedicated monitor is bought
+  later, delete this rather than running both.
 
 ### Alert thresholds (PRD §9, §12.2)
 
@@ -190,7 +197,7 @@ The checklist for the work this repository cannot do on its own:
 - [ ] Sentry staging project, DSN in `.env`
 - [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`
 - [ ] Repository variable `STAGING_ENABLED=true`
-- [ ] Repository variables `STAGING_URL` (and `PRODUCTION_URL` at launch), which turn the uptime workflow on
+- [ ] Repository variable `UPTIME_STAGING_URL` (and `UPTIME_PRODUCTION_URL` at launch), which turn the uptime workflow on — note these are variables, while `STAGING_URL` is a secret
 - [ ] Nightly backup job and its offsite target
 - [ ] Restore drill performed and its duration recorded
 
