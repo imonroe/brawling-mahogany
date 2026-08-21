@@ -9,6 +9,10 @@ ARG PHP_VERSION=8.4
 ARG FRANKENPHP_VERSION=1
 ARG NODE_VERSION=22
 
+# `--from` cannot expand a variable, so the Node image is named as a stage
+# here and referenced by that name wherever its binaries are copied in.
+FROM node:${NODE_VERSION}-bookworm-slim AS node
+
 # ---------------------------------------------------------------------------
 # base — PHP, the extensions the app needs, and Composer
 # ---------------------------------------------------------------------------
@@ -43,8 +47,8 @@ ENV COMPOSER_ALLOW_SUPERUSER=1 \
 # ---------------------------------------------------------------------------
 FROM base AS build
 
-COPY --from=node:${NODE_VERSION}-bookworm-slim /usr/local/bin/node /usr/local/bin/node
-COPY --from=node:${NODE_VERSION}-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 COPY composer.json composer.lock ./
@@ -105,8 +109,8 @@ ENV APP_ENV=local
 
 RUN install-php-extensions xdebug
 
-COPY --from=node:${NODE_VERSION}-bookworm-slim /usr/local/bin/node /usr/local/bin/node
-COPY --from=node:${NODE_VERSION}-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 # Dependencies are installed into the image, including the dev ones. The local
