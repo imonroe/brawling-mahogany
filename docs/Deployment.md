@@ -292,7 +292,7 @@ The remainder — the parts that need a decision or another account:
 - [ ] SES in sandbox, `MAIL_REDIRECT_TO` set
 - [ ] A separate AI provider key with its own budget cap
 - [ ] Sentry staging project, DSN in `.env`
-- [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`
+- [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`, and `STAGING_SSH_PORT` if the droplet does not listen on 22
 - [ ] Repository variable `STAGING_ENABLED=true`
 - [ ] Repository variable `UPTIME_STAGING_URL` (and `UPTIME_PRODUCTION_URL` at launch), which turn the uptime workflow on — note these are variables, while `STAGING_URL` is a secret
 - [ ] Nightly backup job and its offsite target
