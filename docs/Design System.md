@@ -1,10 +1,10 @@
 ---
 created: 2026-08-20
-modified: 2026-08-20
+modified: 2026-08-21
 project: Brawling Mahogany
 type: reference
 status: draft
-version: 2.0
+version: 2.1
 tags:
   - monroe-digital
   - design-system
@@ -71,6 +71,26 @@ Lucide has renamed several icons. These are the names that actually resolve, and
 | Success tick | `circle-check` | ~~`check-circle`~~ |
 | Warning ring | `circle-alert` | ~~`alert-circle`~~ |
 | Danger triangle | `triangle-alert` | ~~`alert-triangle`~~ |
+
+### 1.4 Tailwind Plus, rejected
+
+**Decided 2026-08-20 ([#16](https://github.com/imonroe/brawling-mahogany/issues/16)): not purchased.**
+
+[[Screen Inventory]] put the swing at roughly 136 days for a full design pass
+against 55 with a strong component library, which made this worth deciding
+rather than defaulting. The decision went the other way for two reasons:
+
+- Tailwind Plus ships **plain Tailwind markup, not Vue components**. Every
+  page composition pasted from it would be rebuilt against the shadcn-vue
+  primitives and the token layer before it could ship, so the saving is on
+  layout ideas rather than on code.
+- The 76-of-91 assembly estimate rests on shadcn-vue and Reka UI, which are
+  already committed to in §1 and already cover the primitives those
+  compositions are made of.
+
+**The token rule holds regardless of source.** Any markup borrowed from
+anywhere gets its colours replaced with tokens before it lands, and
+`tests/js/tokenDiscipline.test.ts` fails the build if it does not.
 
 ---
 
@@ -186,10 +206,20 @@ One table, and it is the single source of truth for every badge in the product. 
 | | Past Client | `neutral` | |
 | | Fell Through | `danger` | |
 | | Cancelled | `neutral` | |
+| **Workflow** | Not Started | `neutral` | |
+| | Active | `info` | |
+| | On Hold | `warning` | Paused deliberately |
+| | Completed | `success` | |
+| | Cancelled | `neutral` | |
+| **Person** | Lead | `info` | Live, not yet a client |
+| | Client | `success` | |
+| | Past Client | `neutral` | |
+| | Archived | `neutral` | |
 | **Message** | Scheduled | `neutral` | |
 | | Needs Review | `warning` | |
 | | Sent | `success` | |
 | | Failed | `danger` | |
+| | Cancelled | `neutral` | Superseded before it sent |
 | **Extracted field** | Needs Review | `warning` | |
 | | Confirmed | `success` | |
 | | Edited | `info` | |
@@ -538,13 +568,13 @@ Everything in this section is measured from the built designs. Tailwind classes 
 | `DateChip` | `components/app/` | **Built in design** |
 | `NavItem` | `layouts/` | **Built in design** |
 | `Tab` | `components/app/` | **Built in design** |
-| `AppShell`, `Sidebar`, `TopBar` | `layouts/AppLayout.vue` | **Built in design** |
+| `AppShell`, `Sidebar`, `TopBar` | `layouts/AppLayout.vue` | **Built in code**, with the mobile tab bar and the impersonation banner |
 | `DealHeader` | `components/app/` | **Built in design** |
 | `IconButton` | `components/app/` | **Built in design** |
-| `PageHeader` | `components/app/` | Pattern established, not extracted |
-| `FilterBar` | `components/app/` | Pattern established, not extracted |
+| `PageHeader` | `components/app/` | **Built** |
+| `FilterBar` | `components/app/` | **Built**, with `FilterChip` and `SegmentedControl` |
 | `PersonPicker` | `components/app/` | Not yet designed |
-| `EmptyState` | `components/app/` | **Not yet designed** — see [[#9.3 Required states]] |
+| `EmptyState` | `components/app/` | **Built.** Two variants: nothing exists yet, and nothing matches this filter |
 | `ConfirmDestructive` | `components/app/` | Not yet designed |
 | `UploadZone` | `components/app/` | Not yet designed (S51) |
 
@@ -1060,8 +1090,10 @@ Every screen defines all five. This is the column that gets skipped in design an
 | **Permission denied** | Prefer hiding the entry point entirely. If the URL is reachable, explain who can grant access. |
 | **Overloaded** | What 25 deals, 500 people, or 50 tasks looks like. Design it, do not discover it. |
 
-> [!warning] Empty states are the largest gap in the design file
-> The 17 built screens are all populated states. `EmptyState` is specified in section 7.1 as a component but has not been designed, and no screen currently shows one. Until that is done, an implementer has no reference for the single most common state a new team will see. **This is the first thing to draw next.**
+> [!note] Empty states: the component exists, the coverage does not
+> `EmptyState` is built, and the two that matter first — a new team's dashboard and a filtered deals index — are designed and rendered in the component gallery at `/design-system`. The copy pattern is IA §10: state what belongs here, then offer the action that creates it.
+>
+> The remaining screens still need their own. **Every new screen defines its empty state as part of building it**, rather than leaving a bare "No results" behind.
 
 ---
 
@@ -1111,8 +1143,20 @@ Baseline for the internal app, and a hard requirement on the client status page 
 | Motion | Honour `prefers-reduced-motion` |
 | Client page | **WCAG 2.1 AA, verified.** Older audience, unfamiliar interface, one chance to be understood. |
 
-> [!warning] Two contrast checks still outstanding
-> `--state-warning` (#905D00) on `--state-warning-bg` (#FFF0CC) and `--state-success` (#137738) on `--state-success-bg` (#DCF7E1) are used for 11px and 12px badge text throughout. Both look comfortable but neither has been measured. Verify before launch, and if either fails, darken the foreground token rather than enlarging the badge.
+> [!success] Contrast measured, 2026-08-21
+> Every state pair was measured from the oklch tokens in `resources/css/app.css`, converted to sRGB and checked against WCAG 2.1. All pass 4.5:1 — the threshold for normal text — which covers the 11px and 12px badge labels.
+>
+> | Tone | On its badge background | On the card |
+> |---|---|---|
+> | Neutral | 4.90 | 5.50 |
+> | Info | 4.75 | 5.50 |
+> | Success | 4.95 | 5.65 |
+> | Warning | 4.97 | 5.61 |
+> | Danger | 5.06 | 5.82 |
+>
+> Dark mode measures higher on every pair (5.62 to 7.01 on the badge). The margins are thin by design — the badges are deliberately subtle — so the measurement is a **test**, not a note: `tests/js/tokens.test.ts` recomputes it from the stylesheet on every run and fails the build if a token edit drops a pair below 4.5:1.
+>
+> One caveat, stated because the margins are thin. Four token values sit just outside the sRGB gamut (`--state-info-bg`, `--state-warning`, `--state-warning-bg`, `--state-danger-bg`). The measurement clips each channel; a browser gamut-maps by reducing chroma instead, so what renders differs slightly from what is measured. The direction of that difference is toward *less* saturation and therefore, for these pairs, marginally more contrast — but if a pair is ever tightened further, bring the token into gamut rather than trusting the measurement to the second decimal.
 
 ---
 
@@ -1189,14 +1233,17 @@ resources/js/
 
 ### 13.3 Build order
 
-1. Tokens and the Tailwind theme, including the `state-*` utilities and `text-13`
-2. `AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.
-3. `StatusBadge`, since it appears on nearly every screen
-4. `PageHeader`, `FilterBar`, `EmptyState`, which unlock every P1 list page
-5. One real list screen end to end (S13), to prove the density spec at 20 rows
-6. Then the bespoke work, starting with the stage rail (S16)
+1. ~~Tokens and the Tailwind theme, including the `state-*` utilities and `text-13`~~ — **done**
+2. ~~`AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.~~ — **built; the review with Heather is still outstanding**
+3. ~~`StatusBadge`, since it appears on nearly every screen~~ — **done**
+4. ~~`PageHeader`, `FilterBar`, `EmptyState`, which unlock every P1 list page~~ — **done**, along with `Card`, `Table`, `DealRow`, `TaskItem`, `ActivityItem`, `DateChip`, `IconButton`, and `Tab`
+5. One real list screen end to end (S13), to prove the density spec at 20 rows — Slice 2
+6. Then the bespoke work, starting with the stage rail (S16) — Slice 2
 
-Review step 2 with Heather before proceeding. Seventy screens inherit its decisions about density, type scale, and mobile collapse.
+> [!warning] Step 2 still owes its review
+> `AppLayout` is built to the measurements in section 8 and renders in both themes, but **it has not been reviewed with Heather.** Seventy screens inherit its decisions about density, type scale, and mobile collapse, so that review happens before any product screen is built — not after.
+>
+> Every component in steps 1 to 4 renders in the gallery at `/design-system`, in both themes, which is what the review should be run against.
 
 ---
 
@@ -1237,19 +1284,20 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 ## 15. Open questions
 
 1. **Product name.** Blocks the logo, the favicon, the email header, and the sending subdomain, which is painful to change once reputation is established.
-2. **Empty states.** Not designed, and the most common state a new team meets. Highest-priority design gap.
+2. **Empty states, beyond the first two.** The component is built and the dashboard and deals-index states are designed (§9.7). Every remaining screen still owes its own, and the rule is now that a screen is not finished without one.
 3. **Calendar library for S57.** Evaluate building the month grid by hand against adopting one, since most calendar libraries bring heavy styling opinions that will fight this system.
 4. **Rich text for S46.** Try the simple token-insert textarea first.
 5. **Does anything need charts?** Only S85 and the optional F9.6 reporting. If it stays that small, shadcn's Chart component may be more than is needed.
 6. **Team accent contrast validation.** Warn the owner, or auto-adjust silently? Warning is more honest and generates support questions. Auto-adjusting is invisible and occasionally produces a colour they did not pick.
 7. **Density preference as a user setting.** Deliberately out of scope for v1. Revisit if Heather asks.
-8. **Mobile collapse is unspecified.** The PWA (F12.1) needs the sidebar to become a bottom tab bar and deal tabs to become a scrollable strip, per [[Information Architecture]] §5.3. No mobile internal screen has been designed, so the breakpoint behaviour is undefined.
-9. **`text-13` versus `text-sm`.** Introduced in section 3.3 to match the built rows. Worth one deliberate look on a real screen before it is baked into 91 of them.
+8. **Mobile collapse — specified and built, not yet validated on a phone.** The shell now switches at `md`: the sidebar is replaced by a bottom tab bar carrying Dashboard, My Work, Deals, and Calendar, with everything else behind a "More" sheet, per [[Information Architecture]] §5.3. Targets are 44px minimum. What remains is judging it on a real device, which belongs with the PWA slice rather than before it.
+9. **`text-13` versus `text-sm`.** Still open, deliberately. The token exists and `DealRow`, `TaskItem`, and the card rows use it, so the comparison can now be made on a real screen — but the honest test is S13 at twenty rows (Slice 2), not the component gallery. Decide then, before it is baked into ninety-one screens.
 
 ---
 
 ## Related notes
 
+- [Frontend conventions](Frontend%20conventions.md): where these components live in the codebase, and the formatters and content rules that go with them
 - [[Information Architecture]]: naming, navigation, and the state vocabulary these tokens serve
 - [[Screen Inventory]]: the 91 screens this system has to cover
 - [[Design references]]: what to look at first
@@ -1257,14 +1305,15 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 
 ## Next actions
 
-- [ ] Design the empty states, starting with a new team's dashboard and deals index 📅 2026-08-27
-- [ ] Scaffold from the Laravel Vue starter kit and confirm shadcn-vue is wired 📅 2026-08-27
-- [ ] Write the token block, both light and dark, plus the `state-*` and `text-13` theme entries 📅 2026-08-27
-- [ ] Measure contrast on the warning and success badge pairs at 11px 📅 2026-08-27
-- [ ] Build `AppLayout` plus the sidebar (section 8), then review with Heather 📅 2026-08-31
-- [ ] Build `StatusBadge` against the section 2.4 table 📅 2026-08-31
+- [x] Design the empty states, starting with a new team's dashboard and deals index ✅ 2026-08-21 — both render in the gallery at `/design-system`
+- [x] Scaffold from the Laravel Vue starter kit and confirm shadcn-vue is wired ✅ 2026-08-21
+- [x] Write the token block, both light and dark, plus the `state-*` and `text-13` theme entries ✅ 2026-08-21
+- [x] Measure contrast on the warning and success badge pairs at 11px ✅ 2026-08-21 — all pairs pass 4.5:1; now a test, see §11
+- [x] Build `AppLayout` plus the sidebar (section 8) ✅ 2026-08-21
+- [ ] **Review `AppLayout` with Heather before any product screen is built** 📅 2026-08-31
+- [x] Build `StatusBadge` against the section 2.4 table ✅ 2026-08-21
 - [ ] Build S13 end to end and confirm 20 rows is the honest desktop number 📅 2026-09-07
-- [ ] Design the mobile collapse for the shell before the PWA slice 📅 2026-09-07
+- [x] Design the mobile collapse for the shell before the PWA slice ✅ 2026-08-21 — built; still to be judged on a real phone
 - [ ] Choose the sortable library, needed by S38, S41, and S42 📅 2026-09-07
 - [ ] Decide the calendar approach for S57 📅 2026-09-14
 

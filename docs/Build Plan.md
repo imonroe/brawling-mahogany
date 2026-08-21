@@ -38,6 +38,15 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 
 **128 issues, 9 of them epics.** Counts exclude the epics themselves; a decision issue that also carries a slice label is counted once, under decisions.
 
+> [!success] Slice 0 has landed
+> The application skeleton, the container stack, the CI pipeline, the design
+> system foundations, and the two ADRs are built and merged. Two things inside
+> it are deliberately still open, and both are named in the pull request rather
+> than quietly carried: **the `AppLayout` review with Heather**, and **the
+> staging droplet**, which needs an account, a domain, and DNS that no
+> repository can provide. Slice 1 starts from a stack that runs and a pipeline
+> that blocks.
+
 ### Why Slice 0 exists
 
 The PRD folds "CI, staging" into Slice 1 alongside auth, people, and contact import. That understates it. `CLAUDE.md` requires tests from the first commit, a Docker stack, and a GitHub Actions pipeline — and the Design System requires the token layer and `AppLayout` before any screen is drawn. None of the Slice 1 product work can be built, tested, or reviewed until that exists.

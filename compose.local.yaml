@@ -1,0 +1,101 @@
+# Local development. Everything here is an override of compose.yaml, included
+# rather than copied, so the base file stays the single description of the
+# stack (CLAUDE.md).
+#
+# `docker compose up` picks this file up automatically: .env.example sets
+# COMPOSE_FILE=compose.local.yaml.
+
+include:
+  - compose.yaml
+
+x-app-local: &app-local
+  build:
+    context: .
+    target: development
+  image: brawling-mahogany:dev
+  environment:
+    DB_HOST: postgres
+    DB_PORT: 5432
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    # Local mail never leaves the machine.
+    MAIL_MAILER: smtp
+    MAIL_HOST: mail
+    MAIL_PORT: 1025
+  volumes:
+    - .:/app
+    # Dependencies stay inside the image rather than being shadowed by the
+    # host mount, so a Linux laptop and a Mac get the same binaries. Named,
+    # not anonymous, so `make reset` can actually clear them when a
+    # dependency changes — an anonymous volume survives a rebuild and quietly
+    # keeps serving the old packages.
+    - app-vendor:/app/vendor
+    - app-node-modules:/app/node_modules
+
+services:
+  app:
+    <<: *app-local
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MAIL_MAILER: smtp
+      MAIL_HOST: mail
+      MAIL_PORT: 1025
+      # Local is the one place a fresh `up` should end with a migrated
+      # database. Staging and production migrate as a deploy step.
+      AUTO_MIGRATE: 'true'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mail:
+        condition: service_started
+
+  worker:
+    <<: *app-local
+    command: ['php', 'artisan', 'horizon']
+
+  scheduler:
+    <<: *app-local
+    command: ['php', 'artisan', 'schedule:work']
+
+  postgres:
+    # Exposed locally so psql, a GUI, or `php artisan test` on the host can
+    # reach it. Never exposed in the base file.
+    ports:
+      - '${DB_PORT_HOST:-5432}:5432'
+
+  redis:
+    ports:
+      - '${REDIS_PORT_HOST:-6379}:6379'
+
+  # Mailpit: every local send lands here and nowhere else.
+  mail:
+    image: axllent/mailpit:v1.21
+    ports:
+      - '${MAIL_UI_PORT:-8025}:8025'
+    environment:
+      MP_MAX_MESSAGES: '500'
+    restart: unless-stopped
+
+  # Vite, dev only. Production serves the compiled bundle from public/build.
+  vite:
+    image: brawling-mahogany:dev
+    build:
+      context: .
+      target: development
+    command: ['npm', 'run', 'dev', '--', '--host', '0.0.0.0']
+    ports:
+      - '${VITE_PORT:-5173}:5173'
+    volumes:
+      - .:/app
+      - app-vendor:/app/vendor
+      - app-node-modules:/app/node_modules
+    restart: unless-stopped
+
+volumes:
+  app-vendor:
+  app-node-modules:

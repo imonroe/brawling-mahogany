@@ -1,0 +1,19 @@
+# Design System §13.2 rule 4: never hand-edit components/ui/.
+#
+# That directory is shadcn CLI output. Re-running the CLI has to stay safe, so
+# a component is extended through a `cva` variant or a wrapper in
+# components/app/, never by editing the generated file. Ownership here makes
+# any change to it a deliberate, reviewed act.
+/resources/js/components/ui/ @imonroe
+
+# The documents are the source of truth for scope, naming, and design. A change
+# to one is a decision, not a tidy-up.
+/docs/ @imonroe
+/CLAUDE.md @imonroe
+
+# The pipeline, the container stack, and the environment contract.
+/.github/ @imonroe
+/compose.yaml @imonroe
+/compose.ci.yaml @imonroe
+/Dockerfile @imonroe
+/.env.example @imonroe
