@@ -130,6 +130,14 @@ it('still redacts the names that are somebody’s name', function (): void {
     }
 });
 
+it('redacts an author, which is a person', function (): void {
+    // `author` contains `auth`, so the never-logged tier catches it first —
+    // and that is the right answer anyway. Pinned because the allowlist used
+    // to carry a dead entry claiming the opposite.
+    expect(record('Note added', ['author' => 'Heather Nguyen'])->context['author'])
+        ->toBe(RedactPii::REDACTED);
+});
+
 it('never lets a suffix launder a credential', function (): void {
     /*
      * The allowlist is evaluated before the block list, which makes it the

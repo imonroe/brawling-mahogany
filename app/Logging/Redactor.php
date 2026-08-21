@@ -11,7 +11,7 @@ namespace App\Logging;
  * application — Monolog is one, and Sentry's breadcrumbs and event payloads
  * are others that never pass through Monolog at all. All of them call this.
  *
- * Two passes:
+ * The passes:
  *
  * Keys are decided in three passes, in this order: fragments that may never
  * be logged whatever they are called, then the allowlist of the product's own
@@ -88,6 +88,12 @@ final class Redactor
      * address (IA §10) and `person_name`, `client_name`, `property_name`, and
      * `team_name` are all somebody's name. Those stay redacted.
      *
+     * One deliberate consequence of the identifier suffix: a key like
+     * `mailing_address_type` is kept, because a `_type`, `_id`, `_count`, or
+     * `_at` on a personal noun is an enum, a foreign key, or a timestamp —
+     * never the address itself. Credentials are not left to that reasoning;
+     * they are in the tier above, which no suffix can reach.
+     *
      * @var list<string>
      */
     private const ALLOWED_KEY_PATTERNS = [
@@ -102,9 +108,15 @@ final class Redactor
          * first: `session_id` and `password_reset_code` end here too.
          */
         '/_(id|ids|type|types|code|codes|count|state|status|version|at)$/',
-        // Words that merely contain a sensitive fragment by accident:
-        // "namespace" holds "name", "author" holds "auth", "capacity" "city".
-        '/^(namespace|author|capacity|filename_extension|placeholder)$/',
+        /*
+         * Words that merely contain a sensitive fragment by accident:
+         * "namespace" holds "name", "capacity" holds "city".
+         *
+         * "author" is deliberately absent. It holds "auth", so the tier above
+         * redacts it before this list is reached — and that is the right
+         * outcome anyway, because an author is a person.
+         */
+        '/^(namespace|capacity|filename_extension|placeholder)$/',
         '/^(exception|file|line|trace|level|message_id|duration_ms|attempts)$/',
     ];
 
