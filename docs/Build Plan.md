@@ -75,6 +75,8 @@ Template layer → runtime layer → snapshot      (#64 #65 #66)
         ↓
 Gate evaluators → AdvanceWorkflow              (#67 #68)
         ↓
+Create deal → overview → deals index           (#74 #75 #78)
+        ↓
 Timeline + advance modal                       (#76 #77)
         ↓
 Seeded template packs   ← blocked on Emily's lists (#87 ← #11)
@@ -94,6 +96,8 @@ Two decisions sit on this path rather than beside it:
 
 - **#10 — partner or first customer.** The PRD says settle it in writing *before* slice 2, and slice 2 is where Emily's specific process gets encoded into something sellable. It gates the start of the slice, not a single issue inside it.
 - **#18 — shared versus duplicated person records.** It decides the shape of `people` and `team_memberships`, which #40 and #47 build on and which every later foreign key points at. It has to land before the first slice 1 migration.
+
+Note that three screens sit on the path rather than beside it. #74 → #75 → #78 is the shortest route to a deal that exists, renders, and lists — and #76 depends on #78 for the reason below. Two of those three are L-effort, so the chain is longer than "build the engine, then draw the timeline" suggests.
 
 One ordering subtlety inside slice 2: **prototype the stage rail early, build it after the deals index.** Screen Inventory sequences *design* (S16 first, because it is the one interaction with no precedent to copy); Design System §13.3 sequences *build* (S13 end to end first, to prove the density spec at 20 rows). Both are right about different activities, so #76 carries a dependency on #78 while its prototype runs much earlier.
 
@@ -208,7 +212,7 @@ Filed nowhere, on purpose, with the reason:
 | **MLS/IDX data ingestion** | Licensing, not preference. v1 stores links only |
 | **Ongoing rental and property management** | Out permanently, for a licensing reason. Tenant placement stays in |
 | **Commercial transactions** | Deferred to a later template pack, blocked on someone who knows commercial timelines |
-| **Native mobile apps** | Superseded by the PWA. Revisit after it proves demand. F12.5 attaches a constraint that *does* apply now: *"the API layer should be designed so a native client can be added without rework."* Inertia is not a public API, so the practical reading is to keep controllers thin and the domain services (notably `AdvanceWorkflow`) transport-agnostic |
+| **Native mobile apps** | Superseded by the PWA. Revisit after it proves demand. F12.5 attaches a constraint that *does* apply now: *"the API layer should be designed so a native client can be added without rework."* Inertia is not a public API, so the practical reading is to keep controllers thin and the domain services transport-agnostic — carried as an acceptance criterion on #68, which is the service that would otherwise accrete HTTP concerns |
 | **Blank-canvas workflow builder** | v1 is clone-and-edit. The builder is the graduation, not the start |
 | **SMS** | Gated on TCPA consent handling, which is the hard part |
 
