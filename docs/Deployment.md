@@ -220,11 +220,48 @@ The checklist for the work this repository cannot do on its own:
 
 ## 7. Branch protection
 
-Configured in the repository settings, not in this file, but recorded here so
-it is not forgotten (issue #24):
+Branch protection lives in repository settings, so it cannot be committed — but
+it can be scripted. Run it once, as a repository admin:
+
+```
+gh auth login
+./scripts/protect-branches.sh          # apply
+./scripts/protect-branches.sh --show   # print the payload, change nothing
+```
+
+What the script applies:
 
 - `dev`: pull request required; CI checks — Tests, Static analysis, Code style,
   Front end, Container build — required to pass.
-- `main`: pull request required; the same checks; only `dev` merges in.
+- `main`: pull request required; the same checks.
 
-**Every job blocks the merge.** A red pipeline is not advisory.
+**Every job blocks the merge.** A red pipeline is not advisory — and until this
+is run, that sentence is an intention rather than a fact, because the pipeline
+reports without gating anything.
+
+What stays a convention, because branch protection cannot express it: **only
+`dev` merges into `main`.** There is no way to restrict a pull request by its
+*source* branch, so this one is held by `CLAUDE.md` and by review, not by the
+API.
+
+Three deliberate choices in the script. `enforce_admins` is **off**: the point
+is to stop a red merge by accident, not to lock the owner out during an
+incident, and a rule that cannot be bypassed is a rule somebody eventually
+disables. **No approving review is required** — a required reviewer who is out
+on a showing is a stalled merge, and on a team this size the five checks are
+the gate. And `strict` is **false**: a strict rule requires every pull request
+to be up to date with its base before merging, so on a five-job pipeline every
+merge invalidates every other open pull request. The cost is that a branch
+green against an older base can still break `dev`; at this concurrency that
+trade is the right way round.
+
+One caveat before running it on settings somebody has adjusted by hand: the
+API call is a `PUT`, so it **replaces** the branch's protection. Anything not
+in the payload — required signed commits, required conversation resolution,
+linear history — is cleared rather than preserved. `--show` prints exactly what
+will be applied.
+
+`tests/Unit/BranchProtectionTest.php` checks the script's list of required
+checks against `ci.yml`'s job names and against this section. Renaming a CI job
+without renaming it in the script would otherwise require a check that never
+reports, which does not fail loudly — it blocks every pull request forever.
