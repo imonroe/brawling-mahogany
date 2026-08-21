@@ -14,12 +14,13 @@ version: 1.0
 > should be able to follow it at 2am.
 
 > [!warning] What is written here and what exists
-> The pipeline, the compose stack, and the runbook below are built and
-> reviewable. **The staging droplet itself is not provisioned** — that needs an
-> account, a domain, and DNS, none of which live in this repository. The deploy
-> workflow is inert until the repository variable `STAGING_ENABLED` is set to
-> `true`, so nothing fails while the infrastructure catches up. Section 6 is
-> the checklist for standing it up.
+> The pipeline, the compose stack, the provisioning script, and the runbook
+> below are built and reviewable. **The staging droplet itself is not
+> provisioned** — creating it and pointing DNS at it need an account and a
+> domain, neither of which lives in this repository. Everything after those two
+> steps is `scripts/provision-staging.sh` (§6). The deploy workflow is inert
+> until the repository variable `STAGING_ENABLED` is set to `true`, so nothing
+> fails while the infrastructure catches up.
 
 ---
 
@@ -199,13 +200,94 @@ them, and a suspended sender means no client hears anything.
 
 ## 6. Standing up the staging droplet
 
-The checklist for the work this repository cannot do on its own:
+Two things have to happen outside this repository first, because nothing in it
+can do them: **create the droplet**, and **point DNS at it**. Caddy requests a
+certificate on first boot and ACME's challenge arrives over public DNS, so the
+hostname must already resolve.
 
-- [ ] DigitalOcean droplet, Docker and Compose installed, firewall to 80/443/22
-- [ ] A deploy user with a checkout at `/srv/brawling-mahogany` and a deploy key
-- [ ] DNS for the staging hostname, and `SERVER_NAME` set to it in `.env`
-- [ ] `APP_PORT=80` and `APP_TLS_PORT=443` in `.env`, so ACME's challenges can land
-- [ ] `.env` on the droplet, `0600`, per `docs/Environment and secrets.md`
+After that, `scripts/provision-staging.sh` does the rest. Run it as root on the
+fresh droplet:
+
+```
+scp scripts/provision-staging.sh root@<droplet-ip>:/tmp/
+ssh root@<droplet-ip> 'bash /tmp/provision-staging.sh staging.example.com'
+```
+
+It installs Docker, opens 22/80/443 and 443/udp, creates the `deploy` user,
+clones `dev` to `/srv/brawling-mahogany`, generates the deploy key, and writes a
+`0600` `.env`.
+
+### The managed block
+
+The script does not edit your `.env`. It appends **one delimited block** to the
+end of it, holding the infrastructure settings — `APP_ENV`, `APP_DEBUG`,
+`SERVER_NAME`, `APP_URL`, `APP_PORT=80`, `APP_TLS_PORT=443`,
+`AUTO_MIGRATE=false`, and `COMPOSE_FILE=compose.yaml`. Re-running replaces that
+block and rewrites nothing else.
+
+This looks odd and is deliberate. Dotenv resolves a key to its **last**
+definition, so a block at the end wins without the script having to rewrite
+anything you wrote — and because nothing outside the block is ever rewritten, no
+secret can be lost to a regex that did not quite match. An earlier version did
+rewrite keys in place and got it wrong five times: `^KEY=.*$` does not match
+`export KEY=x`, `KEY = x`, or an indented line, and each of those is a
+definition Dotenv honours and would have resolved to.
+
+Two things follow from "rewrites nothing else" that are worth saying plainly.
+The rest of the file **is read**, for two bounded things — an `APP_KEY` you have
+already set, and an unclosed quote — and both fail towards leaving it alone. And
+the block always moves to the end, so anything that was below it ends up above
+it and the block's values now win over it. Your lines are intact either way; the
+script says so when it has moved any.
+
+### What it refuses
+
+Two shapes defeat a block appended at the end, and the script stops rather than
+half-handling either. Both refusals leave the file byte-identical.
+
+| Shape | Why |
+|---|---|
+| A quoted value that is never closed | Dotenv values span lines, so an unclosed quote swallows everything after it — the block included. The run would look successful and configure nothing. |
+| A delimiter it cannot pair | An opener with no closer, an opener followed by another opener, or a closer with no opener. Guessing where a block ends is how the secrets between the guesses get spliced out. |
+
+Delimiter matching is anchored to the start of a line, so a value that merely
+quotes a delimiter is left alone rather than treated as one.
+
+`COMPOSE_FILE` is in the block for a reason worth stating: without it a bare
+`docker compose ps|logs|up` on the droplet resolves `compose.local.yaml`, which
+includes `compose.yaml` under the same project name and overrides it with the
+development target, a bind mount over `/app`, Mailpit and Vite. The deploy
+workflow passes `-f` explicitly; a person at 2am does not.
+
+`APP_KEY` is generated **once** and never rotated — rotating it would invalidate
+every session and every encrypted column on the box. If you have set one
+anywhere outside the block it is left alone; otherwise the value from the
+previous block is carried forward.
+
+Recognising "already set" is the one place the script reads your half of the
+file, and it is a heuristic rather than a parser: the spellings it is known to
+handle are the ones in `ProvisionEnvBlockTest`, not "any spelling Dotenv
+accepts", which is a promise a regex cannot keep. An **interpolated** value —
+`APP_KEY="${LEGACY_KEY}"` — is the case it cannot judge at all, so it leaves
+yours alone and says so rather than guessing.
+
+`tests/Unit/ProvisionEnvBlockTest.php` runs the stage against a real `.env` and
+resolves the result through the same Dotenv the application uses, so "the block
+wins" is measured rather than asserted.
+
+### What it leaves to you
+
+**Every application secret except `APP_KEY` stays blank on purpose.** A
+provisioning script that invents a database password is one that puts a database
+password in your shell history. The script prints the deploy key — once, or on
+demand with `--print-key` — and the exact secrets and variables to set.
+
+`MAIL_REDIRECT_TO` deserves its own line, because blank is not neutral: an empty
+value is exactly what `AppServiceProvider` treats as *no redirection*, so until
+it is set every message goes to its real recipient. §2 of
+`Environment and secrets` is the authority for the full list.
+
+The remainder — the parts that need a decision or another account:
 - [ ] Postgres: managed instance or the compose service, matching production's choice
 - [ ] SES in sandbox, `MAIL_REDIRECT_TO` set
 - [ ] A separate AI provider key with its own budget cap
