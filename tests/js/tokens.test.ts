@@ -83,6 +83,31 @@ describe('design tokens', () => {
         }
     });
 
+    it('keeps the filled buttons readable in both themes', () => {
+        // §7.2's destructive and warning fills are the two buttons whose label
+        // sits on a token tuned for something else — `--state-warning` exists
+        // for the badge first. Measured here so tuning the badge cannot drag
+        // "Override and Advance" under the line without failing the build.
+        for (const theme of ['light', 'dark'] as const) {
+            const t = tokens(theme);
+
+            expect(
+                contrastOfOklch(
+                    t['--destructive-foreground'],
+                    t['--destructive'],
+                ),
+                `${theme}: destructive button`,
+            ).toBeGreaterThanOrEqual(4.5);
+            expect(
+                contrastOfOklch(
+                    t['--primary-foreground'],
+                    t['--state-warning'],
+                ),
+                `${theme}: warning button`,
+            ).toBeGreaterThanOrEqual(4.5);
+        }
+    });
+
     it('keeps the pre-paint background in the blade file matching the tokens', () => {
         // resources/views/app.blade.php paints the page background before the
         // stylesheet loads, so it duplicates two token values by hand. This is

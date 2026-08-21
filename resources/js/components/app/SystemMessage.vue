@@ -7,9 +7,9 @@
  * the client variant follows IA §9 — no alarming words, no jargon, and a
  * route back to a human.
  */
-import { Link } from '@inertiajs/vue3';
 import { ShieldAlert } from '@lucide/vue';
 import type { Component } from 'vue';
+import AppButton from '@/components/app/AppButton.vue';
 import { cn } from '@/lib/utils';
 
 withDefaults(
@@ -105,18 +105,15 @@ withDefaults(
             </p>
         </div>
 
-        <Link
+        <AppButton
             v-if="actionHref && actionLabel"
             :href="actionHref"
             :class="
-                cn(
-                    'inline-flex h-9 items-center rounded-md px-3.5 text-sm font-semibold',
-                    variant === 'admin'
-                        ? 'bg-background text-foreground'
-                        : 'bg-primary text-primary-foreground',
-                )
+                variant === 'admin'
+                    ? 'bg-background text-foreground hover:bg-background/90'
+                    : ''
             "
-            >{{ actionLabel }}</Link
+            >{{ actionLabel }}</AppButton
         >
         <slot />
     </div>

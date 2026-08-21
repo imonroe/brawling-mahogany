@@ -1,0 +1,51 @@
+<script setup lang="ts">
+/**
+ * A form control at the measured size — Design System §4.2: 40px on a pointer
+ * device, 44px on a phone (§11), `px-3`. The type is 14px above `md` (12px for
+ * the filter size) and 16px below it, because iOS Safari zooms the page when a
+ * field under 16px takes focus. Never `text-13`, which is for rows rather than
+ * for anything a person types into (§3.3).
+ *
+ * Two things worth knowing:
+ *
+ *  - `size` here is the design-system size, not HTML's `size` attribute. The
+ *    prop consumes the name, so the native one cannot be set — which is fine,
+ *    since a width belongs in CSS, but it is worth saying out loud.
+ *  - This is a *text* `<input>` only. It binds `:value` and emits a string,
+ *    so `type="checkbox"`/`"radio"` would bind the wrong property entirely
+ *    and `type="number"` would hand a string back to the caller; the `type`
+ *    prop is narrowed to the text-like set rather than left to a comment. A
+ *    textarea is `rounded-md border p-[11px]` at 13–14px (§10) and gets its
+ *    own component when the first form needs one.
+ */
+import { cn } from '@/lib/utils';
+import { appInputVariants } from './controlVariants';
+import type { AppInputVariants } from './controlVariants';
+
+const props = withDefaults(
+    defineProps<{
+        modelValue?: string | number | null;
+        size?: AppInputVariants['size'];
+        type?: 'text' | 'email' | 'password' | 'search' | 'tel' | 'url';
+        class?: string;
+    }>(),
+    { size: 'default', type: 'text' },
+);
+
+defineEmits<{ 'update:modelValue': [value: string] }>();
+</script>
+
+<template>
+    <input
+        :type="props.type"
+        :value="modelValue"
+        :class="cn(appInputVariants({ size: props.size }), props.class)"
+        data-slot="app-input"
+        @input="
+            $emit(
+                'update:modelValue',
+                ($event.target as HTMLInputElement).value,
+            )
+        "
+    />
+</template>

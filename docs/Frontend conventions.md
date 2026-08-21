@@ -94,22 +94,56 @@ somewhere else and recorded here rather than left to be discovered.
 |---|---|
 | Overlay scrim is `bg-black/80`; §5.2 specifies `--foreground` at 45% | `app.css`, at the token layer, on `[data-slot='dialog-overlay']` and `[data-slot='sheet-overlay']` |
 | `text-white` on the destructive Button and Badge variants; `--destructive-foreground` is the token | Recorded in `tests/js/tokenDiscipline.test.ts`'s allowlist. Visually identical, so it is corrected at the call site when a destructive control is next built rather than by editing generated source |
-| `Input` is `h-9`; §4.2 measures the form control at `h-10 px-3` | **Open.** See below |
-| `Button` `default` is `h-9 px-4` with a 500 label; §7.2 measures Primary at `h-9 px-3.5` / 600, Ghost at `h-8 px-2.5`, and adds a Compact size (28–30px, 12/600) that shadcn has no equivalent for | **Open.** See below |
+| `Input` is `h-9`; §4.2 measures the form control at `h-10 px-3` | `components/app/AppInput.vue` |
+| `Button` `default` is `h-9 px-4` with a 500 label; §7.2 measures Primary at `h-9 px-3.5` / 600, Ghost at `h-8 px-2.5`, and adds a Compact size shadcn has no equivalent for | `components/app/AppButton.vue` |
 
 `tests/js/tokenDiscipline.test.ts` scans `components/ui/` against that
 allowlist, so a *new* palette class in generated source fails the build even
 though the existing ones are tolerated.
 
-> [!warning] The control sizes are a real, open deviation
-> The auth and settings screens in Slice 0 use shadcn's sizes, not the
-> measured ones. That is defensible only because those screens are Slice 1
-> work and have not been designed against §4.2 yet.
->
-> The fix is a `cva` size set in `components/app/` — permitted by rule 4 —
-> and it belongs with the first screen built to the spec, so the sizes are
-> judged on a real screen rather than in isolation. Until then, do not treat
-> the current button and input heights as the house style.
+### The control sizes
+
+`components/app/controlVariants.ts` carries the §4.2 and §7.2 measurements as
+a `cva` set — the sanctioned way to differ from generated source (rule 4) —
+and `AppButton` and `AppInput` apply them. **Use those, not `ui/button` and
+`ui/input` directly**, on anything designed against the Design System.
+
+| | Design System | shadcn's default |
+|---|---|---|
+| Primary | `h-9 px-3.5`, label 14/**600** | `h-9 px-4`, 500 |
+| Ghost | `h-8 px-2.5` | `h-8 px-3` (`size="sm"`, the nearest neighbour — shadcn has no ghost *size*, and `variant="ghost"` defaults to `h-9 px-4`) |
+| Compact | `h-7 px-2.5`, 12/600 | no equivalent |
+| Disabled primary | `bg-muted` | faded fill |
+| Form control | `h-10 px-3`, 14px above `md` | `h-9` |
+| Filter | `h-8 px-3`, 12px above `md` | no equivalent |
+
+Both input sizes are 16px below `md` and their measured size above it —
+`md:text-sm` for the form control, `md:text-xs` for the filter — because iOS
+Safari zooms the page when a field under 16px takes focus, and a filter in a
+mobile Sheet is still typed into. The type belongs to each **size** and never
+to the base string: a base `text-base` is displaced by a size's `text-xs`, but
+a base `md:text-sm` is a different tailwind-merge group and survives, which is
+how the filter silently became 14px on the one breakpoint it is used at.
+
+Every size — buttons *and* inputs — is `min-h-11` below `md`, because §11's
+44px minimum has no exceptions and §4.3 is explicit that the compact desktop
+density is a power-user affordance rather than a house style.
+
+Two behaviours worth knowing rather than discovering: `variant="ghost"` sizes
+itself as a ghost button (32px) without being told twice, and a disabled
+`AppButton` renders a real `<button disabled>` even when given an `href` —
+an `<a aria-disabled>` is still clickable, and `disabled:pointer-events-none`
+never matches an anchor.
+
+`tests/js/controlSizes.test.ts` pins every size in both tables — including the
+filter, whose absence from it is exactly why the 14px regression above got as
+far as it did — along with those two behaviours, the icon's
+`pointer-events-none`, and the disabled hover tone. They render in the gallery
+so they can be judged next to each other.
+
+The starter kit's own auth and settings screens still use shadcn's sizes.
+They are Slice 1 work and will move to these components when they are designed
+against the spec; nothing new should be built on the upstream defaults.
 
 ---
 
