@@ -31,6 +31,7 @@ resources/js/wayfinder
 .env.*
 !.env.example
 
+dump.rdb
 .phpunit.cache
 .phpunit.result.cache
 coverage
