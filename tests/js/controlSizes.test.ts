@@ -94,11 +94,22 @@ describe('control sizes', () => {
     });
 
     it('renders as a link when given an href, so navigation matches actions', () => {
+        // The stub takes `href` so the assertion is that the prop *arrives* at
+        // the Link. Asserting on the rendered `<a>` alone would pass even if
+        // the href were dropped, since a bare anchor is still an anchor.
         const button = mount(AppButton, {
             props: { href: '/deals' },
-            global: { stubs: { Link: { template: '<a><slot /></a>' } } },
+            global: {
+                stubs: {
+                    Link: {
+                        props: ['href'],
+                        template: '<a :href="href"><slot /></a>',
+                    },
+                },
+            },
         });
 
-        expect(button.html()).toContain('<a');
+        expect(button.element.tagName).toBe('A');
+        expect(button.attributes('href')).toBe('/deals');
     });
 });

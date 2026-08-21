@@ -9,8 +9,12 @@
  *  - `size` here is the design-system size, not HTML's `size` attribute. The
  *    prop consumes the name, so the native one cannot be set — which is fine,
  *    since a width belongs in CSS, but it is worth saying out loud.
- *  - This is `<input>` only. A textarea is `rounded-md border p-[11px]` at
- *    13–14px (§10) and gets its own component when the first form needs one.
+ *  - This is a *text* `<input>` only. It binds `:value` and emits a string,
+ *    so `type="checkbox"`/`"radio"` would bind the wrong property entirely
+ *    and `type="number"` would hand a string back to the caller; the `type`
+ *    prop is narrowed to the text-like set rather than left to a comment. A
+ *    textarea is `rounded-md border p-[11px]` at 13–14px (§10) and gets its
+ *    own component when the first form needs one.
  */
 import { cn } from '@/lib/utils';
 import { appInputVariants } from './controlVariants';
@@ -20,7 +24,7 @@ const props = withDefaults(
     defineProps<{
         modelValue?: string | number | null;
         size?: AppInputVariants['size'];
-        type?: string;
+        type?: 'text' | 'email' | 'password' | 'search' | 'tel' | 'url';
         class?: string;
     }>(),
     { size: 'default', type: 'text' },
