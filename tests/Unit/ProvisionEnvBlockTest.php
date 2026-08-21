@@ -129,7 +129,7 @@ it('never touches anything outside its own block', function (): void {
     expect(resolveEnv($this->workspace)['DB_PASSWORD'])->toBe('postgres-is-using-this');
 });
 
-it('resolves APP_KEY the way Dotenv would, for every spelling of empty', function (
+it('resolves APP_KEY the way Dotenv would, for each spelling below', function (
     string $line,
     bool $expectTheirs,
 ): void {
@@ -394,6 +394,63 @@ it('refuses a closing delimiter with no opener', function (): void {
 
     expect($output)->toContain('no opening one');
     expect(file_get_contents($env))->toContain('DB_PASSWORD=keep-me');
+});
+
+it('anchors the closing-delimiter check to a line start', function (): void {
+    // Unanchored, this refuses a file the script itself would have written —
+    // any value that merely quotes the closing delimiter. Both anchoring tests
+    // pass under that mutation, because a refusal leaves the file untouched.
+    $env = $this->workspace.'/.env';
+    file_put_contents($env, 'NOTE="the closing delimiter is '
+        .'# <<< provision-staging.sh — end of managed block"'."\n", LOCK_EX);
+
+    $output = runEnvStage($this->workspace);
+
+    expect($output)->not->toContain('no opening one');
+    expect(resolveEnv($this->workspace)['APP_ENV'])->toBe('staging');
+    expect(file_get_contents($env))->toContain('the closing delimiter is # <<<');
+});
+
+it('does not claim lines moved when none did', function (): void {
+    // The relocation notice asserted only positively is a notice that can fire
+    // on every run without any test noticing — and a warning that always fires
+    // is one an operator stops reading.
+    $env = $this->workspace.'/.env';
+    file_put_contents($env, "DB_PASSWORD=above-the-block\n", LOCK_EX);
+
+    // First run: the block goes at the end, nothing was below it.
+    expect(runEnvStage($this->workspace))->not->toContain('now above it');
+
+    // Re-run with a different hostname: the block is rewritten in place, and
+    // still nothing of theirs sits below it.
+    expect(runEnvStage($this->workspace, 'other.example.com'))
+        ->not->toContain('now above it');
+
+    // Only when something is genuinely below the block.
+    file_put_contents($env, "REDIS_PASSWORD=below-the-block\n", FILE_APPEND);
+
+    expect(runEnvStage($this->workspace))->toContain('now above it');
+});
+
+it('measures relocation from the last block, not the first', function (): void {
+    // Two blocks with a secret between them and nothing after the last. The
+    // secret is already above where the new block lands, so nothing moves —
+    // but measuring from the first block would see it as below and warn.
+    $block = fn (string $host) => implode("\n", [
+        '# >>> provision-staging.sh — managed block; re-run the script to change it',
+        'SERVER_NAME='.$host,
+        '# <<< provision-staging.sh — end of managed block',
+    ]);
+
+    file_put_contents($this->workspace.'/.env', implode("\n", [
+        $block('first.example.com'),
+        'DB_PASSWORD=between-the-blocks',
+        $block('second.example.com'),
+        '',
+    ]), LOCK_EX);
+
+    expect(runEnvStage($this->workspace))->not->toContain('now above it');
+    expect(resolveEnv($this->workspace)['DB_PASSWORD'])->toBe('between-the-blocks');
 });
 
 it('reports the whole file, not just its own block', function (): void {

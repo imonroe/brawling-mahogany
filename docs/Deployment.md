@@ -223,15 +223,35 @@ The script does not edit your `.env`. It appends **one delimited block** to the
 end of it, holding the infrastructure settings — `APP_ENV`, `APP_DEBUG`,
 `SERVER_NAME`, `APP_URL`, `APP_PORT=80`, `APP_TLS_PORT=443`,
 `AUTO_MIGRATE=false`, and `COMPOSE_FILE=compose.yaml`. Re-running replaces that
-block and nothing else.
+block and rewrites nothing else.
 
 This looks odd and is deliberate. Dotenv resolves a key to its **last**
-definition, so a block at the end wins without the script having to find, parse,
-or rewrite anything you wrote — and because nothing outside the block is ever
-touched, no secret can be lost to a regex that did not quite match. An earlier
-version did rewrite keys in place and got it wrong five times: `^KEY=.*$` does
-not match `export KEY=x`, `KEY = x`, or an indented line, and each of those is a
+definition, so a block at the end wins without the script having to rewrite
+anything you wrote — and because nothing outside the block is ever rewritten, no
+secret can be lost to a regex that did not quite match. An earlier version did
+rewrite keys in place and got it wrong five times: `^KEY=.*$` does not match
+`export KEY=x`, `KEY = x`, or an indented line, and each of those is a
 definition Dotenv honours and would have resolved to.
+
+Two things follow from "rewrites nothing else" that are worth saying plainly.
+The rest of the file **is read**, for two bounded things — an `APP_KEY` you have
+already set, and an unclosed quote — and both fail towards leaving it alone. And
+the block always moves to the end, so anything that was below it ends up above
+it and the block's values now win over it. Your lines are intact either way; the
+script says so when it has moved any.
+
+### What it refuses
+
+Two shapes defeat a block appended at the end, and the script stops rather than
+half-handling either. Both refusals leave the file byte-identical.
+
+| Shape | Why |
+|---|---|
+| A quoted value that is never closed | Dotenv values span lines, so an unclosed quote swallows everything after it — the block included. The run would look successful and configure nothing. |
+| A delimiter it cannot pair | An opener with no closer, an opener followed by another opener, or a closer with no opener. Guessing where a block ends is how the secrets between the guesses get spliced out. |
+
+Delimiter matching is anchored to the start of a line, so a value that merely
+quotes a delimiter is left alone rather than treated as one.
 
 `COMPOSE_FILE` is in the block for a reason worth stating: without it a bare
 `docker compose ps|logs|up` on the droplet resolves `compose.local.yaml`, which
