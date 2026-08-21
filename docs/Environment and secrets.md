@@ -76,6 +76,38 @@ PRD §8.6, restated because both protect somebody else's client:
 The deploy workflow never prints an environment value, and no workflow echoes a
 variable that could hold one.
 
+### The deploy secrets, which are not application secrets
+
+`scripts/provision-staging.sh` creates these, and they live as GitHub Actions
+repository secrets rather than in any `.env`:
+
+| Secret | What it is |
+|---|---|
+| `STAGING_SSH_HOST` | the droplet's hostname |
+| `STAGING_SSH_USER` | the deploy user (`deploy`) |
+| `STAGING_SSH_KEY` | that user's **unpassphrased** private key |
+| `STAGING_PATH` | the checkout path on the droplet |
+| `STAGING_URL` | the base URL, used by the smoke check |
+
+**`STAGING_SSH_KEY` is effectively root on staging, and should be treated as
+the highest-value secret in the repository.** The `deploy` user is in the
+`docker` group, which is root-equivalent by design — anyone who can run
+`docker` can mount the host filesystem — and this key grants shell access as
+that user without a passphrase. Whoever holds it can read the staging `.env`,
+and therefore every application secret on the box.
+
+Two consequences worth stating rather than assuming:
+
+- It is a *deploy* credential, never a developer convenience. Do not copy it to
+  a laptop, and do not reuse it for a second host.
+- The provisioning script prints it once, on the run that generates it, and
+  `--print-key` re-prints it on demand. Clear the scrolled buffer afterwards:
+  the private half needs to exist in exactly two places, the droplet and the
+  GitHub secret.
+
+These do not appear in `.env.example`, because nothing in the application reads
+them — they belong to the pipeline, not the product.
+
 ---
 
 ## 4. Rotation
@@ -105,6 +137,21 @@ recovery from that beyond a restore.
 3. `docker compose up -d` to restart the app, worker, and scheduler together —
    all three read the same file, and a worker left on the old password fails
    silently into the retry queue.
+
+### `STAGING_SSH_KEY`
+
+Cheap to rotate and worth doing on any staff change, because it is the one
+credential that grants shell on the box:
+
+1. `ssh-keygen -t ed25519 -N '' -f /home/deploy/.ssh/id_ed25519` as `deploy`,
+   overwriting the old pair.
+2. Replace the old public key in `/home/deploy/.ssh/authorized_keys` — replace,
+   not append, or the retired key still works.
+3. Update the `STAGING_SSH_KEY` repository secret with the new private half.
+4. Re-run the deploy workflow to confirm it can still reach the droplet.
+
+There is no re-encryption step and nothing to migrate, so unlike `APP_KEY` this
+one has no reason to wait for a scheduled window.
 
 ### SES, Spaces, Sentry, AI provider
 
