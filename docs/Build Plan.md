@@ -34,9 +34,9 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 | **5** | AI document intelligence | 6 (+2 gates) | Parity with the competitor's headline feature |
 | **6** | Post-close and Keep in Touch | 5 | A closed deal stays an asset |
 | **7** | Commercial | 3 (+3 gates) | It becomes a business |
-| — | Cross-cutting decisions | 11 | The non-code work that gates the code work |
+| — | Cross-cutting decisions | 12 | The non-code work that gates the code work |
 
-**127 issues, 9 of them epics.**
+**128 issues, 9 of them epics.** Counts exclude the epics themselves; a decision issue that also carries a slice label is counted once, under decisions.
 
 ### Why Slice 0 exists
 
@@ -90,6 +90,13 @@ Three things on that path are worth naming.
 
 **The seeded template packs (#87) are blocked on input we do not have.** Emily's consolidated task list, including a buyer-side list that does not yet exist, is the direct input. Build the pack *mechanism* against a placeholder; do not invent the content to unblock the schedule.
 
+Two decisions sit on this path rather than beside it:
+
+- **#10 — partner or first customer.** The PRD says settle it in writing *before* slice 2, and slice 2 is where Emily's specific process gets encoded into something sellable. It gates the start of the slice, not a single issue inside it.
+- **#18 — shared versus duplicated person records.** It decides the shape of `people` and `team_memberships`, which #40 and #47 build on and which every later foreign key points at. It has to land before the first slice 1 migration.
+
+One ordering subtlety inside slice 2: **prototype the stage rail early, build it after the deals index.** Screen Inventory sequences *design* (S16 first, because it is the one interaction with no precedent to copy); Design System §13.3 sequences *build* (S13 end to end first, to prove the density spec at 20 rows). Both are right about different activities, so #76 carries a dependency on #78 while its prototype runs much earlier.
+
 ---
 
 ## 3. What runs in parallel
@@ -100,7 +107,8 @@ Three tracks can proceed independently of the critical path, and should:
 |---|---|---|
 | **Long-lead externals** | #12 SES production access, #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 3, 5, and 7 |
 | **Research spikes** | #14 extraction corpus, #19 iPhone web push, #16 Tailwind Plus | Answer questions whose answers change the build. All three are throwaway code or conversations |
-| **Design ahead of build** | Empty states (#33), mobile collapse (#31), S16 prototype (#76) | Design System §15 lists these as gaps. Designing them while Slice 1 is being built keeps Slice 2 unblocked |
+| **Design ahead of build** | Empty states (#33), mobile collapse (#31), S16 prototype (#76) | Design System §15 lists the first two as gaps; the S16 prototype comes from the Screen Inventory's sequencing recommendation. Designing them while Slice 1 is being built keeps Slice 2 unblocked |
+| **Decisions that gate a slice** | #10 partner or customer, #18 person records | Neither is code. Both have to be settled before the slice they gate starts — #18 before the first slice 1 migration, #10 before slice 2 |
 
 ---
 
@@ -120,7 +128,7 @@ These come from `CLAUDE.md` and PRD §8, and they are the reason several issues 
 
 **Uploads are the largest liability.** Restricted categories are refused outright, the PII warning appears at every upload point, and the scan runs in memory before anything is written (#99, #100). The terms describe what this actually does, not what it sounds like it does.
 
-**Nothing a model proposes reaches a live record unconfirmed.** `extracted_fields` is the only path into `key_dates` and `tasks` (#115, #116).
+**Nothing a model proposes reaches a live record unconfirmed.** `extracted_fields` is the only path into `key_dates` and `tasks` (#115, #116, #117).
 
 **No PII in logs. Ever.** Built into the log scrubber on day one (#37), not audited in later.
 
@@ -193,13 +201,14 @@ Filed nowhere, on purpose, with the reason:
 
 | Not built | Why |
 |---|---|
-| **F11.6 social life-event monitoring** | Would require scraping against platform terms; Meta's APIs do not expose third-party life events. PRD §4.11 recommends dropping it, and this plan does |
+| **F11.6 social life-event monitoring** | Would require scraping against platform terms; Meta's APIs do not expose third-party life events. PRD §4.11 *recommends* dropping it and PRD §15 records the decision as **pending Ian's confirmation** — so this is a recommendation the backlog follows, not a settled decision. Tracked as #130 |
+| **F9.6 process reporting** | A PRD **Could** — average days per stage, most-overridden gates, automation failure rate. Deferred past v1, and worth revisiting once there is enough history to report on. The underlying data is captured from slice 2 onward, so this is a reporting layer rather than new instrumentation |
 | **E-signature** | Confirmed unnecessary. Emily's market signs through CTM |
 | **Client document upload** | Confirmed unnecessary. Clients sign and return through CTM |
 | **MLS/IDX data ingestion** | Licensing, not preference. v1 stores links only |
 | **Ongoing rental and property management** | Out permanently, for a licensing reason. Tenant placement stays in |
 | **Commercial transactions** | Deferred to a later template pack, blocked on someone who knows commercial timelines |
-| **Native mobile apps** | Superseded by the PWA. Revisit after it proves demand |
+| **Native mobile apps** | Superseded by the PWA. Revisit after it proves demand. F12.5 attaches a constraint that *does* apply now: *"the API layer should be designed so a native client can be added without rework."* Inertia is not a public API, so the practical reading is to keep controllers thin and the domain services (notably `AdvanceWorkflow`) transport-agnostic |
 | **Blank-canvas workflow builder** | v1 is clone-and-edit. The builder is the graduation, not the start |
 | **SMS** | Gated on TCPA consent handling, which is the hard part |
 
