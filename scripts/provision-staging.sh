@@ -28,10 +28,12 @@
 #     Caddy can complete an ACME challenge.
 #   - Fill in the application secrets. It writes a .env with the infrastructure
 #     settings correct and every secret blank — except APP_KEY, which it
-#     generates, because it is the one secret with no external source and an
-#     empty one means the application will not boot. A provisioning script that
-#     invents a database password is a provisioning script that puts one in
-#     your shell history. See docs/Environment and secrets.md.
+#     generates when blank, because it is the one secret with no external
+#     source and an empty one means the application will not boot. It is never
+#     rotated once set: doing so would invalidate every session and every
+#     encrypted column. A provisioning script that invents a database password
+#     is a provisioning script that puts one in your shell history. See
+#     docs/Environment and secrets.md.
 #   - Deploy. That is .github/workflows/deploy-staging.yml, which takes over
 #     once STAGING_ENABLED is set.
 #
@@ -47,10 +49,11 @@ REPO_URL="${REPO_URL:-https://github.com/imonroe/brawling-mahogany.git}"
 BRANCH="${BRANCH:-dev}"
 SSH_DIR="/home/$DEPLOY_USER/.ssh"
 
-# The marker the .env rewrite reaches last. Guarding on this rather than on the
-# file's existence is what makes an interrupted run repairable: `cp` creates the
-# file in its first instruction, so `[ -f .env ]` goes true long before the file
-# is correct.
+# How the script recognises a .env as its own. Guarding on this rather than on
+# the file's existence is what makes an interrupted run repairable — the file is
+# created before it is correct, so `[ -f .env ]` goes true too early. Adding
+# this line by hand is also how an operator adopts an existing .env; the run
+# after that corrects every infrastructure setting and leaves the secrets.
 ENV_MARKER='APP_ENV=staging'
 
 usage() {
@@ -190,22 +193,21 @@ ENV_EXAMPLE="$DEPLOY_PATH/.env.example"
 # Three states, and they are not interchangeable:
 #
 #   no file           -> write it
-#   our file          -> leave the secrets alone; re-apply the hostname if it
-#                        changed, which is the one edit a re-run should make
+#   our file          -> re-apply every infrastructure setting; leave the
+#                        secrets the operator filled in alone
 #   somebody's file   -> REFUSE. A .env with a real DB_PASSWORD in it is
 #                        unrecoverable once Postgres holds that password, so an
 #                        unrecognised file is a stop, never an overwrite.
 #
 # An interrupted run is distinguishable from a real file because the rewrite is
-# atomic (os.replace below): either it applied in full or the file is still
-# byte-identical to .env.example, which is safe to redo.
+# atomic (os.replace below): either it applied in full, or the file is still
+# byte-identical to .env.example and is safe to redo.
 if [ ! -f "$ENV_FILE" ]; then
-    ENV_ACTION='write'
+    :
 elif grep -q "^${ENV_MARKER}\$" "$ENV_FILE"; then
-    ENV_ACTION='reconcile'
+    :
 elif cmp -s "$ENV_FILE" "$ENV_EXAMPLE"; then
     echo "Found an untouched copy of .env.example — a previous run stopped early."
-    ENV_ACTION='write'
 else
     cat >&2 <<REFUSE
 
@@ -216,81 +218,85 @@ Refusing to touch it. If it holds real credentials, overwriting it would lose
 them for good — DB_PASSWORD in particular cannot be recovered once Postgres is
 using it.
 
-  - to keep it:    fix it by hand; set APP_ENV=staging and this script will
-                   leave it alone from then on
-  - to replace it: move it aside first, then re-run
+  - to adopt it:   add the line '$ENV_MARKER' to it and re-run. The next run
+                   will correct every infrastructure setting (ports, TLS,
+                   COMPOSE_FILE, APP_KEY if blank) and leave your secrets
+                   alone.
+  - to replace it: move it aside first, then re-run.
 
 REFUSE
     exit 1
 fi
 
-if [ "$ENV_ACTION" = "write" ]; then
-    # 0600 from the moment it exists: `cp` would create it 0644 under the
-    # default umask, and APP_KEY would land in a world-readable file.
+if [ ! -f "$ENV_FILE" ]; then
+    # 0600 from the moment it exists: `install` rather than a plain copy,
+    # because the default umask would create it 0644 and APP_KEY would land in
+    # a world-readable file.
     install -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0600 "$ENV_EXAMPLE" "$ENV_FILE"
 fi
 
-# `reconcile` rewrites only the host-derived keys; `write` rewrites everything.
+# One pass, whatever state we arrived in. Every *infrastructure* key is
+# asserted every time — an earlier version rewrote only the hostname on a
+# re-run, which meant a file adopted by hand kept .env.example's development
+# ports and COMPOSE_FILE and could never obtain a certificate.
+#
 # APP_KEY is generated inside Python rather than passed in: an argument is
-# visible in /proc/<pid>/cmdline to every account on the box while the process
-# lives, and sudo writes the whole command line to the auth log.
-sudo -u "$DEPLOY_USER" python3 - "$ENV_FILE" "$SERVER_NAME" "$ENV_ACTION" <<'PY'
+# readable from /proc/<pid>/cmdline by every account on the box for the life of
+# the process, and sudo writes the whole command line to the auth log.
+sudo -u "$DEPLOY_USER" python3 - "$ENV_FILE" "$SERVER_NAME" <<'PY'
 import base64, os, pathlib, re, secrets, sys, tempfile
 
-path, server_name, action = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+path, server_name = pathlib.Path(sys.argv[1]), sys.argv[2]
 text = path.read_text()
 
-# Caddy terminates TLS itself once it is told a hostname (Deployment §3), so
-# these three are what changing the hostname means.
-host_settings = {
+settings = {
+    "APP_DEBUG": "false",
+    # Caddy terminates TLS itself once it is told a hostname (Deployment §3).
     "SERVER_NAME": server_name,
     "APP_URL": f"https://{server_name}",
+    # ACME's HTTP and TLS-ALPN challenges arrive on 80 and 443, nowhere else.
+    "APP_PORT": "80",
+    "APP_TLS_PORT": "443",
+    # Migrations are a deploy step, never a container start-up side effect.
+    "AUTO_MIGRATE": "false",
+    # Without this a bare `docker compose ps|logs|up` on the droplet resolves
+    # compose.local.yaml — which includes compose.yaml under the same project
+    # name and overrides it with the development target, a bind mount over
+    # /app, Mailpit and Vite. The deploy workflow passes -f explicitly, but a
+    # person at 2am does not.
+    "COMPOSE_FILE": "compose.yaml",
     "APP_ENV": "staging",
 }
 
-if action == "write":
-    settings = {
-        "APP_KEY": "base64:" + base64.b64encode(secrets.token_bytes(32)).decode(),
-        "APP_DEBUG": "false",
-        # ACME's HTTP and TLS-ALPN challenges arrive on 80 and 443, nowhere else.
-        "APP_PORT": "80",
-        "APP_TLS_PORT": "443",
-        # Migrations are a deploy step, never a container start-up side effect.
-        "AUTO_MIGRATE": "false",
-        # Without this a bare `docker compose ps|logs|up` on the droplet
-        # resolves compose.local.yaml — which includes compose.yaml under the
-        # same project name and overrides it with the development target, a
-        # bind mount over /app, Mailpit and Vite. The deploy workflow passes -f
-        # explicitly, but a person at 2am does not.
-        "COMPOSE_FILE": "compose.yaml",
-        **host_settings,
-    }
-else:
-    settings = host_settings
+# Generated only when absent. Rotating a key that is already in use would
+# invalidate every session and every encrypted column on the box.
+if re.search(r"^APP_KEY=.+$", text, re.MULTILINE) is None:
+    settings["APP_KEY"] = "base64:" + base64.b64encode(secrets.token_bytes(32)).decode()
 
 changed = []
 
 for key, value in settings.items():
     pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
-    # A lambda, not a replacement string: a `\` or `\1` in a value would
-    # otherwise be read as a backreference.
     replacement = f"{key}={value}"
     existing = pattern.search(text)
 
-    if existing:
-        if existing.group(0) != replacement:
-            changed.append(key)
-        text = pattern.sub(lambda _match: replacement, text, count=1)
-    else:
+    if existing is None:
         changed.append(key)
         text += f"\n{replacement}\n"
+        continue
 
-# Written through a temporary file in the same directory and moved into place,
-# so the file is never partially rewritten. A short write on a full disk would
-# otherwise leave the APP_ENV marker sitting above a truncated file, and the
-# next run would trust it.
-directory = path.parent
-handle, temporary = tempfile.mkstemp(dir=directory, prefix=".env.")
+    if existing.group(0) != replacement:
+        changed.append(key)
+
+    # A lambda, not a replacement string: a `\` or `\1` in a value would
+    # otherwise be read as a backreference.
+    text = pattern.sub(lambda _match: replacement, text, count=1)
+
+# Written to a temporary file in the same directory and moved into place, so
+# the file is never partially rewritten. A short write on a full disk would
+# otherwise leave a truncated .env that still carried the APP_ENV marker, and
+# the next run would trust it.
+handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=".env.")
 try:
     with os.fdopen(handle, "w") as file:
         file.write(text)
@@ -302,12 +308,10 @@ except BaseException:
     os.unlink(temporary)
     raise
 
-if action == "write":
-    print(f"Wrote {path} (0600, application secrets blank).")
-elif changed:
-    print(f"Updated {', '.join(changed)} in {path}; secrets untouched.")
+if changed:
+    print(f"Set {', '.join(sorted(changed))} in {path}. Secrets untouched.")
 else:
-    print(f"{path} already matches this hostname; nothing to change.")
+    print(f"{path} is already correct; nothing to change.")
 PY
 
 cat <<EOF
@@ -315,8 +319,9 @@ cat <<EOF
 $(printf '\033[1m==> Provisioned.\033[0m')
 
 The droplet has Docker, a firewall, a $DEPLOY_USER user, a checkout of
-$BRANCH at $DEPLOY_PATH, and a .env with the infrastructure settings correct
-and every application secret blank.
+$BRANCH at $DEPLOY_PATH, and a .env with the infrastructure settings correct.
+Every application secret in it is blank except APP_KEY, which is generated
+when it is empty and never rotated once it is set.
 
 Three things left, none of which this script should do for you:
 

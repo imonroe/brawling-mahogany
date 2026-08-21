@@ -221,18 +221,35 @@ land, `AUTO_MIGRATE=false` because migrations are a deploy step, and
 `COMPOSE_FILE=compose.yaml` so a bare `docker compose` on the box does not
 resolve the *local* stack and rebuild staging as the development image.
 
-**Re-running it repairs an interrupted run.** Each stage tests for the state it
-produces rather than for a file it is about to create — the `.env` stage keys
-off `APP_ENV=staging`, which the rewrite writes last, so a run that dies
-part-way leaves the marker absent and the next run starts the file over. Pass a
-new hostname and it is picked up. What re-running does *not* do is move the
-checkout: it fetches but never resets, because a hard reset on a box somebody
-is mid-debug on is not a provisioning script's decision. Deploys are the deploy
-workflow's job.
+**Re-running is safe, and specific about what it will touch.** The `.env` stage
+recognises three states:
+
+| The file | What happens |
+|---|---|
+| absent | written from `.env.example` |
+| carries `APP_ENV=staging` | every *infrastructure* setting re-applied — ports, TLS, `COMPOSE_FILE`, hostname — and every secret left alone |
+| anything else | **refused**, exit 1 |
+
+That last row is the important one. A `.env` this script did not write may hold
+a `DB_PASSWORD` that Postgres is already using, and that is not recoverable, so
+an unrecognised file stops the run rather than being overwritten. To adopt one,
+add the `APP_ENV=staging` line by hand and re-run: the next run corrects the
+infrastructure settings and leaves the credentials.
+
+An interrupted run repairs itself, because the rewrite is atomic — it is
+written to a temporary file and moved into place, so the file is either fully
+rewritten or still byte-identical to `.env.example`, which is safe to redo.
+
+`APP_KEY` is generated only when blank, and **never rotated** once set:
+rotating it would invalidate every session and every encrypted column on the
+box. Pass a different hostname and it is picked up. What re-running does *not*
+do is move the checkout — it fetches but never resets, because a hard reset on
+a box somebody is mid-debug on is not a provisioning script's decision. Deploys
+are the deploy workflow's job.
 
 **It leaves every application secret blank on purpose**, except `APP_KEY` — the
 one secret with no external source, and an empty one means the app will not
-boot. A provisioning script that invents a database password is one that puts a
+boot; it is generated when blank and never rotated. A provisioning script that invents a database password is one that puts a
 database password in your shell history. It prints the deploy key and the exact
 secrets and variables to set, and stops there. Re-running does not re-print the
 key; `--print-key` does.
