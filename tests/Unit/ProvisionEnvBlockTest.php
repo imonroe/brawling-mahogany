@@ -19,7 +19,9 @@ use Dotenv\Dotenv;
 function runEnvStage(string $directory, string $hostname = 'staging.example.com'): string
 {
     $script = base_path('scripts/provision-staging.sh');
-    $stage = tempnam(sys_get_temp_dir(), 'stage').'.sh';
+    // Not tempnam().'.sh' — that creates one file and then writes to a
+    // different path, orphaning the first. This test runs eleven times.
+    $stage = $directory.'/stage.sh';
 
     // Just the .env stage: the rest of the script installs Docker and a
     // firewall, which no test may run.
@@ -182,6 +184,128 @@ it('sets the infrastructure values the droplet actually needs', function (): voi
     expect($env['AUTO_MIGRATE'])->toBe('false');
     // Or a bare `docker compose up` on the droplet rebuilds it as the dev image.
     expect($env['COMPOSE_FILE'])->toBe('compose.yaml');
+});
+
+it('refuses a file whose quoted value is never closed', function (): void {
+    // Dotenv values may span lines, so an unclosed quote swallows everything
+    // after it — including the appended block, which then resolves to nothing
+    // while the run looks successful. The only safe answer is to stop.
+    $env = $this->workspace.'/.env';
+    file_put_contents($env, "MAIL_FROM_NAME=\"Acme Realty\nDB_PASSWORD=keep-me\n", LOCK_EX);
+
+    $output = runEnvStage($this->workspace);
+
+    expect($output)->toContain('never closed');
+    // Refusing is only worth anything if it refuses without touching the file.
+    expect(file_get_contents($env))->toContain('DB_PASSWORD=keep-me');
+    expect(file_get_contents($env))->not->toContain('managed block');
+});
+
+it('refuses an opening delimiter with no closing one', function (): void {
+    // A stray copy of the delimiter — pasted, or left by a hand-edit — used to
+    // make the block match span from it to the real close, splicing out every
+    // secret in between and reporting success.
+    $env = $this->workspace.'/.env';
+    file_put_contents($env, implode("\n", [
+        '# >>> provision-staging.sh — managed block; re-run the script to change it',
+        'DB_PASSWORD=postgres-has-this',
+        'REDIS_PASSWORD=redis-has-this',
+        '',
+    ]), LOCK_EX);
+
+    $output = runEnvStage($this->workspace);
+
+    expect($output)->toContain('no closing one');
+    expect(file_get_contents($env))->toContain('DB_PASSWORD=postgres-has-this');
+    expect(file_get_contents($env))->toContain('REDIS_PASSWORD=redis-has-this');
+});
+
+it('refuses a stray opener sitting above a real block', function (): void {
+    // The precise shape that a non-greedy match gets wrong: OPEN, secrets,
+    // then a complete block. Matching from the first opener to the first close
+    // would splice the secrets out. Distinct from the no-close-at-all case,
+    // which a simple search already catches.
+    $env = $this->workspace.'/.env';
+    runEnvStage($this->workspace);
+    file_put_contents($env, implode("\n", [
+        '# >>> provision-staging.sh — managed block; re-run the script to change it',
+        'DB_PASSWORD=postgres-has-this',
+        '',
+    ]).file_get_contents($env), LOCK_EX);
+
+    $output = runEnvStage($this->workspace);
+
+    expect($output)->toContain('no closing one');
+    expect(file_get_contents($env))->toContain('DB_PASSWORD=postgres-has-this');
+});
+
+it('absorbs a stray complete block rather than stacking on it', function (): void {
+    // A well-formed stray block — pasted from another host, or left by an
+    // earlier hand-edit. It is somebody else's content, so it is left exactly
+    // alone; only the last block is this script's to rewrite.
+    $env = $this->workspace.'/.env';
+    $stray = implode("\n", [
+        '# >>> provision-staging.sh — managed block; re-run the script to change it',
+        'SERVER_NAME=some-other-host.example.com',
+        '# <<< provision-staging.sh — end of managed block',
+    ]);
+    file_put_contents($env, $stray."\nDB_PASSWORD=survives\n", LOCK_EX);
+
+    runEnvStage($this->workspace, 'staging.example.com');
+
+    $written = file_get_contents($env);
+
+    // Absorbed, not stacked: these delimiters say the block is this script's,
+    // so a stray one is its to clean up. The secret between them survives.
+    expect(substr_count($written, 'managed block; re-run'))->toBe(1);
+    expect($written)->toContain('DB_PASSWORD=survives');
+    expect(resolveEnv($this->workspace)['SERVER_NAME'])->toBe('staging.example.com');
+
+    runEnvStage($this->workspace, 'staging.example.com');
+
+    expect(substr_count(file_get_contents($env), 'managed block; re-run'))->toBe(1);
+});
+
+it('keeps CRLF a CRLF file and LF an LF file', function (): void {
+    // Rewriting every line ending in somebody's file is exactly the kind of
+    // edit this stage promises not to make.
+    $env = $this->workspace.'/.env';
+    file_put_contents($env, "DB_PASSWORD=x\r\nMAIL_FROM_NAME=y\r\n", LOCK_EX);
+
+    runEnvStage($this->workspace);
+    $written = file_get_contents($env);
+
+    expect(substr_count($written, "\n"))->toBe(substr_count($written, "\r\n"));
+
+    file_put_contents($env, "DB_PASSWORD=x\nFOO=y\n", LOCK_EX);
+    runEnvStage($this->workspace);
+
+    expect(file_get_contents($env))->not->toContain("\r");
+});
+
+it('carries a non-UTF-8 byte in a secret through untouched', function (): void {
+    // Somebody's password, not a bug. Aborting with a decode traceback would
+    // be the wrong answer, and so would replacing the byte.
+    $env = $this->workspace.'/.env';
+    file_put_contents($env, "DB_PASSWORD=p\xffw\nFOO=bar\n", LOCK_EX);
+
+    runEnvStage($this->workspace);
+
+    expect(file_get_contents($env))->toContain("DB_PASSWORD=p\xffw");
+    expect(resolveEnv($this->workspace)['APP_ENV'])->toBe('staging');
+});
+
+it('follows a symlinked .env rather than replacing the link', function (): void {
+    $target = $this->workspace.'/real.env';
+    file_put_contents($target, "DB_PASSWORD=via-symlink\n", LOCK_EX);
+    symlink($target, $this->workspace.'/.env');
+
+    runEnvStage($this->workspace);
+
+    // Replacing the link would orphan whatever it pointed at, which on a real
+    // droplet is where the operator put the file deliberately.
+    expect(is_link($this->workspace.'/.env'))->toBeTrue();
+    expect(file_get_contents($target))->toContain('APP_ENV=staging');
 });
 
 it('leaves the file readable only by its owner', function (): void {

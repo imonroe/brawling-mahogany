@@ -98,6 +98,12 @@ case "${1:-}" in
         ;;
 esac
 
+if [ "$#" -gt 1 ]; then
+    echo "Too many arguments: this takes one hostname, or --print-key." >&2
+    usage
+    exit 1
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "Run this as root on the droplet." >&2
     exit 1
@@ -196,10 +202,16 @@ ENV_FILE="$DEPLOY_PATH/.env"
 # LAST definition, so any spelling the regex missed silently won. Five review
 # rounds found five ways to lose that game.
 #
-# So the script stops parsing. It owns one delimited block at the end of the
-# file and rewrites only that. Last definition wins, so the block's values win
-# whatever the rest of the file says or how it spells it — and because nothing
-# outside the block is ever touched, no secret can be destroyed by a bad match.
+# So the script stops *rewriting* by pattern. It owns one delimited block at the
+# end of the file and rewrites only that. Last definition wins, so the block's
+# values win whatever the rest of the file says or how it spells it — and
+# because nothing outside the block is ever rewritten, no secret can be
+# destroyed by a bad match.
+#
+# It still reads the rest of the file for exactly two things, both bounded: an
+# APP_KEY the operator has set, which it must not overwrite, and an unclosed
+# quote, which would swallow the block and make the run a silent no-op. Both
+# fail towards leaving the file alone.
 sudo -u "$DEPLOY_USER" python3 - "$ENV_FILE" "$DEPLOY_PATH/.env.example" "$SERVER_NAME" <<'PY'
 import base64, os, pathlib, re, secrets, sys, tempfile
 
@@ -209,23 +221,153 @@ path, example, server_name = (pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2
 OPEN = "# >>> provision-staging.sh — managed block; re-run the script to change it"
 CLOSE = "# <<< provision-staging.sh — end of managed block"
 
+
+def fail(message):
+    print(f"\n{message}\n", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def read(target):
+    """Bytes in, bytes out, newlines and all.
+
+    surrogateescape rather than strict: a secret with a stray non-UTF-8 byte in
+    it is somebody's password, and the right response is to carry it through
+    untouched, not to abort with a traceback. newline="" so CRLF survives — this
+    stage promises not to touch what it did not write, and silently converting
+    every line ending in the file would break that promise wholesale.
+    """
+    with open(target, "r", encoding="utf-8", errors="surrogateescape",
+              newline="") as handle:
+        return handle.read()
+
+
+def unterminated_quote(text):
+    """The line number of a quoted value that is never closed, or None.
+
+    Dotenv values may span lines, so an unclosed quote swallows everything
+    after it — including a block appended at the end, which then resolves to
+    nothing at all while this script reports success. Detected and refused
+    rather than papered over.
+    """
+    assignment = re.compile(
+        r"""^[ \t]*(?:export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*(.*)$""")
+    quote = None
+    opened_at = None
+
+    for number, line in enumerate(text.splitlines(), start=1):
+        if quote is None:
+            match = assignment.match(line)
+
+            if not match:
+                continue
+
+            value = match.group(1)
+
+            if not value[:1] in ('"', "'"):
+                continue
+
+            quote, opened_at, rest = value[0], number, value[1:]
+        else:
+            rest = line
+
+        index = 0
+        while index < len(rest):
+            character = rest[index]
+
+            if character == "\\" and quote == '"':
+                index += 2
+                continue
+
+            if character == quote:
+                quote, opened_at = None, None
+                break
+
+            index += 1
+
+    return opened_at
+
+
+def value_is_set(raw):
+    """Would Dotenv read a non-empty value from this right-hand side?
+
+    Only ever asked about APP_KEY, and only to decide whether to leave the
+    operator's own line alone. Every spelling of empty has to come back False,
+    because an empty APP_KEY means the application will not boot: `APP_KEY=""`,
+    `APP_KEY= # rotate me`, and the cross-product `APP_KEY="" # rotate me` all
+    look set and all resolve to nothing.
+    """
+    value = raw.strip()
+
+    if value[:1] in ('"', "'"):
+        closing = value.find(value[0], 1)
+
+        # An unterminated quote here is caught earlier and refused; treat it as
+        # set so this function never becomes the thing that overwrites a key.
+        return True if closing == -1 else value[1:closing] != ""
+
+    # Unquoted: the value ends at an inline comment, and a value that is
+    # nothing but a comment is empty.
+    return value.split(" #")[0].split("\t#")[0].strip().lstrip("#").strip() != "" \
+        and not value.startswith("#")
+
+
+# A symlinked .env is followed, not replaced: os.replace() onto the link would
+# swap the link itself for a regular file and orphan whatever it pointed at.
+if path.is_symlink():
+    path = path.resolve()
+
 created = not path.exists()
+text = read(example) if created else read(path)
 
-if created:
-    text = example.read_text()
-else:
-    text = path.read_text()
+# Every well-formed managed block is removed and one fresh one appended, so a
+# stray copy left by a hand-edit is absorbed rather than stacked.
+#
+# The scan is sequential and refuses anything it cannot read unambiguously. A
+# plain non-greedy regex would match from a stray *opening* delimiter to the
+# real block's *closing* one and splice out every secret in between — which is
+# the failure this whole design exists to make impossible, arrived at by
+# matching too much rather than too little.
+blocks = []
+cursor = 0
 
-# Whatever we wrote last time, so the block can be replaced rather than stacked.
-previous = ""
-block = re.search(rf"^{re.escape(OPEN)}$.*?^{re.escape(CLOSE)}$\n?", text,
-                  re.MULTILINE | re.DOTALL)
+while True:
+    open_at = text.find(OPEN, cursor)
 
-if block:
-    previous = block.group(0)
-    text = text[:block.start()] + text[block.end():]
+    if open_at == -1:
+        break
 
-body = text.rstrip("\n")
+    close_at = text.find(CLOSE, open_at)
+    next_open = text.find(OPEN, open_at + len(OPEN))
+
+    if close_at == -1 or (next_open != -1 and next_open < close_at):
+        fail(f"{path} has a managed-block opening delimiter with no closing one.\n"
+             "Refusing to guess where the block ends, because guessing wrong\n"
+             "would delete whatever sits between it and the next close. Remove\n"
+             "the stray line, or close the block by hand, then re-run.")
+
+    stop = close_at + len(CLOSE)
+    blocks.append((open_at, stop))
+    cursor = stop
+
+# The last one is the one whose APP_KEY carries forward.
+previous = text[blocks[-1][0]:blocks[-1][1]] if blocks else ""
+
+for begin, stop in reversed(blocks):
+    text = text[:begin] + text[stop:]
+
+line = unterminated_quote(text)
+
+if line is not None:
+    fail(f"{path} line {line} opens a quoted value that is never closed.\n"
+         "Dotenv would swallow everything after it, including the settings this\n"
+         "script appends — so the run would look successful and configure\n"
+         "nothing. Close the quote, then re-run.")
+
+# Match whatever the file already uses. Appending LF lines to a CRLF file
+# would leave a mixed-ending .env, which is precisely the kind of edit this
+# stage promises not to make to somebody else's content.
+newline = "\r\n" if "\r\n" in text else "\n"
+body = text.rstrip("\r\n")
 
 # APP_KEY, in three cases, none of which may rotate a key already in use:
 #
@@ -233,37 +375,19 @@ body = text.rstrip("\n")
 #   our previous block had one                  -> reuse that exact value
 #   neither                                     -> generate one
 #
-def is_set(raw):
-    """Would Dotenv read a non-empty value from this right-hand side?
-
-    Only ever asked about APP_KEY, and only to decide whether to leave the
-    operator's line alone. Quoted-empty counts as empty: `APP_KEY=""` looks
-    set to a naive test, and treating it as set means generating no key and
-    shipping a box that cannot boot.
-    """
-    value = raw.strip()
-
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1] != ""
-
-    # An unquoted value ends at an inline comment — and a value that is
-    # nothing but a comment is empty, which `APP_KEY= # rotate me` is.
-    if value.startswith("#"):
-        return False
-
-    return value.split(" #")[0].strip() != ""
-
-
-# Every spelling Dotenv honours — `export`, spaces around `=`, indentation —
-# and the LAST one, because that is the one it would resolve to.
+# The scan below is a regex over a grammar this script otherwise refuses to
+# parse, which is a deliberate exception with a bounded downside: every
+# spelling it recognises is one the operator's key is preserved for, and the
+# worst a miss can do is generate a key into the block, which then wins. It
+# cannot destroy theirs, because nothing outside the block is ever rewritten.
 operator_values = re.findall(
     r"^[ \t]*(?:export[ \t]+)?APP_KEY[ \t]*=(.*)$", body, re.MULTILINE)
-operator_key = bool(operator_values) and is_set(operator_values[-1])
+operator_key = bool(operator_values) and value_is_set(operator_values[-1])
 
 app_key = None
 
 if not operator_key:
-    reused = re.search(r"^APP_KEY=(\S+)$", previous, re.MULTILINE)
+    reused = re.search(r"^APP_KEY=(\S+)\s*$", previous, re.MULTILINE)
     app_key = reused.group(1) if reused else (
         "base64:" + base64.b64encode(secrets.token_bytes(32)).decode())
 
@@ -296,14 +420,15 @@ lines = [OPEN,
 lines += [f"{key}={value}" for key, value in settings]
 lines.append(CLOSE)
 
-rendered = "\n".join(lines) + "\n"
-updated = body + "\n\n" + rendered
+rendered = newline.join(lines) + newline
+updated = body + newline + newline + rendered
 
 # Through a temporary file in the same directory, so the .env is never seen
 # half-written: a short write on a full disk would otherwise truncate it.
 handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=".env.")
 try:
-    with os.fdopen(handle, "w") as file:
+    with os.fdopen(handle, "w", encoding="utf-8", errors="surrogateescape",
+                   newline="") as file:
         file.write(updated)
         file.flush()
         os.fsync(file.fileno())
