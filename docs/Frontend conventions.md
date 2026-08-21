@@ -114,7 +114,8 @@ and `AppButton` and `AppInput` apply them. **Use those, not `ui/button` and
 | Ghost | `h-8 px-2.5` | `h-8 px-3` (`size="sm"`, the nearest neighbour — shadcn has no ghost *size*, and `variant="ghost"` defaults to `h-9 px-4`) |
 | Compact | `h-7 px-2.5`, 12/600 | no equivalent |
 | Disabled primary | `bg-muted` | faded fill |
-| Form control | `h-10 px-3` | `h-9` |
+| Form control | `h-10 px-3`, 14px above `md` | `h-9` |
+| Filter | `h-8 px-3`, 12px above `md` | no equivalent |
 
 Both input sizes are 16px below `md` and their measured size above it —
 `md:text-sm` for the form control, `md:text-xs` for the filter — because iOS
@@ -125,7 +126,7 @@ a base `md:text-sm` is a different tailwind-merge group and survives, which is
 how the filter silently became 14px on the one breakpoint it is used at.
 
 Every size — buttons *and* inputs — is `min-h-11` below `md`, because §11's
-44px minimum has no exceptions and §4.2 is explicit that the compact desktop
+44px minimum has no exceptions and §4.3 is explicit that the compact desktop
 density is a power-user affordance rather than a house style.
 
 Two behaviours worth knowing rather than discovering: `variant="ghost"` sizes

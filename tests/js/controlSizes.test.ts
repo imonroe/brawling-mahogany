@@ -92,7 +92,7 @@ describe('control sizes', () => {
         // §8.6's FilterBar is a desktop surface: 12px is the size that counts.
         expect(input.classes()).toContain('md:text-xs');
         expect(input.classes()).not.toContain('md:text-sm');
-        // 16px on a phone, or iOS Safari zooms — a filter in a Sheet (§13.1)
+        // 16px on a phone, or iOS Safari zooms — a filter in a Sheet (§6.1)
         // is still typed into.
         expect(input.classes()).toContain('text-base');
         // §11's minimum has no exceptions, filters included.
@@ -117,6 +117,17 @@ describe('control sizes', () => {
         expect(mount(AppButton).classes()).toContain(
             '[&_svg]:pointer-events-none',
         );
+    });
+
+    it('gives every button size §7.2’s 16px leading icon', () => {
+        // "All share rounded-md gap-1.5 and a 16px leading icon" — every size,
+        // including compact, which was 14px until this test existed.
+        for (const size of ['default', 'ghost', 'compact'] as const) {
+            expect(
+                mount(AppButton, { props: { size } }).classes(),
+                size,
+            ).toContain('[&_svg]:size-4');
+        }
     });
 
     it('never renders a disabled link, which would still navigate', () => {

@@ -24,7 +24,7 @@ import type { VariantProps } from 'class-variance-authority';
  */
 
 export const appButtonVariants = cva(
-    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md whitespace-nowrap transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0',
+    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md whitespace-nowrap transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
     {
         variants: {
             variant: {
@@ -43,17 +43,20 @@ export const appButtonVariants = cva(
                 warning:
                     'bg-state-warning font-semibold text-primary-foreground hover:bg-state-warning/90',
             },
+            // The 16px leading icon lives in the base, not here: §7.2 says
+            // "all share ... a 16px leading icon", so a per-size icon is a
+            // deviation waiting to be introduced. Compact was 14px until
+            // review round 4 found it.
             size: {
                 // 44px on a phone, the measured height on a pointer device
                 // (§11: 44px minimum on mobile, without exception).
-                default:
-                    'min-h-11 px-3.5 text-sm md:h-9 md:min-h-0 [&_svg]:size-4',
-                ghost: 'min-h-11 px-2.5 text-sm md:h-8 md:min-h-0 [&_svg]:size-4',
+                default: 'min-h-11 px-3.5 text-sm md:h-9 md:min-h-0',
+                ghost: 'min-h-11 px-2.5 text-sm md:h-8 md:min-h-0',
                 // §7.2 specifies compact as 12/600 whatever the fill, so the
                 // weight belongs to the size rather than the variant. cva emits
                 // size after variant, and tailwind-merge takes the last one.
                 compact:
-                    'min-h-11 px-2.5 text-xs font-semibold md:h-7 md:min-h-0 [&_svg]:size-3.5',
+                    'min-h-11 px-2.5 text-xs font-semibold md:h-7 md:min-h-0',
             },
             disabled: {
                 // §7.2: a disabled primary is muted, not a faded fill.

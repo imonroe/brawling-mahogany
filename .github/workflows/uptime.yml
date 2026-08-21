@@ -18,8 +18,9 @@ name: Uptime
 # release, not when it merges. Setting the variables before then is correct and
 # will simply produce no runs; that is the schedule, not a wrong variable name.
 #
-# It watches whichever of these repository *variables* are set, and skips the
-# ones that are not, so it stays quiet until there is something to watch:
+# It watches whichever of these repository *variables* are set, and warns on
+# the ones that are not — an unmonitored environment has to be visible on the
+# run summary rather than look exactly like a healthy one:
 #
 #   UPTIME_STAGING_URL      e.g. https://staging.example.com
 #   UPTIME_PRODUCTION_URL   e.g. https://example.com
