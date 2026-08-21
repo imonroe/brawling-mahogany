@@ -10,11 +10,13 @@
 #
 # Re-running is safe, and it is specific about what it will and will not touch:
 #
-#   - A .env this script wrote is left alone, except for the hostname, which is
-#     re-applied if you pass a different one. Secrets already filled in survive.
-#   - A .env this script did NOT write stops the run rather than being
-#     overwritten. Losing a DB_PASSWORD that Postgres is already using is not
-#     recoverable, so an unrecognised file is never clobbered.
+#   - A .env carrying the APP_ENV=staging marker has every *infrastructure*
+#     setting re-applied — ports, TLS, COMPOSE_FILE, hostname — and every
+#     secret left alone. APP_KEY is generated only when blank, never rotated.
+#   - A .env without that marker, and not byte-identical to .env.example, stops
+#     the run rather than being overwritten. Losing a DB_PASSWORD that Postgres
+#     is already using is not recoverable, so an unrecognised file is never
+#     clobbered. Add the marker line by hand to adopt it.
 #   - An interrupted run is repaired, because the .env rewrite is atomic: either
 #     it applied in full or the file is still byte-identical to .env.example.
 #   - The checkout is fetched but NEVER reset. A hard reset on a box somebody
@@ -49,11 +51,13 @@ REPO_URL="${REPO_URL:-https://github.com/imonroe/brawling-mahogany.git}"
 BRANCH="${BRANCH:-dev}"
 SSH_DIR="/home/$DEPLOY_USER/.ssh"
 
-# How the script recognises a .env as its own. Guarding on this rather than on
-# the file's existence is what makes an interrupted run repairable — the file is
-# created before it is correct, so `[ -f .env ]` goes true too early. Adding
-# this line by hand is also how an operator adopts an existing .env; the run
-# after that corrects every infrastructure setting and leaves the secrets.
+# How the script recognises a .env as its own. Not what makes an interrupted run
+# repairable — that is the atomic write below, which leaves the file either
+# fully correct or byte-identical to .env.example. This line's job is to tell
+# "ours" from "somebody's", and adding it by hand is how an operator adopts an
+# existing .env: the next run corrects every infrastructure setting and leaves
+# the secrets alone. Where in the file does not matter; every occurrence of a
+# key is rewritten, so it cannot be shadowed by a later duplicate.
 ENV_MARKER='APP_ENV=staging'
 
 usage() {
@@ -268,9 +272,13 @@ settings = {
     "APP_ENV": "staging",
 }
 
-# Generated only when absent. Rotating a key that is already in use would
-# invalidate every session and every encrypted column on the box.
-if re.search(r"^APP_KEY=.+$", text, re.MULTILINE) is None:
+# Generated only when the key Dotenv would actually read is empty — the LAST
+# APP_KEY line, for the same reason every occurrence is rewritten below.
+# Rotating a key already in use would invalidate every session and every
+# encrypted column on the box, so a set key is never touched.
+app_keys = re.findall(r"^APP_KEY=(.*)$", text, re.MULTILINE)
+
+if not app_keys or app_keys[-1].strip() in ("", '""', "''"):
     settings["APP_KEY"] = "base64:" + base64.b64encode(secrets.token_bytes(32)).decode()
 
 changed = []
@@ -278,19 +286,28 @@ changed = []
 for key, value in settings.items():
     pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
     replacement = f"{key}={value}"
-    existing = pattern.search(text)
+    # The last match, because that is the one Dotenv would have used.
+    matches = pattern.findall(text)
+    existing = matches[-1] if matches else None
 
     if existing is None:
         changed.append(key)
         text += f"\n{replacement}\n"
         continue
 
-    if existing.group(0) != replacement:
+    if existing != replacement or len(matches) > 1:
         changed.append(key)
 
+    # Every occurrence, not the first. Dotenv takes the LAST definition of a
+    # key, so rewriting only the first would leave the winning line untouched:
+    # an operator who adopts a file by prepending the marker above an existing
+    # APP_ENV=production gets a run that reports success while Laravel still
+    # boots the box as production. Verified against this repo's own vendored
+    # Dotenv rather than assumed.
+    #
     # A lambda, not a replacement string: a `\` or `\1` in a value would
     # otherwise be read as a backreference.
-    text = pattern.sub(lambda _match: replacement, text, count=1)
+    text = pattern.sub(lambda _match: replacement, text)
 
 # Written to a temporary file in the same directory and moved into place, so
 # the file is never partially rewritten. A short write on a full disk would
@@ -320,8 +337,8 @@ $(printf '\033[1m==> Provisioned.\033[0m')
 
 The droplet has Docker, a firewall, a $DEPLOY_USER user, a checkout of
 $BRANCH at $DEPLOY_PATH, and a .env with the infrastructure settings correct.
-Every application secret in it is blank except APP_KEY, which is generated
-when it is empty and never rotated once it is set.
+Any application secret this script has not been given stays blank — APP_KEY is
+the exception, generated when empty and never rotated once set.
 
 Three things left, none of which this script should do for you:
 
