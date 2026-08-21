@@ -26,7 +26,7 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 
 | Slice | Name | Issues | What it buys |
 |---|---|---|---|
-| **0** | Scaffolding, platform, design system | 19 | A stack that runs, a pipeline that blocks, and a component kit the other 70 screens assemble from |
+| **0** | Scaffolding, platform, design system | 19 | A stack that runs, a pipeline that gates once `scripts/protect-branches.sh` is run, and a component kit the other 70 screens assemble from |
 | **1** | Tenancy, identity, people | 19 | A team can exist, log in, and hold contacts — with isolation proven |
 | **2** | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
 | **3** | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
@@ -45,7 +45,9 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 > than quietly carried: **the `AppLayout` review with Heather**, and **the
 > staging droplet**, which needs an account, a domain, and DNS that no
 > repository can provide. Slice 1 starts from a stack that runs and a pipeline
-> that blocks.
+> that gates — the gating needs `scripts/protect-branches.sh` run once by an
+> admin, because branch protection lives in repository settings and cannot be
+> committed.
 
 ### Why Slice 0 exists
 
@@ -168,7 +170,9 @@ Per `CLAUDE.md`:
 - `main` is for **tagged releases only**
 - `dev` → `main` by pull request when a release is cut
 
-One branch per issue. CI blocks the merge.
+One branch per issue. CI blocks the merge — once `scripts/protect-branches.sh`
+has been run; until then the pipeline reports without gating anything
+(Deployment §7).
 
 ### Pull requests
 

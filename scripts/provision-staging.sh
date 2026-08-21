@@ -8,15 +8,18 @@
 #   scp scripts/provision-staging.sh root@<droplet-ip>:/tmp/
 #   ssh root@<droplet-ip> 'bash /tmp/provision-staging.sh staging.example.com'
 #
-# Re-running is safe. Every stage checks for the state it produces rather than
-# for a file it is about to create, so an interrupted run is repaired by
-# running it again — including a half-written .env, which is the one failure
-# that would otherwise leave the box looking provisioned and be unbootable.
+# Re-running is safe, and it is specific about what it will and will not touch:
 #
-# What re-running does NOT do: move the checkout to a newer commit. It fetches
-# but never resets, because a hard reset on a box somebody may be mid-debug on
-# is not a thing a provisioning script should do unasked. Deploys are the
-# deploy workflow's job. Changing the hostname IS picked up — pass the new one.
+#   - A .env this script wrote is left alone, except for the hostname, which is
+#     re-applied if you pass a different one. Secrets already filled in survive.
+#   - A .env this script did NOT write stops the run rather than being
+#     overwritten. Losing a DB_PASSWORD that Postgres is already using is not
+#     recoverable, so an unrecognised file is never clobbered.
+#   - An interrupted run is repaired, because the .env rewrite is atomic: either
+#     it applied in full or the file is still byte-identical to .env.example.
+#   - The checkout is fetched but NEVER reset. A hard reset on a box somebody
+#     may be mid-debug on is not a provisioning script's decision to make;
+#     deploys are the deploy workflow's job.
 #
 # What it does not do at all, deliberately:
 #
@@ -115,10 +118,9 @@ fi
 say "Packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-# python3 and openssl are used below. They are on every stock Ubuntu cloud
-# image, but naming them means a stripped one fails here, loudly, rather than
-# halfway through writing the .env.
-apt-get install -y -qq ca-certificates curl git ufw python3 openssl >/dev/null
+# python3 is used below. It is on every stock Ubuntu cloud image, but naming it
+# means a stripped one fails here, loudly, rather than halfway through the .env.
+apt-get install -y -qq ca-certificates curl git ufw python3 >/dev/null
 
 say "Docker"
 if ! command -v docker >/dev/null; then
@@ -183,61 +185,130 @@ chmod 0600 "$SSH_DIR/authorized_keys"
 
 say ".env"
 ENV_FILE="$DEPLOY_PATH/.env"
+ENV_EXAMPLE="$DEPLOY_PATH/.env.example"
 
-if grep -q "^${ENV_MARKER}\$" "$ENV_FILE" 2>/dev/null; then
-    echo "Already written; leaving $ENV_FILE alone."
+# Three states, and they are not interchangeable:
+#
+#   no file           -> write it
+#   our file          -> leave the secrets alone; re-apply the hostname if it
+#                        changed, which is the one edit a re-run should make
+#   somebody's file   -> REFUSE. A .env with a real DB_PASSWORD in it is
+#                        unrecoverable once Postgres holds that password, so an
+#                        unrecognised file is a stop, never an overwrite.
+#
+# An interrupted run is distinguishable from a real file because the rewrite is
+# atomic (os.replace below): either it applied in full or the file is still
+# byte-identical to .env.example, which is safe to redo.
+if [ ! -f "$ENV_FILE" ]; then
+    ENV_ACTION='write'
+elif grep -q "^${ENV_MARKER}\$" "$ENV_FILE"; then
+    ENV_ACTION='reconcile'
+elif cmp -s "$ENV_FILE" "$ENV_EXAMPLE"; then
+    echo "Found an untouched copy of .env.example — a previous run stopped early."
+    ENV_ACTION='write'
 else
-    # 0600 from the moment it exists rather than after APP_KEY lands in it:
-    # `cp` would create it 0644 under the default umask, and the key would sit
-    # in a world-readable file for the width of the next two commands.
-    install -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0600 \
-        "$DEPLOY_PATH/.env.example" "$ENV_FILE"
+    cat >&2 <<REFUSE
 
-    # APP_KEY first, so that if anything below fails the marker is absent and a
-    # re-run rewrites the whole file rather than skipping it.
-    KEY="base64:$(openssl rand -base64 32)"
-    sudo -u "$DEPLOY_USER" python3 - "$ENV_FILE" "$SERVER_NAME" "$KEY" <<'PY'
-import pathlib, re, sys
+There is already a $ENV_FILE that this script did not write: it has no
+'$ENV_MARKER' line and differs from .env.example.
 
-path, server_name, app_key = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+Refusing to touch it. If it holds real credentials, overwriting it would lose
+them for good — DB_PASSWORD in particular cannot be recovered once Postgres is
+using it.
+
+  - to keep it:    fix it by hand; set APP_ENV=staging and this script will
+                   leave it alone from then on
+  - to replace it: move it aside first, then re-run
+
+REFUSE
+    exit 1
+fi
+
+if [ "$ENV_ACTION" = "write" ]; then
+    # 0600 from the moment it exists: `cp` would create it 0644 under the
+    # default umask, and APP_KEY would land in a world-readable file.
+    install -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0600 "$ENV_EXAMPLE" "$ENV_FILE"
+fi
+
+# `reconcile` rewrites only the host-derived keys; `write` rewrites everything.
+# APP_KEY is generated inside Python rather than passed in: an argument is
+# visible in /proc/<pid>/cmdline to every account on the box while the process
+# lives, and sudo writes the whole command line to the auth log.
+sudo -u "$DEPLOY_USER" python3 - "$ENV_FILE" "$SERVER_NAME" "$ENV_ACTION" <<'PY'
+import base64, os, pathlib, re, secrets, sys, tempfile
+
+path, server_name, action = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 text = path.read_text()
 
-settings = {
-    "APP_KEY": app_key,
-    "APP_DEBUG": "false",
-    # Caddy terminates TLS itself once it is told a hostname (Deployment §3).
+# Caddy terminates TLS itself once it is told a hostname (Deployment §3), so
+# these three are what changing the hostname means.
+host_settings = {
     "SERVER_NAME": server_name,
     "APP_URL": f"https://{server_name}",
-    # ACME's HTTP and TLS-ALPN challenges arrive on 80 and 443 and nowhere else.
-    "APP_PORT": "80",
-    "APP_TLS_PORT": "443",
-    # Migrations are a deploy step, never a container start-up side effect.
-    "AUTO_MIGRATE": "false",
-    # Without this a bare `docker compose ps|logs|up` on the droplet resolves
-    # compose.local.yaml — which includes compose.yaml under the same project
-    # name and overrides it with the development target, a bind mount over
-    # /app, Mailpit and Vite. The deploy workflow passes -f explicitly, but a
-    # person at 2am does not.
-    "COMPOSE_FILE": "compose.yaml",
-    # APP_ENV is written LAST: it is the marker the shell checks to decide
-    # whether this file is finished. Anything that fails before here leaves it
-    # absent, and the next run starts over.
     "APP_ENV": "staging",
 }
 
+if action == "write":
+    settings = {
+        "APP_KEY": "base64:" + base64.b64encode(secrets.token_bytes(32)).decode(),
+        "APP_DEBUG": "false",
+        # ACME's HTTP and TLS-ALPN challenges arrive on 80 and 443, nowhere else.
+        "APP_PORT": "80",
+        "APP_TLS_PORT": "443",
+        # Migrations are a deploy step, never a container start-up side effect.
+        "AUTO_MIGRATE": "false",
+        # Without this a bare `docker compose ps|logs|up` on the droplet
+        # resolves compose.local.yaml — which includes compose.yaml under the
+        # same project name and overrides it with the development target, a
+        # bind mount over /app, Mailpit and Vite. The deploy workflow passes -f
+        # explicitly, but a person at 2am does not.
+        "COMPOSE_FILE": "compose.yaml",
+        **host_settings,
+    }
+else:
+    settings = host_settings
+
+changed = []
+
 for key, value in settings.items():
     pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
-    # A lambda, not a replacement string: `\` and `\1` in a value would
-    # otherwise be interpreted as backreferences.
-    if pattern.search(text):
-        text = pattern.sub(lambda _match: f"{key}={value}", text, count=1)
-    else:
-        text += f"\n{key}={value}\n"
+    # A lambda, not a replacement string: a `\` or `\1` in a value would
+    # otherwise be read as a backreference.
+    replacement = f"{key}={value}"
+    existing = pattern.search(text)
 
-path.write_text(text)
+    if existing:
+        if existing.group(0) != replacement:
+            changed.append(key)
+        text = pattern.sub(lambda _match: replacement, text, count=1)
+    else:
+        changed.append(key)
+        text += f"\n{replacement}\n"
+
+# Written through a temporary file in the same directory and moved into place,
+# so the file is never partially rewritten. A short write on a full disk would
+# otherwise leave the APP_ENV marker sitting above a truncated file, and the
+# next run would trust it.
+directory = path.parent
+handle, temporary = tempfile.mkstemp(dir=directory, prefix=".env.")
+try:
+    with os.fdopen(handle, "w") as file:
+        file.write(text)
+        file.flush()
+        os.fsync(file.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+except BaseException:
+    os.unlink(temporary)
+    raise
+
+if action == "write":
+    print(f"Wrote {path} (0600, application secrets blank).")
+elif changed:
+    print(f"Updated {', '.join(changed)} in {path}; secrets untouched.")
+else:
+    print(f"{path} already matches this hostname; nothing to change.")
 PY
-    echo "Wrote $ENV_FILE (0600, secrets blank)."
-fi
 
 cat <<EOF
 

@@ -15,15 +15,39 @@ declare(strict_types=1);
  * failure") has something holding it up other than memory.
  */
 
-function ciJobNames(): array
+function ciWorkflow(): string
 {
     $workflow = file_get_contents(base_path('.github/workflows/ci.yml'));
 
     expect($workflow)->not->toBeFalse();
 
-    preg_match_all('/^    name: (.+)$/m', $workflow, $matches);
+    return $workflow;
+}
+
+/**
+ * @return list<string>
+ */
+function ciJobNames(): array
+{
+    preg_match_all('/^    name: (.+)$/m', ciWorkflow(), $matches);
 
     return array_map(trim(...), $matches[1]);
+}
+
+/**
+ * The keys under `jobs:`, which exist whether or not a job declares a `name:`.
+ *
+ * @return list<string>
+ */
+function ciJobKeys(): array
+{
+    $workflow = ciWorkflow();
+
+    $jobs = substr($workflow, (int) strpos($workflow, "\njobs:\n"));
+
+    preg_match_all('/^  ([a-z0-9][a-z0-9-]*):$/m', $jobs, $matches);
+
+    return $matches[1];
 }
 
 function scriptCheckNames(): array
@@ -55,6 +79,22 @@ it('requires exactly the checks that CI actually reports', function (): void {
         'scripts/protect-branches.sh and .github/workflows/ci.yml disagree about '
         .'the job names. A required check that never reports blocks every pull '
         .'request; a job missing from the list blocks nothing.',
+    );
+});
+
+it('gives every CI job a name, so none can hide from the required list', function (): void {
+    /*
+     * Without a `name:`, GitHub reports a job under its key, which will not
+     * match anything in CHECKS — so the job runs, reports, and gates nothing,
+     * while every assertion below still passes. Requiring the field is what
+     * makes "guards every CI job" true rather than "guards every CI job that
+     * happens to have been named".
+     */
+    expect(ciJobNames())->toHaveCount(
+        count(ciJobKeys()),
+        'A job in .github/workflows/ci.yml has no `name:`. Add one, then add it '
+        .'to CHECKS in scripts/protect-branches.sh and to docs/Deployment.md §7 '
+        .'— an unnamed job cannot be required and would stay advisory.',
     );
 });
 
