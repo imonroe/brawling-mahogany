@@ -324,6 +324,7 @@ if path.is_symlink():
 
 created = not path.exists()
 text = read(example) if created else read(path)
+original = text
 
 # Every well-formed managed block is removed and one fresh one appended, so a
 # stray copy left by a hand-edit is absorbed rather than stacked.
@@ -374,6 +375,21 @@ while True:
     stop = close_at + len(CLOSE)
     blocks.append((open_at, stop))
     cursor = stop
+
+# A closing delimiter with no opener is the mirror case, and it means the same
+# thing: the file has been hand-edited into a shape this script cannot read
+# unambiguously. Duplicating the CLOSE line inside a block leaves the tail of
+# the old block stranded as loose settings lines, which is not something to
+# half-repair.
+for begin, stop in reversed(blocks):
+    text = text[:begin] + text[stop:]
+
+if find_line(text, CLOSE) != -1:
+    fail(f"{path} has a managed-block closing delimiter with no opening one.\n"
+         "Refusing to guess which lines above it belong to the block. Remove the\n"
+         "stray line, or restore the opener, then re-run.")
+
+text = original
 
 # The last one is the one whose APP_KEY carries forward.
 previous = text[blocks[-1][0]:blocks[-1][1]] if blocks else ""
@@ -460,6 +476,9 @@ lines.append(CLOSE)
 rendered = newline.join(lines) + newline
 updated = body + newline + newline + rendered
 
+# Anything that sat after the last block is being moved above the new one.
+moved_above = bool(blocks) and original[blocks[-1][1]:].strip() != ""
+
 # Through a temporary file in the same directory, so the .env is never seen
 # half-written: a short write on a full disk would otherwise truncate it.
 handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=".env.")
@@ -477,10 +496,19 @@ except BaseException:
 
 if created:
     print(f"Wrote {path} (0600) from .env.example, with the managed block appended.")
-elif previous == rendered.rstrip("\r\n"):
-    print(f"{path} is already correct; the managed block is unchanged.")
+elif updated == original:
+    print(f"{path} is already correct; nothing changed.")
 else:
-    print(f"Refreshed the managed block in {path}. Nothing outside it was touched.")
+    print(f"Refreshed the managed block in {path}. Nothing outside it was rewritten.")
+
+    # Their lines are intact, byte for byte — but the block is always moved to
+    # the end, so anything that was below it is now above it and the block's
+    # values win over it. That is the documented design and it is still a thing
+    # somebody needs told, because "nothing was rewritten" reads as "nothing
+    # changed for me" and it is not.
+    if moved_above:
+        print("Lines that were below the block are now above it, so the block's\n"
+              "values take precedence over them. Edit the block to change those.")
 
 if interpolated:
     print("APP_KEY is set outside the block to an interpolated value, which this\n"

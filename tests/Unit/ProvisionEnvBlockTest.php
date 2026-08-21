@@ -68,6 +68,16 @@ function runEnvStage(string $directory, string $hostname = 'staging.example.com'
     return (string) $output;
 }
 
+function countBlocks(string $env): int
+{
+    // Line-anchored, like the script's own search. A plain substring count
+    // also counts a NOTE= line that quotes the delimiter, which is the very
+    // fixture `it('still finds a real block…')` builds.
+    return preg_match_all(
+        '/^# >>> provision-staging\.sh — managed block/m', file_get_contents($env),
+    );
+}
+
 function resolveEnv(string $directory): array
 {
     return Dotenv::createArrayBacked($directory, '.env')->load();
@@ -87,7 +97,7 @@ afterEach(function (): void {
     @rmdir($this->workspace);
 });
 
-it('wins over each spelling of a key below, all of which Dotenv honours', function (string $line): void {
+it('wins over each competing spelling in the dataset below', function (string $line): void {
     // The spellings that defeated the in-place rewrite. Each is a valid Dotenv
     // definition and each was the last one in the file, so each used to win.
     copy($this->workspace.'/.env.example', $this->workspace.'/.env');
@@ -168,9 +178,7 @@ it('is idempotent: one block, and a key that never rotates', function (): void {
     runEnvStage($this->workspace);
 
     expect(resolveEnv($this->workspace)['APP_KEY'])->toBe($first);
-    expect(substr_count(
-        file_get_contents($this->workspace.'/.env'), 'managed block; re-run',
-    ))->toBe(1);
+    expect(countBlocks($this->workspace.'/.env'))->toBe(1);
 });
 
 it('picks up a new hostname without disturbing the rest', function (): void {
@@ -279,7 +287,7 @@ it('absorbs every stray complete block rather than stacking on them', function (
     $env_values = resolveEnv($this->workspace);
 
     // One block left, and it is ours.
-    expect(substr_count($written, 'managed block; re-run'))->toBe(1);
+    expect(countBlocks($env))->toBe(1);
     expect($env_values['SERVER_NAME'])->toBe('staging.example.com');
     // Content between and after the strays is not the script's to remove.
     expect($env_values['DB_PASSWORD'])->toBe('between-the-blocks');
@@ -331,6 +339,79 @@ it('does not splice a line that merely quotes both delimiters', function (): voi
 
     expect(file_get_contents($env))->toContain('the delimiters are # >>>');
     expect(resolveEnv($this->workspace)['DB_PASSWORD'])->toBe('secret');
+});
+
+it('still finds a real block below a line that quotes the delimiters', function (): void {
+    // The other half of the anchoring test. Asserting only that the NOTE= line
+    // survives passes even if find_line gives up at the first mid-line hit and
+    // finds no block at all — in which case every run stacks another one.
+    $env = $this->workspace.'/.env';
+    runEnvStage($this->workspace);
+    file_put_contents($env, 'NOTE="the delimiters are '
+        .'# >>> provision-staging.sh — managed block; re-run the script to change it'
+        ." and # <<< provision-staging.sh — end of managed block respectively\"\n"
+        .file_get_contents($env), LOCK_EX);
+
+    runEnvStage($this->workspace);
+    runEnvStage($this->workspace);
+
+    expect(countBlocks($env))->toBe(1);
+    expect(file_get_contents($env))->toContain('the delimiters are # >>>');
+});
+
+it('never rotates an interpolated APP_KEY, whatever it prints', function (): void {
+    // "Theirs is left alone, because rotating a key that may be in use is the
+    // worse error" is the branch's entire justification, and asserting only on
+    // stdout leaves exactly that half untested.
+    file_put_contents(
+        $this->workspace.'/.env',
+        "LEGACY_KEY=base64:THEIRS=\nAPP_KEY=\"\${LEGACY_KEY}\"\n",
+        LOCK_EX,
+    );
+
+    runEnvStage($this->workspace);
+
+    expect(resolveEnv($this->workspace)['APP_KEY'])->toBe('base64:THEIRS=');
+    expect(file_get_contents($this->workspace.'/.env'))
+        ->not->toContain('APP_KEY=base64:'.'"');
+});
+
+it('refuses a closing delimiter with no opener', function (): void {
+    // The mirror of the stray-opener case. Duplicating the CLOSE line inside a
+    // block strands the tail of the old one as loose settings lines, which is
+    // not something to half-repair.
+    $env = $this->workspace.'/.env';
+    runEnvStage($this->workspace);
+    file_put_contents($env, str_replace(
+        '# <<< provision-staging.sh — end of managed block',
+        "# <<< provision-staging.sh — end of managed block\n"
+        .'# <<< provision-staging.sh — end of managed block',
+        file_get_contents($env),
+    ), LOCK_EX);
+    file_put_contents($env, "DB_PASSWORD=keep-me\n".file_get_contents($env), LOCK_EX);
+
+    $output = runEnvStage($this->workspace);
+
+    expect($output)->toContain('no opening one');
+    expect(file_get_contents($env))->toContain('DB_PASSWORD=keep-me');
+});
+
+it('reports the whole file, not just its own block', function (): void {
+    // The message an operator reads to decide whether a re-run did anything.
+    // "Already correct" for a file that changed is worse than the old
+    // always-refreshed, because it errs in the direction they under-react to.
+    $env = $this->workspace.'/.env';
+    runEnvStage($this->workspace);
+
+    expect(runEnvStage($this->workspace))->toContain('already correct');
+
+    file_put_contents($env, "DB_PASSWORD=added-after-the-block\n", FILE_APPEND);
+    $output = runEnvStage($this->workspace);
+
+    expect($output)->not->toContain('already correct');
+    // And their line is now above the block, so the block wins over it — which
+    // "nothing was rewritten" does not convey on its own.
+    expect($output)->toContain('now above it');
 });
 
 it('keeps CRLF a CRLF file and LF an LF file', function (): void {
