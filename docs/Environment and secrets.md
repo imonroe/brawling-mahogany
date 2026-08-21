@@ -70,7 +70,7 @@ PRD §8.6, restated because both protect somebody else's client:
 |---|---|---|
 | Local | `.env` on the developer's machine | that developer |
 | CI | GitHub Actions repository secrets | repository admins |
-| Staging | `.env` on the droplet, `0600`, owned by the deploy user | droplet admins |
+| Staging | `.env` on the droplet, `0600`, owned by the deploy user | droplet admins, and anyone holding `STAGING_SSH_KEY` — see below |
 | Production | `.env` on the droplet, `0600`, owned by the deploy user | droplet admins |
 
 The deploy workflow never prints an environment value, and no workflow echoes a
@@ -78,16 +78,20 @@ variable that could hold one.
 
 ### The deploy secrets, which are not application secrets
 
-`scripts/provision-staging.sh` creates these, and they live as GitHub Actions
-repository secrets rather than in any `.env`:
+`scripts/provision-staging.sh` generates the key and prints the values; you add
+them by hand. They live as GitHub Actions repository secrets, not in any `.env`:
 
 | Secret | What it is |
 |---|---|
 | `STAGING_SSH_HOST` | the droplet's hostname |
 | `STAGING_SSH_USER` | the deploy user (`deploy`) |
 | `STAGING_SSH_KEY` | that user's **unpassphrased** private key |
+| `STAGING_SSH_PORT` | optional; the deploy workflow defaults to 22 |
 | `STAGING_PATH` | the checkout path on the droplet |
 | `STAGING_URL` | the base URL, used by the smoke check |
+
+`STAGING_ENABLED` is a repository **variable**, not a secret, and it is what
+takes the deploy workflow out of its inert state. So is `UPTIME_STAGING_URL`.
 
 **`STAGING_SSH_KEY` is effectively root on staging, and should be treated as
 the highest-value secret in the repository.** The `deploy` user is in the
@@ -106,7 +110,14 @@ Two consequences worth stating rather than assuming:
   GitHub secret.
 
 These do not appear in `.env.example`, because nothing in the application reads
-them — they belong to the pipeline, not the product.
+them — they belong to the pipeline, not the product. That is the one sanctioned
+exception to §1's rule that every key the project uses is listed there.
+
+**There is no production equivalent yet.** No `PRODUCTION_*` secret is
+configured and no production deploy workflow exists; §6 of `Deployment` is
+about staging. When production is stood up it needs its own key, never a copy
+of this one — a single key across both environments means a staging compromise
+is a production compromise.
 
 ---
 
@@ -143,12 +154,23 @@ recovery from that beyond a restore.
 Cheap to rotate and worth doing on any staff change, because it is the one
 credential that grants shell on the box:
 
-1. `ssh-keygen -t ed25519 -N '' -f /home/deploy/.ssh/id_ed25519` as `deploy`,
-   overwriting the old pair.
-2. Replace the old public key in `/home/deploy/.ssh/authorized_keys` — replace,
-   not append, or the retired key still works.
-3. Update the `STAGING_SSH_KEY` repository secret with the new private half.
-4. Re-run the deploy workflow to confirm it can still reach the droplet.
+Order matters here: the old key is what you are using to get in, so it is
+retired **last**, and there is a moment where both work. Do not reverse these.
+
+1. Generate the new pair **alongside** the old one, as `deploy`:
+   `ssh-keygen -t ed25519 -N '' -f /home/deploy/.ssh/id_ed25519.new`
+2. **Append** the new public key to `/home/deploy/.ssh/authorized_keys`. Both
+   keys work now, which is the point.
+3. Update the `STAGING_SSH_KEY` repository secret with the new private half
+   (`id_ed25519.new`).
+4. Run the deploy workflow and confirm it **actually ran** — if
+   `STAGING_ENABLED` is not `true` the job skips, and a skipped job is green.
+   Check the log shows an SSH connection, not a skip.
+5. Only now retire the old key: remove its line from `authorized_keys`, and
+   `mv id_ed25519.new id_ed25519` (with its `.pub`) so the droplet's own copy
+   matches the secret.
+6. Re-run the deploy workflow once more, to prove the old key is gone and the
+   new one still works.
 
 There is no re-encryption step and nothing to migrate, so unlike `APP_KEY` this
 one has no reason to wait for a scheduled window.
