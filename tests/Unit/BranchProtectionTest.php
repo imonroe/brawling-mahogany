@@ -59,18 +59,42 @@ it('requires exactly the checks that CI actually reports', function (): void {
 });
 
 it('guards every CI job, so none of them is advisory', function (): void {
-    // The epic makes "blocks on failure" an exit criterion for all five, not
-    // for whichever ones somebody remembered.
-    expect(ciJobNames())->toHaveCount(5);
+    // The epic makes "blocks on failure" an exit criterion for all of them,
+    // not for whichever ones somebody remembered.
+    expect(ciJobNames())->toHaveCount(
+        5,
+        'The CI job count changed. That is fine — add the new job to CHECKS in '
+        .'scripts/protect-branches.sh and to docs/Deployment.md §7, then update '
+        .'this number. It is pinned so a new job cannot quietly stay advisory.',
+    );
 });
 
-it('keeps the checks documented where an operator will look for them', function (): void {
+function branchProtectionSection(): string
+{
     $deployment = file_get_contents(base_path('docs/Deployment.md'));
 
+    expect($deployment)->not->toBeFalse();
+
+    /*
+     * Just §7, not the whole file. Searching the document for 'Tests' or
+     * 'Restore' finds ordinary English somewhere in ten kilobytes of runbook,
+     * so a whole-file search passes while §7 documents a check that no longer
+     * exists — which is the failure this test is for.
+     */
+    preg_match('/^## 7\. Branch protection$(.*?)(?=^## |\z)/ms', $deployment, $matches);
+
+    expect($matches)->toHaveCount(2, 'docs/Deployment.md has no "## 7. Branch protection" section.');
+
+    return $matches[1];
+}
+
+it('keeps the checks documented where an operator will look for them', function (): void {
+    $section = branchProtectionSection();
+
     foreach (ciJobNames() as $job) {
-        // Asserted on the boolean rather than the haystack: a failing
-        // `toContain` on a 10kB document prints the whole document.
-        expect(str_contains($deployment, $job))->toBeTrue(
+        // Asserted on the boolean rather than the haystack, so a failure prints
+        // the message rather than the whole section.
+        expect(str_contains($section, $job))->toBeTrue(
             "docs/Deployment.md §7 lists the required checks and is missing '{$job}'.",
         );
     }

@@ -216,13 +216,31 @@ ssh root@<droplet-ip> 'bash /tmp/provision-staging.sh staging.example.com'
 It installs Docker, opens 22/80/443 (and 443/udp for HTTP/3), creates the
 `deploy` user, clones `dev` to `/srv/brawling-mahogany`, generates the deploy
 key, and writes a `0600` `.env` with the infrastructure settings correct —
-`SERVER_NAME`, `APP_PORT=80`, `APP_TLS_PORT=443`, `AUTO_MIGRATE=false`, a
-generated `APP_KEY`. It is idempotent, so re-run it after a failure.
+`SERVER_NAME`, `APP_PORT=80` and `APP_TLS_PORT=443` so ACME's challenges can
+land, `AUTO_MIGRATE=false` because migrations are a deploy step, and
+`COMPOSE_FILE=compose.yaml` so a bare `docker compose` on the box does not
+resolve the *local* stack and rebuild staging as the development image.
 
-**It leaves every application secret blank on purpose.** A provisioning script
-that invents a database password is one that puts a database password in your
-shell history. It prints the deploy key and the exact secrets and variables to
-set, and stops there.
+**Re-running it repairs an interrupted run.** Each stage tests for the state it
+produces rather than for a file it is about to create — the `.env` stage keys
+off `APP_ENV=staging`, which the rewrite writes last, so a run that dies
+part-way leaves the marker absent and the next run starts the file over. Pass a
+new hostname and it is picked up. What re-running does *not* do is move the
+checkout: it fetches but never resets, because a hard reset on a box somebody
+is mid-debug on is not a provisioning script's decision. Deploys are the deploy
+workflow's job.
+
+**It leaves every application secret blank on purpose**, except `APP_KEY` — the
+one secret with no external source, and an empty one means the app will not
+boot. A provisioning script that invents a database password is one that puts a
+database password in your shell history. It prints the deploy key and the exact
+secrets and variables to set, and stops there. Re-running does not re-print the
+key; `--print-key` does.
+
+`MAIL_REDIRECT_TO` deserves its own line, because blank is not neutral: an
+empty value is exactly what `AppServiceProvider` treats as *no redirection*, so
+until it is set every message goes to its real recipient. The script's closing
+banner says so; §2 of `Environment and secrets` is the authority.
 
 The remainder — the parts that need a decision or another account:
 
@@ -250,19 +268,37 @@ gh auth login
 ./scripts/protect-branches.sh --show   # print the payload, change nothing
 ```
 
+What the script applies:
+
 - `dev`: pull request required; CI checks — Tests, Static analysis, Code style,
   Front end, Container build — required to pass.
-- `main`: pull request required; the same checks; only `dev` merges in.
+- `main`: pull request required; the same checks.
 
 **Every job blocks the merge.** A red pipeline is not advisory — and until this
 is run, that sentence is an intention rather than a fact, because the pipeline
 reports without gating anything.
 
-Two deliberate choices in the script. `enforce_admins` is **off**: the point is
-to stop a red merge by accident, not to lock the owner out during an incident,
-and a rule that cannot be bypassed is a rule somebody eventually disables. And
-no approving review is required — a required reviewer who is out on a showing
-is a stalled merge, and on a team this size the five checks are the gate.
+What stays a convention, because branch protection cannot express it: **only
+`dev` merges into `main`.** There is no way to restrict a pull request by its
+*source* branch, so this one is held by `CLAUDE.md` and by review, not by the
+API.
+
+Three deliberate choices in the script. `enforce_admins` is **off**: the point
+is to stop a red merge by accident, not to lock the owner out during an
+incident, and a rule that cannot be bypassed is a rule somebody eventually
+disables. **No approving review is required** — a required reviewer who is out
+on a showing is a stalled merge, and on a team this size the five checks are
+the gate. And `strict` is **false**: a strict rule requires every pull request
+to be up to date with its base before merging, so on a five-job pipeline every
+merge invalidates every other open pull request. The cost is that a branch
+green against an older base can still break `dev`; at this concurrency that
+trade is the right way round.
+
+One caveat before running it on settings somebody has adjusted by hand: the
+API call is a `PUT`, so it **replaces** the branch's protection. Anything not
+in the payload — required signed commits, required conversation resolution,
+linear history — is cleared rather than preserved. `--show` prints exactly what
+will be applied.
 
 `tests/Unit/BranchProtectionTest.php` checks the script's list of required
 checks against `ci.yml`'s job names and against this section. Renaming a CI job

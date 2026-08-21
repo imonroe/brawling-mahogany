@@ -13,8 +13,12 @@
 #   ./scripts/protect-branches.sh --show   # print the payload, change nothing
 #
 # Requires the `gh` CLI authenticated as a repository admin (`gh auth login`).
-# Re-running is safe: the API call is a PUT, so it replaces the rule rather
-# than stacking a second one.
+#
+# Re-running is safe in that the API call is a PUT, so it replaces the rule
+# rather than stacking a second one. The flip side of a PUT is worth knowing
+# before you run it on a repository somebody has configured by hand: anything
+# not in the payload below — required signed commits, required conversation
+# resolution, linear history — is *cleared*, not preserved.
 
 set -euo pipefail
 
@@ -37,6 +41,11 @@ payload() {
 import json, os
 print(json.dumps({
     "required_status_checks": {
+        # Not strict: a strict rule requires every PR to be up to date with the
+        # base before merging, so on a five-job pipeline each merge invalidates
+        # every other open PR and the team spends the day re-running CI. The
+        # cost is that a PR green against an older base can still break dev;
+        # with this few concurrent PRs that trade is the right way round.
         "strict": False,
         "contexts": [c for c in os.environ["CHECKS_TSV"].split("\t") if c],
     },
@@ -52,15 +61,36 @@ print(json.dumps({
 '
 }
 
-if [ "${1:-}" = "--show" ]; then
-    payload
-    exit 0
-fi
-
-command -v gh >/dev/null || {
-    echo "This needs the gh CLI: https://cli.github.com" >&2
-    exit 1
+# Anything that is not exactly `--show` used to fall through to the PUT, so a
+# mistyped `--dry-run` silently rewrote the settings on two branches. For a
+# script whose other mode is "replace repository configuration", an unknown
+# argument has to be a refusal.
+need() {
+    command -v "$1" >/dev/null || {
+        echo "This needs $1 on PATH." >&2
+        exit 1
+    }
 }
+
+# python3 builds the payload, so both modes need it. gh is only needed to send
+# it — `--show` should work on a machine with no GitHub CLI at all.
+need python3
+
+case "${1:-}" in
+    '')
+        ;;
+    --show)
+        payload
+        exit 0
+        ;;
+    *)
+        echo "Unknown argument: $1" >&2
+        echo "Usage: $0 [--show]" >&2
+        exit 1
+        ;;
+esac
+
+need gh
 
 for branch in dev main; do
     echo "Protecting ${branch} on ${REPO}..."
