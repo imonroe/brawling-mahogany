@@ -1,8 +1,13 @@
 # What GitHub Actions runs. Same base file, same image, no host mounts and no
 # development conveniences.
-
-include:
-  - compose.yaml
+#
+# This is an override file, layered with `-f`:
+#
+#   docker compose -f compose.yaml -f compose.ci.yaml build
+#
+# It does not `include` compose.yaml the way compose.local.yaml does — that
+# would load the base twice, once through the include and once through the
+# flag, which Compose rejects as a conflicting resource.
 
 services:
   app:
