@@ -18,7 +18,7 @@ version: 1.0
 > reviewable. **The staging droplet itself is not provisioned** — that needs an
 > account, a domain, and DNS, none of which live in this repository. The deploy
 > workflow is inert until the repository variable `STAGING_ENABLED` is set to
-> `true`, so nothing fails while the infrastructure catches up. Section 7 is
+> `true`, so nothing fails while the infrastructure catches up. Section 6 is
 > the checklist for standing it up.
 
 ---

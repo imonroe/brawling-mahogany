@@ -24,5 +24,18 @@ it('keeps the dashboard behind authentication', function (): void {
 });
 
 it('reports healthy', function (): void {
+    // Registered outside every middleware group, so it answers even when the
+    // session, the encrypter, or the Vite manifest are broken. That is what
+    // makes it a health check and also what makes it a weak smoke test — see
+    // the assertion below, which the container job in CI mirrors.
     $this->get('/up')->assertOk();
+});
+
+it('renders a real Inertia page through the web stack', function (): void {
+    // The marker the CI container job greps for after booting the image. If
+    // Inertia ever changes it, this fails here rather than silently making
+    // that check vacuous.
+    $this->get('/')
+        ->assertOk()
+        ->assertSee('data-page', escape: false);
 });

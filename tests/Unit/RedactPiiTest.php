@@ -130,6 +130,33 @@ it('still redacts the names that are somebody’s name', function (): void {
     }
 });
 
+it('never lets a suffix launder a credential', function (): void {
+    /*
+     * The allowlist is evaluated before the block list, which makes it the
+     * more powerful of the two — so every one of these ends in a suffix the
+     * allowlist would otherwise wave through. This is the case that made the
+     * allowlist safe to have at all.
+     */
+    $laundered = [
+        'session_id' => 'aBcD1234',
+        'password_reset_code' => 'xyz789',
+        'token_id' => 'tok_123',
+        'credential_id' => 'cred_123',
+        'api_key_version' => 'v2-abcdef',
+        'zip_code' => '80202',
+        'postal_code' => '80202',
+        'account_id' => '000123456',
+        'card_type' => 'visa-4242',
+        'auth_state' => 'nonce-abc',
+    ];
+
+    $result = record('Probe', $laundered);
+
+    foreach (array_keys($laundered) as $key) {
+        expect($result->context[$key])->toBe(RedactPii::REDACTED, $key.' must never be logged');
+    }
+});
+
 it('redacts credentials and tokens', function (): void {
     $result = record('Provider configured', [
         'api_key' => 'sk-live-abcdef',

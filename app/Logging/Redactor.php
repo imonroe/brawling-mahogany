@@ -13,6 +13,12 @@ namespace App\Logging;
  *
  * Two passes:
  *
+ * Keys are decided in three passes, in this order: fragments that may never
+ * be logged whatever they are called, then the allowlist of the product's own
+ * vocabulary, then the general block list. The order is the load-bearing part
+ * — the allowlist is more powerful than the block list, so it must not be able
+ * to reach a credential.
+ *
  *  1. Keys whose *name* says the value is personal are replaced wholesale.
  *     Matching is by substring on the separator-stripped key, so
  *     `client_email`, `clientEmail`, `home_phone`, and `owner_name` are caught
@@ -27,6 +33,25 @@ namespace App\Logging;
 final class Redactor
 {
     public const REDACTED = '[redacted]';
+
+    /**
+     * Fragments that no allowlist may override.
+     *
+     * The allowlist below is evaluated first, which makes it strictly more
+     * powerful than the block list — so the things that must never be logged
+     * whatever they are suffixed with are checked before either. `session_id`,
+     * `password_reset_code`, `token_id`, and `zip_code` all end in an
+     * innocuous suffix and are none of them innocuous.
+     *
+     * @var list<string>
+     */
+    private const NEVER_LOGGED_PARTS = [
+        'password', 'secret', 'token', 'credential', 'session', 'cookie',
+        'authorization', 'auth', 'apikey', 'privatekey', 'signature',
+        'ssn', 'dob', 'birth',
+        'account', 'routing', 'iban', 'card', 'cvv',
+        'zip', 'postal', 'postcode',
+    ];
 
     /**
      * Key fragments that make a value personal. A key matches when one of
@@ -70,7 +95,12 @@ final class Redactor
         '/^(stage|workflow|task|gate|action|automation|template|pack|milestone|trigger)_(name|label|type|state|status|key)$/',
         // Infrastructure.
         '/^(job|queue|class|channel|connection|driver|command|event|handler|listener|mailer|disk|store)_(name|type|class)$/',
-        // Identifiers and counts are how a log line stays followable.
+        /*
+         * Identifiers, counts, and timestamps are how a log line stays
+         * followable. Deliberately broad on the suffix and narrow on nothing
+         * else — which is safe only because NEVER_LOGGED_PARTS is checked
+         * first: `session_id` and `password_reset_code` end here too.
+         */
         '/_(id|ids|type|types|code|codes|count|state|status|version|at)$/',
         // Words that merely contain a sensitive fragment by accident:
         // "namespace" holds "name", "author" holds "auth", "capacity" "city".
@@ -135,6 +165,15 @@ final class Redactor
     public static function isSensitiveKey(string $key): bool
     {
         $normalised = mb_strtolower($key);
+        $flattened = (string) preg_replace('/[^a-z0-9]/', '', $normalised);
+
+        // Checked before the allowlist, because the allowlist wins everything
+        // it matches and a suffix must never be able to launder a credential.
+        foreach (self::NEVER_LOGGED_PARTS as $part) {
+            if (str_contains($flattened, $part)) {
+                return true;
+            }
+        }
 
         foreach (self::ALLOWED_KEY_PATTERNS as $pattern) {
             if (preg_match($pattern, $normalised) === 1) {
@@ -147,8 +186,6 @@ final class Redactor
          * `clientEmail`, `emails`, and `api_key` all match while `deal_id`
          * and `key_dates` — the ones that make a log useful — do not.
          */
-        $flattened = (string) preg_replace('/[^a-z0-9]/', '', $normalised);
-
         foreach (self::SENSITIVE_KEY_PARTS as $part) {
             if (str_contains($flattened, $part)) {
                 return true;

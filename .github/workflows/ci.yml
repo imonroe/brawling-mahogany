@@ -219,10 +219,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Prepare the environment
-        # Compose reads .env for the values it injects into the services.
+        # Compose reads .env for the values it injects into the services, and
+        # injects them when a container is created — so the key has to exist
+        # before `up`, not after it. That ordering is part of what this job is
+        # here to prove.
         run: |
           cp .env.example .env
           sed -i 's/^DB_PASSWORD=$/DB_PASSWORD=ci/' .env
+          sed -i "s|^APP_KEY=$|APP_KEY=base64:$(openssl rand -base64 32)|" .env
 
       - name: Build the stack
         # The same base file local development and production use.
@@ -233,18 +237,31 @@ jobs:
         # waits for Postgres, runs the migrations (AUTO_MIGRATE is set in the
         # CI override), and serves a request. Issue #22's definition of done is
         # "a working app", which a build alone cannot show.
+        #
+        # Both endpoints are checked on purpose. `/up` is registered outside
+        # every middleware group, so it answers even when sessions, the
+        # encrypter, or the Vite manifest are broken; `/` goes through the web
+        # stack and renders an Inertia page, which is what a person would meet.
         run: |
           docker compose -f compose.yaml -f compose.ci.yaml up -d app
           for attempt in $(seq 1 30); do
             if curl -fsS "http://localhost:${APP_PORT:-8000}/up" > /dev/null; then
-              echo "The application answered on attempt $attempt."
-              exit 0
+              echo "Health endpoint answered on attempt $attempt."
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "The application never answered." >&2
+              docker compose -f compose.yaml -f compose.ci.yaml logs app
+              exit 1
             fi
             sleep 2
           done
-          echo "The application never answered." >&2
-          docker compose -f compose.yaml -f compose.ci.yaml logs app
-          exit 1
+          if ! curl -fsS "http://localhost:${APP_PORT:-8000}/" | grep -q 'data-page'; then
+            echo "The web stack did not render an Inertia page." >&2
+            docker compose -f compose.yaml -f compose.ci.yaml logs app
+            exit 1
+          fi
+          echo "The web stack rendered an Inertia page."
 
       - name: Stop the stack
         if: always()
