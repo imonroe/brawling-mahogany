@@ -14,12 +14,13 @@ version: 1.0
 > should be able to follow it at 2am.
 
 > [!warning] What is written here and what exists
-> The pipeline, the compose stack, and the runbook below are built and
-> reviewable. **The staging droplet itself is not provisioned** — that needs an
-> account, a domain, and DNS, none of which live in this repository. The deploy
-> workflow is inert until the repository variable `STAGING_ENABLED` is set to
-> `true`, so nothing fails while the infrastructure catches up. Section 6 is
-> the checklist for standing it up.
+> The pipeline, the compose stack, the provisioning script, and the runbook
+> below are built and reviewable. **The staging droplet itself is not
+> provisioned** — creating it and pointing DNS at it need an account and a
+> domain, neither of which lives in this repository. Everything after those two
+> steps is `scripts/provision-staging.sh` (§6). The deploy workflow is inert
+> until the repository variable `STAGING_ENABLED` is set to `true`, so nothing
+> fails while the infrastructure catches up.
 
 ---
 
@@ -199,13 +200,33 @@ them, and a suspended sender means no client hears anything.
 
 ## 6. Standing up the staging droplet
 
-The checklist for the work this repository cannot do on its own:
+Two things have to happen outside this repository first, because nothing in it
+can do them: **create the droplet**, and **point DNS at it**. Caddy requests a
+certificate on first boot and ACME's challenge arrives over public DNS, so the
+hostname must already resolve.
 
-- [ ] DigitalOcean droplet, Docker and Compose installed, firewall to 80/443/22
-- [ ] A deploy user with a checkout at `/srv/brawling-mahogany` and a deploy key
-- [ ] DNS for the staging hostname, and `SERVER_NAME` set to it in `.env`
-- [ ] `APP_PORT=80` and `APP_TLS_PORT=443` in `.env`, so ACME's challenges can land
-- [ ] `.env` on the droplet, `0600`, per `docs/Environment and secrets.md`
+After that, `scripts/provision-staging.sh` does the rest. Run it as root on the
+fresh droplet:
+
+```
+scp scripts/provision-staging.sh root@<droplet-ip>:/tmp/
+ssh root@<droplet-ip> 'bash /tmp/provision-staging.sh staging.example.com'
+```
+
+It installs Docker, opens 22/80/443 (and 443/udp for HTTP/3), creates the
+`deploy` user, clones `dev` to `/srv/brawling-mahogany`, generates the deploy
+key, and writes a `0600` `.env` with the infrastructure settings correct —
+`SERVER_NAME`, `APP_PORT=80`, `APP_TLS_PORT=443`, `AUTO_MIGRATE=false`, a
+generated `APP_KEY`. It is idempotent, so re-run it after a failure.
+
+**It leaves every application secret blank on purpose.** A provisioning script
+that invents a database password is one that puts a database password in your
+shell history. It prints the deploy key and the exact secrets and variables to
+set, and stops there.
+
+The remainder — the parts that need a decision or another account:
+
+- [ ] Fill in `.env` on the droplet, `0600`, per `docs/Environment and secrets.md`
 - [ ] Postgres: managed instance or the compose service, matching production's choice
 - [ ] SES in sandbox, `MAIL_REDIRECT_TO` set
 - [ ] A separate AI provider key with its own budget cap
@@ -220,11 +241,30 @@ The checklist for the work this repository cannot do on its own:
 
 ## 7. Branch protection
 
-Configured in the repository settings, not in this file, but recorded here so
-it is not forgotten (issue #24):
+Branch protection lives in repository settings, so it cannot be committed — but
+it can be scripted. Run it once, as a repository admin:
+
+```
+gh auth login
+./scripts/protect-branches.sh          # apply
+./scripts/protect-branches.sh --show   # print the payload, change nothing
+```
 
 - `dev`: pull request required; CI checks — Tests, Static analysis, Code style,
   Front end, Container build — required to pass.
 - `main`: pull request required; the same checks; only `dev` merges in.
 
-**Every job blocks the merge.** A red pipeline is not advisory.
+**Every job blocks the merge.** A red pipeline is not advisory — and until this
+is run, that sentence is an intention rather than a fact, because the pipeline
+reports without gating anything.
+
+Two deliberate choices in the script. `enforce_admins` is **off**: the point is
+to stop a red merge by accident, not to lock the owner out during an incident,
+and a rule that cannot be bypassed is a rule somebody eventually disables. And
+no approving review is required — a required reviewer who is out on a showing
+is a stalled merge, and on a team this size the five checks are the gate.
+
+`tests/Unit/BranchProtectionTest.php` checks the script's list of required
+checks against `ci.yml`'s job names and against this section. Renaming a CI job
+without renaming it in the script would otherwise require a check that never
+reports, which does not fail loudly — it blocks every pull request forever.
