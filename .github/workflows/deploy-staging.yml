@@ -53,8 +53,11 @@ jobs:
           SSH_PORT: ${{ secrets.STAGING_SSH_PORT || 22 }}
           DEPLOY_PATH: ${{ secrets.STAGING_PATH }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -euo pipefail <<'REMOTE'
-            cd "${DEPLOY_PATH:-/srv/brawling-mahogany}"
+          # The heredoc is quoted, so nothing in it expands on the runner and
+          # nothing in it is forwarded by ssh — the path is passed explicitly.
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_PATH='${DEPLOY_PATH:-/srv/brawling-mahogany}' bash -euo pipefail -s" <<'REMOTE'
+            cd "$DEPLOY_PATH"
             git fetch --all
             git reset --hard origin/dev
 
