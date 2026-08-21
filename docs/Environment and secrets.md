@@ -218,6 +218,7 @@ application:
 | `APP_PORT`, `VITE_PORT`, `MAIL_UI_PORT` | Host ports, so two projects can run at once |
 | `DB_PORT_HOST`, `REDIS_PORT_HOST` | Host ports for Postgres and Redis, for `php artisan test` on the host |
 | `APP_BUILD_TARGET`, `APP_IMAGE` | Which Dockerfile target the base file builds |
+| `APP_UID`, `APP_GID` | Who the containers run as, in every environment — nothing runs as root. Locally the working tree is bind-mounted, so this owns anything they write into the repository. Baked into the image: change it and rebuild, and on a live host see [Deployment §3](Deployment.md) first |
 
 ---
 

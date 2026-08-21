@@ -87,6 +87,9 @@ services:
     build:
       context: .
       target: development
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     command: ['npm', 'run', 'dev', '--', '--host', '0.0.0.0']
     ports:
       - '${VITE_PORT:-5173}:5173'

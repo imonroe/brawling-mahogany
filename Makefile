@@ -40,6 +40,10 @@ up: ## Start the stack
 down: ## Stop the stack
 	$(COMPOSE) down
 
+.PHONY: build
+build: ## Rebuild the images — after a Dockerfile or APP_UID/APP_GID change
+	$(COMPOSE) build
+
 .PHONY: deps
 deps: ## Install dependencies after a composer.json or package.json change
 	# Dependencies live in volumes so the host's are not shadowed, which means
