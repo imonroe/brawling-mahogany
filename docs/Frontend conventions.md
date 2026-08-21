@@ -116,8 +116,13 @@ and `AppButton` and `AppInput` apply them. **Use those, not `ui/button` and
 | Disabled primary | `bg-muted` | faded fill |
 | Form control | `h-10 px-3` | `h-9` |
 
-The form control keeps shadcn's `text-base md:text-sm` rather than a flat
-`text-sm`: iOS Safari zooms the page when a field under 16px takes focus.
+Both input sizes are 16px below `md` and their measured size above it —
+`md:text-sm` for the form control, `md:text-xs` for the filter — because iOS
+Safari zooms the page when a field under 16px takes focus, and a filter in a
+mobile Sheet is still typed into. The type belongs to each **size** and never
+to the base string: a base `text-base` is displaced by a size's `text-xs`, but
+a base `md:text-sm` is a different tailwind-merge group and survives, which is
+how the filter silently became 14px on the one breakpoint it is used at.
 
 Every size — buttons *and* inputs — is `min-h-11` below `md`, because §11's
 44px minimum has no exceptions and §4.2 is explicit that the compact desktop
@@ -129,8 +134,11 @@ itself as a ghost button (32px) without being told twice, and a disabled
 an `<a aria-disabled>` is still clickable, and `disabled:pointer-events-none`
 never matches an anchor.
 
-`tests/js/controlSizes.test.ts` pins each of these, and they render in the
-gallery so they can be judged next to each other.
+`tests/js/controlSizes.test.ts` pins every size in both tables — including the
+filter, whose absence from it is exactly why the 14px regression above got as
+far as it did — along with those two behaviours, the icon's
+`pointer-events-none`, and the disabled hover tone. They render in the gallery
+so they can be judged next to each other.
 
 The starter kit's own auth and settings screens still use shadcn's sizes.
 They are Slice 1 work and will move to these components when they are designed

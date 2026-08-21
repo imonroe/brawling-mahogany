@@ -82,6 +82,43 @@ describe('control sizes', () => {
         expect(button.classes()).toContain('px-2.5');
     });
 
+    it('gives the filter control §4.2’s 12px, and 16px on a phone', () => {
+        // This size had no test at all, which is how it came to render 14px
+        // above `md` — a base-string `md:text-sm` is a different
+        // tailwind-merge group from a size's `text-xs`, so both survived.
+        const input = mount(AppInput, { props: { size: 'filter' } });
+
+        expect(input.classes()).toContain('md:h-8');
+        // §8.6's FilterBar is a desktop surface: 12px is the size that counts.
+        expect(input.classes()).toContain('md:text-xs');
+        expect(input.classes()).not.toContain('md:text-sm');
+        // 16px on a phone, or iOS Safari zooms — a filter in a Sheet (§13.1)
+        // is still typed into.
+        expect(input.classes()).toContain('text-base');
+        // §11's minimum has no exceptions, filters included.
+        expect(input.classes()).toContain('min-h-11');
+    });
+
+    it('keeps a disabled ghost’s hover tone whole, not half', () => {
+        // §13.2 rule 9: background and foreground move together. The disabled
+        // variant overrides `hover:bg-*`; without the `hover:text-*` sibling a
+        // disabled ghost would still lighten its label on hover.
+        const button = mount(AppButton, {
+            props: { variant: 'ghost', disabled: true },
+        });
+
+        expect(button.classes()).toContain('hover:text-muted-foreground');
+        expect(button.classes()).not.toContain('hover:text-accent-foreground');
+    });
+
+    it('keeps an icon from becoming the click’s target', () => {
+        // A leading icon inside a button is `event.target` without this, which
+        // breaks any handler reading it. shadcn's base carries it; ours has to.
+        expect(mount(AppButton).classes()).toContain(
+            '[&_svg]:pointer-events-none',
+        );
+    });
+
     it('never renders a disabled link, which would still navigate', () => {
         // `disabled:pointer-events-none` does not match an anchor, and
         // aria-disabled does not stop a click. A disabled control is a button.

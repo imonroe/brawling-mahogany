@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /**
  * A form control at the measured size — Design System §4.2: 40px on a pointer
- * device, 44px on a phone (§11), `px-3`, 14px type. Never `text-13`, which is
- * for rows rather than for anything a person types into (§3.3).
+ * device, 44px on a phone (§11), `px-3`. The type is 14px above `md` (12px for
+ * the filter size) and 16px below it, because iOS Safari zooms the page when a
+ * field under 16px takes focus. Never `text-13`, which is for rows rather than
+ * for anything a person types into (§3.3).
  *
  * Two things worth knowing:
  *

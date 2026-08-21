@@ -75,7 +75,7 @@ export const appButtonVariants = cva(
 export type AppButtonVariants = VariantProps<typeof appButtonVariants>;
 
 export const appInputVariants = cva(
-    'flex w-full rounded-md border bg-background px-3 text-base text-foreground transition-colors duration-150 ease-out placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive md:text-sm',
+    'flex w-full rounded-md border bg-background px-3 text-foreground transition-colors duration-150 ease-out placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive',
     {
         variants: {
             size: {
@@ -87,14 +87,22 @@ export const appInputVariants = cva(
                  * Never `text-13`: that is for rows, not for anything a person
                  * types into (§3.3).
                  *
-                 * The type is `text-base md:text-sm` for the same reason the
-                 * shadcn input it replaces is: iOS Safari zooms the page when
-                 * a field under 16px takes focus, and §11's audience is the
-                 * one most likely to meet that.
+                 * Every size is 16px on a phone and its measured size above
+                 * `md`, for the reason the shadcn input this replaces carries
+                 * the same pair: iOS Safari zooms the page when a field under
+                 * 16px takes focus, and §11's audience is the one most likely
+                 * to meet that.
+                 *
+                 * The type belongs to each *size* and never to the base string.
+                 * `text-base` in the base is displaced by a size's `text-xs`,
+                 * but a base `md:text-sm` is a different tailwind-merge group
+                 * and survives — which silently made the filter 14px above
+                 * `md`, the one breakpoint it is actually used at.
                  */
-                default: 'min-h-11 md:h-10 md:min-h-0',
-                // §8.6: the inline filter control.
-                filter: 'min-h-11 text-xs md:h-8 md:min-h-0',
+                default: 'min-h-11 text-base md:h-10 md:min-h-0 md:text-sm',
+                // §8.6: the inline filter control, 12px on the desktop surface
+                // it exists for.
+                filter: 'min-h-11 text-base md:h-8 md:min-h-0 md:text-xs',
             },
         },
         defaultVariants: {
