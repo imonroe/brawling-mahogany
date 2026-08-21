@@ -241,8 +241,15 @@ workflow passes `-f` explicitly; a person at 2am does not.
 
 `APP_KEY` is generated **once** and never rotated — rotating it would invalidate
 every session and every encrypted column on the box. If you have set one
-anywhere outside the block it is left alone, in any spelling Dotenv accepts;
-otherwise the value from the previous block is carried forward.
+anywhere outside the block it is left alone; otherwise the value from the
+previous block is carried forward.
+
+Recognising "already set" is the one place the script reads your half of the
+file, and it is a heuristic rather than a parser: the spellings it is known to
+handle are the ones in `ProvisionEnvBlockTest`, not "any spelling Dotenv
+accepts", which is a promise a regex cannot keep. An **interpolated** value —
+`APP_KEY="${LEGACY_KEY}"` — is the case it cannot judge at all, so it leaves
+yours alone and says so rather than guessing.
 
 `tests/Unit/ProvisionEnvBlockTest.php` runs the stage against a real `.env` and
 resolves the result through the same Dotenv the application uses, so "the block

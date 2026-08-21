@@ -16,11 +16,25 @@ use Dotenv\Dotenv;
  * by position rather than by matching. These tests assert that through the same
  * parser Laravel uses, so "it wins" is measured rather than argued.
  */
+function requirePython(): void
+{
+    // The stage runs python3 on the droplet, where it is installed by the
+    // script's own apt line. The application container is FrankenPHP on slim
+    // Debian and has no python3, and no CI job runs this suite inside it — so
+    // rather than failing with `python3: command not found` for somebody
+    // running `make check`, say why it did not run.
+    if (trim((string) shell_exec('command -v python3 2>/dev/null')) === '') {
+        test()->markTestSkipped('python3 is not on PATH; the .env stage needs it.');
+    }
+}
+
 function runEnvStage(string $directory, string $hostname = 'staging.example.com'): string
 {
+    requirePython();
+
     $script = base_path('scripts/provision-staging.sh');
     // Not tempnam().'.sh' — that creates one file and then writes to a
-    // different path, orphaning the first. This test runs eleven times.
+    // different path, orphaning the first, once per case in this file.
     $stage = $directory.'/stage.sh';
 
     // Just the .env stage: the rest of the script installs Docker and a
@@ -73,8 +87,8 @@ afterEach(function (): void {
     @rmdir($this->workspace);
 });
 
-it('wins over every spelling of a key that Dotenv honours', function (string $line): void {
-    // The four that defeated the in-place rewrite. Each is a valid Dotenv
+it('wins over each spelling of a key below, all of which Dotenv honours', function (string $line): void {
+    // The spellings that defeated the in-place rewrite. Each is a valid Dotenv
     // definition and each was the last one in the file, so each used to win.
     copy($this->workspace.'/.env.example', $this->workspace.'/.env');
     file_put_contents($this->workspace.'/.env', "\n".$line."\n", FILE_APPEND);
@@ -239,31 +253,84 @@ it('refuses a stray opener sitting above a real block', function (): void {
     expect(file_get_contents($env))->toContain('DB_PASSWORD=postgres-has-this');
 });
 
-it('absorbs a stray complete block rather than stacking on it', function (): void {
-    // A well-formed stray block — pasted from another host, or left by an
-    // earlier hand-edit. It is somebody else's content, so it is left exactly
-    // alone; only the last block is this script's to rewrite.
+it('absorbs every stray complete block rather than stacking on them', function (): void {
+    // Two strays, not one: with a single block, "remove them all" and "rewrite
+    // the only one" are indistinguishable, and a mutation that removes only the
+    // last used to pass. The secrets between the blocks have to survive too.
     $env = $this->workspace.'/.env';
-    $stray = implode("\n", [
+    $stray = fn (string $host) => implode("\n", [
         '# >>> provision-staging.sh — managed block; re-run the script to change it',
-        'SERVER_NAME=some-other-host.example.com',
+        'SERVER_NAME='.$host,
+        'APP_KEY=base64:FROM-'.$host.'=',
         '# <<< provision-staging.sh — end of managed block',
     ]);
-    file_put_contents($env, $stray."\nDB_PASSWORD=survives\n", LOCK_EX);
+
+    file_put_contents($env, implode("\n", [
+        $stray('first.example.com'),
+        'DB_PASSWORD=between-the-blocks',
+        $stray('second.example.com'),
+        'REDIS_PASSWORD=after-them',
+        '',
+    ]), LOCK_EX);
 
     runEnvStage($this->workspace, 'staging.example.com');
 
     $written = file_get_contents($env);
+    $env_values = resolveEnv($this->workspace);
 
-    // Absorbed, not stacked: these delimiters say the block is this script's,
-    // so a stray one is its to clean up. The secret between them survives.
+    // One block left, and it is ours.
     expect(substr_count($written, 'managed block; re-run'))->toBe(1);
-    expect($written)->toContain('DB_PASSWORD=survives');
-    expect(resolveEnv($this->workspace)['SERVER_NAME'])->toBe('staging.example.com');
+    expect($env_values['SERVER_NAME'])->toBe('staging.example.com');
+    // Content between and after the strays is not the script's to remove.
+    expect($env_values['DB_PASSWORD'])->toBe('between-the-blocks');
+    expect($env_values['REDIS_PASSWORD'])->toBe('after-them');
+    // The LAST block's key carries forward, not the first — that is the one a
+    // previous run of this script wrote.
+    expect($env_values['APP_KEY'])->toBe('base64:FROM-second.example.com=');
+});
 
-    runEnvStage($this->workspace, 'staging.example.com');
+it('reports an interpolated APP_KEY instead of judging it', function (): void {
+    // `APP_KEY="${LEGACY_KEY}"` resolves to whatever LEGACY_KEY holds, which
+    // the script cannot know — and this repo's own .env.example teaches the
+    // shape with VITE_APP_NAME="${APP_NAME}". Leaving theirs alone is right;
+    // doing it silently is how a box ends up not booting.
+    file_put_contents(
+        $this->workspace.'/.env', "LEGACY_KEY=\nAPP_KEY=\"\${LEGACY_KEY}\"\n", LOCK_EX,
+    );
 
-    expect(substr_count(file_get_contents($env), 'managed block; re-run'))->toBe(1);
+    $output = runEnvStage($this->workspace);
+
+    expect($output)->toContain('interpolated value');
+    expect($output)->toContain('Check that APP_KEY is not empty');
+});
+
+it('says when a re-run changed nothing', function (): void {
+    // The message an operator reads to decide whether anything happened. It
+    // was unreachable for every input until round 2: `previous` never carries
+    // a trailing newline and `rendered` always does, so they never compared
+    // equal and every run claimed to have refreshed the block.
+    runEnvStage($this->workspace);
+
+    expect(runEnvStage($this->workspace))->toContain('already correct');
+});
+
+it('does not splice a line that merely quotes both delimiters', function (): void {
+    // The delimiter search is anchored to a line start. Unanchored, this line
+    // was spliced through — its contents deleted — while the script reported
+    // that nothing outside the block was touched.
+    $env = $this->workspace.'/.env';
+    file_put_contents($env, implode("\n", [
+        'NOTE="the delimiters are '
+        .'# >>> provision-staging.sh — managed block; re-run the script to change it'
+        .' and # <<< provision-staging.sh — end of managed block respectively"',
+        'DB_PASSWORD=secret',
+        '',
+    ]), LOCK_EX);
+
+    runEnvStage($this->workspace);
+
+    expect(file_get_contents($env))->toContain('the delimiters are # >>>');
+    expect(resolveEnv($this->workspace)['DB_PASSWORD'])->toBe('secret');
 });
 
 it('keeps CRLF a CRLF file and LF an LF file', function (): void {

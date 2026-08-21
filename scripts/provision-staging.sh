@@ -13,11 +13,12 @@
 #   - The .env gains one delimited block at the end, holding the infrastructure
 #     settings. Re-running replaces that block and NOTHING else — Dotenv reads
 #     the last definition of a key, so the block wins without the script having
-#     to find, parse, or edit anything the operator wrote.
-#   - Nothing outside the block is ever read for meaning or rewritten, so no
-#     secret can be lost to a missed match. A DB_PASSWORD that Postgres is
-#     already using cannot be recovered, which is why this is worth the
-#     slightly odd-looking file.
+#     to edit anything the operator wrote.
+#   - Nothing outside the block is ever rewritten, so no secret can be lost to
+#     a missed match. A DB_PASSWORD that Postgres is already using cannot be
+#     recovered, which is why this is worth the slightly odd-looking file. The
+#     rest of the file IS read, for two bounded things — an APP_KEY already set,
+#     and an unclosed quote — and both fail towards leaving it alone.
 #   - APP_KEY is generated once. If the operator has set one anywhere outside
 #     the block it is left alone; otherwise the value from the previous block
 #     is carried forward. It is never rotated — doing so would invalidate every
@@ -288,13 +289,18 @@ def unterminated_quote(text):
 
 
 def value_is_set(raw):
-    """Would Dotenv read a non-empty value from this right-hand side?
+    """Does this right-hand side look like a non-empty value?
 
     Only ever asked about APP_KEY, and only to decide whether to leave the
-    operator's own line alone. Every spelling of empty has to come back False,
+    operator's own line alone. It is a heuristic, not Dotenv: the cases in
+    ProvisionEnvBlockTest are the ones it is known to get right, and that list
+    is the claim — not "every spelling", which is a promise a regex over a
+    grammar this script deliberately does not implement cannot keep.
+
+    The spellings that matter are the ones that look set and resolve to empty,
     because an empty APP_KEY means the application will not boot: `APP_KEY=""`,
-    `APP_KEY= # rotate me`, and the cross-product `APP_KEY="" # rotate me` all
-    look set and all resolve to nothing.
+    `APP_KEY= # rotate me`, and the cross-product `APP_KEY="" # rotate me`.
+    Interpolation is handled by the caller, which cannot resolve it either.
     """
     value = raw.strip()
 
@@ -327,17 +333,37 @@ text = read(example) if created else read(path)
 # real block's *closing* one and splice out every secret in between — which is
 # the failure this whole design exists to make impossible, arrived at by
 # matching too much rather than too little.
+def find_line(haystack, needle, start=0):
+    """Like str.find, but only matches at the start of a line.
+
+    A plain substring search would splice through any line that merely quotes
+    both delimiters — a NOTE="…" describing them, say — deleting its contents
+    while the script reported that nothing outside the block was touched. Only
+    the start is anchored, not the end, so a delimiter line that has picked up
+    trailing whitespace is still recognised as ours rather than stacked on.
+    """
+    at = start
+
+    while True:
+        at = haystack.find(needle, at)
+
+        if at == -1 or at == 0 or haystack[at - 1] == "\n":
+            return at
+
+        at += len(needle)
+
+
 blocks = []
 cursor = 0
 
 while True:
-    open_at = text.find(OPEN, cursor)
+    open_at = find_line(text, OPEN, cursor)
 
     if open_at == -1:
         break
 
-    close_at = text.find(CLOSE, open_at)
-    next_open = text.find(OPEN, open_at + len(OPEN))
+    close_at = find_line(text, CLOSE, open_at)
+    next_open = find_line(text, OPEN, open_at + len(OPEN))
 
     if close_at == -1 or (next_open != -1 and next_open < close_at):
         fail(f"{path} has a managed-block opening delimiter with no closing one.\n"
@@ -376,13 +402,24 @@ body = text.rstrip("\r\n")
 #   neither                                     -> generate one
 #
 # The scan below is a regex over a grammar this script otherwise refuses to
-# parse, which is a deliberate exception with a bounded downside: every
-# spelling it recognises is one the operator's key is preserved for, and the
-# worst a miss can do is generate a key into the block, which then wins. It
-# cannot destroy theirs, because nothing outside the block is ever rewritten.
+# parse. It is a deliberate exception, and the direction that bites is a false
+# *positive* — the regex seeing a key where Dotenv sees none, so nothing is
+# generated and the box will not boot. That is loud and immediate. A false
+# negative writes a key into the block which then wins over one the regex
+# missed; nothing outside the block is rewritten, so theirs is still in the
+# file and deleting the block restores it.
+#
+# Neither is silent, which is the property being bought. An interpolated value
+# is the one case that cannot be judged from the file alone, so it is reported
+# rather than guessed at.
 operator_values = re.findall(
     r"^[ \t]*(?:export[ \t]+)?APP_KEY[ \t]*=(.*)$", body, re.MULTILINE)
-operator_key = bool(operator_values) and value_is_set(operator_values[-1])
+operator_last = operator_values[-1] if operator_values else None
+operator_key = operator_last is not None and value_is_set(operator_last)
+# `APP_KEY="${LEGACY_KEY}"` resolves to whatever LEGACY_KEY holds, which this
+# script cannot know. Theirs is left alone — never rotate a key that may be in
+# use — but silently doing so is how a box ends up not booting, so it is said.
+interpolated = operator_key and "${" in operator_last
 
 app_key = None
 
@@ -440,12 +477,16 @@ except BaseException:
 
 if created:
     print(f"Wrote {path} (0600) from .env.example, with the managed block appended.")
-elif previous == rendered:
+elif previous == rendered.rstrip("\r\n"):
     print(f"{path} is already correct; the managed block is unchanged.")
 else:
     print(f"Refreshed the managed block in {path}. Nothing outside it was touched.")
 
-if operator_key:
+if interpolated:
+    print("APP_KEY is set outside the block to an interpolated value, which this\n"
+          "script cannot resolve. It has been left alone and no key was generated.\n"
+          "Check that APP_KEY is not empty before starting the stack.")
+elif operator_key:
     print("APP_KEY is set outside the block; left as it is.")
 PY
 
