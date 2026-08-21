@@ -25,15 +25,23 @@ return [
      * exception to that rule.
      *
      * `send_default_pii` stays false, so no user email, username, or IP is
-     * attached. `max_request_body_size` is 'none', so a request body — which
-     * on this product means a client's address, a transaction value, or an
-     * uploaded document's metadata — is never transmitted. The message and
-     * context of any log breadcrumb has already been through
-     * App\Logging\RedactPii before it reaches Sentry.
+     * attached, and `max_request_body_size` is 'none', so a request body —
+     * which on this product means a client's address, a transaction value, or
+     * an uploaded document's metadata — is never transmitted.
+     *
+     * The two callbacks below are the part that is easy to get wrong. Sentry's
+     * Laravel integration subscribes to `MessageLogged`, which fires *before*
+     * the record reaches Monolog, so the Monolog processor never sees it: a
+     * breadcrumb would otherwise carry the raw message and context even though
+     * the log line itself was redacted.
      */
     'send_default_pii' => (bool) env('SENTRY_SEND_DEFAULT_PII', false),
 
     'max_request_body_size' => 'none',
+
+    'before_breadcrumb' => [App\Logging\ScrubSentryEvents::class, 'breadcrumb'],
+
+    'before_send' => [App\Logging\ScrubSentryEvents::class, 'event'],
 
     'release' => env('SENTRY_RELEASE'),
 

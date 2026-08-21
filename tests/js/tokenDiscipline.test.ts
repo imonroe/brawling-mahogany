@@ -12,10 +12,12 @@ import { describe, expect, it } from 'vitest';
  * §13.2 calls this "the one worth being pedantic about in review". A review
  * catches it sometimes; this catches it every time.
  *
- * `components/ui/` is excluded on purpose: it is shadcn CLI output and rule 4
- * forbids hand-editing it. Where a shadcn default disagrees with a token — the
- * dialog scrim is the known case — the fix is a wrapper in `components/app/`,
- * not an edit to the generated file.
+ * `components/ui/` is checked too, but against an explicit allowlist rather
+ * than a blanket exclusion. Rule 4 forbids hand-editing generated files, so
+ * where a shadcn default disagrees with a token the correction goes elsewhere:
+ * the dialog and sheet scrims are overridden at the token layer in `app.css`
+ * (Design System §5.2). What remains is listed below with a reason, so it is
+ * visible and cannot grow silently.
  */
 
 const ROOTS = ['resources/js/components/app', 'resources/js/components/forms', 'resources/js/layouts', 'resources/js/pages'];
@@ -38,6 +40,22 @@ const PALETTE_CLASS = new RegExp(
 
 const HEX_COLOUR = /#[0-9a-fA-F]{3,8}\b/g;
 
+/**
+ * Palette classes that survive in generated shadcn source, with the reason
+ * each is tolerated. Anything not on this list fails the build.
+ */
+const UI_ALLOWED = new Map<string, string[]>([
+    // `--destructive-foreground` is the token equivalent and is visually
+    // identical. Correcting it means editing generated source, so it is
+    // corrected at the call site when a destructive control is next built.
+    ['resources/js/components/ui/button/index.ts', ['text-white']],
+    ['resources/js/components/ui/badge/index.ts', ['text-white']],
+    // Overridden in app.css to the §5.2 scrim; the class is inert.
+    ['resources/js/components/ui/dialog/DialogOverlay.vue', ['bg-black']],
+    ['resources/js/components/ui/dialog/DialogScrollContent.vue', ['bg-black']],
+    ['resources/js/components/ui/sheet/SheetOverlay.vue', ['bg-black']],
+]);
+
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
 
@@ -54,6 +72,22 @@ function sourceFiles(directory: string): string[] {
 
 describe('token discipline', () => {
     const files = ROOTS.flatMap(sourceFiles);
+
+    it('has no palette class in generated shadcn source beyond the recorded ones', () => {
+        const unexpected = sourceFiles('resources/js/components/ui')
+            .map((file) => {
+                const allowed = UI_ALLOWED.get(file) ?? [];
+                const matches = (readFileSync(file, 'utf8').match(PALETTE_CLASS) ?? []).filter(
+                    (match) => !allowed.includes(match),
+                );
+
+                return { file, matches };
+            })
+            .filter((result) => result.matches.length > 0)
+            .map((result) => `${result.file}: ${[...new Set(result.matches)].join(', ')}`);
+
+        expect(unexpected).toEqual([]);
+    });
 
     it('has components to check', () => {
         expect(files.length).toBeGreaterThan(20);

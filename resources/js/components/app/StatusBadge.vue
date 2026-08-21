@@ -7,12 +7,12 @@
  * background, the dot, and the label. They never mix.
  *
  * Prefer the `domain` + `state` form, which resolves the label and the tone
- * from the one state table (lib/states.ts) and throws on an unknown state.
- * The bare `tone` form exists for counts and one-off pills.
+ * from the one state table (lib/states.ts). The bare `tone` form exists for
+ * counts and one-off pills.
  */
 import { computed } from 'vue';
 import { resolveState } from '@/lib/states';
-import type { StateDomain, Tone } from '@/lib/states';
+import type { StateDescriptor, StateDomain, Tone } from '@/lib/states';
 import { cn } from '@/lib/utils';
 
 type Props = {
@@ -31,21 +31,47 @@ type Props = {
 
 const props = defineProps<Props>();
 
-// Resolved eagerly rather than lazily: an unknown state must fail where it is
-// written, not silently render an unstyled badge somewhere downstream.
-const descriptor =
-    props.domain && props.state
-        ? resolveState(props.domain, props.state)
-        : null;
+/*
+ * Resolved per render, not once in setup(): Vue reuses component instances
+ * when a keyed list re-renders with changed data, so a badge resolved once
+ * would keep rendering the previous row's state and colour after a filter,
+ * a page change, or a partial reload.
+ */
+const descriptor = computed<StateDescriptor | null>(() => {
+    if (!props.domain || !props.state) {
+        if (!props.tone) {
+            throw new Error(
+                'StatusBadge needs either a `domain` and `state`, or a `tone`.',
+            );
+        }
 
-if (!descriptor && !props.tone) {
-    throw new Error(
-        'StatusBadge needs either a `domain` and `state`, or a `tone`.',
-    );
-}
+        return null;
+    }
 
-const tone = computed<Tone>(() => props.tone ?? descriptor!.tone);
-const label = computed(() => props.label ?? descriptor?.label ?? '');
+    try {
+        return resolveState(props.domain, props.state);
+    } catch (error) {
+        /*
+         * An unknown state is a bug and it should be loud — but not so loud
+         * that it takes the whole page down in front of a customer. It throws
+         * in development and in tests; in production it reports and renders a
+         * neutral badge carrying the raw code, which is ugly enough to get
+         * fixed and small enough not to lose the screen.
+         */
+        if (import.meta.env.DEV) {
+            throw error;
+        }
+
+        console.error(error);
+
+        return { label: props.state, tone: 'neutral', clientLabel: null };
+    }
+});
+
+const tone = computed<Tone>(
+    () => props.tone ?? descriptor.value?.tone ?? 'neutral',
+);
+const label = computed(() => props.label ?? descriptor.value?.label ?? '');
 
 const TONE_CLASSES: Record<Tone, string> = {
     neutral: 'bg-state-neutral-bg text-state-neutral',

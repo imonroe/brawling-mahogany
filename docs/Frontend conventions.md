@@ -77,12 +77,31 @@ The rules from Design System §13.2, in the order they get applied:
 9. **A tone is three properties.** Background, foreground, and any icon move
    together or not at all.
 
-> [!note] One known disagreement with shadcn's defaults
-> Design System §5.2 specifies the dialog scrim as `--foreground` at 45%.
-> shadcn's generated overlay uses `bg-black/80`. Rule 4 says the generated file
-> is not edited, so the correction belongs in a `components/app/` dialog
-> wrapper when the first real dialog is built (Slice 2). Recorded here so it is
-> a decision rather than a discrepancy somebody finds later.
+### Where shadcn's defaults disagree with the Design System
+
+Rule 4 forbids editing generated files, so each disagreement is corrected
+somewhere else and recorded here rather than left to be discovered.
+
+| Disagreement | Where it is corrected |
+|---|---|
+| Overlay scrim is `bg-black/80`; §5.2 specifies `--foreground` at 45% | `app.css`, at the token layer, on `[data-slot='dialog-overlay']` and `[data-slot='sheet-overlay']` |
+| `text-white` on the destructive Button and Badge variants; `--destructive-foreground` is the token | Recorded in `tests/js/tokenDiscipline.test.ts`'s allowlist. Visually identical, so it is corrected at the call site when a destructive control is next built rather than by editing generated source |
+| `Input` is `h-9`; §4.2 measures the form control at `h-10 px-3` | **Open.** See below |
+| `Button` `default` is `h-9 px-4` with a 500 label; §7.2 measures Primary at `h-9 px-3.5` / 600, Ghost at `h-8 px-2.5`, and adds a Compact size (28–30px, 12/600) that shadcn has no equivalent for | **Open.** See below |
+
+`tests/js/tokenDiscipline.test.ts` scans `components/ui/` against that
+allowlist, so a *new* palette class in generated source fails the build even
+though the existing ones are tolerated.
+
+> [!warning] The control sizes are a real, open deviation
+> The auth and settings screens in Slice 0 use shadcn's sizes, not the
+> measured ones. That is defensible only because those screens are Slice 1
+> work and have not been designed against §4.2 yet.
+>
+> The fix is a `cva` size set in `components/app/` — permitted by rule 4 —
+> and it belongs with the first screen built to the spec, so the sizes are
+> judged on a real screen rather than in isolation. Until then, do not treat
+> the current button and input heights as the house style.
 
 ---
 
@@ -132,6 +151,16 @@ rather than in each component.
   translation layer. `blocked` never reaches a client — it renders as "In
   Progress" — and a skipped stage is hidden entirely (IA §9). The client sees
   a stage's `milestone_label`, never its internal name.
+
+### `lib/states.ts` is bound to the documents
+
+`tests/js/statesMatchTheDocs.test.ts` reads IA §8 and Design System §2.4 out
+of `docs/` and asserts the table matches both — the code values, the labels,
+and the tone. `tests/Unit/DocumentedVocabularyTest.php` does the same for the
+PHP enums against IA §8 and PRD §6.3.
+
+Changing a state means changing the document and the code together. That is
+rule 7 made mechanical.
 
 ### `lib/navigation.ts`
 

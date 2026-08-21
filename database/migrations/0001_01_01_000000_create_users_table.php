@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -19,13 +20,24 @@ return new class extends Migration
         Schema::create('users', function (Blueprint $table): void {
             $table->ulid('id')->primary();
             $table->string('name');
-            $table->string('email')->unique();
+            $table->string('email');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();
             $table->timestamps();
             $table->softDeletes();
         });
+
+        /*
+         * Unique among the living only.
+         *
+         * A plain unique index still counts soft-deleted rows, so deleting an
+         * account would permanently reserve that address: the person could
+         * never sign up again, and an invitation to them would fail
+         * validation with a confusing message. PRD §9's 30-day recovery
+         * window makes that a live case, not a theoretical one.
+         */
+        DB::statement('CREATE UNIQUE INDEX users_email_unique ON users (email) WHERE deleted_at IS NULL');
 
         Schema::create('password_reset_tokens', function (Blueprint $table): void {
             $table->string('email')->primary();

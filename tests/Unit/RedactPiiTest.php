@@ -71,6 +71,46 @@ it('redacts nested context', function (): void {
         ->and($result->context['extraction']['client']['email'])->toBe(RedactPii::REDACTED);
 });
 
+it('catches a sensitive word wherever it appears in the key', function (): void {
+    // The first version matched keys by exact equality, so `client_email`
+    // and `owner_name` sailed through. Model attributes rarely arrive under
+    // their bare names.
+    $result = record('Deal updated', [
+        'client_email' => 'emily@example.com',
+        'clientPhone' => '303-555-0142',
+        'owner_name' => 'Heather Nguyen',
+        'billing_address' => '123 Main St',
+        'purchase_amount' => 48500000,
+    ]);
+
+    foreach (['client_email', 'clientPhone', 'owner_name', 'billing_address', 'purchase_amount'] as $key) {
+        expect($result->context[$key])->toBe(RedactPii::REDACTED, $key.' should be redacted');
+    }
+});
+
+it('keeps the keys that make a log useful', function (): void {
+    // Over-redaction has a cost too: a log with nothing identifying in it
+    // cannot be followed. These are the ones worth protecting from the
+    // scrubber — note `key_dates`, which is a table in this product.
+    $result = record('Advanced a stage', [
+        'deal_id' => '01J8XZ',
+        'stage_id' => '01J8XY',
+        'key_dates' => 3,
+        'job_name' => 'SendMilestoneEmail',
+        'queue_name' => 'default',
+        'gate_type' => 'document_present',
+    ]);
+
+    expect($result->context)->toBe([
+        'deal_id' => '01J8XZ',
+        'stage_id' => '01J8XY',
+        'key_dates' => 3,
+        'job_name' => 'SendMilestoneEmail',
+        'queue_name' => 'default',
+        'gate_type' => 'document_present',
+    ]);
+});
+
 it('redacts credentials and tokens', function (): void {
     $result = record('Provider configured', [
         'api_key' => 'sk-live-abcdef',

@@ -52,7 +52,9 @@ branches target `dev`; `dev` → `main` by pull request when a release is cut.
 4. `php artisan migrate --force`, as an explicit step.
 5. Rebuild the config, route, and event caches.
 6. `php artisan horizon:terminate`, so the worker restarts on the new code.
-7. Curl `/up` and fail the deploy if it does not answer.
+7. Curl `STAGING_URL/up` and fail the deploy if it does not answer. That is a
+   separate secret from the SSH host on purpose — the box a deploy connects to
+   and the name a browser resolves are not always the same thing.
 
 **Migrations are a deploy step, not a container start-up side effect.** A bad
 migration should fail a deploy loudly rather than leaving a container that
@@ -81,8 +83,25 @@ deliberate down path written before it ships.
 
 ## 3. TLS
 
-Caddy terminates TLS inside the app container and manages certificates
-automatically. Requirements from PRD §9:
+Caddy runs inside the app container and terminates TLS itself — but only when
+it is told a hostname. The mechanism is `SERVER_NAME`, and it is the one
+setting that separates a laptop from a deployed environment:
+
+| Environment | `SERVER_NAME` | Result |
+|---|---|---|
+| Local | `:80` (the default in `.env.example`) | Plain HTTP on `APP_PORT`. No certificate is requested, which is what a laptop wants |
+| Staging, production | `staging.example.com` | Caddy obtains and renews a certificate for that name over ports 80 and 443 |
+
+The compose file publishes `${APP_PORT:-8000}:80` and `${APP_TLS_PORT:-8443}:443`
+(plus 443/udp for HTTP/3). **On a deployed host set both to the standard
+ports** — `APP_PORT=80`, `APP_TLS_PORT=443` — because ACME's HTTP and TLS-ALPN
+challenges arrive on 80 and 443 and nowhere else.
+
+Certificates and Caddy's state live in the `caddy-data` volume. Without it
+every `up -d` would start from nothing and re-request certificates until Let's
+Encrypt rate-limits the domain.
+
+Requirements from PRD §9:
 
 - **TLS 1.2 minimum.** Caddy's default is 1.2, and nothing lowers it.
 - **HSTS**, once the domain is confirmed correct — `Strict-Transport-Security:
@@ -128,7 +147,9 @@ issue rather than a line in this document. It is performed on staging:
   surface.
 - **Structured JSON logs to stdout**, scrubbed by `App\Logging\RedactPii`
   before anything is written.
-- **An uptime check** against `/up`.
+- **An uptime check** against `/up`. The endpoint exists and the deploy smoke
+  test uses it; the external monitor that watches it is account configuration
+  and is part of the staging checklist below, not of this repository.
 
 ### Alert thresholds (PRD §9, §12.2)
 
@@ -151,13 +172,14 @@ The checklist for the work this repository cannot do on its own:
 
 - [ ] DigitalOcean droplet, Docker and Compose installed, firewall to 80/443/22
 - [ ] A deploy user with a checkout at `/srv/brawling-mahogany` and a deploy key
-- [ ] DNS for the staging hostname
+- [ ] DNS for the staging hostname, and `SERVER_NAME` set to it in `.env`
+- [ ] `APP_PORT=80` and `APP_TLS_PORT=443` in `.env`, so ACME's challenges can land
 - [ ] `.env` on the droplet, `0600`, per `docs/Environment and secrets.md`
 - [ ] Postgres: managed instance or the compose service, matching production's choice
 - [ ] SES in sandbox, `MAIL_REDIRECT_TO` set
 - [ ] A separate AI provider key with its own budget cap
 - [ ] Sentry staging project, DSN in `.env`
-- [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`
+- [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`
 - [ ] Repository variable `STAGING_ENABLED=true`
 - [ ] Nightly backup job and its offsite target
 - [ ] Restore drill performed and its duration recorded

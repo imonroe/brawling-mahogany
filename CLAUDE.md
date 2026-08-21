@@ -130,11 +130,20 @@ in routes, and in the UI.
 Deal (not Project) · Stage (not Phase or Step) · Milestone, in the narrow
 sense only · Gate (Requirement is allowed **only** in the deal view) · Task
 (not To-do or Item) · Automation (not Action or Trigger) · Template (not
-Blueprint) · Pack (not Bundle) · Participant (not Contact or Party) · Person
-(not User) · Vendor (not Service provider) · Dates & Deadlines (not Key dates,
-in the UI) · Activity (not History or Log; Audit means the security log) ·
+Blueprint) · Pack (not Bundle) · Participant (not Contact or Party) · Vendor
+(not Service provider) · Dates & Deadlines (not Key dates, in the UI) ·
 Status Page (not Portal) · Keep in Touch (not Nurture or Drip) · Team (not
 Organization or Workspace) · Extract (not Scan, Parse, or AI).
+
+Two of these carry a distinction that the short form loses, and both are load-bearing:
+
+- **Person, not User** — *because* "User" means specifically somebody with a
+  login. `App\Models\User` is correctly named; a client in the people
+  directory is a Person, and calling them a user would imply an account they
+  do not have.
+- **Activity, not History or Log** — *because* "Audit" means the append-only
+  security log. The two are different records with different retention and
+  different readers, and merging the words merges the concepts.
 
 **Advance** is the only verb for moving a workflow forward — never Progress,
 Move, Next, or Complete. **Override** and **Skip** are different actions with

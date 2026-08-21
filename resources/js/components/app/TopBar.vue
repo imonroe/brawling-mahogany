@@ -46,7 +46,7 @@ defineEmits<{ 'toggle-sidebar': [] }>();
             >
                 <ChevronRight
                     v-if="index > 0"
-                    class="size-3.5 shrink-0 text-muted-foreground"
+                    class="size-[13px] shrink-0 text-muted-foreground"
                     aria-hidden="true"
                 />
                 <Link

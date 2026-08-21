@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Symfony\Component\Finder\Finder;
 
 /**
  * The isolation suite's first test, and the one that has a job before any
@@ -30,6 +31,15 @@ const TEAM_AGNOSTIC_MODELS = [
     App\Models\User::class,
 ];
 
+/**
+ * Every model under app/Models, at any depth.
+ *
+ * Recursive on purpose: `app/Models/Deals/Deal.php` is a plausible layout, and
+ * a directory-shaped hole in the test that guards tenancy is exactly the kind
+ * of gap the ADR calls a release blocker.
+ *
+ * @return list<class-string<Model>>
+ */
 function appModels(): array
 {
     $directory = app_path('Models');
@@ -38,12 +48,19 @@ function appModels(): array
         return [];
     }
 
-    return collect(scandir($directory))
-        ->filter(fn (string $file): bool => Str::endsWith($file, '.php'))
-        ->map(fn (string $file): string => 'App\\Models\\'.Str::before($file, '.php'))
-        ->filter(fn (string $class): bool => class_exists($class) && is_subclass_of($class, Model::class))
-        ->values()
-        ->all();
+    $models = [];
+
+    foreach ((new Finder)->files()->in([$directory])->name('*.php') as $file) {
+        $class = 'App\\Models\\'.Str::replace('/', '\\', Str::before($file->getRelativePathname(), '.php'));
+
+        if (class_exists($class) && is_subclass_of($class, Model::class)) {
+            $models[] = $class;
+        }
+    }
+
+    sort($models);
+
+    return $models;
 }
 
 it('records a tenancy decision for every model', function (): void {

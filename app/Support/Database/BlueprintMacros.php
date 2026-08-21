@@ -22,13 +22,27 @@ final class BlueprintMacros
          * `team_id` is not nullable and not optional. PRD §8.2 puts it on every
          * business table, and a table that skips it is a table the global scope
          * cannot protect.
+         *
+         * `$constrained` adds the database's own half of that guarantee — the
+         * second enforcement layer in ADR 0002. It defaults to false only
+         * because `teams` does not exist until Slice 1; once it does, every
+         * business table passes `constrained: true` and the default flips.
          */
-        Blueprint::macro('productDefaults', function (bool $teamScoped = true): void {
+        Blueprint::macro('productDefaults', function (bool $teamScoped = true, bool $constrained = false): void {
             /** @var Blueprint $this */
             $this->ulid('id')->primary();
 
             if ($teamScoped) {
-                $this->foreignUlid('team_id')->index();
+                $column = $this->foreignUlid('team_id');
+
+                if ($constrained) {
+                    // A team is deleted by purging its data (PRD §9), so the
+                    // cascade is the correct behaviour rather than a
+                    // convenience.
+                    $column->constrained('teams')->cascadeOnDelete();
+                } else {
+                    $column->index();
+                }
             }
 
             $this->timestamps();

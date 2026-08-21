@@ -22,6 +22,22 @@ describe('StatusBadge', () => {
         expect(badge.find('span span').exists()).toBe(false);
     });
 
+    it('re-resolves when the state changes on a reused instance', async () => {
+        // Vue reuses instances when a keyed list re-renders with new data —
+        // filtering the deals table, or an Inertia partial reload. A badge
+        // that resolved once in setup() would keep the old row's colour.
+        const badge = mount(StatusBadge, { props: { domain: 'deal', state: 'active' } });
+
+        expect(badge.text()).toBe('Active');
+        expect(badge.classes()).toContain('text-state-info');
+
+        await badge.setProps({ state: 'fell_through' });
+
+        expect(badge.text()).toBe('Fell Through');
+        expect(badge.classes()).toContain('text-state-danger');
+        expect(badge.classes()).not.toContain('text-state-info');
+    });
+
     it('throws on an unknown state rather than rendering an unstyled badge', () => {
         expect(() =>
             mount(StatusBadge, { props: { domain: 'stage', state: 'in_progress' } }),

@@ -22,6 +22,10 @@ setup: ## Boot the whole stack on a clean machine
 	$(COMPOSE) build
 	$(COMPOSE) up -d
 	$(APP) php artisan key:generate
+	# Compose injects env_file values when a container is created, so the
+	# containers started above are still holding the empty APP_KEY that
+	# key:generate has just replaced. Recreate the three that read it.
+	$(COMPOSE) up -d --force-recreate app worker scheduler
 	$(APP) php artisan migrate --force
 	@echo
 	@echo "  App      http://localhost:$${APP_PORT:-8000}"
@@ -35,6 +39,12 @@ up: ## Start the stack
 .PHONY: down
 down: ## Stop the stack
 	$(COMPOSE) down
+
+.PHONY: reset
+reset: ## Stop the stack and delete its volumes, including the dependency caches
+	# Dependencies live in volumes so the host's are not shadowed. That means
+	# a new package in composer.json or package.json needs this, not a rebuild.
+	$(COMPOSE) down -v
 
 .PHONY: logs
 logs: ## Follow the application logs

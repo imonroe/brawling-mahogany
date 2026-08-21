@@ -25,9 +25,12 @@ x-app-local: &app-local
   volumes:
     - .:/app
     # Dependencies stay inside the image rather than being shadowed by the
-    # host mount, so a Linux laptop and a Mac get the same binaries.
-    - /app/vendor
-    - /app/node_modules
+    # host mount, so a Linux laptop and a Mac get the same binaries. Named,
+    # not anonymous, so `make reset` can actually clear them when a
+    # dependency changes — an anonymous volume survives a rebuild and quietly
+    # keeps serving the old packages.
+    - app-vendor:/app/vendor
+    - app-node-modules:/app/node_modules
 
 services:
   app:
@@ -89,6 +92,10 @@ services:
       - '${VITE_PORT:-5173}:5173'
     volumes:
       - .:/app
-      - /app/vendor
-      - /app/node_modules
+      - app-vendor:/app/vendor
+      - app-node-modules:/app/node_modules
     restart: unless-stopped
+
+volumes:
+  app-vendor:
+  app-node-modules:

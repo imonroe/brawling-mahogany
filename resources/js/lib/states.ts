@@ -102,8 +102,9 @@ const extractedField: StateTable = {
 };
 
 const document: StateTable = {
-    stored: { label: 'Stored', tone: 'neutral', clientLabel: null },
-    refused: { label: 'Refused', tone: 'danger', clientLabel: null },
+    // Design System §2.4 carries exactly one document state: a file the scan
+    // refused. A stored document has no badge — it is simply a document.
+    refused: { label: 'Refused by scan', tone: 'danger', clientLabel: null },
 };
 
 export const STATES: Record<StateDomain, StateTable> = {

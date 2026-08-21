@@ -69,8 +69,25 @@ it('never uses the superseded vocabulary', function (): void {
 
     $offenders = [];
 
-    foreach (['app', 'database', 'routes', 'config'] as $directory) {
-        $finder = (new Finder)->files()->in([base_path($directory)])->name('*.php');
+    // CLAUDE.md: the current terms apply "in code, routes, and UI" — so the
+    // front end, where the client-facing copy actually lives, is read too.
+    $sources = [
+        'app' => ['*.php'],
+        'database' => ['*.php'],
+        'routes' => ['*.php'],
+        'config' => ['*.php'],
+        'resources/js' => ['*.ts', '*.vue'],
+        'resources/views' => ['*.php'],
+    ];
+
+    foreach ($sources as $directory => $extensions) {
+        $finder = (new Finder)
+            ->files()
+            ->in([base_path($directory)])
+            ->name($extensions)
+            // Generated output: Wayfinder's route modules and the shadcn CLI's
+            // components are not ours to name.
+            ->exclude(['actions', 'routes', 'wayfinder', 'ui']);
 
         foreach ($finder as $file) {
             $contents = (string) file_get_contents($file->getPathname());

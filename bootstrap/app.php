@@ -58,7 +58,17 @@ return Application::configure(basePath: dirname(__DIR__))
                 default => 'tenant',
             };
 
-            return Inertia::render($page, ['variant' => $variant])
+            /*
+             * IA §9: the client-facing variant offers a route back to a human.
+             * The agent's details come from the team behind the status page
+             * token, which Slice 4 resolves — until then the page renders
+             * without the call button rather than with a wrong number.
+             */
+            return Inertia::render($page, [
+                'variant' => $variant,
+                'agentName' => null,
+                'agentPhone' => null,
+            ])
                 ->toResponse($request)
                 ->setStatusCode($response->getStatusCode());
         });

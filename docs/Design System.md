@@ -219,6 +219,7 @@ One table, and it is the single source of truth for every badge in the product. 
 | | Needs Review | `warning` | |
 | | Sent | `success` | |
 | | Failed | `danger` | |
+| | Cancelled | `neutral` | Superseded before it sent |
 | **Extracted field** | Needs Review | `warning` | |
 | | Confirmed | `success` | |
 | | Edited | `info` | |
@@ -1154,6 +1155,8 @@ Baseline for the internal app, and a hard requirement on the client status page 
 > | Danger | 5.06 | 5.82 |
 >
 > Dark mode measures higher on every pair (5.62 to 7.01 on the badge). The margins are thin by design — the badges are deliberately subtle — so the measurement is a **test**, not a note: `tests/js/tokens.test.ts` recomputes it from the stylesheet on every run and fails the build if a token edit drops a pair below 4.5:1.
+>
+> One caveat, stated because the margins are thin. Four token values sit just outside the sRGB gamut (`--state-info-bg`, `--state-warning`, `--state-warning-bg`, `--state-danger-bg`). The measurement clips each channel; a browser gamut-maps by reducing chroma instead, so what renders differs slightly from what is measured. The direction of that difference is toward *less* saturation and therefore, for these pairs, marginally more contrast — but if a pair is ever tightened further, bring the token into gamut rather than trusting the measurement to the second decimal.
 
 ---
 

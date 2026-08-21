@@ -28,6 +28,19 @@ const initials = computed(() => {
     return personInitials({ firstName: first, lastName: last });
 });
 
+/*
+ * Initials are decoration; the name is the content. Without this the Owner
+ * column of a DealRow reads as an empty cell under a labelled header.
+ */
+const accessibleName = computed(
+    () =>
+        props.person.name ??
+        [props.person.firstName, props.person.lastName]
+            .filter(Boolean)
+            .join(' ') ??
+        'Unassigned',
+);
+
 const TEXT: Record<NonNullable<Props['size']>, string> = {
     20: 'text-[9px]',
     24: 'text-[10px]',
@@ -52,8 +65,9 @@ const TEXT: Record<NonNullable<Props['size']>, string> = {
         "
         :style="{ width: `${size}px`, height: `${size}px` }"
         data-slot="person-avatar"
-        aria-hidden="true"
+        role="img"
+        :aria-label="accessibleName"
     >
-        {{ initials }}
+        <span aria-hidden="true">{{ initials }}</span>
     </span>
 </template>

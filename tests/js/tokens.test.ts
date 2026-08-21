@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { contrastOfOklch } from './support/color';
 import { TONES, tokens } from './support/tokens';
@@ -49,6 +51,18 @@ describe('design tokens', () => {
             // Active nav items are primary text on the accent fill.
             expect(contrastOfOklch(t['--primary'], t['--accent'])).toBeGreaterThanOrEqual(4.5);
         }
+    });
+
+    it('keeps the pre-paint background in the blade file matching the tokens', () => {
+        // resources/views/app.blade.php paints the page background before the
+        // stylesheet loads, so it duplicates two token values by hand. This is
+        // the only place that is allowed to, and it has to stay in step.
+        const blade = readFileSync(resolve(process.cwd(), 'resources/views/app.blade.php'), 'utf8');
+        const painted = [...blade.matchAll(/background-color:\s*(oklch\([^)]*\));/g)].map(
+            (match) => match[1],
+        );
+
+        expect(painted).toEqual([tokens('light')['--background'], tokens('dark')['--background']]);
     });
 
     it('carries no raw hex in the token blocks', () => {

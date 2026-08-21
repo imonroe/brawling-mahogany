@@ -13,6 +13,7 @@ name: Deploy to staging
 #   STAGING_SSH_KEY          a deploy key with no passphrase
 #   STAGING_SSH_PORT         optional, defaults to 22
 #   STAGING_PATH             the checkout on the droplet, e.g. /srv/brawling-mahogany
+#   STAGING_URL              where a browser reaches it, e.g. https://staging.example.com
 #
 # The droplet's own .env holds every application secret; nothing here does.
 # See docs/Environment and secrets.md.
@@ -75,4 +76,7 @@ jobs:
           REMOTE
 
       - name: Smoke check
-        run: curl -fsS --retry 5 --retry-delay 10 "https://${{ secrets.STAGING_SSH_HOST }}/up"
+        # The deploy target and the public hostname are not always the same
+        # box, so this is its own secret rather than the SSH host with a
+        # scheme bolted on.
+        run: curl -fsS --retry 5 --retry-delay 10 "${{ secrets.STAGING_URL }}/up"

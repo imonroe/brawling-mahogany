@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Listeners\ReportFailedJob;
 use App\Support\Database\BlueprintMacros;
 use Carbon\CarbonImmutable;
+use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -32,6 +35,10 @@ class AppServiceProvider extends ServiceProvider
         $this->configureMailGuardrail();
 
         BlueprintMacros::register();
+
+        // PRD §9: a queue failure is alerted on within 15 minutes. The rule is
+        // configured in Sentry; the report it fires on is this listener.
+        Event::listen(JobFailed::class, ReportFailedJob::class);
     }
 
     /**

@@ -27,8 +27,10 @@ const props = withDefaults(
     defineProps<{
         collapsed?: boolean;
         counts?: { myWork?: number | null };
+        /** The person's role in this team. Slice 1 supplies it. */
+        role?: string | null;
     }>(),
-    { collapsed: false },
+    { collapsed: false, role: null },
 );
 
 const page = usePage();

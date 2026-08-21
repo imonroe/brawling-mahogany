@@ -24,6 +24,10 @@ x-app: &app
     DB_PORT: 5432
     REDIS_HOST: redis
     REDIS_PORT: 6379
+    # Caddy provisions a certificate only when this is a hostname. Locally it
+    # stays `:80` and the stack is plain HTTP; staging and production set the
+    # real hostname and get automatic TLS (docs/Deployment.md §3).
+    SERVER_NAME: ${SERVER_NAME:-:80}
   depends_on:
     postgres:
       condition: service_healthy
@@ -36,6 +40,15 @@ services:
     <<: *app
     ports:
       - '${APP_PORT:-8000}:80'
+      - '${APP_TLS_PORT:-8443}:443'
+      # HTTP/3, which Caddy serves over UDP on the same port.
+      - '${APP_TLS_PORT:-8443}:443/udp'
+    volumes:
+      # Certificates and Caddy's own state. Without this, every `up -d` starts
+      # from nothing and re-requests certificates until Let's Encrypt rate
+      # limits the domain.
+      - caddy-data:/data
+      - caddy-config:/config
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1/up']
       interval: 30s
@@ -91,3 +104,5 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  caddy-data:
+  caddy-config:

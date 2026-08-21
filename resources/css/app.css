@@ -242,6 +242,22 @@
 }
 
 @layer utilities {
+    /*
+      The scrim — Design System §5.2 — is `--foreground` at 45%, not black at
+      80%. shadcn's generated overlays ship `bg-black/80`, and §13.2 rule 4
+      forbids hand-editing `components/ui/`, so the correction lives here at
+      the token layer instead. The doubled attribute selector is what carries
+      it past the utility class.
+    */
+    [data-slot='dialog-overlay'][data-state],
+    [data-slot='sheet-overlay'][data-state] {
+        background-color: color-mix(
+            in oklab,
+            var(--color-foreground) 45%,
+            transparent
+        );
+    }
+
     /* Design System §5.3 — reduce to opacity, never remove feedback entirely. */
     @media (prefers-reduced-motion: reduce) {
         *,
