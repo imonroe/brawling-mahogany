@@ -1,8 +1,14 @@
 name: CI
 
 # CLAUDE.md branching strategy: feature branches target `dev`, and `dev` goes
-# to `main` when a release is cut. Every job below blocks the merge — a red
-# pipeline is not advisory (issue #24).
+# to `main` when a release is cut.
+#
+# Every job below is *meant* to block the merge — a red pipeline is not
+# advisory (issue #24) — but that is branch protection's doing, not this
+# file's: a workflow cannot make itself required. Run
+# `scripts/protect-branches.sh` once as an admin, or these jobs report
+# without gating anything. `tests/Unit/BranchProtectionTest.php` holds that
+# script's list against the job names below.
 on:
   pull_request:
     branches: [dev, main]

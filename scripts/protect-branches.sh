@@ -76,16 +76,36 @@ need() {
 # it — `--show` should work on a machine with no GitHub CLI at all.
 need python3
 
+usage() {
+    echo "Usage: $0 [--show]" >&2
+    echo "  (no argument)  apply the protection to dev and main" >&2
+    echo "  --show         print the payload and exit, changing nothing" >&2
+}
+
+# A second argument means the caller expected something this script does not
+# do, so it is a refusal rather than a thing to ignore.
+if [ "$#" -gt 1 ]; then
+    echo "Too many arguments: this takes at most one." >&2
+    usage
+    exit 1
+fi
+
 case "${1:-}" in
     '')
+        # The apply path. Deliberately the bare invocation, so that a mistyped
+        # flag lands in the refusal arm below rather than silently applying.
         ;;
     --show)
         payload
         exit 0
         ;;
+    -h|--help)
+        usage
+        exit 0
+        ;;
     *)
         echo "Unknown argument: $1" >&2
-        echo "Usage: $0 [--show]" >&2
+        usage
         exit 1
         ;;
 esac
