@@ -7,8 +7,9 @@
  * show. What is built here is the state a new team actually meets first —
  * Design System §15.2 calls it the highest-priority design gap.
  */
-import { Head, Link } from '@inertiajs/vue3';
+import { Head } from '@inertiajs/vue3';
 import { Briefcase } from '@lucide/vue';
+import AppButton from '@/components/app/AppButton.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 
@@ -30,11 +31,7 @@ defineOptions({
                 description="When a deal is running, this is where the blocked stages, the late tasks, and the next fortnight’s deadlines appear."
             >
                 <template #action>
-                    <Link
-                        href="/deals"
-                        class="inline-flex h-9 items-center rounded-md bg-primary px-3.5 text-sm font-semibold text-primary-foreground"
-                        >Create your first deal</Link
-                    >
+                    <AppButton href="/deals">Create your first deal</AppButton>
                 </template>
             </EmptyState>
         </div>

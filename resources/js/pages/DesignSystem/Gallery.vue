@@ -17,6 +17,8 @@ import {
 } from '@lucide/vue';
 import { ref } from 'vue';
 import ActivityItem from '@/components/app/ActivityItem.vue';
+import AppButton from '@/components/app/AppButton.vue';
+import AppInput from '@/components/app/AppInput.vue';
 import Card from '@/components/app/Card.vue';
 import DateChip from '@/components/app/DateChip.vue';
 import { dealRowColumns } from '@/components/app/dealRow';
@@ -122,6 +124,47 @@ const owner = { firstName: 'Heather', lastName: 'Nguyen' };
                                     tone="neutral"
                                     dotless
                                     label="3 of 11 reviewed"
+                                />
+                            </div>
+                        </div>
+                    </Card>
+
+                    <Card title="Controls — the measured sizes (§4.2, §7.2)">
+                        <div class="flex flex-col gap-4 p-4">
+                            <div class="flex flex-wrap items-center gap-3">
+                                <AppButton>Advance Stage</AppButton>
+                                <AppButton variant="secondary"
+                                    >Add Task</AppButton
+                                >
+                                <AppButton variant="ghost" size="ghost"
+                                    >Log Contact</AppButton
+                                >
+                                <AppButton variant="warning"
+                                    >Override and Advance</AppButton
+                                >
+                                <AppButton variant="destructive"
+                                    >Delete</AppButton
+                                >
+                                <AppButton disabled>Advance Stage</AppButton>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <AppButton size="compact">Confirm</AppButton>
+                                <AppButton size="compact" variant="secondary"
+                                    >Edit</AppButton
+                                >
+                                <AppButton size="compact" variant="ghost"
+                                    >Reject</AppButton
+                                >
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <AppInput
+                                    class="w-[240px]"
+                                    placeholder="Form control, 40px"
+                                />
+                                <AppInput
+                                    size="filter"
+                                    class="w-[160px]"
+                                    placeholder="Filter, 32px"
                                 />
                             </div>
                         </div>

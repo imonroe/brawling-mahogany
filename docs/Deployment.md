@@ -151,9 +151,14 @@ issue rather than a line in this document. It is performed on staging:
   and Sentry's `before_breadcrumb`, `before_send`, and `before_send_log` —
   Sentry's log breadcrumbs are raised before Monolog sees them, and its
   exception values carry interpolated query bindings.
-- **An uptime check** against `/up`. The endpoint exists and the deploy smoke
-  test uses it; the external monitor that watches it is account configuration
-  and is part of the staging checklist below, not of this repository.
+- **An uptime check** against `/up`: `.github/workflows/uptime.yml`, every
+  fifteen minutes, watching whichever of the `STAGING_URL` and
+  `PRODUCTION_URL` repository variables are set. It retries once before
+  failing, because a refused connection during a deploy is not an outage.
+
+  Be honest about what it is: a scheduled workflow is delayed under load and
+  cannot tell you GitHub itself is down. It is the in-repository baseline. If
+  a dedicated monitor is bought later, delete this rather than running both.
 
 ### Alert thresholds (PRD §9, §12.2)
 
@@ -185,6 +190,7 @@ The checklist for the work this repository cannot do on its own:
 - [ ] Sentry staging project, DSN in `.env`
 - [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`
 - [ ] Repository variable `STAGING_ENABLED=true`
+- [ ] Repository variables `STAGING_URL` (and `PRODUCTION_URL` at launch), which turn the uptime workflow on
 - [ ] Nightly backup job and its offsite target
 - [ ] Restore drill performed and its duration recorded
 

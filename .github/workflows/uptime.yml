@@ -1,0 +1,70 @@
+name: Uptime
+
+# PRD §9 asks for an uptime check. This is it.
+#
+# A scheduled workflow is not as good as a dedicated monitor — GitHub delays
+# scheduled runs under load, sometimes by several minutes, and it cannot tell
+# you that GitHub itself is down. It is, however, a real check that lives in
+# the repository, needs no third-party account, and notifies the repository's
+# watchers when it fails. If a dedicated monitor is bought later, this becomes
+# redundant and should be deleted rather than left running alongside it.
+#
+# It watches whichever of these repository *variables* are set, and skips the
+# ones that are not, so it stays quiet until there is something to watch:
+#
+#   STAGING_URL      e.g. https://staging.example.com
+#   PRODUCTION_URL   e.g. https://example.com
+
+on:
+  schedule:
+    # Every fifteen minutes, which is the alerting window PRD §9 sets for a
+    # queue failure and a sensible floor for this too.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: staging
+            url: ${{ vars.STAGING_URL }}
+          - environment: production
+            url: ${{ vars.PRODUCTION_URL }}
+
+    steps:
+      - name: Check the health endpoint
+        if: matrix.url != ''
+        env:
+          URL: ${{ matrix.url }}
+        run: |
+          # Two attempts, twenty seconds apart: one refused connection during a
+          # deploy is not an outage, and a monitor that cries wolf gets muted.
+          for attempt in 1 2; do
+            status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$URL/up" || echo "000")
+
+            if [ "$status" = "200" ]; then
+              echo "$URL/up answered 200 on attempt $attempt."
+              exit 0
+            fi
+
+            echo "Attempt $attempt: $URL/up answered $status." >&2
+            [ "$attempt" = "1" ] && sleep 20
+          done
+
+          echo "::error::${{ matrix.environment }} is not answering on /up." >&2
+          exit 1
+
+      - name: Nothing to watch
+        if: matrix.url == ''
+        run: echo "No URL configured for ${{ matrix.environment }}; skipping."

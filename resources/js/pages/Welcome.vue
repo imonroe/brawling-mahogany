@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
+import { Head } from '@inertiajs/vue3';
+import AppButton from '@/components/app/AppButton.vue';
 import AppLogoIcon from '@/components/app/AppLogoIcon.vue';
 
 defineProps<{ name?: string }>();
@@ -25,18 +26,10 @@ defineProps<{ name?: string }>();
             </p>
         </div>
         <div class="flex items-center gap-2">
-            <Link
-                v-if="$page.props.auth?.user"
-                href="/dashboard"
-                class="inline-flex h-9 items-center rounded-md bg-primary px-3.5 text-sm font-semibold text-primary-foreground"
-                >Go to dashboard</Link
+            <AppButton v-if="$page.props.auth?.user" href="/dashboard"
+                >Go to dashboard</AppButton
             >
-            <Link
-                v-else
-                href="/login"
-                class="inline-flex h-9 items-center rounded-md bg-primary px-3.5 text-sm font-semibold text-primary-foreground"
-                >Log in</Link
-            >
+            <AppButton v-else href="/login">Log in</AppButton>
         </div>
     </div>
 </template>
