@@ -90,8 +90,16 @@ them by hand. They live as GitHub Actions repository secrets, not in any `.env`:
 | `STAGING_PATH` | the checkout path on the droplet |
 | `STAGING_URL` | the base URL, used by the smoke check |
 
-`STAGING_ENABLED` is a repository **variable**, not a secret, and it is what
-takes the deploy workflow out of its inert state. So is `UPTIME_STAGING_URL`.
+Two more are repository **variables** rather than secrets, which is a different
+store in the same settings screen and easy to confuse:
+
+| Variable | What it does |
+|---|---|
+| `STAGING_ENABLED` | set to `true` to take the deploy workflow out of its inert state |
+| `UPTIME_STAGING_URL` | the URL the uptime workflow polls |
+
+Setting either as a *secret* reads as empty and fails silently — the deploy
+job skips, or the uptime job passes while checking nothing.
 
 **`STAGING_SSH_KEY` is effectively root on staging, and should be treated as
 the highest-value secret in the repository.** The `deploy` user is in the
@@ -154,8 +162,10 @@ recovery from that beyond a restore.
 Cheap to rotate and worth doing on any staff change, because it is the one
 credential that grants shell on the box:
 
-Order matters here: the old key is what you are using to get in, so it is
-retired **last**, and there is a moment where both work. Do not reverse these.
+Order matters here. The old key is what the **deploy workflow** authenticates
+with — you reach the droplet as an admin by your own means — so it is retired
+**last**, after the new one has been proved, and there is a window where both
+work. Do not reverse these.
 
 1. Generate the new pair **alongside** the old one, as `deploy`:
    `ssh-keygen -t ed25519 -N '' -f /home/deploy/.ssh/id_ed25519.new`
@@ -165,12 +175,19 @@ retired **last**, and there is a moment where both work. Do not reverse these.
    (`id_ed25519.new`).
 4. Run the deploy workflow and confirm it **actually ran** — if
    `STAGING_ENABLED` is not `true` the job skips, and a skipped job is green.
-   Check the log shows an SSH connection, not a skip.
-5. Only now retire the old key: remove its line from `authorized_keys`, and
-   `mv id_ed25519.new id_ed25519` (with its `.pub`) so the droplet's own copy
-   matches the secret.
-6. Re-run the deploy workflow once more, to prove the old key is gone and the
-   new one still works.
+   Check the log shows an SSH connection, not a skip. (Until
+   `deploy-staging.yml` has reached `main`, GitHub offers no manual trigger for
+   it, so this means a push to `dev` rather than a `workflow_dispatch`.)
+5. Only now retire the old key: remove its line from `authorized_keys`. Leave
+   the file `0600` and owned by `deploy`, or `sshd` ignores it and the deploy
+   stops working for a reason that looks nothing like a permissions problem.
+6. Move the new pair into place so the droplet's own copy matches the secret —
+   both halves, or `--print-key` prints the retired one:
+   `mv id_ed25519.new id_ed25519 && mv id_ed25519.new.pub id_ed25519.pub`
+7. Re-run the deploy workflow to confirm the new key still works after the
+   move. This does not prove the old key is gone — a run authenticating with
+   the new one cannot show that. If you need that proof, try the old key
+   directly and expect a refusal.
 
 There is no re-encryption step and nothing to migrate, so unlike `APP_KEY` this
 one has no reason to wait for a scheduled window.
