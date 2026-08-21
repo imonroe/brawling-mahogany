@@ -11,16 +11,20 @@ import type { VariantProps } from 'class-variance-authority';
  *
  * Where these disagree with shadcn's defaults, the difference is deliberate:
  *
- * | Control   | shadcn      | Design System §4.2 |
- * |-----------|-------------|--------------------|
- * | Primary   | h-9 px-4/500| h-9 px-3.5 / 600   |
- * | Ghost     | h-8 px-3    | h-8 px-2.5         |
- * | Compact   | —           | h-7 px-2.5 / 12 / 600 |
- * | Input     | h-9         | h-10 px-3          |
+ * | Control   | shadcn                | Design System §4.2    |
+ * |-----------|-----------------------|-----------------------|
+ * | Primary   | h-9 px-4 / 500        | h-9 px-3.5 / 600      |
+ * | Ghost     | h-8 px-3 (`size="sm"`)| h-8 px-2.5            |
+ * | Compact   | —                     | h-7 px-2.5 / 12 / 600 |
+ * | Input     | h-9                   | h-10 px-3             |
+ *
+ * The ghost row compares against `size="sm"`, the nearest neighbour: shadcn
+ * has no ghost *size*, and `variant="ghost"` at its default size is
+ * `h-9 px-4`. The comparison is to the closest thing, not to the default.
  */
 
 export const appButtonVariants = cva(
-    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md whitespace-nowrap transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none [&_svg]:shrink-0',
+    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md whitespace-nowrap transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0',
     {
         variants: {
             variant: {
@@ -53,7 +57,10 @@ export const appButtonVariants = cva(
             },
             disabled: {
                 // §7.2: a disabled primary is muted, not a faded fill.
-                true: 'bg-muted text-muted-foreground hover:bg-muted',
+                // Both halves of the hover pair, not just the background:
+                // ghost supplies `hover:text-accent-foreground` too, and a
+                // tone is background and foreground together (§13.2 rule 9).
+                true: 'bg-muted text-muted-foreground hover:bg-muted hover:text-muted-foreground',
                 false: '',
             },
         },
@@ -68,7 +75,7 @@ export const appButtonVariants = cva(
 export type AppButtonVariants = VariantProps<typeof appButtonVariants>;
 
 export const appInputVariants = cva(
-    'flex w-full rounded-md border bg-background px-3 text-sm text-foreground transition-colors duration-150 ease-out placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive',
+    'flex w-full rounded-md border bg-background px-3 text-base text-foreground transition-colors duration-150 ease-out placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive md:text-sm',
     {
         variants: {
             size: {
@@ -79,6 +86,11 @@ export const appInputVariants = cva(
                  *
                  * Never `text-13`: that is for rows, not for anything a person
                  * types into (§3.3).
+                 *
+                 * The type is `text-base md:text-sm` for the same reason the
+                 * shadcn input it replaces is: iOS Safari zooms the page when
+                 * a field under 16px takes focus, and §11's audience is the
+                 * one most likely to meet that.
                  */
                 default: 'min-h-11 md:h-10 md:min-h-0',
                 // §8.6: the inline filter control.

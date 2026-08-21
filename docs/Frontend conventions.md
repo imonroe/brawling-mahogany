@@ -111,10 +111,13 @@ and `AppButton` and `AppInput` apply them. **Use those, not `ui/button` and
 | | Design System | shadcn's default |
 |---|---|---|
 | Primary | `h-9 px-3.5`, label 14/**600** | `h-9 px-4`, 500 |
-| Ghost | `h-8 px-2.5` | `h-8 px-3` |
+| Ghost | `h-8 px-2.5` | `h-8 px-3` (`size="sm"`, the nearest neighbour — shadcn has no ghost *size*, and `variant="ghost"` defaults to `h-9 px-4`) |
 | Compact | `h-7 px-2.5`, 12/600 | no equivalent |
 | Disabled primary | `bg-muted` | faded fill |
 | Form control | `h-10 px-3` | `h-9` |
+
+The form control keeps shadcn's `text-base md:text-sm` rather than a flat
+`text-sm`: iOS Safari zooms the page when a field under 16px takes focus.
 
 Every size — buttons *and* inputs — is `min-h-11` below `md`, because §11's
 44px minimum has no exceptions and §4.2 is explicit that the compact desktop

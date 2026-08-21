@@ -4,11 +4,19 @@ name: Uptime
 #
 # Be clear about what this is and is not. A scheduled workflow is delayed under
 # load, sometimes by several minutes; it cannot tell you GitHub itself is down;
-# GitHub notifies only the person who last edited the workflow file, not the
-# repository's watchers; and GitHub disables cron schedules in a repository
+# GitHub notifies only the person who created the workflow — transferring only
+# when somebody else changes the *cron syntax*, not on any other edit — and not
+# the repository's watchers; and GitHub disables cron schedules in a repository
 # with no activity for 60 days. It is the in-repository baseline, not a
 # monitoring product. If a dedicated monitor is bought later, delete this
 # rather than running both.
+#
+# It does not tick from `dev`. GitHub runs `schedule` only from the copy of a
+# workflow on the *default* branch, and offers `workflow_dispatch` only for a
+# workflow present there — and this repository reserves `main` for tagged
+# releases (CLAUDE.md). So this starts running at the next `dev` -> `main`
+# release, not when it merges. Setting the variables before then is correct and
+# will simply produce no runs; that is the schedule, not a wrong variable name.
 #
 # It watches whichever of these repository *variables* are set, and skips the
 # ones that are not, so it stays quiet until there is something to watch:
@@ -20,6 +28,12 @@ name: Uptime
 # by the deploy workflow, and a variable of the same name would read as empty
 # here — producing a job that passes while checking nothing, which is the worst
 # thing a monitor can do.
+#
+# Variables, not secrets, and deliberately: `vars` are unavailable to `secrets`'
+# masking and this repository is public, so the endpoint appears in the run log
+# in the clear. A hostname that resolves in public DNS is not a secret, and a
+# monitor whose target is unreadable is harder to trust than one whose target
+# is obvious. Do not put anything else in these.
 
 on:
   schedule:
@@ -33,7 +47,10 @@ permissions:
 
 concurrency:
   group: uptime
-  cancel-in-progress: true
+  # Never cancel: a cancelled run sends no failure notification, so cancelling
+  # is one of the few ways this monitor could go quiet during an actual outage.
+  # Two overlapping checks are harmless.
+  cancel-in-progress: false
 
 jobs:
   check:
@@ -81,4 +98,11 @@ jobs:
 
       - name: Nothing to watch
         if: matrix.url == ''
-        run: echo "No URL configured for ${{ matrix.environment }}; skipping."
+        # A warning rather than a plain echo, because this step is exactly what
+        # runs when someone stores the URL as a *secret* instead of a variable
+        # — as the deploy checklist asks them to for STAGING_URL. Without it,
+        # an unmonitored environment is indistinguishable from a healthy one on
+        # the run summary.
+        run: |
+          echo "::warning::No URL configured for ${{ matrix.environment }}; this environment is not being monitored. Set the UPTIME_*_URL repository variable (a variable, not a secret)."
+

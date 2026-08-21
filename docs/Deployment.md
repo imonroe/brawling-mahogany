@@ -159,11 +159,26 @@ issue rather than a line in this document. It is performed on staging:
 
   The `UPTIME_` prefix matters: `STAGING_URL` is a *secret* used by the deploy
   workflow, and a variable of the same name would read as empty — a job that
-  passes while checking nothing.
+  passes while checking nothing. They are variables rather than secrets
+  deliberately, so the endpoint is legible in the run log; a hostname in public
+  DNS is not a secret, and nothing else belongs in them.
+
+  **It does not tick from `dev`.** GitHub runs `schedule` only from the copy of
+  a workflow on the default branch, and this repository's default branch is
+  `main`, reserved for tagged releases. So the check starts running at the next
+  `dev` → `main` release, not when it merges — and `workflow_dispatch` will not
+  offer it before then either. Setting the variables early is fine and simply
+  produces no runs.
+
+  An environment with no variable set emits a `::warning::` rather than a
+  silent pass, because the misconfiguration it most needs to catch — storing
+  the URL as a secret, which the checklist below asks for two lines earlier —
+  otherwise looks exactly like a healthy environment.
 
   Be honest about what it is: a scheduled workflow is delayed under load,
-  cannot tell you GitHub itself is down, notifies only whoever last edited the
-  file, and is disabled automatically after 60 days without repository
+  cannot tell you GitHub itself is down, notifies only whoever *created* it
+  (transferring only when somebody else changes the cron syntax, not on any
+  other edit), and is disabled automatically after 60 days without repository
   activity. It is the in-repository baseline. If a dedicated monitor is bought
   later, delete this rather than running both.
 

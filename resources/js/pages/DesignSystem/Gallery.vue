@@ -157,12 +157,22 @@ const owner = { firstName: 'Heather', lastName: 'Nguyen' };
                                 >
                             </div>
                             <div class="flex flex-wrap items-center gap-3">
+                                <!--
+                                    §11: every input bound to a label, and a
+                                    placeholder is not a label. The gallery has
+                                    no visible labels, so each field carries an
+                                    aria-label rather than modelling the
+                                    anti-pattern beside the components that get
+                                    it right.
+                                -->
                                 <AppInput
+                                    aria-label="Form control example"
                                     class="w-[240px]"
                                     placeholder="Form control, 40px"
                                 />
                                 <AppInput
                                     size="filter"
+                                    aria-label="Filter control example"
                                     class="w-[160px]"
                                     placeholder="Filter, 32px"
                                 />

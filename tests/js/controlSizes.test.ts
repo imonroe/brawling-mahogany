@@ -53,8 +53,11 @@ describe('control sizes', () => {
         // §11's minimum has no exceptions, and a field is a touch target too.
         expect(input.classes()).toContain('min-h-11');
         // Never text-13: that is for rows, not for anything typed into (§3.3).
-        expect(input.classes()).toContain('text-sm');
+        expect(input.classes()).toContain('md:text-sm');
         expect(input.classes()).not.toContain('text-13');
+        // 16px on a phone, or iOS Safari zooms the page when the field takes
+        // focus. The shadcn input this replaces carries the same pair.
+        expect(input.classes()).toContain('text-base');
     });
 
     it('keeps the compact weight at 600 whatever the fill', () => {
