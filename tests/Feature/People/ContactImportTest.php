@@ -292,7 +292,9 @@ it('creates nothing new when the same file is imported twice', function (): void
 
     $importFile();
 
-    $second = ContactImport::query()->latest()->first();
+    // Ordered by creation and taken explicitly: two imports a fraction of a
+    // second apart share a timestamp, and `latest()` would be a coin toss.
+    $second = ContactImport::query()->orderByDesc('id')->firstOrFail();
 
     // The second pass already knows they are there.
     expect($second->preview[0]['action'])->toBe('merge');

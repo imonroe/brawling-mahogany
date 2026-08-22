@@ -130,9 +130,13 @@ it('treats one address as one human whatever its capitals', function (): void {
         'status' => PersonLifecycleState::Lead->value,
     ])->assertSessionHasNoErrors();
 
-    expect(Person::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->count())->toBe(1)
-        // Stored folded, so the index and every lookup agree.
-        ->and(Person::query()->whereNotNull('email')->value('email'))->toBe('claire@example.test');
+    // Asked for by address rather than by "the first person with one" — the
+    // team already has an owner and a member with addresses of their own, and
+    // which row comes back first is up to the ULIDs.
+    $claire = Person::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->sole();
+
+    // Stored folded, so the index and every lookup agree.
+    expect($claire->email)->toBe('claire@example.test');
 });
 
 it('keeps a vendor’s cost in integer cents end to end', function (): void {
