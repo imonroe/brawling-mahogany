@@ -7,6 +7,7 @@ use App\Models\ActivityEvent;
 use App\Models\Person;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\DB;
 
 /**
  * S30, S31, S32 — the people directory (PRD §4.2 F2.1, F2.4, F2.5, F2.6).
@@ -85,6 +86,51 @@ it('attaches a second team to one shared person rather than duplicating them', f
     $mine = TeamMembership::query()->whereHas('person', fn ($query) => $query->where('email', 'sam@example.test'))->sole();
 
     expect($mine->notes)->toBe('Team B’s opinion.');
+});
+
+it('keeps a vendor’s cost in integer cents end to end', function (): void {
+    // ADR 0001: money is integer cents, never a float. The screen types
+    // dollars and converts once at the boundary; everything below that —
+    // the request, the column, and the prop the detail page reads — is cents,
+    // and a stray conversion anywhere turns a $1,200 stager into a $12 one.
+    $this->post('/people', [
+        'first_name' => 'Sam',
+        'email' => 'sam@example.test',
+        'status' => PersonLifecycleState::Active->value,
+        'is_vendor' => true,
+        'vendor_typical_cost' => 120_000,
+        'vendor_rating' => 4,
+    ])->assertRedirect();
+
+    $membership = TeamMembership::query()
+        ->whereHas('person', fn ($query) => $query->where('email', 'sam@example.test'))
+        ->sole();
+
+    expect($membership->vendor_typical_cost)->toBe(120_000);
+
+    $this->get("/people/{$membership->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('membership.vendor.typicalCost', 120_000));
+});
+
+it('refuses a vendor rating outside the scale, at the database too', function (): void {
+    $this->post('/people', [
+        'first_name' => 'Sam',
+        'status' => PersonLifecycleState::Active->value,
+        'is_vendor' => true,
+        'vendor_rating' => 9,
+    ])->assertSessionHasErrors('vendor_rating');
+
+    // And the column refuses it even when nothing validated (a seeder, a
+    // console command, a future import).
+    $membership = TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => Person::factory()->contactOnly()->create()->getKey(),
+    ]);
+
+    expect(fn () => DB::transaction(
+        fn () => $membership->forceFill(['vendor_rating' => 9])->save(),
+    ))->toThrow(Illuminate\Database\QueryException::class);
 });
 
 it('warns about a duplicate address rather than refusing it', function (): void {

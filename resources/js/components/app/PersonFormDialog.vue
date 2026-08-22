@@ -82,6 +82,27 @@ watch(
     },
 );
 
+/**
+ * Typed in dollars, stored in cents.
+ *
+ * The column is integer cents (ADR 0001) and `formatCurrency` reads cents,
+ * but nobody types "120000" to mean a stager charges $1,200. The conversion
+ * happens once, here, at the boundary between the two.
+ */
+const typicalCostDollars = computed({
+    get: () =>
+        form.vendor_typical_cost === null
+            ? ''
+            : String(form.vendor_typical_cost / 100),
+    set: (value: string) => {
+        const dollars = Number.parseFloat(value.replace(/[$,\s]/g, ''));
+
+        form.vendor_typical_cost = Number.isFinite(dollars)
+            ? Math.round(dollars * 100)
+            : null;
+    },
+});
+
 const specialtiesText = computed({
     get: () => form.vendor_specialties.join(', '),
     set: (value: string) => {
@@ -247,11 +268,28 @@ function submit(): void {
                             />
                         </div>
                         <div class="flex flex-col gap-1.5">
+                            <Label for="vendor_typical_cost"
+                                >Typical cost</Label
+                            >
+                            <AppInput
+                                id="vendor_typical_cost"
+                                v-model="typicalCostDollars"
+                                inputmode="decimal"
+                                placeholder="1200"
+                            />
+                            <p class="text-[11px] text-muted-foreground">
+                                In dollars. Roughly what they charge, so you can
+                                compare without ringing round.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div class="flex flex-col gap-1.5">
                             <Label for="vendor_rating">Rating (1–5)</Label>
                             <AppInput
                                 id="vendor_rating"
                                 v-model="form.vendor_rating"
-                                type="text"
                                 inputmode="numeric"
                             />
                         </div>

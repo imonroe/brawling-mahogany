@@ -22,6 +22,7 @@ export type PersonRow = {
 
 export type VendorFields = {
     specialties: string[];
+    /** Integer cents, never dollars (ADR 0001). Pass it to `formatCurrency` as-is. */
     typicalCost: number | null;
     serviceArea: string | null;
     rating: number | null;

@@ -172,12 +172,17 @@ function remove(): void {
                                 Typical cost
                             </dt>
                             <dd class="tabular min-w-0 flex-1 text-13">
+                                <!--
+                                    `formatCurrency` takes **cents**, and the
+                                    column is cents (ADR 0001). Converting
+                                    here would divide twice and quietly show
+                                    a $1,200 stager as $12.00.
+                                -->
                                 {{
                                     membership.vendor.typicalCost === null
                                         ? '—'
                                         : formatCurrency(
-                                              membership.vendor.typicalCost /
-                                                  100,
+                                              membership.vendor.typicalCost,
                                           )
                                 }}
                             </dd>
