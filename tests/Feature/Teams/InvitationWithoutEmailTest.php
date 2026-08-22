@@ -55,8 +55,9 @@ it('shows a signed-in person the invitation waiting for their address', function
 
     app(TeamContext::class)->set(null);
 
-    $this->actingAsPerson($person)
-        ->get('/no-team')
+    $this->actingAsPerson($person);
+
+    $this->get('/no-team')
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Teams/None')
@@ -71,8 +72,9 @@ it('matches the address case-insensitively, like every other lookup', function (
 
     app(TeamContext::class)->set(null);
 
-    $this->actingAsPerson($person)
-        ->get('/no-team')
+    $this->actingAsPerson($person);
+
+    $this->get('/no-team')
         ->assertInertia(fn ($page) => $page->has('invitations', 1));
 });
 
@@ -83,8 +85,9 @@ it('accepts in the application, with no token anywhere', function (): void {
 
     app(TeamContext::class)->set(null);
 
-    $this->actingAsPerson($person)
-        ->post("/invitations/{$invitation->getKey()}/claim")
+    $this->actingAsPerson($person);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")
         ->assertRedirect(route('dashboard'));
 
     $membership = TeamMembership::withoutTeamScope()
@@ -110,7 +113,9 @@ it('never lets a claim touch credentials', function (): void {
 
     app(TeamContext::class)->set(null);
 
-    $this->actingAsPerson($person)->post("/invitations/{$invitation->getKey()}/claim");
+    $this->actingAsPerson($person);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim");
 
     expect($person->fresh()->password)->toBe($before);
 });
@@ -124,9 +129,9 @@ it('refuses a claim on somebody else’s invitation, as a 404', function (): voi
 
     // A 403 would confirm the id names a live invitation, which is the one
     // thing the response must not say.
-    $this->actingAsPerson($person)
-        ->post("/invitations/{$invitation->getKey()}/claim")
-        ->assertNotFound();
+    $this->actingAsPerson($person);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertNotFound();
 
     expect(TeamMembership::withoutTeamScope()
         ->where('team_id', $this->team->getKey())
@@ -141,9 +146,9 @@ it('refuses a claim on an invitation that is no longer live', function (array $s
 
     app(TeamContext::class)->set(null);
 
-    $this->actingAsPerson($person)
-        ->post("/invitations/{$invitation->getKey()}/claim")
-        ->assertNotFound();
+    $this->actingAsPerson($person);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertNotFound();
 })->with([
     'expired' => [['expires_at' => '-1 day']],
     'revoked' => [['revoked_at' => '2026-01-01 00:00:00']],
@@ -204,8 +209,9 @@ it('refuses to issue a link to somebody who cannot manage members', function ():
 
     $invitation = inviteWithoutSending($team, $this->memberRole, 'heather@example.test');
 
-    $this->actingAsPerson($member, $team)
-        ->post("/settings/members/invitations/{$invitation->getKey()}/link")
+    $this->actingAsPerson($member, $team);
+
+    $this->post("/settings/members/invitations/{$invitation->getKey()}/link")
         ->assertForbidden();
 });
 
@@ -217,8 +223,9 @@ it('lists a team’s outstanding invitations in the platform console', function 
 
     app(TeamContext::class)->set(null);
 
-    $this->actingAsPerson($administrator)
-        ->get("/admin/teams/{$this->team->getKey()}")
+    $this->actingAsPerson($administrator);
+
+    $this->get("/admin/teams/{$this->team->getKey()}")
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Admin/Teams/Show')
@@ -239,8 +246,9 @@ it('issues the first owner’s link from the platform console', function (): voi
 
     app(TeamContext::class)->set(null);
 
-    $this->actingAsPerson($administrator)
-        ->post("/admin/teams/{$this->team->getKey()}/invitations/{$invitation->getKey()}/link")
+    $this->actingAsPerson($administrator);
+
+    $this->post("/admin/teams/{$this->team->getKey()}/invitations/{$invitation->getKey()}/link")
         ->assertRedirect(route('admin.teams.show', ['team' => $this->team->getKey()]));
 
     $url = session('invitationLink')['url'];
