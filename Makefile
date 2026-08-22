@@ -44,6 +44,18 @@ down: ## Stop the stack
 build: ## Rebuild the images — after a Dockerfile or APP_UID/APP_GID change
 	$(COMPOSE) build
 
+.PHONY: fix-perms
+fix-perms: ## Reclaim working-tree files left behind by a root-era container
+	# The containers run as APP_UID:APP_GID and write into the bind-mounted
+	# working tree: Wayfinder's output, compiled Blade views, Inertia's devtools
+	# state. Anything they created back when they ran as root stays root-owned,
+	# and git never cleans it up because git never tracked it — so `wayfinder:
+	# generate` fails, Vite dies with it, and the app 500s on a missing manifest.
+	# Run this once after adopting the non-root containers.
+	docker run --rm -v "$(PWD):/w" -w /w alpine chown -R \
+		"$${APP_UID:-$$(id -u)}:$${APP_GID:-$$(id -g)}" \
+		bootstrap/cache public resources/js storage
+
 .PHONY: deps
 deps: ## Install dependencies after a composer.json or package.json change
 	# Dependencies live in volumes so the host's are not shadowed, which means
