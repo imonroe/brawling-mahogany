@@ -96,6 +96,184 @@ it('imports the good rows and reports the bad one by number', function (): void 
     expect($import->failures[0]['reason'])->not->toContain('not-an-email');
 });
 
+it('carries out the choice the person reviewed, not a fresh guess at it', function (): void {
+    /*
+     * S33's whole promise is that somebody sees what will merge and what will
+     * be created, **and can change it**, before anything is written. The
+     * commit job used to re-derive the decision from the database and honour
+     * only "skip" — so a row marked "add as new" merged, and a row marked
+     * "already have them" created a second person.
+     */
+    $known = Person::factory()->contactOnly()->create([
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+    ]);
+
+    TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $known->getKey(),
+    ]);
+
+    $csv = "First Name,Last Name,Email,Phone\n"
+        ."Claire,Nakamura,claire@example.test,3035550100\n"
+        ."Lee,Okonkwo,lee@example.test,3035550101\n";
+
+    $this->post('/people/import', [
+        'source' => 'csv',
+        'file' => UploadedFile::fake()->createWithContent('contacts.csv', $csv),
+    ]);
+
+    $import = ContactImport::query()->sole();
+
+    // The parser proposes merge, create. The person overrides both, the wrong
+    // way round on purpose.
+    $this->post("/people/import/{$import->getKey()}", [
+        'actions' => ['2' => 'create', '3' => 'merge'],
+    ]);
+
+    $import->refresh();
+
+    // Neither override can be carried out, and neither is quietly turned into
+    // the other: both rows are refused, in words that say what to do.
+    expect($import->summary['created'])->toBe(0)
+        ->and($import->summary['merged'])->toBe(0)
+        ->and($import->summary['failed'])->toBe(2)
+        ->and(collect($import->failures)->pluck('reason')->implode(' '))
+        ->toContain('already in your directory')
+        ->and(collect($import->failures)->pluck('reason')->implode(' '))
+        ->toContain('nobody in your directory has this address');
+
+    expect(Person::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->count())->toBe(1)
+        ->and(Person::query()->whereRaw('lower(email) = ?', ['lee@example.test'])->exists())->toBeFalse();
+});
+
+it('actually merges when told to merge', function (): void {
+    // "Merge" used to mean "do nothing". An import exists to end up knowing
+    // more than you started with, so a blank column is filled from the file.
+    $known = Person::factory()->contactOnly()->create([
+        'first_name' => 'Claire',
+        'last_name' => null,
+        'phone' => null,
+        'email' => 'claire@example.test',
+    ]);
+
+    TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $known->getKey(),
+    ]);
+
+    $this->post('/people/import', [
+        'source' => 'csv',
+        'file' => UploadedFile::fake()->createWithContent(
+            'contacts.csv',
+            "First Name,Last Name,Email,Phone\nClaire,Nakamura,claire@example.test,3035550100\n",
+        ),
+    ]);
+
+    $import = ContactImport::query()->sole();
+
+    expect($import->preview[0]['action'])->toBe('merge');
+
+    $this->post("/people/import/{$import->getKey()}", []);
+
+    $known->refresh();
+
+    expect($known->last_name)->toBe('Nakamura')
+        ->and($known->phone)->toBe('3035550100')
+        ->and($import->fresh()->summary['merged'])->toBe(1);
+});
+
+it('does not overwrite what another team already knows', function (): void {
+    // Only blanks are filled. Another team may know this person, and their
+    // name is not ours to rewrite from a spreadsheet.
+    $known = Person::factory()->contactOnly()->create([
+        'first_name' => 'Claire',
+        'last_name' => 'Nakamura',
+        'phone' => '3035550999',
+        'email' => 'claire@example.test',
+    ]);
+
+    TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $known->getKey(),
+    ]);
+
+    $this->post('/people/import', [
+        'source' => 'csv',
+        'file' => UploadedFile::fake()->createWithContent(
+            'contacts.csv',
+            "First Name,Last Name,Email,Phone\nKlaire,Wrong,claire@example.test,3035550100\n",
+        ),
+    ]);
+
+    $import = ContactImport::query()->sole();
+
+    $this->post("/people/import/{$import->getKey()}", []);
+
+    $known->refresh();
+
+    expect($known->first_name)->toBe('Claire')
+        ->and($known->last_name)->toBe('Nakamura')
+        ->and($known->phone)->toBe('3035550999');
+});
+
+it('gives a team its own membership for somebody another team already knows', function (): void {
+    [$otherTeam] = $this->teamWithMember();
+
+    $shared = app(TeamContext::class)->runFor($otherTeam, function () use ($otherTeam): Person {
+        $person = Person::factory()->contactOnly()->create(['email' => 'sam@example.test']);
+
+        TeamMembership::factory()->create([
+            'team_id' => $otherTeam->getKey(),
+            'person_id' => $person->getKey(),
+        ]);
+
+        return $person;
+    });
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->post('/people/import', [
+        'source' => 'csv',
+        'file' => UploadedFile::fake()->createWithContent(
+            'contacts.csv',
+            "First Name,Email\nSam,sam@example.test\n",
+        ),
+    ]);
+
+    $import = ContactImport::query()->sole();
+
+    // New to *this* team, so the preview says create — and one shared person
+    // gains a second membership rather than a second row.
+    expect($import->preview[0]['action'])->toBe('create');
+
+    $this->post("/people/import/{$import->getKey()}", []);
+
+    expect(Person::query()->whereRaw('lower(email) = ?', ['sam@example.test'])->count())->toBe(1)
+        ->and(TeamMembership::withoutTeamScope()->where('person_id', $shared->getKey())->count())->toBe(2);
+});
+
+it('imports a row that has a phone number and no email', function (): void {
+    // The whole point of a vendor list: names and numbers, no addresses.
+    $this->post('/people/import', [
+        'source' => 'csv',
+        'file' => UploadedFile::fake()->createWithContent(
+            'contacts.csv',
+            "First Name,Last Name,Phone\nSam,Ferreira,3035550100\n",
+        ),
+    ]);
+
+    $import = ContactImport::query()->sole();
+
+    $this->post("/people/import/{$import->getKey()}", []);
+
+    $import->refresh();
+
+    expect($import->summary['created'])->toBe(1)
+        ->and($import->summary['failed'])->toBe(0)
+        ->and(Person::query()->where('phone', '3035550100')->sole()->email)->toBeNull();
+});
+
 it('creates nothing new when the same file is imported twice', function (): void {
     $csv = "First Name,Email\nClaire,claire@example.test\n";
 

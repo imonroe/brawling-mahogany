@@ -88,6 +88,53 @@ it('attaches a second team to one shared person rather than duplicating them', f
     expect($mine->notes)->toBe('Team B’s opinion.');
 });
 
+it('adds a person who has a phone number and no email', function (): void {
+    // PRD F2.1: most people in this product never log in, and plenty of them
+    // have no address either. The column came over from Laravel's `users`
+    // table, where everybody signs in, and was still NOT NULL.
+    $this->post('/people', [
+        'first_name' => 'Sam',
+        'last_name' => 'Ferreira',
+        'phone' => '+1 303 555 0100',
+        'status' => PersonLifecycleState::Active->value,
+        'is_vendor' => true,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $person = Person::query()->where('phone', '+1 303 555 0100')->sole();
+
+    expect($person->email)->toBeNull();
+});
+
+it('lets several people have no email at once', function (): void {
+    // The unique index has to treat "no address" as no constraint at all.
+    foreach (['Sam', 'Lee', 'Claire'] as $name) {
+        $this->post('/people', [
+            'first_name' => $name,
+            'status' => PersonLifecycleState::Lead->value,
+        ])->assertSessionHasNoErrors();
+    }
+
+    expect(Person::query()->whereNull('email')->count())->toBe(3);
+});
+
+it('treats one address as one human whatever its capitals', function (): void {
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'Claire@Example.TEST',
+        'status' => PersonLifecycleState::Active->value,
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => PersonLifecycleState::Lead->value,
+    ])->assertSessionHasNoErrors();
+
+    expect(Person::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->count())->toBe(1)
+        // Stored folded, so the index and every lookup agree.
+        ->and(Person::query()->whereNotNull('email')->value('email'))->toBe('claire@example.test');
+});
+
 it('keeps a vendor’s cost in integer cents end to end', function (): void {
     // ADR 0001: money is integer cents, never a float. The screen types
     // dollars and converts once at the boundary; everything below that —

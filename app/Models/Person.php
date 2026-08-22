@@ -9,6 +9,7 @@ use Database\Factories\PersonFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -82,6 +83,25 @@ class Person extends Authenticatable implements PasskeyUser
     public function memberships(): HasMany
     {
         return $this->hasMany(TeamMembership::class);
+    }
+
+    /**
+     * An address is stored folded to lower case.
+     *
+     * The unique index is over `lower(email)`, and a person is one person
+     * whatever their mail client capitalised. Normalising on the way in means
+     * every lookup — this model's, the invitation's, the import's — is asking
+     * the same question the index answers.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(
+            set: fn (?string $value): ?string => $value === null || trim($value) === ''
+                ? null
+                : mb_strtolower(trim($value)),
+        );
     }
 
     /** Display form, IA §10: First Last. */

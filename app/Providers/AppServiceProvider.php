@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Auth\PersonUserProvider;
 use App\Listeners\ReportFailedJob;
 use App\Models\Passkey;
 use App\Models\Person;
@@ -11,6 +12,7 @@ use App\Support\Database\BlueprintMacros;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -55,6 +57,18 @@ class AppServiceProvider extends ServiceProvider
          */
         Passkeys::useUserModel(Person::class);
         Passkeys::usePasskeyModel(Passkey::class);
+
+        /*
+         * An address is one address whatever its capitals. See
+         * App\Auth\PersonUserProvider — config/auth.php names this driver.
+         */
+        Auth::provider(
+            'people',
+            fn ($app, array $config): PersonUserProvider => new PersonUserProvider(
+                $app['hash'],
+                $config['model'],
+            ),
+        );
 
         // PRD §9: a queue failure is alerted on within 15 minutes. The rule is
         // configured in Sentry; the report it fires on is this listener.

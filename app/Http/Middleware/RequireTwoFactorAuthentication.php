@@ -26,9 +26,20 @@ class RequireTwoFactorAuthentication
     /**
      * Routes the person must still be able to reach: the enrolment screen
      * itself, its endpoints, and the way out.
+     *
+     * Deliberately **not** `settings/*`. That pattern also covers
+     * `settings/team`, `settings/members`, and `settings/export` — so an
+     * un-enrolled Team Owner could rebrand the team, invite people, and
+     * export the client list without ever finishing the enrolment the mandate
+     * is holding them at. The list is the person's own account, and nothing
+     * else.
      */
     private const ALLOWED = [
-        'settings/*',
+        'settings',
+        'settings/profile',
+        'settings/security',
+        'settings/password',
+        'settings/appearance',
         'user/two-factor-authentication*',
         'user/confirmed-two-factor-authentication',
         'user/two-factor-qr-code',

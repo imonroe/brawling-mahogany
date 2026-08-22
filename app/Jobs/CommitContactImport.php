@@ -14,6 +14,7 @@ use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
+use App\Support\Import\ImportRowRefused;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
@@ -51,16 +52,24 @@ class CommitContactImport implements ShouldQueue
             $summary['failed'] = count($failures);
 
             foreach ($import->preview ?? [] as $row) {
-                if (($row['action'] ?? 'create') === 'skip') {
+                $action = (string) ($row['action'] ?? 'create');
+
+                if ($action === 'skip') {
                     $summary['skipped']++;
 
                     continue;
                 }
 
                 try {
-                    $created = DB::transaction(fn (): bool => $this->import($row, $activity));
+                    $outcome = DB::transaction(fn (): string => $this->import($row, $action, $activity));
 
-                    $created ? $summary['created']++ : $summary['merged']++;
+                    $summary[$outcome]++;
+                } catch (ImportRowRefused $refused) {
+                    // The reviewed choice cannot be carried out, and doing
+                    // the other thing instead would make the review screen a
+                    // lie. Say which row and why, in words.
+                    $failures[] = ['row' => (int) ($row['row'] ?? 0), 'reason' => $refused->getMessage()];
+                    $summary['failed']++;
                 } catch (Throwable $exception) {
                     // One row's problem is one row's problem. Row number and
                     // class only — never the value that broke it.
@@ -94,34 +103,97 @@ class CommitContactImport implements ShouldQueue
     }
 
     /**
+     * Carry out **the choice the person reviewed**, not a fresh guess at it.
+     *
+     * S33's whole promise is that somebody sees what will merge and what will
+     * be created, and can change it, before anything is written. Re-deriving
+     * the decision here would quietly overrule them — a row they marked
+     * "create" would merge, and a row they marked "merge" would create — and
+     * the screen would be decoration.
+     *
+     * Where the choice cannot be carried out, the row is refused with a
+     * sentence rather than silently turned into the other one.
+     *
      * @param  array<string, mixed>  $row
-     * @return bool true when a membership was created rather than merged
+     * @return 'created'|'merged' what happened to it
+     *
+     * @throws ImportRowRefused
      */
-    private function import(array $row, RecordActivity $activity): bool
+    private function import(array $row, string $action, RecordActivity $activity): string
     {
         $email = isset($row['email']) && is_string($row['email']) && $row['email'] !== ''
-            ? $row['email']
+            ? mb_strtolower($row['email'])
             : null;
 
         $person = $email === null
             ? null
-            : Person::query()->whereRaw('lower(email) = ?', [mb_strtolower($email)])->first();
+            : Person::query()->whereRaw('lower(email) = ?', [$email])->first();
 
-        if (! $person instanceof Person) {
-            $person = Person::query()->create([
-                'first_name' => (string) $row['first_name'],
-                'last_name' => $row['last_name'] ?? null,
-                'email' => $email,
-                'phone' => $row['phone'] ?? null,
-            ]);
+        /*
+         * The choice is about **this team's directory**, which is the
+         * question the review screen asked: *do you already have them?* It is
+         * not about the shared `people` table — somebody another team knows is
+         * still new to you, and importing them attaches a second membership to
+         * the one shared row (PRD decision log, 2026-08-22).
+         */
+        $membership = $person instanceof Person
+            ? TeamMembership::query()->where('person_id', $person->getKey())->first()
+            : null;
+
+        if ($action === 'merge') {
+            if (! $membership instanceof TeamMembership) {
+                throw new ImportRowRefused(
+                    'Marked as somebody you already have, but nobody in your directory has this address. '.
+                    'Mark it “Add as new” instead.',
+                );
+            }
+
+            return $this->merge($person, $row);
         }
-
-        $membership = TeamMembership::query()->where('person_id', $person->getKey())->first();
 
         if ($membership instanceof TeamMembership) {
-            return false;
+            throw new ImportRowRefused(
+                'Marked to add as new, but this address is already in your directory. '.
+                'Mark it “Already have them” instead.',
+            );
         }
 
+        $person ??= Person::query()->create([
+            'first_name' => (string) $row['first_name'],
+            'last_name' => $row['last_name'] ?? null,
+            'email' => $email,
+            'phone' => $row['phone'] ?? null,
+        ]);
+
+        $this->attach($person, $activity);
+
+        return 'created';
+    }
+
+    /**
+     * Merging is not "do nothing".
+     *
+     * The imported row usually knows something the record does not — a mobile
+     * number, a surname — and the point of an import is to end up knowing more
+     * than you started with. Only blanks are filled: another team may know
+     * this person too, and their name is not ours to overwrite from somebody
+     * else's spreadsheet.
+     *
+     * @param  array<string, mixed>  $row
+     * @return 'merged'
+     */
+    private function merge(Person $person, array $row): string
+    {
+        $person->fill(array_filter([
+            'last_name' => $person->last_name === null ? ($row['last_name'] ?? null) : null,
+            'phone' => $person->phone === null ? ($row['phone'] ?? null) : null,
+        ]))->save();
+
+        return 'merged';
+    }
+
+    private function attach(Person $person, RecordActivity $activity): void
+    {
         TeamMembership::query()->create([
             'person_id' => $person->getKey(),
             // Issue #49: "Imported people default to `lead` status unless the
@@ -136,7 +208,5 @@ class CommitContactImport implements ShouldQueue
             summary: 'Imported into the team directory',
             source: ActivitySource::Import,
         );
-
-        return true;
     }
 }

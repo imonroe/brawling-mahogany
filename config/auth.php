@@ -65,7 +65,9 @@ return [
 
     'providers' => [
         'users' => [
-            'driver' => 'eloquent',
+            // App\Auth\PersonUserProvider — Eloquent, with the address folded
+            // to lower case before it is looked up.
+            'driver' => 'people',
             'model' => env('AUTH_MODEL', Person::class),
         ],
 

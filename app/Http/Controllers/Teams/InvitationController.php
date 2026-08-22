@@ -72,12 +72,22 @@ class InvitationController extends Controller
             'password' => $this->passwordRules(),
         ]);
 
-        $person = $accept->handle(
+        ['person' => $person, 'mayAuthenticate' => $mayAuthenticate] = $accept->handle(
             $invitation,
             $validated['first_name'],
             $validated['last_name'] ?? null,
             $validated['password'],
         );
+
+        if (! $mayAuthenticate) {
+            // They already had an account. The link proves possession of an
+            // inbox, not of that account's password — so they are on the team
+            // now, and they sign in as themselves.
+            return to_route('login')->with(
+                'status',
+                'You’re on the team. Sign in with your existing password and you’ll be there.',
+            );
+        }
 
         Auth::login($person);
 

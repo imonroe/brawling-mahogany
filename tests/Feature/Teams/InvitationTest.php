@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 
 /**
@@ -168,6 +169,98 @@ it('attaches a membership to somebody who already has a record', function (): vo
         ->and($existing->hasCredentials())->toBeTrue();
 
     unset($invitation);
+});
+
+it('is not a way into an account that already has a password', function (): void {
+    /*
+     * The link proves possession of an inbox, not of a password. Signing the
+     * holder in would make an emailed URL a working credential for somebody
+     * else's account — silently, since the password is not even changed, so
+     * the owner would have nothing to notice.
+     */
+    $existing = Person::factory()->create([
+        'email' => 'casey@example.test',
+        'password' => Hash::make('caseys-real-password'),
+    ]);
+
+    $this->enrollTwoFactor($existing);
+
+    $invitation = app(InvitePersonToTeam::class)->handle(
+        team: $this->team,
+        email: 'casey@example.test',
+        role: Role::query()->whereNull('team_id')->where('key', 'team_member')->sole(),
+    );
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Not',
+        'last_name' => 'Casey',
+        'password' => 'an-attacker-chosen-password',
+        'password_confirmation' => 'an-attacker-chosen-password',
+    ])->assertRedirect(route('login'));
+
+    $this->assertGuest();
+
+    $existing->refresh();
+
+    // Their password is untouched, and their name is not rewritten either.
+    expect(Hash::check('caseys-real-password', (string) $existing->password))->toBeTrue()
+        ->and($existing->first_name)->not->toBe('Not');
+
+    // The membership is still attached — the team owner decided that, and it
+    // costs the invitee nothing. They sign in as themselves.
+    expect(TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->where('person_id', $existing->getKey())
+        ->exists())->toBeTrue();
+
+    unset($invitation);
+});
+
+it('matches an invited address whatever its capitals', function (): void {
+    // A duplicate row for one human breaks the shared-record decision at its
+    // foundation, and the duplicate then shadows the original at sign-in.
+    $existing = Person::factory()->create([
+        'email' => 'casey@example.test',
+        'password' => Hash::make('caseys-real-password'),
+    ]);
+
+    app(InvitePersonToTeam::class)->handle(
+        team: $this->team,
+        email: 'Casey@Example.TEST',
+        role: Role::query()->whereNull('team_id')->where('key', 'team_member')->sole(),
+    );
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Casey',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ]);
+
+    expect(Person::query()->whereRaw('lower(email) = ?', ['casey@example.test'])->count())->toBe(1);
+
+    // And the real Casey can still sign in with the password she chose.
+    $this->post('/login', ['email' => 'casey@example.test', 'password' => 'caseys-real-password'])
+        ->assertSessionHasNoErrors();
+
+    $this->assertAuthenticatedAs($existing);
 });
 
 it('refuses to revoke the last owner, and says why', function (): void {

@@ -48,6 +48,24 @@ it('holds a super administrator at the enrolment screen too', function (): void 
     $this->get('/admin')->assertRedirect(route('security.edit'));
 });
 
+it('does not let an un-enrolled owner run the team from settings', function (): void {
+    // The allow-list was `settings/*`, which also covers team branding,
+    // member management, and the data export. The mandate stopped an
+    // un-enrolled owner reading their dashboard while leaving them able to
+    // invite people and download the whole tenant.
+    [$team, $owner] = $this->teamWithOwner();
+
+    $this->actingAsPerson($owner, $team);
+
+    foreach (['/settings/team', '/settings/members', '/settings/export'] as $path) {
+        $this->get($path)->assertRedirect(route('security.edit'));
+    }
+
+    $this->post('/settings/export')->assertRedirect(route('security.edit'));
+
+    expect(App\Models\DataExport::withoutTeamScope()->count())->toBe(0);
+});
+
 it('leaves the way out open', function (): void {
     [$team, $owner] = $this->teamWithOwner();
 

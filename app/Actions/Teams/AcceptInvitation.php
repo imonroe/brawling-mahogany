@@ -28,18 +28,28 @@ final class AcceptInvitation
         private readonly AuditLogger $audit,
     ) {}
 
-    public function handle(TeamInvitation $invitation, string $firstName, ?string $lastName, string $password): Person
+    /**
+     * @return array{person: Person, mayAuthenticate: bool}
+     */
+    public function handle(TeamInvitation $invitation, string $firstName, ?string $lastName, string $password): array
     {
-        return DB::transaction(function () use ($invitation, $firstName, $lastName, $password): Person {
+        return DB::transaction(function () use ($invitation, $firstName, $lastName, $password): array {
             $team = $invitation->team()->sole();
 
-            $person = Person::query()->where('email', $invitation->email)->first();
+            // Case-insensitively, because `Emily@Example.test` and
+            // `emily@example.test` are one human (PRD decision log,
+            // 2026-08-22) and the unique index says so too.
+            $person = Person::query()
+                ->whereRaw('lower(email) = ?', [mb_strtolower($invitation->email)])
+                ->first();
+
+            $alreadyHadCredentials = $person instanceof Person && $person->hasCredentials();
 
             if ($person instanceof Person) {
                 // An existing person keeps their name and their record. The
                 // only thing an invitation may add is credentials, and only
                 // when they had none.
-                if (! $person->hasCredentials()) {
+                if (! $alreadyHadCredentials) {
                     $person->forceFill([
                         'password' => $password,
                         'email_verified_at' => now(),
@@ -75,7 +85,19 @@ final class AcceptInvitation
                 actorPersonId: $person->getKey(),
             );
 
-            return $person;
+            /*
+             * **An invitation is not a way into an existing account.**
+             *
+             * When the address already had a password, whoever is holding
+             * this link has proved only that they hold the link. Signing them
+             * in would make an emailed URL a working credential for somebody
+             * else's account, silently — the password is not even changed, so
+             * the owner would have nothing to notice.
+             *
+             * The membership is still attached: the team owner decided that,
+             * and it costs the invitee nothing. They sign in as themselves.
+             */
+            return ['person' => $person, 'mayAuthenticate' => ! $alreadyHadCredentials];
         });
     }
 }
