@@ -85,6 +85,7 @@ These come from PRD §8 and should guide the eventual build:
 | `composer check` | Pint, PHPStan, Pest |
 | `npm run check` | Wayfinder, ESLint, Prettier, `vue-tsc`, Vitest |
 | `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
+| `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it. Audited |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 
 `composer check` and `npm run check` are exactly what the pipeline runs. If one

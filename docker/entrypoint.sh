@@ -21,6 +21,11 @@ fi
 # bad migration is a failed deploy rather than a container that will not start.
 if [ "${AUTO_MIGRATE:-false}" = "true" ]; then
     php artisan migrate --force --no-interaction
+
+    # The reference data goes with the migration wherever the migration goes.
+    # A schema with no permission catalogue and no system roles is a schema the
+    # application cannot start work in.
+    php artisan db:seed --class=ReferenceDataSeeder --force --no-interaction
 fi
 
 if [ "${APP_ENV:-production}" = "production" ]; then
