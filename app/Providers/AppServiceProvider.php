@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Listeners\ReportFailedJob;
+use App\Models\Passkey;
+use App\Models\Person;
 use App\Support\Database\BlueprintMacros;
+use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Date;
@@ -14,6 +17,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Passkeys\Passkeys;
 use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
@@ -23,7 +27,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        /*
+         * The resolved team, for the life of this request, job, or command.
+         *
+         * A singleton because ADR 0002 says there is exactly one answer at a
+         * time and everything must read the same one — the global scope, the
+         * shared Inertia props, and the policies all resolve it from here.
+         */
+        $this->app->singleton(TeamContext::class);
     }
 
     /**
@@ -35,6 +46,15 @@ class AppServiceProvider extends ServiceProvider
         $this->configureMailGuardrail();
 
         BlueprintMacros::register();
+
+        /*
+         * `laravel/passkeys` defaults its user model to the literal string
+         * `App\Models\User`, which this product does not have (IA §11: a
+         * Person is not a User). Both halves are pointed at ours, and
+         * App\Models\Passkey carries the `person_id` column the rename left.
+         */
+        Passkeys::useUserModel(Person::class);
+        Passkeys::usePasskeyModel(Passkey::class);
 
         // PRD §9: a queue failure is alerted on within 15 minutes. The rule is
         // configured in Sentry; the report it fires on is this listener.

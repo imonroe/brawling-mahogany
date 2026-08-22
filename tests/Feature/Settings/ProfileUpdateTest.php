@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Settings;
 
-use App\Models\User;
+use App\Models\Person;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -14,7 +14,7 @@ class ProfileUpdateTest extends TestCase
 
     public function test_profile_page_is_displayed(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this
             ->actingAs($user)
@@ -25,12 +25,13 @@ class ProfileUpdateTest extends TestCase
 
     public function test_profile_information_can_be_updated(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this
             ->actingAs($user)
             ->patch(route('profile.update'), [
-                'name' => 'Test User',
+                'first_name' => 'Test',
+                'last_name' => 'Person',
                 'email' => 'test@example.com',
             ]);
 
@@ -40,19 +41,21 @@ class ProfileUpdateTest extends TestCase
 
         $user->refresh();
 
-        $this->assertSame('Test User', $user->name);
+        $this->assertSame('Test', $user->first_name);
+        $this->assertSame('Person', $user->last_name);
         $this->assertSame('test@example.com', $user->email);
         $this->assertNull($user->email_verified_at);
     }
 
     public function test_email_verification_status_is_unchanged_when_the_email_address_is_unchanged(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this
             ->actingAs($user)
             ->patch(route('profile.update'), [
-                'name' => 'Test User',
+                'first_name' => 'Test',
+                'last_name' => 'Person',
                 'email' => $user->email,
             ]);
 
@@ -65,7 +68,7 @@ class ProfileUpdateTest extends TestCase
 
     public function test_user_can_delete_their_account(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this
             ->actingAs($user)
@@ -83,12 +86,12 @@ class ProfileUpdateTest extends TestCase
         // then a hard delete. The record survives that window on purpose —
         // an account deleted by mistake on a Friday is recoverable on Monday.
         $this->assertSoftDeleted($user);
-        $this->assertNull(User::query()->find($user->id));
+        $this->assertNull(Person::query()->find($user->id));
     }
 
     public function test_correct_password_must_be_provided_to_delete_account(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this
             ->actingAs($user)

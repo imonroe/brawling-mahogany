@@ -6,8 +6,15 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Models\Person;
+use App\Support\Audit\AuditLogger;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -34,6 +41,81 @@ class FortifyServiceProvider extends ServiceProvider
         $this->configureActions();
         $this->configureViews();
         $this->configureRateLimiting();
+        $this->configureAuthentication();
+        $this->configureAuditing();
+    }
+
+    /**
+     * A person with no password never authenticates (PRD F2.1, issue #43).
+     *
+     * Most people in this product are clients, vendors, and opposing agents
+     * who have no credentials at all. Laravel's default provider already
+     * refuses an empty hash, but the failure mode if that ever changed is
+     * catastrophic and silent — so the rule is stated here, once, on the path
+     * every credential check takes.
+     */
+    private function configureAuthentication(): void
+    {
+        Fortify::authenticateUsing(function (Request $request): ?Person {
+            $person = Person::query()
+                ->whereRaw('lower(email) = ?', [mb_strtolower((string) $request->input(Fortify::username()))])
+                ->first();
+
+            if (! $person instanceof Person || ! $person->hasCredentials()) {
+                return null;
+            }
+
+            return Hash::check((string) $request->input('password'), (string) $person->password)
+                ? $person
+                : null;
+        });
+    }
+
+    /**
+     * PRD §9: the append-only audit log covers **authentication**.
+     *
+     * No address is written — the actor id identifies who signed in, and a
+     * failed attempt records only that one happened from an address the log
+     * does not keep (PRD §9: no PII in logs, ever).
+     */
+    private function configureAuditing(): void
+    {
+        Event::listen(Login::class, function (Login $event): void {
+            $person = $event->user;
+
+            app(AuditLogger::class)->record(
+                action: 'auth.signed_in',
+                auditableType: Person::class,
+                auditableId: $person instanceof Person ? $person->getKey() : null,
+                actorPersonId: $person instanceof Person ? $person->getKey() : null,
+            );
+        });
+
+        Event::listen(Logout::class, function (Logout $event): void {
+            $person = $event->user;
+
+            if (! $person instanceof Person) {
+                return;
+            }
+
+            app(AuditLogger::class)->record(
+                action: 'auth.signed_out',
+                auditableType: Person::class,
+                auditableId: $person->getKey(),
+                actorPersonId: $person->getKey(),
+            );
+        });
+
+        Event::listen(Failed::class, function (Failed $event): void {
+            $person = $event->user;
+
+            app(AuditLogger::class)->record(
+                action: 'auth.failed',
+                auditableType: Person::class,
+                auditableId: $person instanceof Person ? $person->getKey() : null,
+                actorPersonId: null,
+            );
+        });
     }
 
     /**

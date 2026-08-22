@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -15,7 +14,9 @@ use Illuminate\Support\Facades\DB;
  * the queries, and say why in the commit.
  */
 it('renders the dashboard within its query budget', function (): void {
-    $this->actingAs(User::factory()->create());
+    [$team, $member] = $this->teamWithMember();
+
+    $this->actingAsPerson($member, $team);
 
     $queries = 0;
     DB::listen(function () use (&$queries): void {
@@ -24,5 +25,9 @@ it('renders the dashboard within its query budget', function (): void {
 
     $this->get('/dashboard')->assertOk();
 
-    expect($queries)->toBeLessThanOrEqual(10);
+    // Slice 1 added the tenancy layer to every request: resolving the team,
+    // the person's memberships for the switcher, and the permissions the
+    // navigation hides itself by. Each is one query and each is on every
+    // page, which is exactly why they are counted.
+    expect($queries)->toBeLessThanOrEqual(14);
 });

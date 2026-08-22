@@ -1,29 +1,46 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import Heading from '@/components/app/Heading.vue';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
+import { usePermissions } from '@/composables/usePermissions';
 import { toUrl } from '@/lib/utils';
 import { edit as editAppearance } from '@/routes/appearance';
 import { edit as editProfile } from '@/routes/profile';
 import { edit as editSecurity } from '@/routes/security';
 import type { NavItem } from '@/types';
 
-const sidebarNavItems: NavItem[] = [
-    {
-        title: 'Profile',
-        href: editProfile(),
-    },
-    {
-        title: 'Security',
-        href: editSecurity(),
-    },
-    {
-        title: 'Appearance',
-        href: editAppearance(),
-    },
-];
+const { can } = usePermissions();
+const page = usePage();
+
+/*
+ * A person's own account first, then the team's. IA §5.1: a section somebody
+ * lacks the permission for is **hidden**, never shown disabled — so an
+ * ordinary Team Member sees three items here and a Team Owner sees six.
+ */
+const sidebarNavItems = computed<NavItem[]>(() => {
+    const items: NavItem[] = [
+        { title: 'Profile', href: editProfile() },
+        { title: 'Security', href: editSecurity() },
+        { title: 'Appearance', href: editAppearance() },
+    ];
+
+    if (page.props.team && can('settings.manage')) {
+        items.push({ title: 'Team', href: '/settings/team' });
+    }
+
+    if (page.props.team && can('team.members.manage')) {
+        items.push({ title: 'Members', href: '/settings/members' });
+    }
+
+    if (page.props.team && can('team.export')) {
+        items.push({ title: 'Export', href: '/settings/export' });
+    }
+
+    return items;
+});
 
 const { isCurrentOrParentUrl } = useCurrentUrl();
 </script>

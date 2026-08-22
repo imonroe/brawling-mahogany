@@ -24,11 +24,11 @@ final class BlueprintMacros
          * cannot protect.
          *
          * `$constrained` adds the database's own half of that guarantee — the
-         * second enforcement layer in ADR 0002. It defaults to false only
-         * because `teams` does not exist until Slice 1; once it does, every
-         * business table passes `constrained: true` and the default flips.
+         * second enforcement layer in ADR 0002. It defaulted to false in
+         * Slice 0 only because `teams` did not exist yet; Slice 1 created it,
+         * so the default flipped exactly as ADR 0001 said it would.
          */
-        Blueprint::macro('productDefaults', function (bool $teamScoped = true, bool $constrained = false): void {
+        Blueprint::macro('productDefaults', function (bool $teamScoped = true, bool $constrained = true): void {
             /** @var Blueprint $this */
             $this->ulid('id')->primary();
 
@@ -43,10 +43,46 @@ final class BlueprintMacros
                 } else {
                     $column->index();
                 }
+
+                /*
+                 * The target a composite foreign key points at.
+                 *
+                 * ADR 0002's second layer wants `(team_id, id)` on the child
+                 * referencing `(team_id, id)` on the parent, and Postgres will
+                 * only accept that if the parent carries a unique index over
+                 * both columns. `id` is already unique on its own, so this
+                 * constrains nothing new — it exists so that
+                 * `teamScopedForeign()` has something to reference.
+                 */
+                $this->unique(['team_id', 'id']);
             }
 
             $this->timestamps();
             $this->softDeletes();
+        });
+
+        /*
+         * A foreign key that carries the tenant with it.
+         *
+         * ADR 0002, layer 2: "a `task` pointing at a `stage` in another team is
+         * then not merely unlikely, it is unrepresentable." A plain
+         * `foreignUlid('stage_id')->constrained()` cannot say that; a composite
+         * key over `(team_id, stage_id)` can.
+         *
+         * The child's own `team_id` does double duty — it scopes the row *and*
+         * it is half of every composite key out of it — which is what makes a
+         * cross-tenant pointer a database error rather than a code review.
+         */
+        Blueprint::macro('teamScopedForeign', function (string $column, string $table, bool $nullable = false) {
+            /** @var Blueprint $this */
+            $this->foreignUlid($column)->nullable($nullable);
+
+            $this->foreign(['team_id', $column])
+                ->references(['team_id', 'id'])
+                ->on($table)
+                ->cascadeOnDelete();
+
+            return $this->index([$column]);
         });
 
         /*

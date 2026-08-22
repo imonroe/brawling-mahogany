@@ -20,8 +20,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
 import { usePermissions } from '@/composables/usePermissions';
+import { formatPersonName } from '@/lib/formatters';
 import { NAV_GROUPS } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
+import type { CurrentTeam, TeamOption } from '@/types';
 
 const props = withDefaults(
     defineProps<{
@@ -35,6 +37,24 @@ const props = withDefaults(
 
 const page = usePage();
 const user = computed(() => page.props.auth?.user);
+
+/*
+ * IA §10 formats a person as First Last, and nothing formats it itself
+ * (Frontend conventions §3).
+ */
+const personParts = computed(() => ({
+    firstName: user.value?.first_name,
+    lastName: user.value?.last_name,
+}));
+
+const team = computed(
+    () => (page.props as { team?: CurrentTeam | null }).team ?? null,
+);
+
+// S09: the switcher hides itself on a single team.
+const teams = computed(
+    () => (page.props as { teams?: TeamOption[] }).teams ?? [],
+);
 const { can } = usePermissions();
 const { isCurrentOrParentUrl } = useCurrentUrl();
 
@@ -56,8 +76,10 @@ const groups = computed(() =>
         data-slot="app-sidebar"
     >
         <TeamSwitcher
-            :name="page.props.name as string"
-            plan="Team"
+            :name="team?.name ?? (page.props.name as string)"
+            :plan="team ? null : 'No team'"
+            :teams="teams"
+            :current-team-id="team?.id ?? null"
             :collapsed="collapsed"
         />
 
@@ -94,14 +116,14 @@ const groups = computed(() =>
                     class="flex h-15 w-full items-center gap-[9px] border-t px-3 text-left transition-colors duration-150 ease-out hover:bg-accent/60"
                     data-test="sidebar-menu-button"
                 >
-                    <PersonAvatar :person="{ name: user.name }" :size="30" />
+                    <PersonAvatar :person="personParts" :size="30" />
                     <span
                         v-if="!collapsed"
                         class="flex min-w-0 flex-1 flex-col"
                     >
                         <span
                             class="truncate text-13 font-medium text-foreground"
-                            >{{ user.name }}</span
+                            >{{ formatPersonName(personParts) }}</span
                         >
                         <span
                             class="truncate text-[11px] text-muted-foreground"

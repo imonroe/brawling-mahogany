@@ -1,17 +1,31 @@
 <script setup lang="ts">
 /**
- * PRD §4.1 F1.5. A super administrator acting as somebody else must be
- * visually unmistakable — a support session that looks like an ordinary one
- * is how a support session becomes an incident.
+ * PRD §4.1 F1.5, Screen Inventory S84.
+ *
+ * A super administrator acting as somebody else must be visually
+ * unmistakable — a support session that looks like an ordinary one is how a
+ * support session becomes an incident. The reason is shown alongside, because
+ * the thing that makes this acceptable is that it explains itself.
  */
+import { router } from '@inertiajs/vue3';
 import { ShieldAlert } from '@lucide/vue';
+import { formatTime } from '@/lib/formatters';
 
-defineProps<{ personName: string; returnHref?: string }>();
+const props = defineProps<{
+    personName: string;
+    teamName?: string | null;
+    reason?: string | null;
+    endsAt?: string | null;
+}>();
+
+function stop(): void {
+    router.delete('/impersonation');
+}
 </script>
 
 <template>
     <div
-        class="flex min-h-11 items-center gap-2.5 bg-state-warning px-4 py-2 text-primary-foreground"
+        class="flex min-h-11 flex-wrap items-center gap-x-2.5 gap-y-1 bg-state-warning px-4 py-2 text-primary-foreground"
         role="status"
         data-slot="impersonation-banner"
     >
@@ -21,14 +35,22 @@ defineProps<{ personName: string; returnHref?: string }>();
             aria-hidden="true"
         />
         <p class="flex-1 text-13 font-medium">
-            You are viewing the app as {{ personName }}. Everything you do is
-            logged.
+            You are viewing
+            <template v-if="props.teamName">{{ props.teamName }}</template>
+            as {{ personName }}. Everything you do is logged.
+            <span v-if="props.endsAt" class="font-normal">
+                This session ends at {{ formatTime(props.endsAt) }}.
+            </span>
         </p>
-        <a
-            v-if="returnHref"
-            :href="returnHref"
+        <p v-if="props.reason" class="w-full text-[11px] opacity-90">
+            Reason: {{ props.reason }}
+        </p>
+        <button
+            type="button"
             class="text-13 font-semibold underline"
-            >Stop impersonating</a
+            @click="stop"
         >
+            Stop impersonating
+        </button>
     </div>
 </template>
