@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamInvitation;
+use Database\Factories\Concerns\ForcesAttributes;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class TeamInvitationFactory extends Factory
 {
+    use ForcesAttributes;
+
     protected $model = TeamInvitation::class;
 
     /**

@@ -8,6 +8,7 @@ use App\Enums\ContactImportSource;
 use App\Enums\ContactImportState;
 use App\Models\ContactImport;
 use App\Models\Team;
+use Database\Factories\Concerns\ForcesAttributes;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -15,6 +16,8 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class ContactImportFactory extends Factory
 {
+    use ForcesAttributes;
+
     protected $model = ContactImport::class;
 
     /**

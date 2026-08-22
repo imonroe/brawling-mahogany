@@ -29,7 +29,12 @@ final class InvitePersonToTeam
         return DB::transaction(function () use ($team, $email, $role, $invitedBy, $firstName, $lastName): TeamInvitation {
             $token = TeamInvitation::newToken();
 
-            $invitation = TeamInvitation::query()->create([
+            // `token_hash` is not fillable: an invitation link is a
+            // credential, and a credential should never be settable from a
+            // request body. This is the one place it is written.
+            $invitation = new TeamInvitation;
+
+            $invitation->forceFill([
                 'team_id' => $team->getKey(),
                 'email' => $email,
                 'first_name' => $firstName,
@@ -38,7 +43,7 @@ final class InvitePersonToTeam
                 'invited_by_person_id' => $invitedBy?->getKey(),
                 'token_hash' => TeamInvitation::hashToken($token),
                 'expires_at' => now()->addDays(TeamInvitation::LIFETIME_DAYS),
-            ]);
+            ])->save();
 
             $this->audit->record(
                 action: 'invitation.sent',

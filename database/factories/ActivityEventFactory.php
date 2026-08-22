@@ -8,6 +8,7 @@ use App\Enums\ActivitySource;
 use App\Models\ActivityEvent;
 use App\Models\Person;
 use App\Models\Team;
+use Database\Factories\Concerns\ForcesAttributes;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -15,6 +16,8 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class ActivityEventFactory extends Factory
 {
+    use ForcesAttributes;
+
     protected $model = ActivityEvent::class;
 
     /**

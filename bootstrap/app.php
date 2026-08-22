@@ -9,6 +9,7 @@ use App\Http\Middleware\HandleImpersonation;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RequireTwoFactorAuthentication;
 use App\Http\Middleware\ResolveCurrentTeam;
+use App\Http\Middleware\ThrottlePasswordResetRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -37,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
          * holds *in* it, and the impersonation banner.
          */
         $middleware->web(append: [
+            ThrottlePasswordResetRequests::class,
             HandleAppearance::class,
             HandleImpersonation::class,
             ResolveCurrentTeam::class,

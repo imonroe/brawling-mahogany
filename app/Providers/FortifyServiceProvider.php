@@ -6,6 +6,7 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Responses\PasswordResetLinkRequested;
 use App\Models\Person;
 use App\Support\Audit\AuditLogger;
 use Illuminate\Auth\Events\Failed;
@@ -20,6 +21,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
+use Laravel\Fortify\Contracts\FailedPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
@@ -125,6 +127,15 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::createUsersUsing(CreateNewUser::class);
+
+        // The forgot-password screen must answer identically whether or not
+        // the address exists (issue #43).
+        $this->app->singleton(
+            FailedPasswordResetLinkRequestResponse::class,
+            fn ($app, array $parameters): PasswordResetLinkRequested => new PasswordResetLinkRequested(
+                (string) ($parameters['status'] ?? ''),
+            ),
+        );
     }
 
     /**
@@ -172,8 +183,32 @@ class FortifyServiceProvider extends ServiceProvider
         RateLimiter::for('login', function (Request $request) {
             $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
 
-            return Limit::perMinute(5)->by($throttleKey);
+            /*
+             * IA §10: errors say what happened, then what to do. A bare 429
+             * says neither — issue #43 is explicit that *"a rate-limited login
+             * says how long to wait, not 'too many attempts'."*
+             */
+            return Limit::perMinute(5)->by($throttleKey)->response(
+                fn (Request $request, array $headers) => back()
+                    ->withInput($request->only(Fortify::username()))
+                    ->withErrors([
+                        Fortify::username() => __(
+                            'Too many sign-in attempts. Wait :seconds seconds and try again.',
+                            ['seconds' => (int) ($headers['Retry-After'] ?? 60)],
+                        ),
+                    ]),
+            );
         });
+
+        /*
+         * The one people forget (issue #43).
+         *
+         * Laravel's password broker already throttles repeat requests for the
+         * *same* address, which covers the impatient customer. What it does
+         * not cover is somebody walking a list of addresses to find out which
+         * ones exist, so this is keyed by origin rather than by address.
+         */
+        RateLimiter::for('password-reset', fn (Request $request) => Limit::perMinute(5)->by((string) $request->ip()));
 
         RateLimiter::for('passkeys', function (Request $request) {
             return Limit::perMinute(10)->by(

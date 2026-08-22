@@ -78,17 +78,27 @@ class AuthenticationTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_users_are_rate_limited(): void
+    public function test_sign_in_attempts_are_rate_limited(): void
     {
-        $user = Person::factory()->create();
+        $person = Person::factory()->create();
 
-        RateLimiter::increment(md5('login'.implode('|', [$user->email, '127.0.0.1'])), amount: 5);
+        RateLimiter::increment(md5('login'.implode('|', [$person->email, '127.0.0.1'])), amount: 5);
 
         $response = $this->post(route('login.store'), [
-            'email' => $user->email,
+            'email' => $person->email,
             'password' => 'wrong-password',
         ]);
 
-        $response->assertTooManyRequests();
+        /*
+         * A redirect carrying the wait, not a bare 429.
+         *
+         * IA §10: errors say what happened and then what to do, and issue #43
+         * is explicit that a rate-limited sign-in says how long to wait. The
+         * starter kit's default 429 says neither, and lands somebody on an
+         * error page rather than back on the form.
+         */
+        $response->assertSessionHasErrors('email');
+
+        $this->assertStringContainsString('seconds', session('errors')->first('email'));
     }
 }

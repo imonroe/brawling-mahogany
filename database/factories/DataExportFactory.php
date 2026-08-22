@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Enums\DataExportState;
 use App\Models\DataExport;
 use App\Models\Team;
+use Database\Factories\Concerns\ForcesAttributes;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class DataExportFactory extends Factory
 {
+    use ForcesAttributes;
+
     protected $model = DataExport::class;
 
     /**

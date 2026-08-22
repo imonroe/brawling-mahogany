@@ -20,6 +20,20 @@ final class AccentContrast
     public const MINIMUM_RATIO = 4.5;
 
     /**
+     * The text the accent actually carries.
+     *
+     * Design System §2.7 puts the team's accent behind `--brand-foreground`,
+     * which resolves to `--primary-foreground` — a near-white. Checking the
+     * accent against *that* is the honest question, because it is the pairing
+     * a client's eye meets.
+     *
+     * Asking instead whether the accent works against white **or** black
+     * would pass almost every colour, since almost every colour is legible
+     * under one of them. A warning that never fires is not a warning.
+     */
+    public const FOREGROUND = '#FFFFFF';
+
+    /**
      * A sentence to show the owner, or null when the colour is fine.
      *
      * IA §10: say what happened, then what to do.
@@ -30,18 +44,16 @@ final class AccentContrast
             return null;
         }
 
-        $onWhite = self::ratio($hex, '#FFFFFF');
-        $onBlack = self::ratio($hex, '#000000');
-        $best = max($onWhite, $onBlack);
+        $ratio = self::ratio($hex, self::FOREGROUND);
 
-        if ($best >= self::MINIMUM_RATIO) {
+        if ($ratio >= self::MINIMUM_RATIO) {
             return null;
         }
 
         return sprintf(
-            'This accent reaches %.1f:1 against both white and black, below the %.1f:1 your clients’ '.
-            'status page is held to. Pick something darker or lighter, or text on it will be hard to read.',
-            $best,
+            'White text on this accent reaches only %.1f:1, below the %.1f:1 your clients’ status page '.
+            'is held to. Pick a darker shade, or the heading on their page will be hard to read.',
+            $ratio,
             self::MINIMUM_RATIO,
         );
     }

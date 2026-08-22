@@ -8,6 +8,7 @@ use App\Enums\PersonLifecycleState;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
+use Database\Factories\Concerns\ForcesAttributes;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -15,6 +16,8 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class TeamMembershipFactory extends Factory
 {
+    use ForcesAttributes;
+
     protected $model = TeamMembership::class;
 
     /**
