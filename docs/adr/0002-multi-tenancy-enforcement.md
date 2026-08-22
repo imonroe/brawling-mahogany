@@ -301,6 +301,14 @@ Where those disagree, prefer the one that carries it and check whether the
 other really means something different — here it did not: a membership is a
 person as this team knows them, which is precisely what a participant is.
 
+**Slice 2 currently answers "which human" two ways**, and the next table
+should not have to choose between them. `tasks.assignee_id` points at `people`
+and `deal_participants.team_membership_id` points at `team_memberships`. The
+membership is the one to copy: `tasks.assignee_id` predates #140 and is the
+hole `InstantiateWorkflow::assignableWithin()` exists to plug, so it is the
+precedent that should move rather than the one to follow. Until it does, read
+it as debt rather than as a pattern.
+
 That last row generalises past counting: **a shared table's screen still
 touches scoped tables, and those keep every layer.** Only the checks that are
 genuinely about the shared row have to be written by hand, and the smaller that

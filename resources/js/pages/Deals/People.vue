@@ -17,7 +17,7 @@
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { UserPlus } from '@lucide/vue';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import AddParticipantDialog from '@/components/app/AddParticipantDialog.vue';
 import AppButton from '@/components/app/AppButton.vue';
 import Card from '@/components/app/Card.vue';
@@ -38,7 +38,7 @@ type Participant = {
 };
 
 const props = defineProps<{
-    deal: { id: string; name: string; state: string; sideLabel: string };
+    deal: { id: string; name: string; sideLabel: string };
     roles: { role: string; label: string; people: Participant[] }[];
     missingRoles: { value: string; label: string }[];
     participantRoles: Record<string, string>;
@@ -49,6 +49,13 @@ const adding = ref(false);
 const suggestedRole = ref<string | null>(null);
 
 const promote = useForm({ participant_role: '', is_primary: true, notes: '' });
+
+/*
+ * Nothing on this path errors today — but `replace()` refuses a move into a
+ * role somebody already holds, and the first error it ever returns here would
+ * otherwise be invisible.
+ */
+const promoteError = computed(() => promote.errors.participant_role ?? null);
 
 function openFor(role: string | null): void {
     suggestedRole.value = role;
@@ -104,6 +111,10 @@ function remove(participant: Participant): void {
             Named, and offering the action that closes the gap. A warning that
             only states a problem makes somebody go and find the button.
         -->
+        <Alert v-if="promoteError" variant="destructive">
+            <AlertDescription>{{ promoteError }}</AlertDescription>
+        </Alert>
+
         <Alert v-if="missingRoles.length > 0">
             <AlertDescription class="flex flex-wrap items-center gap-2">
                 <span

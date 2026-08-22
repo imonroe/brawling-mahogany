@@ -68,9 +68,16 @@ class DealParticipant extends Model
      * The directory entry this participant is.
      *
      * `withTrashed()` for the same reason `TeamMembership::person()` carries
-     * it: a participant outlives the directory row being tidied away, and a
-     * deal that renders a blank line where a name was is worse than one that
+     * it: a participant outlives the directory row being **soft** deleted, and
+     * a deal that renders a blank line where a name was is worse than one that
      * still says who the seller was.
+     *
+     * Only soft deleted, and the distinction is worth stating rather than
+     * implying: `teamScopedForeign()` cascades, so when `records:purge` hard
+     * deletes the membership after its 30 days the participant rows go with
+     * it. That is the house erasure convention (PRD §9) rather than an
+     * oversight — a closed deal then reports no Seller, which is what erasure
+     * means.
      *
      * @return BelongsTo<TeamMembership, $this>
      */

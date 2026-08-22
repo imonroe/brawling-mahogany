@@ -10,7 +10,8 @@ use App\Models\Deal;
 use App\Models\DealParticipant;
 use App\Models\TeamMembership;
 use App\Support\Activity\RecordActivity;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -60,7 +61,30 @@ final class DealRoster
                 'participant_role' => $role->value,
                 'is_primary' => $isPrimary,
                 'notes' => $notes,
-            ])->save();
+            ]);
+
+            /*
+             * `StoreParticipantRequest` asks first; this catches what asking
+             * cannot close.
+             *
+             * Between the rule's `select` and this `insert` there is a window,
+             * and the shape of this screen invites it: the candidate list with
+             * its held-roles is fetched on a debounce, so two people on one
+             * deal — or two tabs — genuinely race here. The same catch covers
+             * `deal_participants_one_primary_per_role`, which two simultaneous
+             * "make this the main contact" clicks can reach the same way.
+             *
+             * A sentence rather than a stack trace, and the same sentence the
+             * rule would have given.
+             */
+            try {
+                $participant->save();
+            } catch (UniqueConstraintViolationException) {
+                throw ValidationException::withMessages([
+                    'participant_role' => $membership->fullName()
+                        .' is already on this deal as '.$role->label().'.',
+                ]);
+            }
 
             /*
              * Timelined, not audited. Who is on a deal is ordinary work a team
@@ -90,9 +114,22 @@ final class DealRoster
     public function replace(
         DealParticipant $participant,
         ParticipantRole $role,
-        bool $isPrimary = false,
+        ?bool $isPrimary = null,
         ?string $notes = null,
     ): DealParticipant {
+        /*
+         * Nulls mean "not sent", not "set to empty".
+         *
+         * `SavePerson::applyIdentity()` states the rule this follows: *a
+         * partial update must not blank a column the screen did not show*. The
+         * first version defaulted both to false/null and `forceFill`ed, so a
+         * PATCH carrying only a role demoted a main contact and erased their
+         * notes. Today's UI always sends all three, which is exactly why the
+         * bug would have waited for the second caller.
+         */
+        $isPrimary ??= $participant->is_primary;
+        $notes ??= $participant->notes;
+
         return DB::transaction(function () use ($participant, $role, $isPrimary, $notes): DealParticipant {
             $roleChanged = $participant->participant_role !== $role;
 
@@ -116,7 +153,16 @@ final class DealRoster
                 'participant_role' => $role->value,
                 'is_primary' => $isPrimary,
                 'notes' => $notes,
-            ])->save();
+            ]);
+
+            try {
+                $participant->save();
+            } catch (UniqueConstraintViolationException) {
+                throw ValidationException::withMessages([
+                    'participant_role' => $participant->fullName()
+                        .' is already on this deal as '.$role->label().'.',
+                ]);
+            }
 
             if ($roleChanged) {
                 $this->activity->record(
@@ -223,21 +269,38 @@ final class DealRoster
     }
 
     /**
-     * The roles this membership already holds on this deal.
+     * The roles each of these memberships already holds on this deal.
      *
      * S25 warns with this rather than refusing: the same person in two roles
      * on one deal is unusual, not impossible, and issue #60 asks for a warning
      * *"rather than duplicating"*. The exact same person in the same role
      * twice is the meaningless case, and the database refuses that outright.
      *
-     * @return Collection<int, ParticipantRole>
+     * **Plural, and one query.** The per-membership version of this ran inside
+     * the `map()` over the candidate list — one extra query per row, up to
+     * twenty, fired on every keystroke of a 250ms debounce. It is the shape
+     * `PeopleIndexBudgetTest` exists to catch, on the endpoint least able to
+     * afford it, and `ParticipantsBudgetTest` now holds it.
+     *
+     * @param  EloquentCollection<int, TeamMembership>  $memberships
+     * @return array<string, list<string>> membership id => role labels
      */
-    public function rolesAlreadyHeld(Deal $deal, TeamMembership $membership): Collection
+    public function rolesAlreadyHeld(Deal $deal, EloquentCollection $memberships): array
     {
-        return DealParticipant::query()
+        if ($memberships->isEmpty()) {
+            return [];
+        }
+
+        $held = [];
+
+        DealParticipant::query()
             ->where('deal_id', $deal->getKey())
-            ->where('team_membership_id', $membership->getKey())
+            ->whereIn('team_membership_id', $memberships->modelKeys())
             ->get()
-            ->map(fn (DealParticipant $participant): ParticipantRole => $participant->participant_role);
+            ->each(function (DealParticipant $participant) use (&$held): void {
+                $held[$participant->team_membership_id][] = $participant->participant_role->label();
+            });
+
+        return $held;
     }
 }

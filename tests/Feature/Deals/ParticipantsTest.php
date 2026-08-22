@@ -73,12 +73,15 @@ it('lets one person hold different roles on different deals at once', function (
         ->toEqualCanonicalizing(['seller', 'buyer']);
 });
 
-it('groups the tab by role', function (): void {
+it('groups the tab by role, in the order the PRD lists them', function (): void {
     $roster = app(DealRoster::class);
 
+    // Added inspector-first, deliberately: a deal where the inspector was
+    // booked before the listing agreement was signed must not render
+    // Inspector above Seller.
+    $roster->add($this->deal, directoryEntry('Lee'), ParticipantRole::Inspector);
     $roster->add($this->deal, directoryEntry('Claire'), ParticipantRole::Seller);
     $roster->add($this->deal, directoryEntry('Sam'), ParticipantRole::Seller);
-    $roster->add($this->deal, directoryEntry('Lee'), ParticipantRole::Inspector);
 
     $this->get("/deals/{$this->deal->getKey()}/people")
         ->assertOk()
@@ -170,14 +173,82 @@ it('needs either an existing person or a new one', function (): void {
 /**
  * The duplicate rule, both halves.
  */
-it('refuses the same person in the same role twice', function (): void {
+/**
+ * A sentence, not a stack trace.
+ *
+ * The first version of this test asserted
+ * `toThrow(UniqueConstraintViolationException::class)` at the service level,
+ * which framed an unhandled 500 as the intended behaviour and is why a green
+ * suite agreed with one. The database refusing it is the backstop; the answer
+ * a person gets is a validation error.
+ */
+it('refuses the same person in the same role twice, through the route', function (): void {
     $claire = directoryEntry();
 
     app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller);
 
-    // Meaningless rather than unusual, so the database refuses it outright.
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'team_membership_id' => $claire->getKey(),
+        'participant_role' => ParticipantRole::Seller->value,
+    ])->assertRedirect()->assertSessionHasErrors('participant_role');
+
+    expect(DealParticipant::query()->count())->toBe(1);
+});
+
+it('refuses it in the service too, where the rule cannot reach', function (): void {
+    // The window between the rule's select and the insert is real — the
+    // candidate list is fetched on a debounce, so two people on one deal race
+    // here. The catch inside `add()` is what makes that a sentence as well.
+    $claire = directoryEntry();
+
+    app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller);
+
     expect(fn () => app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller))
-        ->toThrow(Illuminate\Database\UniqueConstraintViolationException::class);
+        ->toThrow(Illuminate\Validation\ValidationException::class);
+});
+
+/**
+ * The defect this repo has now shipped three times: a partial unique index
+ * with no validation rule in front of it.
+ */
+it('refuses an inline person whose address is already in the directory', function (): void {
+    directoryEntry('Sam');
+
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'first_name' => 'Samuel',
+        'email' => 'sam@example.test',
+        'participant_role' => ParticipantRole::Buyer->value,
+    ])->assertSessionHasErrors('email');
+
+    expect(DealParticipant::query()->count())->toBe(0)
+        ->and(TeamMembership::query()->whereRaw('lower(email) = ?', ['sam@example.test'])->count())->toBe(1);
+});
+
+it('folds the address before comparing it, like the index does', function (): void {
+    // `PersonRules::prepareForValidation()` comes with the trait. Without the
+    // fold, `SAM@example.test` walks past a rule comparing against
+    // `lower(email)` and lands on the index as a 500.
+    directoryEntry('Sam');
+
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'first_name' => 'Samuel',
+        'email' => 'SAM@Example.TEST',
+        'participant_role' => ParticipantRole::Buyer->value,
+    ])->assertSessionHasErrors('email');
+});
+
+it('still lets an existing person be picked while the rule is on', function (): void {
+    // The control: the uniqueness rule applies to the create-inline branch
+    // only, so picking somebody from the directory is not refused for having
+    // the address they already have.
+    $claire = directoryEntry();
+
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'team_membership_id' => $claire->getKey(),
+        'participant_role' => ParticipantRole::Seller->value,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(DealParticipant::query()->count())->toBe(1);
 });
 
 it('allows the same person in a second role, because people do hold two parts', function (): void {
@@ -243,6 +314,24 @@ it('refuses to move somebody into a role they already hold here', function (): v
 /**
  * IA §7: Remove detaches, Delete destroys.
  */
+it('leaves alone what a partial update did not send', function (): void {
+    // `SavePerson::applyIdentity()` states the rule: a partial update must not
+    // blank a column the screen did not show. A PATCH carrying only a role
+    // used to demote a main contact and erase their notes.
+    $claire = directoryEntry();
+
+    $participant = app(DealRoster::class)
+        ->add($this->deal, $claire, ParticipantRole::Seller, isPrimary: true, notes: 'Prefers evenings.');
+
+    $this->patch("/deals/{$this->deal->getKey()}/people/{$participant->getKey()}", [
+        'participant_role' => ParticipantRole::Buyer->value,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($participant->fresh()->is_primary)->toBeTrue()
+        ->and($participant->fresh()->notes)->toBe('Prefers evenings.')
+        ->and($participant->fresh()->participant_role)->toBe(ParticipantRole::Buyer);
+});
+
 it('removes a participant without touching the directory', function (): void {
     $claire = directoryEntry();
 

@@ -7,12 +7,14 @@ namespace App\Http\Controllers\Deals;
 use App\Actions\People\SavePerson;
 use App\Enums\ParticipantRole;
 use App\Enums\PersonLifecycleState;
+use App\Enums\PersonSegment;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Deals\StoreParticipantRequest;
 use App\Http\Requests\Deals\UpdateParticipantRequest;
 use App\Models\Deal;
 use App\Models\DealParticipant;
 use App\Models\TeamMembership;
+use App\Queries\PeopleDirectory;
 use App\Support\Deals\DealRoster;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -50,7 +52,6 @@ class ParticipantController extends Controller
             'deal' => [
                 'id' => $deal->getKey(),
                 'name' => $deal->displayName(),
-                'state' => $deal->state->value,
                 'sideLabel' => $deal->dealType->side->label(),
             ],
             /*
@@ -61,6 +62,17 @@ class ParticipantController extends Controller
              */
             'roles' => $deal->participants
                 ->groupBy(fn (DealParticipant $participant): string => $participant->participant_role->value)
+                /*
+                 * In PRD §6.3 order — Seller and Buyer first — rather than in
+                 * whatever order somebody happened to add people. A deal where
+                 * the inspector was booked before the listing agreement was
+                 * signed should not render Inspector above Seller.
+                 */
+                ->sortBy(fn ($group, string $role): int => array_search(
+                    $role,
+                    array_column(ParticipantRole::cases(), 'value'),
+                    true,
+                ) ?: 0)
                 ->map(fn ($group, string $role): array => [
                     'role' => $role,
                     'label' => ParticipantRole::from($role)->label(),
@@ -93,33 +105,40 @@ class ParticipantController extends Controller
      * modal can warn before the submit rather than after it — the same
      * before-the-choice rule S76 follows for its in-use count.
      */
-    public function candidates(Request $request, Deal $deal, DealRoster $roster): JsonResponse
-    {
+    public function candidates(
+        Request $request,
+        Deal $deal,
+        DealRoster $roster,
+        PeopleDirectory $directory,
+    ): JsonResponse {
         $this->authorize('create', [DealParticipant::class, $deal]);
 
-        $term = trim((string) $request->query('q', ''));
-
-        $memberships = TeamMembership::query()
-            ->whereNull('revoked_at')
-            ->when($term !== '', fn ($query) => $query->where(
-                fn ($inner) => $inner
-                    ->whereRaw('lower(first_name) like ?', ['%'.mb_strtolower($term).'%'])
-                    ->orWhereRaw('lower(last_name) like ?', ['%'.mb_strtolower($term).'%'])
-                    ->orWhereRaw('lower(email) like ?', ['%'.mb_strtolower($term).'%']),
-            ))
+        /*
+         * The directory's own search, not a second one.
+         *
+         * The first version re-implemented it here and had already drifted —
+         * no phone, no `coalesce`, so a null surname dropped the row. ADR
+         * 0002's own guidance is to reach for the thing that already carries
+         * the behaviour, and this is that applied to a query rather than to a
+         * tenancy layer.
+         */
+        $memberships = $directory
+            ->query(PersonSegment::All, trim((string) $request->query('q', '')))
+            ->whereNull('team_memberships.revoked_at')
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->limit(20)
             ->get();
+
+        // One query for the whole page of candidates, not one per row.
+        $heldRoles = $roster->rolesAlreadyHeld($deal, $memberships);
 
         return response()->json([
             'candidates' => $memberships->map(fn (TeamMembership $membership): array => [
                 'id' => $membership->getKey(),
                 'name' => $membership->fullName(),
                 'email' => $membership->email,
-                'heldRoles' => $roster->rolesAlreadyHeld($deal, $membership)
-                    ->map(fn (ParticipantRole $role): string => $role->label())
-                    ->all(),
+                'heldRoles' => $heldRoles[$membership->getKey()] ?? [],
             ])->values()->all(),
         ]);
     }
@@ -162,11 +181,13 @@ class ParticipantController extends Controller
         DealParticipant $participant,
         DealRoster $roster,
     ): RedirectResponse {
+        // `has()` rather than a default, so an absent key stays absent all the
+        // way to the service rather than arriving as `false`.
         $roster->replace(
             participant: $participant,
             role: ParticipantRole::from((string) $request->validated('participant_role')),
-            isPrimary: (bool) $request->validated('is_primary', false),
-            notes: $request->validated('notes'),
+            isPrimary: $request->has('is_primary') ? $request->boolean('is_primary') : null,
+            notes: $request->has('notes') ? $request->validated('notes') : null,
         );
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Participant updated.')]);

@@ -82,24 +82,47 @@ const wouldDuplicateRole = computed(
 );
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
+let inFlight: AbortController | undefined;
 
 watch([term, () => props.open], ([value, open]) => {
     clearTimeout(searchTimer);
+    /*
+     * A slower earlier response must not land on top of a newer one, and one
+     * still in flight when the dialog closes must not write stale rows that
+     * then show for a moment on reopen.
+     */
+    inFlight?.abort();
 
     if (!open) {
         return;
     }
 
     searchTimer = setTimeout(() => {
+        const controller = new AbortController();
+        inFlight = controller;
+
         void fetch(
             `/deals/${props.dealId}/people/candidates?q=${encodeURIComponent(value)}`,
-            { headers: { Accept: 'application/json' } },
+            {
+                headers: { Accept: 'application/json' },
+                signal: controller.signal,
+            },
         )
             .then((response) =>
                 response.ok ? response.json() : { candidates: [] },
             )
             .then((body: { candidates: Candidate[] }) => {
                 candidates.value = body.candidates;
+            })
+            /*
+             * Offline, or a navigation that aborted the request. Neither is
+             * worth a Sentry event, and an unhandled rejection is what one
+             * becomes — `app.ts` wires Sentry up.
+             */
+            .catch(() => {
+                if (!controller.signal.aborted) {
+                    candidates.value = [];
+                }
             });
     }, 250);
 });
@@ -250,6 +273,12 @@ function submit(): void {
                                 id="participant_last_name"
                                 v-model="form.last_name"
                             />
+                            <p
+                                v-if="form.errors.last_name"
+                                class="text-[11px] text-state-danger"
+                            >
+                                {{ form.errors.last_name }}
+                            </p>
                         </div>
                     </div>
 
@@ -274,6 +303,18 @@ function submit(): void {
                                 id="participant_phone"
                                 v-model="form.phone"
                             />
+                            <!--
+                                Every writable field renders its error. A
+                                pasted phone number over the limit used to
+                                leave the modal open with no message, so the
+                                submit simply appeared to do nothing.
+                            -->
+                            <p
+                                v-if="form.errors.phone"
+                                class="text-[11px] text-state-danger"
+                            >
+                                {{ form.errors.phone }}
+                            </p>
                         </div>
                     </div>
 
@@ -337,6 +378,13 @@ function submit(): void {
                     <input v-model="form.is_primary" type="checkbox" />
                     Main contact for this role
                 </label>
+
+                <p
+                    v-if="form.errors.notes"
+                    class="text-[11px] text-state-danger"
+                >
+                    {{ form.errors.notes }}
+                </p>
 
                 <p
                     v-if="form.errors.team_membership_id"

@@ -29,7 +29,10 @@ class UpdateParticipantRequest extends FormRequest
         // Remove them and add the right person.
         return [
             'participant_role' => ['required', Rule::enum(ParticipantRole::class)],
-            'is_primary' => ['boolean'],
+            // Nullable rather than defaulted, so `DealRoster::replace()` can
+            // tell "not sent" from "set to empty" and leave what the screen
+            // did not show alone.
+            'is_primary' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:10000'],
         ];
     }
