@@ -401,6 +401,63 @@ it('records the roles it takes away when it revives a membership', function (): 
         ->and($entry->after['roles'])->toBe([SystemRole::TeamMember->value]);
 });
 
+it('records a retired role among the ones a revival takes away', function (): void {
+    /*
+     * `sync()` deletes the pivot row for a role the team has since archived
+     * exactly as readily as for a live one, and `Role` soft deletes — so a
+     * plain read of the relation could not see it and the audit entry
+     * understated what was removed. `withTrashed()` is what closes that, and
+     * this is the only thing that exercises it.
+     *
+     * Worth writing even though nothing in the product archives a role yet:
+     * S75 is what will, and by then the reason for `withTrashed()` will be a
+     * line in a diff nobody reads. A test is the executable version of it.
+     */
+    [$team, $owner] = $this->teamWithOwner();
+
+    app(TeamContext::class)->runFor($team, fn () => app(ProvisionTeam::class)
+        ->attachOwner($team, Person::factory()->create()));
+
+    $membership = $owner->membershipIn($team);
+
+    $retired = app(TeamContext::class)->runFor($team, function () use ($team, $membership): Role {
+        $role = Role::factory()->create(['team_id' => $team->getKey(), 'key' => 'closing_coordinator']);
+
+        $membership->roles()->attach($role->getKey());
+
+        // Archived after it was assigned, which is the whole case: the pivot
+        // row outlives the role.
+        $role->delete();
+
+        return $role;
+    });
+
+    expect($retired->fresh()->trashed())->toBeTrue()
+        // And invisible to an ordinary read, which is why the audit needed
+        // asking differently.
+        ->and($membership->fresh()->roles->pluck('key')->all())->not->toContain('closing_coordinator');
+
+    app(TeamContext::class)->runFor($team, fn () => $membership->revoke());
+
+    inviteWithoutSending($team, $this->memberRole, (string) $membership->email);
+
+    app(TeamContext::class)->set(null);
+
+    $this->actingAsPerson($owner);
+
+    $invitation = TeamInvitation::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->pending()
+        ->sole();
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect(route('dashboard'));
+
+    $entry = AuditEntry::query()->where('action', 'membership.roles_replaced')->sole();
+
+    expect($entry->before['roles'])->toContain('closing_coordinator')
+        ->and($entry->after['roles'])->toBe([SystemRole::TeamMember->value]);
+});
+
 it('spends the invitation while another team is resolved, on the emailed path too', function (): void {
     /*
      * The twin of the claim case above. `handle()` had the same latent bug —

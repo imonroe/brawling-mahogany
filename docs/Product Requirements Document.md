@@ -742,7 +742,7 @@ Never synchronous, never trusted.
 
 Underrated, and it will bite. Required at launch: a dedicated sending subdomain, SPF, DKIM, and DMARC verified, SES production access requested early, SNS webhooks for bounces and complaints with automatic suppression, a per-team sending identity with reply-to pointing at the actual agent, and one-click unsubscribe on anything not strictly transactional.
 
-### 8.5.1 No user flow depends on email alone
+#### 8.5.1 No user flow depends on email alone (new in v0.4)
 
 **Every flow the product initiates by email carries a second way to start it or answer it that does not involve email.** See [[adr/0003-no-email-only-flows|ADR 0003]].
 
