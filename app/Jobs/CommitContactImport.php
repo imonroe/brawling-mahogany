@@ -86,6 +86,11 @@ class CommitContactImport implements ShouldQueue
                 // The uploaded file has done its job and is a copy of somebody's
                 // whole client list sitting in object storage.
                 'disk_path' => null,
+                // So is the preview, and it outlived the file it was parsed
+                // from: the same names, addresses, and numbers in a jsonb
+                // column with no retention on it. Deleting one and keeping
+                // the other was the file deletion honoured on paper.
+                'preview' => null,
             ])->save();
 
             if ($uploadedFile !== null) {

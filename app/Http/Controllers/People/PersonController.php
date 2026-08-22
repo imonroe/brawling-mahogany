@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\People;
 
 use App\Actions\People\SavePerson;
+use App\Actions\Teams\RevokeMembership;
 use App\Enums\PersonLifecycleState;
 use App\Enums\PersonSegment;
 use App\Http\Controllers\Controller;
@@ -13,6 +14,7 @@ use App\Http\Requests\People\UpdatePersonRequest;
 use App\Models\ActivityEvent;
 use App\Models\TeamMembership;
 use App\Queries\PeopleDirectory;
+use App\Support\Audit\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -98,11 +100,48 @@ class PersonController extends Controller
      * Soft delete, which is the 30-day recovery window PRD §9 requires. The
      * shared `Person` row is untouched — another team may still know them.
      */
-    public function destroy(TeamMembership $membership): RedirectResponse
+    /**
+     * Remove somebody from the directory — which is not the same act as
+     * taking away their access, and must not become a way of doing it.
+     *
+     * Slice 1's fourth review found the two apart. This route and
+     * `MemberController::revoke()` reach the same `team_memberships` row;
+     * only the members screen asked `guardLastOwner()`, and only the members
+     * screen wanted `team.members.manage`. A Team Member holds `people.manage`
+     * and not the other, so the *lower*-privileged role could delete the last
+     * Team Owner's membership here after being refused there — leaving a team
+     * nobody could administer, no route in `/admin` to repair it, and nothing
+     * in the audit log naming who did it.
+     *
+     * So the membership decides which act this is. One that carries access is
+     * a revocation: it needs the access permission, it goes through
+     * `RevokeMembership` so the last-owner rule and the audit entry come with
+     * it, and it sets `revoked_at` rather than deleting, because PRD F1.3
+     * keeps historical attribution. One that carries none is an ordinary
+     * contact, and removing them is what this screen is for.
+     */
+    public function destroy(TeamMembership $membership, RevokeMembership $revoke, AuditLogger $audit): RedirectResponse
     {
         $this->authorize('delete', $membership);
 
+        if ($membership->carriesAccess()) {
+            $this->authorize('manageAccess', $membership);
+
+            $revoke->handle($membership);
+
+            Inertia::flash('toast', ['type' => 'success', 'message' => __('Access revoked.')]);
+
+            return to_route('people.index');
+        }
+
         $membership->delete();
+
+        $audit->record(
+            action: 'membership.removed',
+            auditable: $membership,
+            teamId: $membership->team_id,
+            before: ['person_id' => $membership->person_id],
+        );
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Person removed from this team.')]);
 
@@ -124,7 +163,13 @@ class PersonController extends Controller
         $email = trim((string) $request->query('email', ''));
 
         $membership = $email === '' ? null : TeamMembership::query()
-            ->whereHas('person', fn ($query) => $query->whereRaw('lower(email) = ?', [mb_strtolower($email)]))
+            // `person()` reads trashed records so a deleted account still
+            // renders where it is being remembered. It should not still be
+            // offered as somebody to open: "you already have them" about an
+            // account that has been deleted is an offer that goes nowhere.
+            ->whereHas('person', fn ($query) => $query
+                ->whereNull('deleted_at')
+                ->whereRaw('lower(email) = ?', [mb_strtolower($email)]))
             ->with('person:id,first_name,last_name')
             ->first();
 

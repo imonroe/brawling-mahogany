@@ -6,7 +6,6 @@ namespace App\Actions\Teams;
 
 use App\Enums\SystemRole;
 use App\Models\Person;
-use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use Illuminate\Validation\ValidationException;
@@ -84,18 +83,6 @@ final class RevokeMembership
             ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
             ->whereHas('person', fn ($query) => $query->whereNotNull('password'))
             ->count();
-    }
-
-    /**
-     * The same rule, asked before a role change rather than a revocation.
-     */
-    public function guardLastOwnerRoleChange(Team $team, TeamMembership $membership, bool $keepsOwnerRole): void
-    {
-        if ($keepsOwnerRole) {
-            return;
-        }
-
-        $this->guardLastOwner($membership);
     }
 
     /**

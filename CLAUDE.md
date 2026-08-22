@@ -85,7 +85,7 @@ These come from PRD §8 and should guide the eventual build:
 | `composer check` | Pint, PHPStan, Pest |
 | `npm run check` | Wayfinder, ESLint, Prettier, `vue-tsc`, Vitest |
 | `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
-| `php artisan records:purge` | The 30-day retention purge (PRD §9). Scheduled nightly; safe to run by hand |
+| `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 
 `composer check` and `npm run check` are exactly what the pipeline runs. If one
 passes locally and fails in CI, that is a bug in the scripts, not something to
@@ -181,7 +181,16 @@ Two services own their tables and nothing else writes to them:
 `App\Support\Activity\RecordActivity` for `activity_events`, and
 `App\Support\Audit\AuditLogger` for `audit_log`. The audit log redacts
 known-sensitive attributes before writing, and the table's own triggers refuse
-an UPDATE or a DELETE.
+an UPDATE, a DELETE, or a TRUNCATE.
+
+**A table with no `team_id` is outside every mechanism that keys on one.** Not
+just the five enforcement layers — the retention purge discovers its tables the
+same way, so `people` was never purged, and the identity-write rule had to move
+onto the model because no scope was going to hold it. Six models carry no
+`team_id` today; the next one needs its own reasoning for reads, writes, and
+retention rather than the protection the team-scoped tables inherit. See
+[`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"The hole the
+layers do not cover"*.
 
 ### Testing
 

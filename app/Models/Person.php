@@ -163,6 +163,13 @@ class Person extends Authenticatable implements PasskeyUser
 
         // Their own record, edited by them at /settings/profile. Nobody else's
         // rule applies to a person editing themselves.
+        //
+        // Ambient `auth()`, deliberately, and it fails in the safe direction:
+        // a context with no authenticated person — a queued job on the real
+        // Redis driver, a console command — takes the other branch and gets
+        // the check rather than the exemption. The only cost is that somebody
+        // could not edit their own identity from a queued job, and nothing
+        // does.
         $actor = auth()->user();
 
         if ($actor instanceof self && $actor->getKey() === $this->getKey()) {
@@ -230,9 +237,15 @@ class Person extends Authenticatable implements PasskeyUser
             return false;
         }
 
+        $ours = $this->membershipIn($team)?->getKey();
+
         return ! TeamMembership::withoutTeamScope()
             ->where('person_id', $this->getKey())
-            ->whereKeyNot(optional($this->membershipIn($team))->getKey() ?? '')
+            // Every membership *except* this team's. Guarded rather than
+            // passed an empty string: `whereKeyNot('')` happens to match every
+            // row on a `character(26)` key, and would raise the day a key
+            // column becomes a `uuid`.
+            ->when($ours !== null, fn (Builder $query) => $query->whereKeyNot($ours))
             ->whereNull('revoked_at')
             ->exists();
     }

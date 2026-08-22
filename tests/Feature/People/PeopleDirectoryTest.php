@@ -303,6 +303,99 @@ it('keeps the shared person when a team removes them', function (): void {
         ->and(Person::query()->find($personId))->not->toBeNull();
 });
 
+/**
+ * The directory and the members screen reach the same row, and only one of
+ * them was asking the last-owner rule.
+ *
+ * A Team Member holds `people.manage` and not `team.members.manage`, so the
+ * *lower*-privileged role had a route to do what the members screen refused
+ * them: delete the last Team Owner's membership, leaving a team nobody could
+ * administer and no route in `/admin` to repair it.
+ */
+it('refuses to remove somebody’s access from the directory screen', function (): void {
+    $ownerMembership = ownerMembershipOf($this->team);
+
+    // Refused on the members screen, for want of `team.members.manage`…
+    $this->delete("/settings/members/{$ownerMembership->getKey()}")->assertForbidden();
+
+    // …and refused here too, for the same want.
+    $this->delete("/people/{$ownerMembership->getKey()}")->assertForbidden();
+
+    expect(TeamMembership::withoutTeamScope()->find($ownerMembership->getKey()))->not->toBeNull()
+        ->and($ownerMembership->person->fresh()->activeTeams()->count())->toBe(1);
+});
+
+it('revokes rather than deletes when the person holds access', function (): void {
+    [$team, $owner] = $this->teamWithOwner();
+    $this->enrollTwoFactor($owner);
+
+    $second = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($team, function () use ($team, $second): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $second->getKey(),
+            'status' => PersonLifecycleState::Active,
+        ]);
+
+        $membership->roles()->attach(
+            App\Models\Role::query()->whereNull('team_id')->where('key', 'team_member')->sole()->getKey(),
+        );
+    });
+
+    $this->actingAsPerson($owner, $team);
+
+    $membership = $second->membershipIn($team);
+
+    $this->delete("/people/{$membership->getKey()}")->assertRedirect('/people');
+
+    // Revoked, not deleted: PRD F1.3 keeps their name on everything they did.
+    $membership = TeamMembership::withoutTeamScope()->find($membership->getKey());
+
+    expect($membership)->not->toBeNull()
+        ->and($membership->revoked_at)->not->toBeNull()
+        ->and(App\Models\AuditEntry::query()->where('action', 'membership.revoked')->exists())->toBeTrue();
+});
+
+it('refuses to remove the last owner even with the access permission', function (): void {
+    [$team, $owner] = $this->teamWithOwner();
+    $this->enrollTwoFactor($owner);
+
+    $this->actingAsPerson($owner, $team);
+
+    $membership = $owner->membershipIn($team);
+
+    $this->delete("/people/{$membership->getKey()}")
+        ->assertSessionHasErrors('membership');
+
+    expect(TeamMembership::withoutTeamScope()->find($membership->getKey())->revoked_at)->toBeNull();
+});
+
+it('writes an audit entry when an ordinary contact is removed', function (): void {
+    $membership = membershipFor($this->team, 'Claire', PersonLifecycleState::Active);
+
+    $this->delete("/people/{$membership->getKey()}")->assertRedirect('/people');
+
+    expect(App\Models\AuditEntry::query()
+        ->where('action', 'membership.removed')
+        ->where('auditable_id', $membership->getKey())
+        ->exists())->toBeTrue();
+});
+
+it('does not offer a deleted account as a duplicate', function (): void {
+    $membership = membershipFor($this->team, 'Claire', PersonLifecycleState::Active, email: 'claire@example.test');
+
+    $this->getJson('/people/lookup?email=claire@example.test')
+        ->assertOk()
+        ->assertJsonPath('duplicate.id', $membership->getKey());
+
+    $membership->person->delete();
+
+    $this->getJson('/people/lookup?email=claire@example.test')
+        ->assertOk()
+        ->assertJsonPath('duplicate', null);
+});
+
 it('refuses a person without the permission', function (): void {
     // Deny by default (PRD §9). A Contact holds nothing at all.
     $contact = Person::factory()->create();
@@ -344,4 +437,14 @@ function membershipFor(
         'status' => $status,
         'is_vendor' => $vendor,
     ]));
+}
+
+/** The Team Owner's membership, found without a team scope in the way. */
+function ownerMembershipOf(App\Models\Team $team): TeamMembership
+{
+    return TeamMembership::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->with('roles', 'person')
+        ->get()
+        ->first(fn (TeamMembership $membership): bool => $membership->hasRole('team_owner'));
 }

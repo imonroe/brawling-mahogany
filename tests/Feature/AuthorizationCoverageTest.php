@@ -45,9 +45,12 @@ const UNGATED_ROUTES = [
     'security.edit',
     'user-password.update',
 
-    // Every `/admin` route sits behind `super-admin`, which is a stronger
-    // gate than a policy: it 404s rather than 403s so the namespace does not
-    // confirm itself (issue #52).
+    // The one `/admin` route deliberately *not* behind `super-admin` — an
+    // impersonating session holds the impersonated person's permissions, so
+    // requiring the super-admin gate to stop impersonating would trap them
+    // in it. Safe without one because there is nothing to authorize:
+    // `Impersonation::stop()` returns immediately when the session key is
+    // absent, so a caller who is not impersonating gets a no-op.
     'impersonation.destroy',
 ];
 

@@ -84,10 +84,19 @@ trait BelongsToTeam
     /**
      * Lift the scope for one query.
      *
-     * ADR 0002: *"`withoutTeamScope()` exists for exactly two callers — the
-     * super-admin console and the console commands that operate across teams
-     * — and both are audited."* It is spelled out rather than aliased to
-     * `withoutGlobalScope` so that grepping for it finds every use.
+     * Spelled out rather than aliased to `withoutGlobalScope` so that
+     * grepping for it finds every use — and
+     * `tests/Isolation/UnscopedQueryConventionTest.php` does exactly that,
+     * failing on a call site that has not been given a reason.
+     *
+     * ADR 0002 originally said this existed *"for exactly two callers"*. It
+     * has thirteen, and counting them in prose was never going to hold: the
+     * commit that raised the number edited a different paragraph of the same
+     * document. The rule that does hold is narrower and checkable — an
+     * unscoped query may ask about **the actor** (which teams am I in, am I
+     * the last owner anywhere, is 2FA mandatory for me) or run in a context
+     * that has no tenant by definition (the super-admin console, a console
+     * command, accepting an invitation). It may never read tenant data.
      *
      * @return Builder<static>
      */

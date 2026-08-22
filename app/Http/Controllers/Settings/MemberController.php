@@ -84,7 +84,12 @@ class MemberController extends Controller
                     fn ($query) => $query->where(fn ($inner) => $inner
                         ->whereNull('team_id')
                         ->orWhere('team_id', $team->getKey()))
-                        ->where('key', '!=', 'super_administrator'),
+                        ->where('key', '!=', 'super_administrator')
+                        // A role the team has retired is not a role somebody
+                        // can be invited into. `Rule::exists` reads the table
+                        // directly, so the soft-delete scope is not applied
+                        // for us here.
+                        ->whereNull('deleted_at'),
                 ),
             ],
         ]);

@@ -34,10 +34,11 @@ A `BelongsToTeam` trait applies a global scope constraining every query to the
 current team. The point is the failure mode: a developer who forgets a `where`
 gets *no rows*, not *everybody's rows*.
 
-The scope is not removable by convenience. `withoutTeamScope()` exists for a
-named, countable set of callers — the super-admin console and the console
-commands that operate across teams — and each is audited (layer 5 below). See
-*Decided since* for what Slice 1 found that list actually has to contain.
+The scope is not removable by convenience. `withoutTeamScope()` is spelled out
+rather than aliased, so grepping finds every use — and
+`tests/Isolation/UnscopedQueryConventionTest.php` greps, failing on a call site
+that has not been given a reason. See *Decided since* for the rule that
+survived contact with the code.
 
 ### 2. Database constraints where they can be expressed
 
@@ -79,6 +80,10 @@ the decision unskippable before there is anything to leak.
 - A team-scoped route may also name a team. When the session and the route
   disagree, the request is rejected rather than reconciled — silently switching
   a person's team on a link click is how people act in the wrong context.
+  **Not yet implemented, because nothing needs it yet:** no tenant route in
+  Slice 1 names a team — they bind a team-scoped model and let the global
+  scope do the isolation — and `/admin`, which does name teams, runs outside
+  this middleware. The first tenant route that takes a `{team}` builds this.
 
 ### The contexts with no session, which is where this usually breaks
 
@@ -163,11 +168,32 @@ Two things the implementation added that the decision did not name:
   and identical everywhere), `audit_log` (outlives the team it describes), and
   `passkeys` (a credential belongs to a human, not a tenancy — somebody who
   works for two teams signs in once).
-- **`withoutTeamScope()` has three callers**, not two: the super admin console,
-  the console commands that operate across teams, and the invitation-accept
-  route — which has no team context by definition, because the token is what
-  establishes one. Each is audited or, in the invitation's case, constrained
-  to a single hashed token.
+- **`withoutTeamScope()` is not a list of callers, it is a rule.** This ADR
+  said two callers, then three. The code had thirteen, and the commit that
+  raised the count was editing a different paragraph of this file at the time.
+  Counting in prose does not work, so the count moved to
+  `tests/Isolation/UnscopedQueryConventionTest.php`, which fails on a call
+  site that has not been given a reason.
+
+  The rule the reasons have to satisfy is narrower than a list and holds as
+  the code grows. An unscoped query may ask **about the actor** — which teams
+  am I in, am I the last owner anywhere, is 2FA mandatory for me — because
+  those questions span teams by nature and scoping them is what makes them
+  wrong. (Slice 1 shipped that exact bug: `guardLastOwnerAnywhere()` asked a
+  cross-team question through the scope and got zero every time.) Or it may
+  run in **a context with no tenant**: the super-admin console, a console
+  command iterating teams explicitly, the invitation-accept route whose hashed
+  token is what establishes a team at all.
+
+  It may never read *tenant data* — somebody's deals, their people, their
+  documents. No reason written in the allow-list makes that acceptable.
+
+  Worth naming the busiest one, because it surprises: `Person::membershipIn()`
+  runs unscoped on every `authorize()` call, through
+  `ChecksTeamPermissions`. It is asking which membership the actor holds in a
+  team it was handed, which is the first kind, and it is not separately
+  audited — auditing every authorization check would drown the log the audit
+  requirements exist to keep readable.
 
 ## The hole the layers do not cover
 
@@ -195,6 +221,12 @@ Slice 1's review found both halves of what that costs:
 - **Reads**, open and filed as issue #140. Adding somebody by an existing
   address shows the team what another team supplied. That is the shared-record
   decision working as designed, and it is still a cross-tenant disclosure.
+- **Retention**, closed in round 4. `records:purge` discovers its tables by
+  looking for `BelongsToTeam`, so the one table that cannot carry the trait was
+  the one table the 30-day window never closed on — the table holding password
+  hashes and two-factor secrets. `people` is now purged explicitly, outside the
+  per-team loop. The same shape as the other two: a mechanism built around
+  `team_id`, and the shared table sitting outside it.
 
 The lesson for the next shared table: **a table without `team_id` is outside
 every layer in this document.** Five of the six exceptions are reference data

@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\CommitContactImport;
 use App\Jobs\ParseContactImport;
 use App\Models\ContactImport;
+use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -44,7 +45,7 @@ class ContactImportController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, TeamContext $teams): RedirectResponse
     {
         $this->authorize('create', ContactImport::class);
 
@@ -67,7 +68,12 @@ class ContactImportController extends Controller
             'source' => $source,
             'state' => ContactImportState::Pending,
             'original_filename' => $request->file('file')->getClientOriginalName(),
-            'disk_path' => $request->file('file')->store('imports/'.$request->user()->getKey()),
+            // Keyed by team, not by uploader. The retention purge sweeps a
+            // team's prefixes when the team goes (issue #57: *"no rows and no
+            // files"*), and a person-keyed prefix left an abandoned CSV — a
+            // copy of somebody's whole client list — with nothing pointing at
+            // it and nothing sweeping it.
+            'disk_path' => $request->file('file')->store('imports/'.$teams->requireId('contact import')),
         ]);
 
         dispatch((new ParseContactImport($import->getKey()))->forTeam($import->team_id));

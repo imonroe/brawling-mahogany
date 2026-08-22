@@ -238,3 +238,96 @@ it('runs with no ambient team of its own', function (): void {
 
     unset($teamA, $teamB);
 });
+
+/**
+ * `people` is the table the discovery mechanism could never find.
+ *
+ * `purgeableTables()` looks for `BelongsToTeam`, and `Person` deliberately
+ * does not carry it — that is the shared-record decision (#18). So the one
+ * table holding password hashes and two-factor secrets sat outside the 30-day
+ * window entirely, and §9's *"then hard delete"* stopped at the soft delete.
+ */
+it('hard-deletes an account once its window closes', function (): void {
+    $this->freezeAt('2026-01-01 03:00:00');
+
+    $person = Person::factory()->create(['email' => 'gone@example.test']);
+    $person->delete();
+
+    $this->freezeAt('2026-02-05 03:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(Person::query()->withTrashed()->find($person->getKey()))->toBeNull();
+});
+
+it('leaves a deleted account alone inside its window', function (): void {
+    $this->freezeAt('2026-01-01 03:00:00');
+
+    $person = Person::factory()->create();
+    $person->delete();
+
+    $this->freezeAt('2026-01-20 03:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(Person::query()->withTrashed()->find($person->getKey()))->not->toBeNull();
+});
+
+it('leaves a live account alone however long it has been there', function (): void {
+    $this->freezeAt('2020-01-01 03:00:00');
+
+    $person = Person::factory()->create();
+
+    $this->freezeAt('2026-08-01 03:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(Person::query()->find($person->getKey()))->not->toBeNull();
+});
+
+/**
+ * What the schema decided, asserted rather than assumed.
+ *
+ * A purge is not a revocation, and the two obligations pull opposite ways:
+ * F1.3 keeps a revoked person's name on everything they did, and §9 removes a
+ * deleted person once the window closes. The foreign keys already choose —
+ * attribution columns null, memberships and credentials cascade — and this
+ * pins the choice so a later migration cannot quietly reverse it.
+ */
+it('leaves the team’s record of what happened, with the human removed from it', function (): void {
+    [$team, $owner] = $this->teamWithOwner();
+    $this->withTeam($team);
+
+    $this->freezeAt('2026-01-01 03:00:00');
+
+    $person = Person::factory()->create();
+
+    $membership = TeamMembership::factory()->create([
+        'team_id' => $team->getKey(),
+        'person_id' => $person->getKey(),
+    ]);
+
+    $event = ActivityEvent::factory()->create([
+        'team_id' => $team->getKey(),
+        'actor_person_id' => $person->getKey(),
+    ]);
+
+    $person->delete();
+
+    $this->freezeAt('2026-02-05 03:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    // The event survives; the name on it does not.
+    $event->refresh();
+    expect($event->actor_person_id)->toBeNull();
+
+    // The membership was nothing without the person.
+    expect(TeamMembership::withoutTeamScope()->withTrashed()->find($membership->getKey()))->toBeNull();
+
+    // And the purge itself is on the record.
+    expect(AuditEntry::query()->where('action', 'person.purged')->where('auditable_id', $person->getKey())->exists())
+        ->toBeTrue();
+
+    unset($owner);
+});

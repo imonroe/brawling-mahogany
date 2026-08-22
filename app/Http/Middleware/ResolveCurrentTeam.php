@@ -13,11 +13,17 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Enforcement layer 3 (ADR 0002): resolve the team, reject a mismatch.
  *
- * **Session first, route second, and they must agree.** A signed-in person
- * carries a current team in the session, set at sign-in and changed only
- * through the team switcher (S09). When a route also names a team and the two
- * disagree the request is rejected rather than reconciled — silently switching
- * somebody's team on a link click is how people act in the wrong context.
+ * **Session only, so far.** A signed-in person carries a current team in the
+ * session, set at sign-in and changed only through the team switcher (S09).
+ * That is the whole of it today, because no tenant route names a team: every
+ * one of them binds a team-scoped model instead and lets the global scope do
+ * the isolation. `/admin` names teams and sits outside this middleware.
+ *
+ * ADR 0002's *"session first, route second, and they must agree"* is the rule
+ * for the first tenant route that does name one — rejecting rather than
+ * reconciling, because silently switching somebody's team on a link click is
+ * how people act in the wrong context. There is nothing here implementing it
+ * yet, and this docblock said there was.
  *
  * A team the person has no live membership in is a **404**, never a 403: a 403
  * confirms the record exists, and that is itself a disclosure.

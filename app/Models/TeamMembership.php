@@ -146,6 +146,25 @@ class TeamMembership extends Model
     }
 
     /**
+     * Does this membership let somebody *act* in the team, or merely describe
+     * somebody the team knows?
+     *
+     * The distinction is the whole reason the directory and the members
+     * screen are separate screens with separate permissions. A client, a
+     * vendor, and an opposing agent all hold a membership — that is what the
+     * table is for — and none of them can open the dashboard. A Team Owner
+     * holds one too, and removing theirs is an access change.
+     *
+     * The test is holding a role that carries at least one permission, the
+     * same test `Person::activeTeams()` applies, so a team's own composed
+     * roles (PRD F2.3) are covered without a list of keys to maintain.
+     */
+    public function carriesAccess(): bool
+    {
+        return $this->permissionKeys() !== [];
+    }
+
+    /**
      * @param  Builder<self>  $query
      * @return Builder<self>
      */
