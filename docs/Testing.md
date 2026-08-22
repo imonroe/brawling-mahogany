@@ -131,6 +131,7 @@ remembering them:
 | `tests/js/tokenDiscipline.test.ts` | No raw hex and no Tailwind palette class in a component | Design System §2.1 |
 | `tests/js/tokens.test.ts` | Every state pair meets 4.5:1 in both themes; every colour token exists in both | Design System §11, §13.2 rule 8 |
 | `tests/js/controlSizes.test.ts` | Every button and input size matches the measured control table | Design System §4.2, §7.2, §11 |
+| `tests/js/cssDependencies.test.ts` | Every package `app.css` imports is declared *and* installed — run inside the container by `make check`, so a stale dependency volume fails loudly instead of as a blank page | issue #22 |
 | `tests/Unit/ProvisionEnvBlockTest.php` | The provisioning script's managed `.env` block wins over each competing spelling in its dataset, refuses a file it cannot read unambiguously, and never rotates `APP_KEY` | issue #36, Deployment §6 |
 | `tests/Unit/BranchProtectionTest.php` | `scripts/protect-branches.sh`, `ci.yml`'s job names, and Deployment §7 agree — and every CI job has a `name:`, since an unnamed one cannot be required | issue #24, Deployment §7 |
 
