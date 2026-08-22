@@ -1,20 +1,20 @@
 ---
 created: 2026-08-20
 modified: 2026-08-22
-project: Brawling Mahogany
+project: Goldieflow
 type: plan
 status: draft
 version: 1.0
 tags:
   - monroe-digital
   - plan
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Build Plan
 
 > [!info] What this document is for
-> The order of operations for building Brawling Mahogany, and the map from that order to the GitHub issue backlog.
+> The order of operations for building Goldieflow, and the map from that order to the GitHub issue backlog.
 >
 > It does not restate scope. [[Product Requirements Document]] is the source of truth for what gets built, [[Information Architecture]] for what everything is called, [[Screen Inventory]] for which screens exist, and [[Design System]] for how they look. This document answers only: **in what order, and why that order.**
 

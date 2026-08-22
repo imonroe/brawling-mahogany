@@ -1,8 +1,8 @@
-# Brawling Mahogany
+# Goldieflow
 
-*Working codename — product name TBD.*
+*Working name — after Goldie, Emily's Great Dane. `goldieflow.com` is secured, but the launch name is not final.*
 
-Brawling Mahogany is a multi-tenant web application for small, independent real estate teams that runs the **process** side of the practice, not just the contacts.
+Goldieflow is a multi-tenant web application for small, independent real estate teams that runs the **process** side of the practice, not just the contacts.
 
 Most tools in this space are contact databases with a task list bolted on. This one is built around the opposite bet: the unit of value isn't the contact record, it's the **workflow** — a repeatable, gated sequence of stages that every deal of a given type has to pass through, with client communication firing automatically at the right moments.
 

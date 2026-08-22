@@ -1,21 +1,21 @@
 ---
 created: 2026-08-19
 modified: 2026-08-22
-project: Brawling Mahogany
+project: Goldieflow
 type: prd
 status: draft
-version: 0.4
+version: 0.5
 tags:
   - monroe-digital
   - prd
   - real-estate
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Product Requirements Document
 
 > [!info] Document status
-> **Draft v0.4**, last revised 2026-08-22.
+> **Draft v0.5**, last revised 2026-08-22.
 >
 > Sources: [[The basic idea]] (Ian's originating brain dump), [[Rough data model.canvas]], and [[Conversation with Emily and Heather]] (2026-08-20 working session).
 >
@@ -24,6 +24,8 @@ tags:
 > **v0.3** applies the terminology set by [[Information Architecture]]. No scope changed. Every occurrence of *Project* became *Deal*, every *Milestone* became *Stage*, and *Milestone* was reassigned to a narrower meaning. Feature IDs (F1.1, F4.8, and so on) are unchanged and remain the stable references used by [[Screen Inventory]].
 >
 > **v0.4** records what slice 1 settled. Three open questions closed — shared person records (Q7), Vendor as a flag rather than a status, and whether a team's data export carries document *files* — and the `users` table became `people`, which §6.2 had described all along. No scope changed.
+>
+> **v0.5** replaces the `Brawling Mahogany` codename with the working name **Goldieflow**. Documentation only. No scope changed and no feature IDs changed. Infrastructure identifiers — containers, volumes, the test database, the staging path, the repository — still carry the old codename on purpose; see `CLAUDE.md`.
 >
 > Everything decided is listed in [[#15. Decision Log]].
 
@@ -48,7 +50,7 @@ tags:
 
 ## 1. Overview
 
-**Brawling Mahogany** (working codename, product name TBD) is a multi-tenant web application that runs the *process* side of a residential real estate practice.
+**Goldieflow** (working name) is a multi-tenant web application that runs the *process* side of a residential real estate practice.
 
 Most tools in this space are contact databases with a task list bolted on. The bet here is different. The unit of value is not the contact record, it is the **workflow**: a repeatable, gated sequence of stages that every deal of a given type must pass through, with the right communication firing automatically at each step.
 
@@ -58,7 +60,7 @@ That bet was directly validated on 2026-08-20. Heather, describing the gap in th
 
 This is a **workflow and client-communication layer**, not a system of record. That distinction is now confirmed rather than assumed. Emily's practice runs on **CTM eContracts** (a Colorado standard, now an MRI Software product) for contracts and signatures. They do not use DocuSign. Executed documents live in CTM, which carries the security obligation along with them. Emily on storing an earnest money check: "We can keep that in CTM because CTM has security. It's also not ours."
 
-Brawling Mahogany sits alongside CTM and the MLS and answers three questions better than either does:
+Goldieflow sits alongside CTM and the MLS and answers three questions better than either does:
 
 1. What has to happen next on this deal, and who owes it?
 2. Has the client been told?
@@ -778,7 +780,7 @@ Not legal advice, and worth a real conversation with a lawyer before taking payi
 | Area | Consideration |
 |---|---|
 | **MLS and IDX data** | The sharpest constraint. MLS listing data is licensed, and storing, displaying, or redistributing it generally requires an IDX, VOW, or broker back-office agreement per MLS. **v1 stores links only, never ingested listing content.** Emily's complaint that the competitor makes you upload an MLS sheet is a symptom of the same constraint, not a solvable product gap. |
-| **CTM eContracts as system of record** | Confirmed in the 2026-08-20 session. Executed contracts and signatures live in CTM, an MRI Software product, and the security obligation lives there with them. Brawling Mahogany must say so explicitly in its own terms rather than inviting users to treat it as an archive. A data-sharing integration with a vendor of MRI's size is not a realistic near-term path. |
+| **CTM eContracts as system of record** | Confirmed in the 2026-08-20 session. Executed contracts and signatures live in CTM, an MRI Software product, and the security obligation lives there with them. Goldieflow must say so explicitly in its own terms rather than inviting users to treat it as an archive. A data-sharing integration with a vendor of MRI's size is not a realistic near-term path. |
 | **Brokerage disclosure clause** | **New in v0.2.** Emily noted her listing agreements now carry a clause disclosing who has access to client information. Any team using this product needs that clause to cover us and, once F10 ships, the AI provider too. Ship template language teams can paste into their own agreements. |
 | **Uploaded financial instruments** | The highest-risk item in the product. An earnest money check image carries a routing and account number. Mitigations in F6.6, F6.7, and section 8.4 reduce exposure but cannot eliminate it. Describe them accurately and do not oversell. |
 | **AI processing of client documents** | **New in v0.2.** Sending a contract to a third-party model is a processing activity requiring a DPA, a no-training commitment, disclosure to the client, and a retention position. Do not ship F10 without all four. |
@@ -985,6 +987,7 @@ Still open, ordered by how much the answer changes the build.
 | 2026-08-22 | **Emily is the first customer, not a business partner** (Q1) | Ian's decision, entering slice 2. It settles what the PRD could not hold both of: this is a multi-tenant product with a pricing model, and Emily is its first paying user. **What follows.** The roadmap is Ian's to set; her process is input rather than specification, and where her way and the general case diverge, the general case wins. Her material goes into the seeded packs as *a* listing workflow, not *the* one. The terms — price, expectations, and the fact that her process informs a product sold to others — need to be in writing before her real client data is in a production system, and #17's customer agreement is where that lands. Heather's question, *"if you build this, you are marketing it to other people"*, was the right one and this is the answer to it |
 | 2026-08-22 | **Person records are separated per team, revising the shared decision of the same day** (Q7) | Slice 2, issue [#140](https://github.com/imonroe/brawling-mahogany/issues/140). Contact details — name, email, phone — move from `people` onto `team_memberships`. `people` keeps only what makes a login work: the sign-in address, the password, the second factor. **Why the reversal.** Sharing was chosen so a stager working for two teams would be one record with one phone number. Once every team-visible field lives on the membership, sharing the row buys nothing — each team holds its own view regardless — and it still costs the disclosure #140 documented: adding somebody by an existing address showed one team what another had typed. A trade-off with no remaining benefit is not a trade-off. **What it changes.** A credential-less contact gets its own `people` row per team, so PRD F2.1's *"one record per human"* now means one record per human **with a login**; the directory entry is the membership. Slice 1's identity-write machinery — the `updating` hook, `identityIsEditableBy()` — is deleted, because the shared row it protected no longer holds anything worth protecting |
 | 2026-08-22 | **A low-contrast team accent warns rather than being silently adjusted** (Design System §15.6) | Slice 1, issue [#55](https://github.com/imonroe/brawling-mahogany/issues/55). The status page is held to WCAG 2.1 AA (§9), and a silently altered colour is a support ticket that arrives later and angrier |
+| 2026-08-22 | **Working name set to Goldieflow**, `goldieflow.com` secured | Ian and Emily; named for Emily's Great Dane. Documentation only — the `Brawling Mahogany` codename stays on containers, volumes, the test database, the staging path, and the repository, because renaming those is an infrastructure migration |
 
 ---
 

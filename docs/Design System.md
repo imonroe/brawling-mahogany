@@ -1,7 +1,7 @@
 ---
 created: 2026-08-20
-modified: 2026-08-21
-project: Brawling Mahogany
+modified: 2026-08-22
+project: Goldieflow
 type: reference
 status: draft
 version: 2.1
@@ -9,13 +9,13 @@ tags:
   - monroe-digital
   - design-system
   - shadcn
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Design System
 
 > [!info] What this document is for
-> The visual and component contract for Brawling Mahogany. What we borrow, what we build, what everything is worth, and the rules that stop 91 screens from drifting apart.
+> The visual and component contract for Goldieflow. What we borrow, what we build, what everything is worth, and the rules that stop 91 screens from drifting apart.
 >
 > **This document is the implementation source of truth.** It is written so that someone who cannot open `designs/Basic Designs.pen` can still build the screens correctly. Every number here is measured from the built designs, not aspirational.
 >
