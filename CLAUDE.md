@@ -51,7 +51,7 @@ Full three-vocabulary table (code / internal label / client-facing label) is in 
 These come from PRD §8 and should guide the eventual build:
 
 - **Template vs. instance split.** Every process entity has a definition layer (`workflow_templates`, `stage_templates`, `gate_templates`, `task_templates`) and a separate runtime layer (`workflows`, `stages`, `gates`, `tasks`). Instantiating a template snapshots it — later template edits must never rewrite an in-flight deal.
-- **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`AdvanceWorkflow` in the PRD's proposal) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly.
+- **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`App\Support\Workflow\AdvanceWorkflow`) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly. **Built in Slice 2**, and held by two tests rather than by memory: `tests/Unit/SingleMutationPathTest.php` reads the source of everything in `app/`, `routes/` and `database/`, and `HasStateMachine`'s `saving` hook refuses an illegal transition however the attribute was written — a source-reading guard alone was walked past three ways in review.
 - **Gate evaluation is data-driven.** One small evaluator per gate type (manual confirmation, required tasks complete, document present, field populated, action completed, date reached, approval), resolved by `gate_type`. Adding a gate type means adding a class, not touching advancement logic.
 - **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
@@ -85,6 +85,7 @@ These come from PRD §8 and should guide the eventual build:
 | `composer check` | Pint, PHPStan, Pest |
 | `npm run check` | Wayfinder, ESLint, Prettier, `vue-tsc`, Vitest |
 | `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
+| `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it (`--demote-last` to skip the only-administrator warning). Audited |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 
 `composer check` and `npm run check` are exactly what the pipeline runs. If one
@@ -143,11 +144,18 @@ Two of these carry a distinction that the short form loses, and both are load-be
 
 - **Person, not User** — *because* "User" means specifically somebody with a
   login. The table is `people` and the model is `App\Models\Person`, which is
-  also the authenticatable: PRD §6.2 F2.1 is *"one record per human, login
-  credentials optional"*, and most of this directory — clients, vendors,
-  opposing agents — has no credentials at all. `password` is nullable, and a
-  null password never authenticates. (Slice 0 shipped an `App\Models\User`
-  from the Laravel skeleton; Slice 1 renamed it, as ADR 0001 said it would.)
+  also the authenticatable. `password` is nullable, and a null password never
+  authenticates. (Slice 0 shipped an `App\Models\User` from the Laravel
+  skeleton; Slice 1 renamed it, as ADR 0001 said it would.)
+
+  **A Person is a login; a `TeamMembership` is a person as a team knows them.**
+  Slice 2 moved name, email, and phone onto the membership (issue #140), so
+  `people` holds credentials and nothing a team types. Anything you want to
+  *show* — a name, a number, an address — comes from the membership, and
+  `TeamMembership::fullName()` is how. PRD F2.1's *"one record per human"* now
+  means one record per human **with a login**; a credential-less contact gets
+  its own row per team, because there is nothing left for a shared one to
+  share.
 - **Activity, not History or Log** — *because* "Audit" means the append-only
   security log. The two are different records with different retention and
   different readers, and merging the words merges the concepts.
@@ -186,11 +194,16 @@ an UPDATE, a DELETE, or a TRUNCATE.
 **A table with no `team_id` is outside every mechanism that keys on one.** Not
 just the five enforcement layers — the retention purge discovers its tables the
 same way, so `people` was never purged, and the identity-write rule had to move
-onto the model because no scope was going to hold it. Six models carry no
-`team_id` today; the next one needs its own reasoning for reads, writes, and
-retention rather than the protection the team-scoped tables inherit. See
+onto the model because no scope was going to hold it.
+
+Slice 2 settled it by **moving the data rather than adding a guard**: contact
+details went onto `team_memberships`, where all five layers and the purge
+already reach. The twelve models that still carry no `team_id` hold credentials
+or reference data and no customer data at all, which is the property that makes
+them safe. Before adding a thirteenth, read
 [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"The hole the
-layers do not cover"*.
+layers do not cover"* — the question is not "can we guard it" but "what does
+sharing buy once the team-visible fields live somewhere else".
 
 ### Testing
 

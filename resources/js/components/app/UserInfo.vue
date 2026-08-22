@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { formatPersonName, personInitials } from '@/lib/formatters';
 import type { Person } from '@/types';
 
@@ -25,15 +25,19 @@ const parts = computed(() => ({
 
 const name = computed(() => formatPersonName(parts.value));
 
-// Compute whether we should show the avatar image
-const showAvatar = computed(
-    () => props.user.avatar && props.user.avatar !== '',
-);
+/*
+ * No avatar branch, deliberately.
+ *
+ * There was one, reading `user.avatar` — a field the server has never sent.
+ * It was always falsy, so the fallback initials were always what rendered,
+ * and the branch read as an uploaded-photo feature that does not exist.
+ * Avatars are not in v1; when they arrive they arrive with a column, a prop,
+ * and an upload screen.
+ */
 </script>
 
 <template>
     <Avatar class="h-8 w-8 overflow-hidden rounded-lg">
-        <AvatarImage v-if="showAvatar" :src="user.avatar!" :alt="name" />
         <AvatarFallback class="rounded-lg text-foreground">
             {{ personInitials(parts) }}
         </AvatarFallback>

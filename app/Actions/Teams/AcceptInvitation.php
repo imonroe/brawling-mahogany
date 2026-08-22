@@ -9,8 +9,10 @@ use App\Models\Person;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
+use App\Support\Teams\InvitationConflict;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Turn an invitation into a membership (Screen Inventory S04).
@@ -39,26 +41,70 @@ final class AcceptInvitation
             // Case-insensitively, because `Emily@Example.test` and
             // `emily@example.test` are one human (PRD decision log,
             // 2026-08-22) and the unique index says so too.
-            $person = Person::query()
-                ->whereRaw('lower(email) = ?', [mb_strtolower($invitation->email)])
+            $address = mb_strtolower($invitation->email);
+
+            /*
+             * Two places somebody with this address might already exist, and
+             * before #140 there was only one.
+             *
+             * A **directory entry** — a client this team added, who holds a
+             * membership carrying the address and a credential-less `people`
+             * row whose own `email` is null. Inviting one is the ordinary case
+             * of promoting a client to the status page, and looking only at
+             * `people` missed it entirely: a second person was created, a
+             * second membership inserted, and the partial unique index on
+             * `(team_id, lower(email))` refused it. A 500 on accept, and no
+             * way to fix it from inside the product.
+             *
+             * An **account** — somebody who already signs in, here or in
+             * another team. That is the case issue #45 is about, and it still
+             * works the way it did: one login, a second membership.
+             */
+            $membership = TeamMembership::withoutTeamScope()
+                ->where('team_id', $invitation->team_id)
+                ->whereRaw('lower(email) = ?', [$address])
+                ->whereNull('revoked_at')
                 ->first();
+
+            $account = Person::query()->whereRaw('lower(email) = ?', [$address])->first();
+
+            $person = $membership instanceof TeamMembership ? $membership->person : $account;
 
             $alreadyHadCredentials = $person instanceof Person && $person->hasCredentials();
 
+            /*
+             * The directory entry and a separate account both exist.
+             *
+             * `MemberController::invite` asks this first, so an invitation
+             * that would land here mostly never gets sent — which matters,
+             * because the person who can fix it is the one typing the address,
+             * not the one holding the link. This is the second ask, because a
+             * contact can be added to the directory *after* the invitation
+             * goes out and a check that only ran at the start would be a check
+             * that stopped being true.
+             */
+            $conflict = InvitationConflict::reasonFor($invitation->team_id, $address);
+
+            if ($conflict !== null) {
+                throw ValidationException::withMessages(['email' => $conflict]);
+            }
+
             if ($person instanceof Person) {
-                // An existing person keeps their name and their record. The
-                // only thing an invitation may add is credentials, and only
-                // when they had none.
+                // An existing person keeps their record. The only thing an
+                // invitation may add is credentials, and only when they had
+                // none — which is what turns a directory entry into an
+                // account without duplicating the human.
                 if (! $alreadyHadCredentials) {
                     $person->forceFill([
+                        'email' => $invitation->email,
                         'password' => $password,
                         'email_verified_at' => now(),
                     ])->save();
                 }
             } else {
+                // The login, and nothing else. Their name belongs to the team
+                // they are joining (#140), so it goes on the membership below.
                 $person = Person::query()->create([
-                    'first_name' => $firstName,
-                    'last_name' => $lastName,
                     'email' => $invitation->email,
                     'password' => $password,
                 ]);
@@ -66,13 +112,45 @@ final class AcceptInvitation
                 $person->forceFill(['email_verified_at' => now()])->save();
             }
 
-            $this->teams->runFor($team, function () use ($invitation, $person): void {
+            $this->teams->runFor($team, function () use ($invitation, $person, $firstName, $lastName): void {
+                // The name goes in the insert, not a follow-up write:
+                // `first_name` is not nullable, so a membership cannot exist
+                // for a moment without one.
                 $membership = TeamMembership::query()->firstOrCreate(
                     ['team_id' => $invitation->team_id, 'person_id' => $person->getKey()],
-                    ['status' => PersonLifecycleState::Active, 'joined_at' => now()],
+                    [
+                        'first_name' => $firstName,
+                        'last_name' => $lastName ?? $invitation->last_name,
+                        'email' => $invitation->email,
+                        'status' => PersonLifecycleState::Active,
+                        'joined_at' => now(),
+                    ],
                 );
 
-                $membership->forceFill(['revoked_at' => null, 'joined_at' => $membership->joined_at ?? now()])->save();
+                /*
+                 * The name the invitee typed, or the one the inviter typed for
+                 * them, on this team's row only. Somebody who already works in
+                 * another team keeps whatever that team calls them — a second
+                 * team is not entitled to rename them anywhere but here.
+                 *
+                 * `firstOrCreate` may have just made the row, and a membership
+                 * with no name renders as a blank line, so a fallback is
+                 * needed: the address before the @, which is the least-bad
+                 * thing anybody knows.
+                 */
+                // The invitee types their own name on the accept screen, and
+                // it is required there — so it always wins. Somebody who
+                // already works in another team keeps whatever that team
+                // calls them: a second team may name them here and nowhere
+                // else.
+                $membership->forceFill([
+                    'first_name' => $firstName,
+                    'last_name' => $lastName ?? $invitation->last_name ?? $membership->last_name,
+                    'email' => $membership->email ?? $invitation->email,
+                    'revoked_at' => null,
+                    'joined_at' => $membership->joined_at ?? now(),
+                ])->save();
+
                 $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
             });
 

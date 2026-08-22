@@ -24,7 +24,7 @@ class AuditController extends Controller
         $action = trim((string) $request->query('action', ''));
 
         return $teams->runWithoutScope(function () use ($action): Response {
-            $query = AuditEntry::query()->with('actor:id,first_name,last_name');
+            $query = AuditEntry::query()->with('actor:id,email');
 
             if ($action !== '') {
                 $query->where('action', $action);
@@ -41,7 +41,12 @@ class AuditController extends Controller
                         'id' => $entry->getKey(),
                         'action' => $entry->action,
                         'teamId' => $entry->team_id,
-                        'actorName' => $entry->actor?->fullName(),
+                        // The console spans teams, and an actor may be a
+                        // platform administrator who is a member of none of
+                        // them. `displayNameWithin()` falls back to the
+                        // sign-in address, which is theirs rather than a
+                        // client's.
+                        'actorName' => $entry->actor?->displayNameWithin($entry->team),
                         'auditableType' => $entry->auditable_type,
                         'auditableId' => $entry->auditable_id,
                         'reason' => $entry->reason,

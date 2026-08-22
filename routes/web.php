@@ -7,7 +7,9 @@ use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 Route::inertia('/', 'Welcome')->name('home');
 
@@ -26,7 +28,33 @@ Route::post('invitations/{token}', [InvitationController::class, 'accept'])
  * access" state (S09). Deliberately reachable without the `team` middleware,
  * which is what redirects here.
  */
-Route::inertia('no-team', 'Teams/None')
+Route::get('no-team', function () {
+    /*
+     * One prop, and it exists for the first five minutes of a fresh install.
+     *
+     * Before anybody is a platform administrator there is no way forward from
+     * this screen at all: teams come from `/admin`, `/admin` needs the
+     * privilege, and the privilege is set by a console command on purpose (a
+     * screen that grants the highest access in the system is a screen worth
+     * not having). So the screen says which command, but only while it is
+     * true — a revoked member on a running install should be told to ask
+     * their team, not handed operator instructions.
+     */
+    return Inertia::render('Teams/None', [
+        /*
+         * Cached, because the answer changes once in the life of an install
+         * and the question is asked on every render of a screen somebody
+         * lands on repeatedly while they wait for an invitation. A minute of
+         * staleness on "somebody now administers this platform" costs one
+         * refresh; a query per request costs it forever.
+         */
+        'platformHasNoAdministrator' => Cache::remember(
+            'platform.has-administrator',
+            now()->addMinute(),
+            fn (): bool => App\Models\Person::query()->where('is_super_admin', true)->exists(),
+        ) === false,
+    ]);
+})
     ->middleware('auth')
     ->name('teams.none');
 

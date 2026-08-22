@@ -32,10 +32,10 @@ class DemoTeamSeeder extends Seeder
     {
         $teams = app(TeamContext::class);
 
-        $superAdmin = $this->person('ian@example.test', 'Ian', 'Monroe', superAdmin: true);
+        [$superAdmin, $superAdminDetails] = $this->person('ian@example.test', 'Ian', 'Monroe', superAdmin: true);
 
-        $owner = $this->person('emily@example.test', 'Emily', 'Bosart');
-        $member = $this->person('heather@example.test', 'Heather', 'Quinn');
+        [$owner, $ownerDetails] = $this->person('emily@example.test', 'Emily', 'Bosart');
+        [$member, $memberDetails] = $this->person('heather@example.test', 'Heather', 'Quinn');
 
         $team = Team::query()->where('slug', 'demo-team')->first()
             ?? app(ProvisionTeam::class)->handle(
@@ -43,17 +43,25 @@ class DemoTeamSeeder extends Seeder
                 $owner,
             );
 
-        $teams->runFor($team, function () use ($team, $member): void {
-            $this->attach($team, $member, SystemRole::TeamMember, PersonLifecycleState::Active);
+        $teams->runFor($team, function () use ($team, $owner, $ownerDetails, $member, $memberDetails): void {
+            // The owner's membership exists already, from provisioning; it
+            // still needs the name this team knows them by (#140).
+            $team->memberships()->where('person_id', $owner->getKey())->first()
+                ?->forceFill($ownerDetails)->save();
 
-            $client = $this->person('claire@example.test', 'Claire', 'Nakamura', canSignIn: false);
-            $lead = $this->person('lee@example.test', 'Lee', 'Okonkwo', canSignIn: false);
-            $stager = $this->person('sam@example.test', 'Sam', 'Ferreira', canSignIn: false);
+            $this->attach($team, $member, SystemRole::TeamMember, PersonLifecycleState::Active, $memberDetails);
 
-            $this->attach($team, $client, SystemRole::Contact, PersonLifecycleState::Active);
-            $this->attach($team, $lead, SystemRole::Contact, PersonLifecycleState::Lead);
+            [$client, $clientDetails] = $this->person('claire@example.test', 'Claire', 'Nakamura', canSignIn: false);
+            [$lead, $leadDetails] = $this->person('lee@example.test', 'Lee', 'Okonkwo', canSignIn: false);
+            [$stager, $stagerDetails] = $this->person('sam@example.test', 'Sam', 'Ferreira', canSignIn: false);
 
-            $stagerMembership = $this->attach($team, $stager, SystemRole::Contact, PersonLifecycleState::PastClient);
+            $this->attach($team, $client, SystemRole::Contact, PersonLifecycleState::Active, $clientDetails);
+            $this->attach($team, $lead, SystemRole::Contact, PersonLifecycleState::Lead, $leadDetails);
+
+            $stagerMembership = $this->attach(
+                $team, $stager, SystemRole::Contact, PersonLifecycleState::PastClient, $stagerDetails,
+            );
+
             $stagerMembership->forceFill([
                 'is_vendor' => true,
                 'vendor_specialties' => ['staging', 'photography'],
@@ -72,30 +80,51 @@ class DemoTeamSeeder extends Seeder
         });
 
         $this->command->info("Demo team seeded. Sign in as emily@example.test / password (super admin: {$superAdmin->email}).");
+
+        unset($superAdminDetails);
     }
 
-    private function person(string $email, string $first, string $last, bool $superAdmin = false, bool $canSignIn = true): Person
+    /**
+     * A login, plus the name and number to hang on a membership.
+     *
+     * Since #140 the two are separate records, so this returns the person and
+     * `attach()` carries the details onto the team's row. A person who cannot
+     * sign in gets no `email` here at all — the address a team holds for them
+     * is the team's, not an account's.
+     *
+     * @return array{0: Person, 1: array{first_name: string, last_name: string, email: string, phone: string}}
+     */
+    private function person(string $email, string $first, string $last, bool $superAdmin = false, bool $canSignIn = true): array
     {
-        return Person::query()->firstOrCreate(
-            ['email' => $email],
-            [
-                'first_name' => $first,
-                'last_name' => $last,
-                'phone' => '+1 303 555 0100',
-                'is_super_admin' => $superAdmin,
-                'email_verified_at' => $canSignIn ? now() : null,
-                // PRD F2.1: credentials are optional, and for most of the
-                // directory they are simply absent.
-                'password' => $canSignIn ? Hash::make('password') : null,
-            ],
-        );
+        $person = $canSignIn
+            ? Person::query()->firstOrCreate(
+                ['email' => $email],
+                [
+                    'is_super_admin' => $superAdmin,
+                    'email_verified_at' => now(),
+                    'password' => Hash::make('password'),
+                ],
+            )
+            // PRD F2.1: credentials are optional, and for most of the
+            // directory they are simply absent.
+            : Person::query()->create(['is_super_admin' => false]);
+
+        return [$person, [
+            'first_name' => $first,
+            'last_name' => $last,
+            'email' => $email,
+            'phone' => '+1 303 555 0100',
+        ]];
     }
 
-    private function attach(Team $team, Person $person, SystemRole $role, PersonLifecycleState $status): TeamMembership
+    /**
+     * @param  array{first_name: string, last_name: string, email: string, phone: string}  $details
+     */
+    private function attach(Team $team, Person $person, SystemRole $role, PersonLifecycleState $status, array $details): TeamMembership
     {
         $membership = TeamMembership::query()->firstOrCreate(
             ['team_id' => $team->getKey(), 'person_id' => $person->getKey()],
-            ['status' => $status, 'joined_at' => now()],
+            ['status' => $status, 'joined_at' => now(), ...$details],
         );
 
         $membership->roles()->syncWithoutDetaching([

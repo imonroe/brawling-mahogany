@@ -7,7 +7,7 @@
  * thing went wrong and what to do next — "expired" and "already used" have
  * different answers.
  */
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, useForm, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
@@ -31,6 +31,20 @@ const form = useForm({
     password: '',
     password_confirmation: '',
 });
+
+/*
+ * Read off the shared `errors` bag rather than the form's.
+ *
+ * `email` is not one of this form's fields — it is read-only and comes from
+ * the invitation — so `form.errors` is typed without it. The one error that
+ * can land here is the conflict `MemberController::invite` now refuses at send
+ * time: a contact in the directory *and* a separate account for this address,
+ * where the directory changed while the invitation sat in somebody's inbox.
+ * Before this the page reloaded unchanged and nothing said why.
+ */
+const emailError = computed(
+    () => (usePage().props.errors as Record<string, string>)?.email,
+);
 
 const heading = computed(() => {
     switch (props.state) {
@@ -90,6 +104,19 @@ function submit(): void {
                     readonly
                     disabled
                 />
+                <!--
+                    The field is read-only, so an error on it is never
+                    something the invitee typed — it is the one conflict the
+                    product cannot resolve on its own (a contact in the
+                    directory *and* a separate account for this address).
+                    `MemberController::invite` refuses that at send time now,
+                    so this is the case where the directory changed while the
+                    invitation was in somebody's inbox. Without it the page
+                    reloaded unchanged and nothing said why.
+                -->
+                <p v-if="emailError" class="text-[11px] text-state-danger">
+                    {{ emailError }}
+                </p>
             </div>
 
             <div class="grid gap-3 sm:grid-cols-2">

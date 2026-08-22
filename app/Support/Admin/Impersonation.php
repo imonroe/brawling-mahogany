@@ -89,7 +89,7 @@ final class Impersonation
         $request->session()->put(self::KEY, [
             'admin_person_id' => $admin->getKey(),
             'person_id' => $person->getKey(),
-            'person_name' => $person->fullName(),
+            'person_name' => $person->displayNameWithin($team),
             'team_id' => $team->getKey(),
             'team_name' => $team->name,
             'reason' => $reason,

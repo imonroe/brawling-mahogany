@@ -61,12 +61,13 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 
     'Models/Person.php' => [
-        'count' => 4,
-        'reason' => 'Questions about the actor, all four. Which teams may I act in '.
-            '(activeTeams), which membership am I holding here (membershipIn), may this '.
-            'team rewrite my shared record (identityIsEditableBy), and drop every '.
-            'membership I hold when my account goes (revokeEveryMembership). A person '.
-            'spans teams by design (#18), so asking about one inside a single team is '.
+        // Three, down from four: `identityIsEditableBy()` went with the shared
+        // identity columns it guarded (#140).
+        'count' => 3,
+        'reason' => 'Questions about the actor, all three. Which teams may I act in '.
+            '(activeTeams), which membership am I holding here (membershipIn), and drop '.
+            'every membership I hold when my account goes (revokeEveryMembership). A '.
+            'login spans teams by design, so asking about one inside a single team is '.
             'the bug, not the fix.',
     ],
 
@@ -84,6 +85,37 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'the one resolved. Round 3 fixed both of these being scoped.',
     ],
 
+    'Http/Controllers/Settings/ProfileController.php' => [
+        // Down from two: the collision check moved inside `runFor`, where the
+        // ordinary scope is the right one. Only the question that genuinely
+        // spans teams is left unscoped.
+        'count' => 1,
+        'reason' => 'A question about the actor: which of my own memberships were '.
+            'carrying my old sign-in address. It spans every team I am in by '.
+            'definition — scoping it to the resolved team would leave the others '.
+            'showing an address that stopped working. The *write* that follows is '.
+            'scoped again with runFor, because lifting a read out of the scope does '.
+            'not lift the BelongsToTeam updating guard with it, and round 2 found '.
+            'exactly that 500.',
+    ],
+
+    'Support/Teams/InvitationConflict.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant. It is asked at accept time, before a '.
+            'token has established a team, and the team it is asked about comes from '.
+            'the invitation rather than from the session. Scoped to that team by hand, '.
+            'in the query, which is the only shape a no-tenant context can use.',
+    ],
+
+    'Support/Workflow/InstantiateWorkflow.php' => [
+        'count' => 1,
+        'reason' => 'The deal being instantiated names its own team, and the question '.
+            'is whether the people a caller nominated for the template roles are on '.
+            'that team. It runs before any team is resolved — #74 will call it from a '.
+            'controller, but the service is also called from a queue and from tests — '.
+            'so it scopes to the deal\'s team explicitly, in the query.',
+    ],
+
     'Http/Controllers/Admin/TeamController.php' => [
         'count' => 3,
         'reason' => 'The super-admin console runs above the tenant boundary (ADR 0002), '.
@@ -94,6 +126,14 @@ const SANCTIONED_UNSCOPED_QUERIES = [
         'count' => 2,
         'reason' => 'Same console. Impersonation additionally records a typed reason, '.
             'the team, the person, and when it ended.',
+    ],
+
+    'Actions/Teams/AcceptInvitation.php' => [
+        'count' => 1,
+        'reason' => 'Accepting an invitation has no team context either — the token '.
+            'names the team, and the membership this looks for is the one that team '.
+            'already holds for the address. It is scoped to that team by hand, in the '.
+            'query, which is the only shape a no-tenant context can use.',
     ],
 
     'Http/Controllers/Teams/InvitationController.php' => [

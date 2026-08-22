@@ -41,11 +41,11 @@ class ImpersonationController extends Controller
                     ->where('team_id', $model->getKey())
                     ->whereNull('revoked_at')
                     ->whereHas('person', fn ($query) => $query->whereNotNull('password'))
-                    ->with('person:id,first_name,last_name,email')
+                    ->with('person:id,email,password')
                     ->get()
                     ->map(fn (TeamMembership $membership): array => [
                         'personId' => $membership->person_id,
-                        'name' => $membership->person->fullName(),
+                        'name' => $membership->fullName(),
                         'email' => $membership->person->email,
                     ])->all(),
                 'maxMinutes' => Impersonation::MAX_MINUTES,

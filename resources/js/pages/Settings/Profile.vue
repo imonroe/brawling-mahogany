@@ -27,8 +27,25 @@ defineOptions({
     },
 });
 
+/**
+ * The name is what this team calls you, and the address is your account
+ * (issue 140). Somebody in two teams edits the name once per team, which is why
+ * the heading names the team.
+ */
+const props = defineProps<{
+    teamName?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+}>();
+
 const page = usePage();
 const user = computed(() => page.props.auth.user);
+
+const description = computed(() =>
+    props.teamName
+        ? `Update your email address, and the name ${props.teamName} sees`
+        : 'Update your email address',
+);
 </script>
 
 <template>
@@ -37,11 +54,7 @@ const user = computed(() => page.props.auth.user);
     <h1 class="sr-only">Profile settings</h1>
 
     <div class="flex flex-col space-y-6">
-        <Heading
-            variant="small"
-            title="Profile"
-            description="Update your name and email address"
-        />
+        <Heading variant="small" title="Profile" :description="description" />
 
         <Form
             v-bind="ProfileController.update.form()"
@@ -59,7 +72,7 @@ const user = computed(() => page.props.auth.user);
                         id="first_name"
                         class="mt-1 block w-full"
                         name="first_name"
-                        :default-value="user.first_name"
+                        :default-value="props.firstName ?? user.first_name"
                         required
                         autocomplete="given-name"
                         placeholder="First name"
@@ -73,7 +86,7 @@ const user = computed(() => page.props.auth.user);
                         id="last_name"
                         class="mt-1 block w-full"
                         name="last_name"
-                        :default-value="user.last_name ?? ''"
+                        :default-value="props.lastName ?? ''"
                         autocomplete="family-name"
                         placeholder="Last name"
                     />
@@ -81,6 +94,11 @@ const user = computed(() => page.props.auth.user);
                 </div>
             </div>
 
+            <!--
+                `user.email` is nullable since issue 140: it is the sign-in
+                address, and somebody in a team's directory has none. The field
+                is required, so an empty default is what they type over.
+            -->
             <div class="grid gap-2">
                 <Label for="email">Email address</Label>
                 <Input
@@ -88,7 +106,7 @@ const user = computed(() => page.props.auth.user);
                     type="email"
                     class="mt-1 block w-full"
                     name="email"
-                    :default-value="user.email"
+                    :default-value="user.email ?? ''"
                     required
                     autocomplete="username"
                     placeholder="Email address"

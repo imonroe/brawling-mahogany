@@ -49,7 +49,8 @@ it('hides another team’s people from the index', function (): void {
 
     $theirs = app(TeamContext::class)->runFor($b['team'], fn (): TeamMembership => TeamMembership::factory()
         ->for($b['team'])
-        ->for(Person::factory()->contactOnly()->create(['first_name' => 'Confidential']), 'person')
+        ->for(Person::factory()->contactOnly()->create(), 'person')
+        ->state(['first_name' => 'Confidential'])
         ->create());
 
     $this->actingAsPerson($a['person'], $a['team']);
@@ -253,6 +254,8 @@ it('cannot reach the other team’s data after switching', function (): void {
         $membership = TeamMembership::query()->create([
             'team_id' => $b['team']->getKey(),
             'person_id' => $a['person']->getKey(),
+            // One login, two teams, and each team's own record of them (#140).
+            'first_name' => 'Also known here',
             'status' => App\Enums\PersonLifecycleState::Active,
             'joined_at' => now(),
         ]);
@@ -263,7 +266,8 @@ it('cannot reach the other team’s data after switching', function (): void {
 
         TeamMembership::query()->create([
             'team_id' => $b['team']->getKey(),
-            'person_id' => Person::factory()->contactOnly()->create(['first_name' => 'OnlyInB'])->getKey(),
+            'person_id' => Person::factory()->contactOnly()->create()->getKey(),
+            'first_name' => 'OnlyInB',
             'status' => App\Enums\PersonLifecycleState::Active,
             'joined_at' => now(),
         ]);
@@ -272,7 +276,8 @@ it('cannot reach the other team’s data after switching', function (): void {
     app(TeamContext::class)->runFor($a['team'], function () use ($a): void {
         TeamMembership::query()->create([
             'team_id' => $a['team']->getKey(),
-            'person_id' => Person::factory()->contactOnly()->create(['first_name' => 'OnlyInA'])->getKey(),
+            'person_id' => Person::factory()->contactOnly()->create()->getKey(),
+            'first_name' => 'OnlyInA',
             'status' => App\Enums\PersonLifecycleState::Active,
             'joined_at' => now(),
         ]);

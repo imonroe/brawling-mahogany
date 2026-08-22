@@ -130,20 +130,15 @@ class CommitContactImport implements ShouldQueue
             ? mb_strtolower($row['email'])
             : null;
 
-        $person = $email === null
-            ? null
-            : Person::query()->whereRaw('lower(email) = ?', [$email])->first();
-
         /*
-         * The choice is about **this team's directory**, which is the
-         * question the review screen asked: *do you already have them?* It is
-         * not about the shared `people` table — somebody another team knows is
-         * still new to you, and importing them attaches a second membership to
-         * the one shared row (PRD decision log, 2026-08-22).
+         * The question is only ever about **this team's directory**, and since
+         * #140 that is the only directory there is. The lookup used to run
+         * against the shared `people` table, which is what let one import
+         * reveal — and overwrite — what another team had typed.
          */
-        $membership = $person instanceof Person
-            ? TeamMembership::query()->where('person_id', $person->getKey())->first()
-            : null;
+        $membership = $email === null
+            ? null
+            : TeamMembership::query()->whereRaw('lower(email) = ?', [$email])->first();
 
         if ($action === 'merge') {
             if (! $membership instanceof TeamMembership) {
@@ -153,7 +148,7 @@ class CommitContactImport implements ShouldQueue
                 );
             }
 
-            return $this->merge($person, $row);
+            return $this->merge($membership, $row);
         }
 
         if ($membership instanceof TeamMembership) {
@@ -163,14 +158,7 @@ class CommitContactImport implements ShouldQueue
             );
         }
 
-        $person ??= Person::query()->create([
-            'first_name' => (string) $row['first_name'],
-            'last_name' => $row['last_name'] ?? null,
-            'email' => $email,
-            'phone' => $row['phone'] ?? null,
-        ]);
-
-        $this->attach($person, $activity);
+        $this->attach($row, $email, $activity);
 
         return 'created';
     }
@@ -180,34 +168,39 @@ class CommitContactImport implements ShouldQueue
      *
      * The imported row usually knows something the record does not — a mobile
      * number, a surname — and the point of an import is to end up knowing more
-     * than you started with. Only blanks are filled: another team may know
-     * this person too, and their name is not ours to overwrite from somebody
-     * else's spreadsheet.
+     * than you started with. Only blanks are filled: what this team already
+     * recorded is what somebody in this team chose to record, and a
+     * spreadsheet is not better evidence than that.
      *
      * @param  array<string, mixed>  $row
      * @return 'merged'
      */
-    private function merge(Person $person, array $row): string
+    private function merge(TeamMembership $membership, array $row): string
     {
-        /*
-         * Blanks only. Whether this team may write those blanks at all is
-         * decided by `Person`'s updating hook, which reverts an identity
-         * change on a record another team also holds. This method used to
-         * carry no such check and was the path that proved the rule needed to
-         * live on the model rather than at each call site.
-         */
-        $person->fill(array_filter([
-            'last_name' => $person->last_name === null ? ($row['last_name'] ?? null) : null,
-            'phone' => $person->phone === null ? ($row['phone'] ?? null) : null,
+        $membership->fill(array_filter([
+            'last_name' => $membership->last_name === null ? ($row['last_name'] ?? null) : null,
+            'phone' => $membership->phone === null ? ($row['phone'] ?? null) : null,
         ]))->save();
 
         return 'merged';
     }
 
-    private function attach(Person $person, RecordActivity $activity): void
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function attach(array $row, ?string $email, RecordActivity $activity): void
     {
+        // A directory entry, not a login (#140). The blank `people` row exists
+        // so activity and audit have somebody to point at; it gains an address
+        // and a password only if this person is later invited.
+        $person = Person::query()->create([]);
+
         TeamMembership::query()->create([
             'person_id' => $person->getKey(),
+            'first_name' => (string) $row['first_name'],
+            'last_name' => $row['last_name'] ?? null,
+            'email' => $email,
+            'phone' => $row['phone'] ?? null,
             // Issue #49: "Imported people default to `lead` status unless the
             // user says otherwise."
             'status' => PersonLifecycleState::Lead,

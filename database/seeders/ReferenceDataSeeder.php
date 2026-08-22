@@ -13,6 +13,9 @@ use Illuminate\Database\Seeder;
  * PRD §6.2 seeds permissions in code, and PRD §4.2 F2.2 fixes the five access
  * roles. Every environment has them, including production, and the test suite
  * seeds them once alongside its fresh migration.
+ *
+ * The three system deal types join them for the same reason: a team with no
+ * deal type cannot open a deal, and PRD §2.2 fixes which three exist.
  */
 class ReferenceDataSeeder extends Seeder
 {
@@ -21,6 +24,7 @@ class ReferenceDataSeeder extends Seeder
         $this->call([
             PermissionSeeder::class,
             SystemRoleSeeder::class,
+            DealTypeSeeder::class,
         ]);
     }
 }

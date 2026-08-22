@@ -52,6 +52,20 @@ trait ProfileValidationRules
     }
 
     /**
+     * The login half alone, for a context with no team to hold a name (#140).
+     *
+     * Registration is the only one: an account exists before any team knows
+     * the person, so asking for a name there would be collecting something
+     * with nowhere to go.
+     *
+     * @return array<string, array<int, ValidationRule|Unique|array<mixed>|string>>
+     */
+    protected function credentialRules(int|string|null $personId = null): array
+    {
+        return ['email' => $this->emailRules($personId)];
+    }
+
+    /**
      * Get the validation rules used to validate person names.
      *
      * @return array<int, ValidationRule|array<mixed>|string>

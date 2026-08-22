@@ -160,8 +160,6 @@ it('lets somebody register again after deleting their account', function (): voi
     $user->delete();
 
     $this->post('/register', [
-        'first_name' => 'Emily',
-        'last_name' => 'Bosart',
         'email' => 'emily@example.com',
         'password' => 'a-long-enough-password',
         'password_confirmation' => 'a-long-enough-password',
@@ -174,8 +172,6 @@ it('still refuses to register a live address twice', function (): void {
     Person::factory()->create(['email' => 'emily@example.com']);
 
     $this->post('/register', [
-        'first_name' => 'Someone',
-        'last_name' => 'Else',
         'email' => 'emily@example.com',
         'password' => 'a-long-enough-password',
         'password_confirmation' => 'a-long-enough-password',

@@ -101,7 +101,8 @@ it('exports the team’s own data behind a signed, expiring link', function (): 
     app(TeamContext::class)->runFor($this->team, function (): void {
         TeamMembership::factory()->create([
             'team_id' => $this->team->getKey(),
-            'person_id' => Person::factory()->contactOnly()->create(['first_name' => 'Claire'])->getKey(),
+            'person_id' => Person::factory()->contactOnly()->create()->getKey(),
+            'first_name' => 'Claire',
             'notes' => 'Prefers texts.',
         ]);
     });

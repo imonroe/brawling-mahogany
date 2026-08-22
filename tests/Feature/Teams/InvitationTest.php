@@ -128,15 +128,19 @@ it('404s an unknown token without saying why', function (): void {
     $this->get('/invitations/'.TeamInvitation::newToken())->assertNotFound();
 });
 
-it('attaches a membership to somebody who already has a record', function (): void {
-    // Issue #45: "Accepting an invitation for an email that already has a
-    // `people` record attaches a new `team_membership` rather than creating a
-    // second person."
-    $existing = Person::factory()->contactOnly()->create([
-        'email' => 'sam@example.test',
-        'first_name' => 'Sam',
-        'last_name' => 'Ferreira',
-    ]);
+it('attaches a membership to somebody who already has an account', function (): void {
+    /*
+     * Issue #45: "Accepting an invitation for an email that already has a
+     * `people` record attaches a new `team_membership` rather than creating a
+     * second person."
+     *
+     * Still true, and now narrower: the record it attaches to is a **login**
+     * (#140). A credential-less contact of another team is not one, so this
+     * is about somebody who can already sign in.
+     */
+    $existing = Person::factory()->create(['email' => 'sam@example.test']);
+
+    [$otherTeam] = $this->teamWithMember($existing);
 
     $invitation = app(InvitePersonToTeam::class)->handle(
         team: $this->team,
@@ -153,21 +157,27 @@ it('attaches a membership to somebody who already has a record', function (): vo
     auth()->logout();
     app(TeamContext::class)->set(null);
 
+    /*
+     * Not signed in by the link, and that is the round-one security fix
+     * holding: an emailed URL must never be a way into an account that
+     * already has a password. The membership is still attached, because the
+     * team owner decided that — they just sign in as themselves.
+     */
     $this->post("/invitations/{$this->token}", [
         'first_name' => 'Samuel',
         'last_name' => 'Ferreira',
         'password' => 'a-long-enough-password',
         'password_confirmation' => 'a-long-enough-password',
-    ])->assertRedirect(route('dashboard'));
+    ])->assertRedirect(route('login'));
 
-    expect(Person::query()->where('email', 'sam@example.test')->count())->toBe(1);
+    // One login, two teams.
+    expect(Person::query()->where('email', 'sam@example.test')->count())->toBe(1)
+        ->and($existing->fresh()->hasCredentials())->toBeTrue();
 
-    $existing->refresh();
-
-    // Their name is not overwritten by whatever the invitee typed — another
-    // team already knows them by the name on the record.
-    expect($existing->first_name)->toBe('Sam')
-        ->and($existing->hasCredentials())->toBeTrue();
+    // The name they typed lands on the team they just joined, and the other
+    // team's record of them is untouched (#140).
+    expect($existing->membershipIn($this->team)->first_name)->toBe('Samuel')
+        ->and($existing->membershipIn($otherTeam)->first_name)->not->toBe('Samuel');
 
     unset($invitation);
 });
@@ -286,6 +296,7 @@ it('allows revoking an owner once there is another one', function (): void {
         $membership = TeamMembership::query()->create([
             'team_id' => $this->team->getKey(),
             'person_id' => $second->getKey(),
+            'first_name' => 'Second',
             'status' => App\Enums\PersonLifecycleState::Active,
         ]);
 
@@ -321,6 +332,7 @@ it('lets an owner delete their account once somebody else owns the team', functi
         $membership = TeamMembership::query()->create([
             'team_id' => $this->team->getKey(),
             'person_id' => $second->getKey(),
+            'first_name' => 'Second',
             'status' => App\Enums\PersonLifecycleState::Active,
         ]);
 
@@ -343,12 +355,14 @@ it('leaves no live membership behind when somebody deletes their account', funct
      * list is the worst of them: it 500s for the whole team, and it is the
      * only screen that could have undone the membership.
      */
-    $second = Person::factory()->create(['first_name' => 'Heather', 'last_name' => 'Quinn']);
+    $second = Person::factory()->create();
 
     app(TeamContext::class)->runFor($this->team, function () use ($second): void {
         $membership = TeamMembership::query()->create([
             'team_id' => $this->team->getKey(),
             'person_id' => $second->getKey(),
+            'first_name' => 'Heather',
+            'last_name' => 'Quinn',
             'status' => App\Enums\PersonLifecycleState::Active,
         ]);
 
@@ -392,7 +406,7 @@ it('does not refuse account deletion to an owner of two healthy teams', function
             foreach ([$person, Person::factory()->create()] as $owner) {
                 $membership = TeamMembership::query()->firstOrCreate(
                     ['team_id' => $team->getKey(), 'person_id' => $owner->getKey()],
-                    ['status' => App\Enums\PersonLifecycleState::Active],
+                    ['first_name' => 'Owner', 'status' => App\Enums\PersonLifecycleState::Active],
                 );
 
                 $membership->roles()->syncWithoutDetaching([
@@ -423,12 +437,14 @@ it('does not 500 when the owner’s only team is suspended', function (): void {
 
 it('keeps a revoked member’s name on what they already did', function (): void {
     // PRD F1.3: "revoke without destroying historical attribution."
-    $second = Person::factory()->create(['first_name' => 'Heather', 'last_name' => 'Quinn']);
+    $second = Person::factory()->create();
 
     $membership = app(TeamContext::class)->runFor($this->team, function () use ($second): TeamMembership {
         $membership = TeamMembership::query()->create([
             'team_id' => $this->team->getKey(),
             'person_id' => $second->getKey(),
+            'first_name' => 'Heather',
+            'last_name' => 'Quinn',
             'status' => App\Enums\PersonLifecycleState::Active,
         ]);
 
@@ -453,7 +469,144 @@ it('keeps a revoked member’s name on what they already did', function (): void
         fn () => App\Models\ActivityEvent::query()->with('actor')->sole(),
     );
 
-    expect($event->actor?->fullName())->toBe('Heather Quinn');
+    // Revoked, and still named on what they did. `membershipIn()` excludes a
+    // revoked row, so the name has to come from the membership itself.
+    expect($membership->fresh()->revoked_at)->not->toBeNull()
+        ->and($membership->fresh()->fullName())->toBe('Heather Quinn')
+        ->and($event->actor_person_id)->toBe($second->getKey());
+});
+
+/**
+ * A lead becoming a team member: the ordinary reason to invite anybody.
+ *
+ * Round 1 found this was a 500 on every click, forever. Round 2 found the fix
+ * for that had replaced it with a validation error on a screen with no field
+ * to render it, which is the same dead end without the stack trace.
+ */
+it('lets a contact in the directory accept an invitation', function (): void {
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    // Claire is a lead this team added. Her `people` row holds no credentials
+    // and no address at all (#140); the address lives on the membership.
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'lead',
+        'notes' => 'Met at the open house.',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Claire',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect(route('dashboard'));
+
+    // One membership, upgraded rather than duplicated — so her notes and her
+    // lifecycle history survive her getting a login, which is what the team
+    // expects and the only reason the row was worth keeping.
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['claire@example.test'])
+        ->sole();
+
+    expect($membership->notes)->toBe('Met at the open house.')
+        ->and($membership->person->hasCredentials())->toBeTrue();
+});
+
+/**
+ * The one conflict the product cannot resolve on its own, refused where
+ * somebody can act on it.
+ *
+ * A directory contact *and* a separate account for one address. Repointing the
+ * membership breaks every activity event naming the person it holds; attaching
+ * the account collides on `team_memberships_team_email_unique`. The refusal
+ * belongs on the members screen, in front of the person who can remove the
+ * duplicate — not in front of the invitee, who can do nothing about it.
+ */
+it('refuses to invite an address that is both a contact and an account', function (): void {
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    // Somebody who signs in — in another team, which is the realistic case.
+    Person::factory()->create(['email' => 'claire@example.test']);
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'lead',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasErrors('email');
+
+    // Nothing sent, so nobody is holding a link that can never work.
+    expect(TeamInvitation::query()->count())->toBe(0);
+    Mail::assertNotSent(TeamInvitationMail::class);
+});
+
+/**
+ * One outstanding invitation per address per team.
+ *
+ * `team_invitations_pending_unique` has existed since Slice 1 and nothing
+ * validated against it, so the second invitation to a still-pending address
+ * was a 500 — reachable by *"she says she never got it, send it again"* and by
+ * a double-click on Send. The same defect round 1 called blocking as B2, one
+ * table over.
+ */
+it('refuses a second invitation while one is still outstanding', function (): void {
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    // Capitals included, because the index is over `lower(email)` and the
+    // rule has to ask the question the index answers.
+    $this->post('/settings/members/invitations', [
+        'email' => 'Heather@Example.TEST',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasErrors('email');
+
+    expect(TeamInvitation::query()->count())->toBe(1);
+});
+
+it('lets a revoked invitation’s address be invited again', function (): void {
+    // The index is partial — live rows only — so revoking frees the address.
+    // That is what makes "revoke it first" a remedy rather than advice.
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    $invitation = TeamInvitation::query()->sole();
+
+    $this->delete("/settings/members/invitations/{$invitation->getKey()}")
+        ->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    expect(TeamInvitation::query()->whereNull('revoked_at')->count())->toBe(1);
 });
 
 it('refuses an invitation from somebody who cannot manage members', function (): void {

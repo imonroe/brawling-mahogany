@@ -10,9 +10,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Role;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
+use App\Support\Teams\InvitationConflict;
 use App\Support\Tenancy\TeamContext;
+use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -36,12 +39,12 @@ class MemberController extends Controller
         return Inertia::render('Settings/Members', [
             'members' => TeamMembership::query()
                 ->whereHas('roles', fn ($query) => $query->whereIn('roles.key', ['team_owner', 'team_member']))
-                ->with(['person:id,first_name,last_name,email,password', 'roles:id,key,name'])
+                ->with(['person:id,email,password', 'roles:id,key,name'])
                 ->get()
                 ->map(fn (TeamMembership $membership): array => [
                     'id' => $membership->getKey(),
-                    'name' => $membership->person->fullName(),
-                    'email' => $membership->person->email,
+                    'name' => $membership->fullName(),
+                    'email' => $membership->email,
                     'hasLogin' => $membership->person->hasCredentials(),
                     'roles' => $membership->roles->pluck('name')->all(),
                     'revokedAt' => $membership->revoked_at?->toIso8601String(),
@@ -70,8 +73,76 @@ class MemberController extends Controller
 
         $this->authorize('create', TeamInvitation::class);
 
+        /*
+         * Folded before anything compares or stores it.
+         *
+         * Every other entry point folds — `PersonRules::prepareForValidation`,
+         * and the mutators on both models — and this one stored the address
+         * verbatim on `team_invitations.email`. Harmless while every lookup
+         * happens to use `lower(email)`, which is precisely the kind of
+         * harmless that stops being true in one commit.
+         */
+        $request->merge(['email' => mb_strtolower(trim((string) $request->input('email')))]);
+
         $validated = $request->validate([
-            'email' => ['required', 'string', 'email', 'max:255'],
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                /*
+                 * Refused here, where the person who can resolve it is
+                 * standing. Checking only at accept time meant the invitation
+                 * sent cleanly and the *invitee* met a validation error on a
+                 * screen with no field to show it — silent for everybody.
+                 */
+                function (string $attribute, mixed $value, Closure $fail) use ($team): void {
+                    $reason = is_string($value)
+                        ? InvitationConflict::reasonFor($team->getKey(), $value)
+                        : null;
+
+                    if ($reason !== null) {
+                        $fail($reason);
+                    }
+                },
+                /*
+                 * One outstanding invitation per address per team.
+                 *
+                 * Slice 1 created `team_invitations_pending_unique` and never
+                 * wrote the rule that matches it, so the second invitation to
+                 * a still-pending address was a 500 — which is not a contrived
+                 * path: it is *"she says she never got it, send it again"*,
+                 * and it is a double-click on Send.
+                 *
+                 * Hand-written rather than `Rule::unique`, for the reason
+                 * `PersonRules::uniqueWithinTeam()` records: `Rule::unique`
+                 * compares with `=` and this index compares with
+                 * `lower(email)`. The three `whereNull`s are the index's own
+                 * three — a revoked, accepted or deleted invitation frees the
+                 * address again, which is what makes "revoke it first" a real
+                 * remedy rather than advice.
+                 */
+                function (string $attribute, mixed $value, Closure $fail) use ($team): void {
+                    if (! is_string($value) || trim($value) === '') {
+                        return;
+                    }
+
+                    $outstanding = DB::table('team_invitations')
+                        ->where('team_id', $team->getKey())
+                        ->whereNull('deleted_at')
+                        ->whereNull('accepted_at')
+                        ->whereNull('revoked_at')
+                        ->whereRaw('lower(email) = ?', [mb_strtolower(trim($value))])
+                        ->exists();
+
+                    if ($outstanding) {
+                        $fail(
+                            'An invitation to this address is already outstanding. '
+                            .'Revoke it first if you want to send a new one.',
+                        );
+                    }
+                },
+            ],
             'first_name' => ['nullable', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
             'role_id' => [

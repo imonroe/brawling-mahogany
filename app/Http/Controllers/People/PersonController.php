@@ -62,7 +62,7 @@ class PersonController extends Controller
             'membership' => PeopleDirectory::detail($membership),
             'activity' => ActivityEvent::query()
                 ->forSubject($membership->person)
-                ->with('actor:id,first_name,last_name')
+                ->with('actor:id,email')
                 ->limit(50)
                 ->get()
                 ->map(fn (ActivityEvent $event): array => [
@@ -72,7 +72,7 @@ class PersonController extends Controller
                     'source' => $event->source,
                     'occurredAt' => $event->occurred_at->toIso8601String(),
                     'payload' => $event->payload,
-                    'actorName' => $event->actor?->fullName(),
+                    'actorName' => $event->actor?->displayNameWithin($event->team),
                 ])->all(),
             'lifecycleStates' => PersonLifecycleState::options(),
         ]);
@@ -162,21 +162,23 @@ class PersonController extends Controller
 
         $email = trim((string) $request->query('email', ''));
 
+        /*
+         * The address on the membership, which is the only one this team has
+         * (#140). It could never have reported a match from another team's
+         * directory, and now there is not even a shared row to look in.
+         *
+         * A revoked membership is excluded: "you already have them" about
+         * somebody whose access was removed is an offer that goes nowhere.
+         */
         $membership = $email === '' ? null : TeamMembership::query()
-            // `person()` reads trashed records so a deleted account still
-            // renders where it is being remembered. It should not still be
-            // offered as somebody to open: "you already have them" about an
-            // account that has been deleted is an offer that goes nowhere.
-            ->whereHas('person', fn ($query) => $query
-                ->whereNull('deleted_at')
-                ->whereRaw('lower(email) = ?', [mb_strtolower($email)]))
-            ->with('person:id,first_name,last_name')
+            ->whereNull('revoked_at')
+            ->whereRaw('lower(email) = ?', [mb_strtolower($email)])
             ->first();
 
         return response()->json([
             'duplicate' => $membership === null ? null : [
                 'id' => $membership->getKey(),
-                'name' => $membership->person->fullName(),
+                'name' => $membership->fullName(),
                 'url' => route('people.show', $membership),
             ],
         ]);

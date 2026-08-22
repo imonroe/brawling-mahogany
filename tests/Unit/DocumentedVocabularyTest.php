@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\AutomationState;
 use App\Enums\ContactType;
+use App\Enums\DealSide;
 use App\Enums\DealState;
 use App\Enums\DocumentCategory;
 use App\Enums\ExtractedFieldReviewState;
@@ -14,6 +15,7 @@ use App\Enums\PropertyStatus;
 use App\Enums\PropertyType;
 use App\Enums\RestrictedDocumentCategory;
 use App\Enums\StageState;
+use App\Enums\TaskSource;
 use App\Enums\TaskState;
 use App\Enums\WorkflowState;
 
@@ -112,6 +114,7 @@ dataset('lookups', [
     'property type' => ['Property type', PropertyType::class],
     'property status' => ['Property status', PropertyStatus::class],
     'contact type' => ['Contact type', ContactType::class],
+    'deal side' => ['Deal side', DealSide::class],
     'participant role' => ['Participant role', ParticipantRole::class],
     'document category' => ['Document category', DocumentCategory::class],
     'restricted categories' => ['Restricted (refused) categories', RestrictedDocumentCategory::class],
@@ -143,7 +146,8 @@ it('keeps every enum value in snake_case', function (): void {
         DealState::class, WorkflowState::class, StageState::class, TaskState::class,
         GateState::class, PersonLifecycleState::class, AutomationState::class,
         ExtractedFieldReviewState::class, PropertyType::class, PropertyStatus::class,
-        ContactType::class, ParticipantRole::class, DocumentCategory::class,
+        ContactType::class, ParticipantRole::class, DocumentCategory::class, DealSide::class,
+        TaskSource::class,
         RestrictedDocumentCategory::class,
     ];
 

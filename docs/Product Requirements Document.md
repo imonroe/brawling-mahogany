@@ -594,6 +594,7 @@ erDiagram
 
 | Lookup | Values |
 |---|---|
+| Deal side | Buy, Sell, Rent, Other |
 | Property type | Single Family, Multi Family, Condo, Townhouse, Apartment, Land, Other |
 | Property status | Pre-listing, For Sale, Under Contract, Sold, Off Market, Rented, Other |
 | Contact type | Phone call, Email, Text, Meeting, Showing, Other |
@@ -905,11 +906,13 @@ Subscription plans, Stripe, self-serve signup, trials, seat limits, plan and pac
 
 **Resolved on 2026-08-22, in slice 1:** shared versus duplicated person records (Q7), Vendor as a flag rather than a lifecycle status, and whether an export carries document files.
 
+**Resolved on 2026-08-22, entering slice 2:** Emily is the first customer rather than a business partner (Q1), and person records are separated per team rather than shared (Q7, revised — see the decision log).
+
 Detail in [[#15. Decision Log]].
 
 Still open, ordered by how much the answer changes the build.
 
-1. **Is Emily a business partner or the first customer?** Still unanswered and now more pressing. Heather asked the sharp version out loud: if you build this, you are marketing it to other people. Ian's reply was that they are building an internal tool, but the PRD describes a multi-tenant SaaS with a pricing model. **Those cannot both be true, and the answer determines equity, roadmap authority, and who decides when a feature is done.** Settle it in writing before slice 2.
+~~1. Is Emily a business partner or the first customer?~~ **Settled on 2026-08-22: first customer.** See the decision log. What follows from it is in §15 — the roadmap is Ian's, her process is input rather than specification, and the terms need writing down before her data is in a production system.
 2. **Emily's consolidated task list.** She has sent multiple partial lists, Heather has sent hers, and no buyer-side list exists yet. Emily offered to merge them into one refined list. **This is the direct input to the seeded templates in slice 2 and the highest-value outstanding item.**
 3. **Direct willingness to pay.** The competitor charging $200 with customers is real evidence, but it is evidence about them. Five agents outside Emily's circle saying they would pay is still worth gathering, and the question is now "would you pay $150 to $200," not "$40."
 4. **Which AI provider, and on what terms?** Needs a DPA, a no-training commitment, a retention position, and a cost model. Blocks slice 5 entirely.
@@ -979,6 +982,8 @@ Still open, ordered by how much the answer changes the build.
 | 2026-08-22 | **Vendor is a flag, not a lifecycle status** (IA §13.3) | Slice 1, issue [#48](https://github.com/imonroe/brawling-mahogany/issues/48). A stager can be a past client and a vendor at once, which one status column cannot express. `team_memberships.is_vendor`, with its own directory segment |
 | 2026-08-22 | **Roles and permissions built to §6.2's schema rather than on `spatie/laravel-permission`** | Slice 1, issue [#46](https://github.com/imonroe/brawling-mahogany/issues/46). The package attaches roles to a *model*; §6.2 attaches them to a **membership** (`membership_role`), which is what makes revoking somebody from one team leave the other alone. Its `permissions` table is `name`/`guard_name`; ours is `key`/`group`/`description`. Reconciling the two costs more than the ~150 lines it replaces |
 | 2026-08-22 | **A team data export carries document metadata and a manifest, never the files** | Slice 1, issue [#56](https://github.com/imonroe/brawling-mahogany/issues/56). An archive holding every uploaded inspection report is a second copy of the riskiest data the product has, sitting behind a link. Documents land in slice 3 and attach to `manifest.documents` |
+| 2026-08-22 | **Emily is the first customer, not a business partner** (Q1) | Ian's decision, entering slice 2. It settles what the PRD could not hold both of: this is a multi-tenant product with a pricing model, and Emily is its first paying user. **What follows.** The roadmap is Ian's to set; her process is input rather than specification, and where her way and the general case diverge, the general case wins. Her material goes into the seeded packs as *a* listing workflow, not *the* one. The terms — price, expectations, and the fact that her process informs a product sold to others — need to be in writing before her real client data is in a production system, and #17's customer agreement is where that lands. Heather's question, *"if you build this, you are marketing it to other people"*, was the right one and this is the answer to it |
+| 2026-08-22 | **Person records are separated per team, revising the shared decision of the same day** (Q7) | Slice 2, issue [#140](https://github.com/imonroe/brawling-mahogany/issues/140). Contact details — name, email, phone — move from `people` onto `team_memberships`. `people` keeps only what makes a login work: the sign-in address, the password, the second factor. **Why the reversal.** Sharing was chosen so a stager working for two teams would be one record with one phone number. Once every team-visible field lives on the membership, sharing the row buys nothing — each team holds its own view regardless — and it still costs the disclosure #140 documented: adding somebody by an existing address showed one team what another had typed. A trade-off with no remaining benefit is not a trade-off. **What it changes.** A credential-less contact gets its own `people` row per team, so PRD F2.1's *"one record per human"* now means one record per human **with a login**; the directory entry is the membership. Slice 1's identity-write machinery — the `updating` hook, `identityIsEditableBy()` — is deleted, because the shared row it protected no longer holds anything worth protecting |
 | 2026-08-22 | **A low-contrast team accent warns rather than being silently adjusted** (Design System §15.6) | Slice 1, issue [#55](https://github.com/imonroe/brawling-mahogany/issues/55). The status page is held to WCAG 2.1 AA (§9), and a silently altered colour is a support ticket that arrives later and angrier |
 
 ---

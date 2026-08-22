@@ -10,6 +10,7 @@ use App\Models\Concerns\HasProductDefaults;
 use Database\Factories\TeamMembershipFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,15 +18,30 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 
 /**
- * What one team knows about one person (PRD §4.1 F1.4, §6.2, §7.4).
+ * **The person, as this team knows them** (PRD §4.1 F1.4, §6.2, §7.4 · #140).
  *
- * PRD §6.2: *"Team-private notes live here, not on the person."* That sentence
- * is the whole design. A stager working for two teams is one `people` row and
- * two memberships, and what Team A wrote about them is not Team B's business.
+ * PRD §6.2 said *"team-private notes live here, not on the person"* and that
+ * sentence turned out to describe the whole table rather than the notes
+ * column. Slice 2 finished the thought: the name, the address, and the phone
+ * number a team holds for somebody are as team-private as the notes, and they
+ * live here too.
+ *
+ * `Person` is now only the login. Everything on a directory screen comes from
+ * this row, which means one team cannot see what another typed — not because
+ * a rule forbids it, but because there is no shared column holding it.
+ *
+ * A stager working for two teams is two membership rows. If they can sign in,
+ * those rows point at one `people` row and they sign in once; if they cannot,
+ * the rows point at their own credential-less `people` row each, because
+ * there is nothing left for a shared one to share.
  *
  * @property string $id
  * @property string $team_id
  * @property string $person_id
+ * @property string $first_name
+ * @property string|null $last_name
+ * @property string|null $email
+ * @property string|null $phone
  * @property PersonLifecycleState $status
  * @property bool $is_vendor
  * @property array<int, string>|null $vendor_specialties
@@ -44,6 +60,10 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable([
     'person_id',
+    'first_name',
+    'last_name',
+    'email',
+    'phone',
     'status',
     'is_vendor',
     'vendor_specialties',
@@ -73,6 +93,46 @@ class TeamMembership extends Model
             'joined_at' => 'datetime',
             'revoked_at' => 'datetime',
         ];
+    }
+
+    /**
+     * An address is stored folded to lower case.
+     *
+     * A team cannot hold the same address twice, and the unique index is over
+     * `lower(email)` — so a contact typed as `Casey@Example.test` and one
+     * typed as `casey@example.test` are the same directory entry, whatever the
+     * mail client capitalised. Slice 1 shipped this bug on `people` and this
+     * is the same fix in the table that now owns the column.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(
+            set: fn (?string $value): ?string => $value === null || trim($value) === ''
+                ? null
+                : mb_strtolower(trim($value)),
+        );
+    }
+
+    /** Display form, IA §10: First Last. */
+    public function fullName(): string
+    {
+        return trim($this->first_name.' '.($this->last_name ?? ''));
+    }
+
+    /**
+     * The surname a generated deal name uses (IA §10, F3.2).
+     *
+     * Null rather than a guess when there is no surname: "Bosart Purchase"
+     * needs a Bosart, and a deal called " Purchase" is worse than one called
+     * by its address.
+     */
+    public function surname(): ?string
+    {
+        $last = trim((string) $this->last_name);
+
+        return $last === '' ? null : $last;
     }
 
     /**

@@ -160,14 +160,21 @@ Two things the implementation added that the decision did not name:
 
 ## Decided since
 
-- **`people` is shared across teams** (issue #18, PRD decision log
-  2026-08-22). One row per human, with everything a team knows privately about
-  them on `team_memberships`. Six models carry no `team_id`, each recorded with
-  a reason in the isolation suite: `people` (shared), `teams` (the boundary
+- **`people` is the login, and nothing else** (issues #18 and #140, PRD
+  decision log 2026-08-22). Slice 1 shared one row per human across teams with
+  their contact details on it; Slice 2 moved those details to
+  `team_memberships` and left the row holding credentials. See *The hole the
+  layers do not cover* for why the reversal, and what it generalises to.
+
+  Twelve models now carry no `team_id`, each recorded with a reason in the
+  isolation suite: `people` (a login is one per human), `teams` (the boundary
   itself), `roles` (the five system roles have no team), `permissions` (flat
-  and identical everywhere), `audit_log` (outlives the team it describes), and
-  `passkeys` (a credential belongs to a human, not a tenancy — somebody who
-  works for two teams signs in once).
+  and identical everywhere), `audit_log` (outlives the team it describes),
+  `passkeys` (a credential belongs to a human, not a tenancy), and the six
+  definition-layer tables added in Slice 2 — `deal_types`, `template_packs`,
+  and the four `*_template` tables — where a null `team_id` means a system row
+  every team can see. **None of the twelve holds customer data**, which is the
+  property that makes them safe and the one `people` used to break.
 - **`withoutTeamScope()` is not a list of callers, it is a rule.** This ADR
   said two callers, then three. The code had thirteen, and the commit that
   raised the count was editing a different paragraph of this file at the time.
@@ -195,49 +202,67 @@ Two things the implementation added that the decision did not name:
   audited — auditing every authorization check would drown the log the audit
   requirements exist to keep readable.
 
-## The hole the layers do not cover
+## The hole the layers do not cover — closed, and how
 
-Five layers protect team-scoped rows. `people` is **not** team-scoped — it is
-shared, deliberately — and the layers have nothing to say about it.
+Five layers protect team-scoped rows. `people` was **not** team-scoped — it was
+shared, deliberately — and the layers had nothing to say about it.
 
-Slice 1's review found both halves of what that costs:
+Slice 1's reviews found three separate costs, and the pattern is the finding:
+**every mechanism in this codebase keys on `team_id`, so a table without one is
+outside all of them at once.** Not just the five enforcement layers.
 
-- **Writes**, closed at the model. A team could attach a membership to any
-  address and then rewrite that row — including one carrying somebody's
-  credentials, redirecting their password reset while the password itself
-  looked untouched. `Person::identityIsEditableBy()` permits an identity edit
-  only when the person has no credentials and no other team holds a live
-  membership.
+- **Writes.** A team could attach a membership to any address and then rewrite
+  that row — including one carrying somebody's credentials, redirecting their
+  password reset while the password itself looked untouched. Closed by an
+  `updating` hook on the model, after enforcing it at individual call sites
+  missed one for a whole review round.
+- **Retention.** `records:purge` discovers its tables by looking for
+  `BelongsToTeam`, so the one table holding password hashes and two-factor
+  secrets was the one the 30-day window never closed on. Closed by purging
+  `people` explicitly.
+- **Reads.** Adding somebody by an existing address showed the team what
+  another team supplied. **Not closable by a guard**, because it was the
+  shared-record decision working exactly as designed.
 
-  Where that check *runs* is the part worth recording, because the first
-  attempt got it wrong. It went in at the two call sites the review had named,
-  and the third — the contact import's merge path — went on rewriting account
-  holders' names and numbers for another round. It is now an `updating` hook in
-  `Person::booted()`, so a write does not have to remember to ask: every path
-  into the table passes it, including Slice 2's. Offending fields are reverted
-  rather than thrown on; a stale form or a merge row is an ordinary event, not
-  a 500. `tests/Isolation/SharedPersonRecordTest.php` holds it, exercising the
-  form, the import, and the self-edit that must still be allowed.
-- **Reads**, open and filed as issue #140. Adding somebody by an existing
-  address shows the team what another team supplied. That is the shared-record
-  decision working as designed, and it is still a cross-tenant disclosure.
-- **Retention**, closed in round 4. `records:purge` discovers its tables by
-  looking for `BelongsToTeam`, so the one table that cannot carry the trait was
-  the one table the 30-day window never closed on — the table holding password
-  hashes and two-factor secrets. `people` is now purged explicitly, outside the
-  per-team loop. The same shape as the other two: a mechanism built around
-  `team_id`, and the shared table sitting outside it.
+### What Slice 2 did instead
 
-The lesson for the next shared table: **a table without `team_id` is outside
-every layer in this document.** Five of the six exceptions are reference data
-or the boundary itself. `people` is the one that holds customer data, and it
-needs its own reasoning rather than the protection the others inherit.
+Moved the data (issue #140). Contact details — name, email, phone — now live on
+`team_memberships`, which is team-scoped and therefore inside all five layers
+and the purge. `people` keeps only what makes a login work.
+
+The reasoning is worth keeping, because it generalises past this table.
+Sharing bought one thing: a stager working for two teams being one record with
+one phone number. That benefit only existed *while the fields were shared*, and
+those fields were exactly what leaked. Once every team-visible field is on the
+membership, each team holds its own view regardless — so the sharing bought
+nothing and still cost the disclosure. **A trade-off with no remaining benefit
+is not a trade-off.**
+
+Two things fell out of the move that are worth noticing:
+
+- The write-side machinery was **deleted**, not kept as defence in depth. There
+  is no shared column left to protect, and a guard on a property that already
+  holds is a guard that will one day be trusted for the wrong reason.
+- `people.email` narrowed from "an address a team has for somebody" to "the
+  address this account signs in with". A null used to mean a contact with no
+  email; it now means a person with no login, which is most of the directory.
+
+### The rule for the next shared table
+
+**A table without `team_id` is outside every mechanism in this codebase that
+keys on one** — the scope, the composite keys, the middleware, the policies,
+the isolation suite, *and* the retention purge.
+
+Six models still carry no `team_id`, and the test that enumerates them
+(`ModelTenancyConventionTest`) records a reason for each. Five are reference
+data or the tenant boundary itself. `people` is now the sixth in a stronger
+sense than before: it holds credentials, which are genuinely one-per-human, and
+nothing else. If a future table wants to be shared, the question to answer is
+not "can we guard it" but "what does sharing buy, and is that still true once
+the team-visible fields are somewhere else".
 
 ## Not decided here
 
-- Whether `people` keeps shared identity fields or moves them to
-  `team_memberships` (issue #140). The enforcement model works either way; the
-  disclosure above does not survive the second option.
 - The exact retention of `audit_log` beyond "it survives a tenant purge"
   (issue #57). The rows are written; how long they are kept is a policy
   question the first customer contract will settle.

@@ -53,7 +53,9 @@ final class ProvisionTeam
             );
 
             if ($owner instanceof Person) {
-                $this->teams->runFor($team, fn () => $this->attachOwner($team, $owner));
+                $details = array_intersect_key($attributes, array_flip(['first_name', 'last_name', 'phone']));
+
+                $this->teams->runFor($team, fn () => $this->attachOwner($team, $owner, $details));
             }
 
             return $team;
@@ -65,12 +67,23 @@ final class ProvisionTeam
      *
      * A team without one cannot be administered at all, which is the other
      * half of the last-owner rule enforced in RevokeMembership.
+     *
+     * The name is the team's record of them (#140), so it goes here rather
+     * than on the account. When the console does not supply one, the sign-in
+     * address before the @ stands in — a placeholder the owner can change on
+     * their first visit, and better than a blank line on the members screen.
+     *
+     * @param  array<string, mixed>  $details
      */
-    public function attachOwner(Team $team, Person $owner): TeamMembership
+    public function attachOwner(Team $team, Person $owner, array $details = []): TeamMembership
     {
         $membership = TeamMembership::query()->create([
             'team_id' => $team->getKey(),
             'person_id' => $owner->getKey(),
+            'first_name' => $details['first_name'] ?? Str::before((string) $owner->email, '@'),
+            'last_name' => $details['last_name'] ?? null,
+            'email' => $details['email'] ?? $owner->email,
+            'phone' => $details['phone'] ?? null,
             'status' => PersonLifecycleState::Active,
             'joined_at' => now(),
         ]);

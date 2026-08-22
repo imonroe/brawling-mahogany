@@ -75,8 +75,9 @@ class ParseContactImport implements ShouldQueue
      *
      * The lookup is against **this team's** memberships, which is what makes
      * the answer honest: a person already in another team's directory is still
-     * a new person to this one, and the shared `people` row is attached rather
-     * than duplicated at commit time.
+     * a new person to this one. Since #140 that is the only kind of lookup
+     * there is — the address lives on the membership, and the join to `people`
+     * that used to be here could see rows this team had never met.
      *
      * @param  list<ParsedContact>  $contacts
      * @return list<array<string, mixed>>
@@ -89,11 +90,11 @@ class ParseContactImport implements ShouldQueue
         )));
 
         $existing = $emails === [] ? [] : TeamMembership::query()
-            ->join('people', 'people.id', '=', 'team_memberships.person_id')
             // Lower-cased on both sides: an address is the same address
             // whatever the export capitalised it as.
-            ->whereIn(DB::raw('lower(people.email)'), $emails)
-            ->pluck('people.email')
+            ->whereIn(DB::raw('lower(team_memberships.email)'), $emails)
+            ->pluck('email')
+            ->filter()
             ->map(fn (string $email): string => mb_strtolower($email))
             ->all();
 

@@ -48,12 +48,10 @@ function seedDirectory(int $count, string $prefix = 'person'): array
         foreach (range(1, $count) as $index) {
             $personId = (string) Str::ulid();
 
+            // A credential-less login row; everything a screen shows lives on
+            // the membership below (#140).
             $people[] = [
                 'id' => $personId,
-                'first_name' => 'Person'.$index,
-                'last_name' => 'Surname'.str_pad((string) $index, 4, '0', STR_PAD_LEFT),
-                'email' => "{$prefix}{$index}@example.test",
-                'phone' => '303555'.str_pad((string) $index, 4, '0', STR_PAD_LEFT),
                 'is_super_admin' => false,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -63,6 +61,10 @@ function seedDirectory(int $count, string $prefix = 'person'): array
                 'id' => (string) Str::ulid(),
                 'team_id' => $team->getKey(),
                 'person_id' => $personId,
+                'first_name' => 'Person'.$index,
+                'last_name' => 'Surname'.str_pad((string) $index, 4, '0', STR_PAD_LEFT),
+                'email' => "{$prefix}{$index}@example.test",
+                'phone' => '303555'.str_pad((string) $index, 4, '0', STR_PAD_LEFT),
                 'status' => PersonLifecycleState::PastClient->value,
                 'is_vendor' => false,
                 'created_at' => $now,

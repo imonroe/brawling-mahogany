@@ -3,20 +3,34 @@
  * most people in this product — clients, vendors, opposing agents — have none.
  * `auth.user` is Inertia's own key for "whoever is signed in", and the person
  * behind it is a Person like everybody else.
+ *
+ * **These are the five keys `HandleInertiaRequests::personProps()` sends, and
+ * no others.** It carried `phone`, `avatar`, `is_super_admin`,
+ * `two_factor_enabled`, `created_at` and `updated_at` for a while after the
+ * server stopped sending any of them — two of those declared *required*, so
+ * the type was not merely incomplete, it asserted the presence of fields that
+ * are never there. Nothing read them, which is why it went unnoticed and is
+ * also why it was worth fixing before something did. `isSuperAdmin` on `Auth`
+ * below is the one that is really sent.
  */
 export type Person = {
     /** A ULID. Client-facing identifiers are never sequential (ADR 0001). */
     id: string;
+    /**
+     * From the **membership**, not the person (#140): a name is something a
+     * team recorded, and two teams may have written it differently. With no
+     * resolved team the server falls back to the part of the address before
+     * the @, which is the only name anybody knows at that point.
+     */
     first_name: string;
     last_name: string | null;
-    email: string;
-    phone?: string | null;
-    avatar?: string;
-    is_super_admin?: boolean;
+    /**
+     * The **sign-in** address, and null for somebody who cannot sign in.
+     * The address a team holds for a person is on their membership and is
+     * allowed to differ.
+     */
+    email: string | null;
     email_verified_at: string | null;
-    two_factor_enabled?: boolean;
-    created_at: string;
-    updated_at: string;
     [key: string]: unknown;
 };
 

@@ -84,15 +84,14 @@ it('keeps a client’s phone number out of before and after', function (): void 
 
     $this->actingAsPerson($member, $team);
 
-    $person = Person::factory()->contactOnly()->create([
-        'first_name' => 'Claire',
-        'email' => 'claire@example.test',
-        'phone' => '+1 303 555 0100',
-    ]);
+    $person = Person::factory()->contactOnly()->create();
 
     $membership = TeamMembership::factory()->create([
         'team_id' => $team->getKey(),
         'person_id' => $person->getKey(),
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'phone' => '+1 303 555 0100',
     ]);
 
     $membership->forceFill(['notes' => 'Lives at 123 Main St.'])->save();

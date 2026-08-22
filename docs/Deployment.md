@@ -51,11 +51,21 @@ branches target `dev`; `dev` → `main` by pull request when a release is cut.
 2. `docker compose -f compose.yaml build`.
 3. `docker compose -f compose.yaml up -d --remove-orphans`.
 4. `php artisan migrate --force`, as an explicit step.
-5. Rebuild the config, route, and event caches.
-6. `php artisan horizon:terminate`, so the worker restarts on the new code.
-7. Curl `STAGING_URL/up` and fail the deploy if it does not answer. That is a
+5. `php artisan db:seed --class=ReferenceDataSeeder --force`, also explicit.
+6. Rebuild the config, route, and event caches.
+7. `php artisan horizon:terminate`, so the worker restarts on the new code.
+8. Curl `STAGING_URL/up` and fail the deploy if it does not answer. That is a
    separate secret from the SSH host on purpose — the box a deploy connects to
    and the name a browser resolves are not always the same thing.
+
+**Reference data is a deploy step too, and for a blunter reason: without it
+the application does not work at all.** The permission catalogue, the five
+system roles, and the three deal types are part of the schema in everything but
+name — provisioning a team looks up the `team_owner` role, and every policy
+asks for a permission. A migrated database with none of them is inert. The
+seeders are `updateOrCreate`, so running them on every deploy is both safe and
+the point: a changed permission description ships with the code that changed
+it.
 
 **Migrations are a deploy step, not a container start-up side effect.** A bad
 migration should fail a deploy loudly rather than leaving a container that
@@ -81,6 +91,50 @@ undo a migration** — a migration that cannot be rolled forward safely needs a
 deliberate down path written before it ships.
 
 ---
+
+## 2a. First run: the only step that is not automated
+
+A freshly migrated environment has no teams and nobody who can create one, and
+that is deliberate rather than an oversight. PRD §5.1 starts at *"Ian
+provisions a team and invites the owner"*, and `/admin` does both in one
+action — but reaching `/admin` needs `is_super_admin`, which **nothing in the
+UI sets**. A screen that grants the highest privilege in the system is a screen
+worth not having.
+
+So the bootstrap is one command, run once, on the box:
+
+```bash
+# 1. Register an account through the app, or accept an invitation.
+# 2. Then, on the server:
+php artisan platform:promote you@example.com
+```
+
+From there everything is in the product: `/admin` provisions a team **and**
+invites its owner, and the owner's invitation email carries them into it.
+
+Three things worth knowing before it confuses somebody:
+
+- **It promotes, it does not create.** A password never gets typed on a command
+  line or left in a shell history. Register first.
+- **A contact is not an account.** Since issue #140 a person in a team's
+  directory holds no sign-in address at all, so a client's email will not be
+  found here. The command says so rather than reporting a bare "not found".
+- **Two-factor is mandatory for this role** (PRD §9), so the next sign-in lands
+  on the enrolment screen rather than on `/admin`. From the outside that looks
+  like the promotion failed; it did not.
+
+`--demote` reverses it. Demoting the last administrator warns rather than
+refuses, because unlike the last-owner rule inside a team, this one is
+recoverable — the same command promotes somebody back. Skipping that warning
+takes its own flag, `--demote-last`: `--force` is Laravel's production
+confirmation gate and is typed by every operator running anything on a live
+box, so letting it answer this question too would silence the one prompt worth
+reading.
+
+Both directions write to the append-only audit log with no team and no actor:
+the privilege spans every team, and an operator with a shell is not somebody
+the application knows. That is the point of using this rather than an `UPDATE`
+in `psql`, which leaves nothing behind at all.
 
 ## 3. TLS
 
