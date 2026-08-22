@@ -203,6 +203,22 @@ class Deal extends Model
     }
 
     /**
+     * Who is involved, and as what (F3.3 · issue #60).
+     *
+     * Ordered so the screen and the route binding see the same list: primary
+     * first within a role, then by when they joined. S19 groups by role on top
+     * of this.
+     *
+     * @return HasMany<DealParticipant, $this>
+     */
+    public function participants(): HasMany
+    {
+        return $this->hasMany(DealParticipant::class)
+            ->orderByDesc('is_primary')
+            ->orderBy('created_at');
+    }
+
+    /**
      * Many, deliberately (F4.7).
      *
      * PRD §7.5: the rough data model gave a deal one workflow and contradicted

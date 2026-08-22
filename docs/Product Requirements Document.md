@@ -536,7 +536,7 @@ erDiagram
 |---|---|---|
 | `deal_types` | team_id (nullable), name, side (buy/sell/rent/other) | Many deals share one type. |
 | `deals` | team_id, deal_type_id, name, generated_name, state, opened_at, closed_at, transaction_value, notes | State includes `closed` and `nurture`. |
-| `deal_participants` | deal_id, person_id, participant_role, is_primary, notes | Per deal, not global. |
+| `deal_participants` | deal_id, **team_membership_id**, participant_role, is_primary, notes | Per deal, not global. `team_membership_id` rather than `person_id` since #140 — see §7.2. |
 | `properties` | team_id, address fields, parcel_number, type_id, status_id, beds, baths, sqft, year_built, notes | Team-owned, reusable across deals. |
 | `deal_property` | deal_id, property_id, link_role (subject/candidate), interest_status, sort_order | |
 | `external_links` | linkable_type/id, label, url | Replaces per-site columns. |
@@ -621,6 +621,8 @@ Ian asked what is wrong, missing, or over-complicated in [[Rough data model.canv
 They are relationships to a specific deal. The same person sells in March and buys in June.
 
 **Fix:** move them to `deal_participants`. The global role list shrinks to five genuine access tiers. The single biggest simplification available.
+
+**Amended by #140 (Slice 2):** the row references `team_memberships`, not `people`. When contact details moved off the shared person record, `people` stopped holding a name — so a participant pointing there could not render one — and `team_memberships` became the only side of that pair carrying a `team_id`, which is what a composite foreign key needs to make a cross-tenant participant unrepresentable. A membership already *is* "a person as this team knows them"; a participant is that, in a role, on a deal.
 
 ### 3. "New Contact (a lead)" is a status, not a role
 
