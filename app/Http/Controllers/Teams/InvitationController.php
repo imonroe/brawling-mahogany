@@ -8,7 +8,9 @@ use App\Actions\Teams\AcceptInvitation;
 use App\Concerns\PasswordValidationRules;
 use App\Http\Controllers\Controller;
 use App\Http\Middleware\ResolveCurrentTeam;
+use App\Models\Person;
 use App\Models\TeamInvitation;
+use App\Support\Teams\PendingInvitations;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,7 +20,7 @@ use Inertia\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * Accept an invitation (Screen Inventory S04).
+ * Accept an invitation (Screen Inventory S04, S09).
  *
  * Deliberately outside the team middleware: the person following this link has
  * no membership yet, and no session. The team comes from the token and from
@@ -28,6 +30,12 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * screen rather than one generic failure — *"expired and reused tokens each
  * produce their own screen, not a 500"* — because a person who clicks an old
  * link needs to know which of those happened and what to do next.
+ *
+ * ADR 0003 adds a second door. `show`/`accept` are the emailed link;
+ * `claim` is the same acceptance for somebody already signed in as the
+ * invited address, who may never have received the message at all. No user
+ * flow in this product may depend on email alone, and this is the flow that
+ * rule was written for.
  */
 class InvitationController extends Controller
 {
@@ -93,6 +101,47 @@ class InvitationController extends Controller
 
         $request->session()->regenerate();
         $request->session()->put(ResolveCurrentTeam::SESSION_KEY, $invitation->team_id);
+
+        return to_route('dashboard');
+    }
+
+    /**
+     * Accept without a link (ADR 0003 · S09).
+     *
+     * The other half of S04, for the person who never received the email —
+     * because no transport is configured, because it went to a spam folder,
+     * or because this is a pre-production environment where mail deliberately
+     * goes nowhere. `PendingInvitations` sets out why a signed-in account
+     * whose address matches is not a weaker proof than the token: the token,
+     * for an address that already has an account, does exactly this and
+     * nothing more.
+     *
+     * Not policy-gated, and it should not be. There is no team to hold a
+     * policy yet — that is the situation — and the authorisation is the
+     * address match, which `PendingInvitations::find()` is the only thing
+     * that performs. A miss is a 404 rather than a 403, so a signed-in
+     * account cannot walk ids to learn which invitations are live.
+     */
+    public function claim(Request $request, string $invitation, AcceptInvitation $accept): RedirectResponse
+    {
+        $person = $request->user();
+
+        $model = $person instanceof Person
+            ? PendingInvitations::find($person, $invitation)
+            : null;
+
+        if (! $person instanceof Person || ! $model instanceof TeamInvitation) {
+            throw new NotFoundHttpException;
+        }
+
+        $accept->claim($model, $person);
+
+        // Straight into the team they just joined, rather than leaving them
+        // to find the switcher: they came here from a screen that exists to
+        // say they are not in one.
+        $request->session()->put(ResolveCurrentTeam::SESSION_KEY, $model->team_id);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('You’re on the team.')]);
 
         return to_route('dashboard');
     }

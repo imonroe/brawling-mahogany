@@ -372,7 +372,7 @@ it is set every message goes to its real recipient. §2 of
 
 The remainder — the parts that need a decision or another account:
 - [ ] Postgres: managed instance or the compose service, matching production's choice
-- [ ] SES in sandbox, `MAIL_REDIRECT_TO` set
+- [ ] SES in sandbox, `MAIL_REDIRECT_TO` set — and note that a redirected invitation still reaches nobody: use the **Get link** action in `/admin`, or `php artisan invitation:link <email>`, to onboard staging's first team owner ([[adr/0003-no-email-only-flows|ADR 0003]])
 - [ ] A separate AI provider key with its own budget cap
 - [ ] Sentry staging project, DSN in `.env`
 - [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`, and `STAGING_SSH_PORT` if the droplet does not listen on 22

@@ -62,6 +62,27 @@ PRD §8.6, restated because both protect somebody else's client:
    spends against the production budget, and a runaway loop in a test costs a
    small, capped amount rather than a large, uncapped one.
 
+### What that means for anything you have to *act on*
+
+Both guardrails above make staging mail undeliverable on purpose, and local
+mail never leaves the machine. [[adr/0003-no-email-only-flows|ADR 0003]] is the
+rule that keeps this from being a dead end: **no user flow depends on email
+alone**, so nothing in the product is unreachable because a message went to
+Mailpit or was redirected to an ops mailbox.
+
+In practice, for the two flows that exist today:
+
+| Flow | Without the message |
+|---|---|
+| Team invitation | The invitee accepts it in-app if they are signed in as the invited address; the team owner issues the link from `/settings/members`; a platform operator issues it from the team's page in `/admin`; or `php artisan invitation:link <email>` prints one with no session at all |
+| Password reset | `php artisan auth:reset-link <email>` prints a single-use link. It starts a reset without finishing one — only the account holder can set the password |
+
+Both commands are audited (`invitation.link_issued`,
+`auth.password_reset_link_issued`) and both prompt for confirmation in
+production unless given `--force`. They are ordinary product features rather
+than staging tools: a path that exists only in pre-production is a path nobody
+tests and nobody reviews with production eyes.
+
 ---
 
 ## 3. Where secrets are held

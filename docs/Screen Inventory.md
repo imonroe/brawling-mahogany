@@ -53,14 +53,17 @@ tags:
 | S04 | Accept invitation | `/invitations/{token}` | Team | Expired, already accepted, set password | F1.3 | 1 | S |
 | S05 | System pages (403, 404, 500, maintenance) | various | All | Four variants, tenant and admin themed | NFR | 1 | S |
 
+> [!note] S03 and S04 each carry a second door that is not a screen
+> [[adr/0003-no-email-only-flows|ADR 0003]]: no flow depends on email alone. S04's alternatives are in-app — the invitation appears on S09 and in S06's banner, and the link can be issued from S74 or S83 — plus `php artisan invitation:link` for an install with no screens yet. S03's is `php artisan auth:reset-link`, deliberately console-only: a page that mints reset links for other accounts is an account-takeover button however carefully it is gated. Neither adds a row here, because neither is a screen — but both are part of the flow, and a redesign of S03 or S04 that forgets them re-creates the dead end they close.
+
 ## B. Application shell
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S06 | App shell and sidebar | global | Team | Collapsed, mobile bottom bar, permission-hidden sections, impersonation banner | F1.2 | 1 | **L** |
+| S06 | App shell and sidebar | global | Team | Collapsed, mobile bottom bar, permission-hidden sections, impersonation banner, **pending-invitation banner** (ADR 0003) | F1.2 | 1 | **L** |
 | S07 | Global search overlay | global | Team | Empty, no results, grouped results, recent | F9.3 | 2 | M |
 | S08 | Notification panel | global | Team | Empty, unread, grouped, mark all read | F5.3 | 3 | M |
-| S09 | Team switcher | global | Team | Single team (hidden), multiple, no access | F1.4 | 1 | S |
+| S09 | Team switcher | global | Team | Single team (hidden), multiple, no access, **invitation waiting** (accept in-app, no link needed — ADR 0003) | F1.4 | 1 | S |
 
 > [!note] S06 is the highest-leverage screen in the inventory
 > Every other internal screen inherits it. Getting the density, the type scale, and the mobile collapse right here means the other 70 screens mostly assemble themselves. Getting it wrong means 70 screens inherit the mistake.
@@ -205,7 +208,7 @@ tags:
 |---|---|---|---|---|---|---|---|
 | S72 | Team profile and branding | `/settings/team` | Agent | Logo upload, colour picker, signature block, live preview of client page | F1.2, F7.5 | 1 | M |
 | S73 | Sending identity | `/settings/sending` | Agent | Unverified, DNS records to add, verifying, verified, failed | F5.9 | 3 | M |
-| S74 | Members and invitations | `/settings/members` | Agent | Empty, pending invites, revoke, last owner warning | F1.3 | 1 | M |
+| S74 | Members and invitations | `/settings/members` | Agent | Empty, pending invites, revoke, last owner warning, **link issued** (shown once, replaces the emailed one — ADR 0003) | F1.3 | 1 | M |
 | S75 | Roles and permissions | `/settings/roles` | Agent | System roles (locked), custom roles, permission matrix, in-use warning | F2.3 | 2 | **L** |
 | S76 | Deal types and lookups | `/settings/deal-types` | Agent | Defaults, custom, in-use warning | F3.1 | 2 | S |
 | S77 | My profile and security | `/settings/profile` | Team | Details, password, 2FA enrol, recovery codes, sessions | NFR | 1 | S |
@@ -219,7 +222,7 @@ tags:
 |---|---|---|---|---|---|---|---|
 | S81 | Admin dashboard | `/admin` | Admin | Tenant count, health summary, recent errors | F1.5 | 1 | S |
 | S82 | Teams list | `/admin/teams` | Admin | Search, suspended, usage | F1.5 | 1 | S |
-| S83 | Team detail and provision | `/admin/teams/{team}` | Admin | Create, edit, suspend, usage detail | F1.5 | 1 | M |
+| S83 | Team detail and provision | `/admin/teams/{team}` | Admin | Create, edit, suspend, usage detail, **pending invitations and link issued** (ADR 0003) | F1.5 | 1 | M |
 | S84 | Start impersonation | `/admin/teams/{team}/impersonate` | Admin | **Reason required**, duration, audit warning | F1.5 | 1 | S |
 | S85 | System health and queues | `/admin/health` | Admin | Queue depth, failed jobs, AI spend against cap, SES reputation | NFR | 1 | M |
 
@@ -232,8 +235,8 @@ Real design work, and easy to forget in an inventory. These are what the client 
 | S86 | Base branded email layout | email | Client | Per-team logo and colours, dark mode clients, plain text fallback | F5.5 | 3 | M |
 | S87 | Milestone notification | email | Client | With and without MLS link, with and without status link, long address | F5.5 | 3 | M |
 | S88 | Deadline reminder | email | Team | Single date, several dates, critical styling | F8.4 | 4 | S |
-| S89 | Magic link | email | Client | Link, expiry note, "you did not request this" | F7.1 | 4 | S |
-| S90 | Team invitation | email | Team | Inviter name, team name, expiry | F1.3 | 1 | S |
+| S89 | Magic link | email | Client | Link, expiry note, "you did not request this". ADR 0003 applies: the agent must be able to hand the client a link without the message | F7.1 | 4 | S |
+| S90 | Team invitation | email | Team | Inviter name, team name, expiry. **Never the only way in** — see S04, S09, S74, S83 and ADR 0003 | F1.3 | 1 | S |
 | S91 | Internal alert | email | Team | Automation failed, bounce, extraction failed | F5.8 | 3 | S |
 
 ---

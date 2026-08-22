@@ -23,6 +23,20 @@ class TeamInvitationPolicy
         return $this->allows($person, Permissions::MANAGE_TEAM_MEMBERS);
     }
 
+    /**
+     * Issuing the accept link (ADR 0003).
+     *
+     * The same permission as sending the invitation, deliberately. Whoever
+     * may invite an address may already revoke and re-invite it, so handing
+     * them the link grants nothing they did not have — a narrower permission
+     * here would be theatre.
+     */
+    public function issueLink(Person $person, TeamInvitation $invitation): bool
+    {
+        return $this->belongsToCurrentTeam($invitation)
+            && $this->allows($person, Permissions::MANAGE_TEAM_MEMBERS);
+    }
+
     public function delete(Person $person, TeamInvitation $invitation): bool
     {
         return $this->belongsToCurrentTeam($invitation)

@@ -12,16 +12,30 @@ use App\Support\Audit\AuditLogger;
 use App\Support\Teams\InvitationConflict;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Turn an invitation into a membership (Screen Inventory S04).
+ * Turn an invitation into a membership (Screen Inventory S04, S09).
  *
  * The case that makes this more than an insert: *"Accepting an invitation for
  * an email that already has a `people` record attaches a new
  * `team_membership` rather than creating a second person."* That is the
  * shared-person decision (#18) doing its job — the stager who already works
  * for another team keeps one record and one phone number.
+ *
+ * ## Two ways in, one outcome
+ *
+ * `handle()` is the emailed link (S04): somebody holding a token, who may
+ * have no account at all, so it takes a name and a password.
+ *
+ * `claim()` is the in-app answer (ADR 0003, S09): somebody already signed in
+ * whose sign-in address *is* the invited address. It takes neither — they
+ * have credentials already, and this must never touch them.
+ *
+ * Both end in the same two steps, which is why those steps are shared rather
+ * than written twice: attach the membership, then mark the invitation
+ * accepted and audit it.
  */
 final class AcceptInvitation
 {
@@ -36,8 +50,6 @@ final class AcceptInvitation
     public function handle(TeamInvitation $invitation, string $firstName, ?string $lastName, string $password): array
     {
         return DB::transaction(function () use ($invitation, $firstName, $lastName, $password): array {
-            $team = $invitation->team()->sole();
-
             // Case-insensitively, because `Emily@Example.test` and
             // `emily@example.test` are one human (PRD decision log,
             // 2026-08-22) and the unique index says so too.
@@ -72,22 +84,7 @@ final class AcceptInvitation
 
             $alreadyHadCredentials = $person instanceof Person && $person->hasCredentials();
 
-            /*
-             * The directory entry and a separate account both exist.
-             *
-             * `MemberController::invite` asks this first, so an invitation
-             * that would land here mostly never gets sent — which matters,
-             * because the person who can fix it is the one typing the address,
-             * not the one holding the link. This is the second ask, because a
-             * contact can be added to the directory *after* the invitation
-             * goes out and a check that only ran at the start would be a check
-             * that stopped being true.
-             */
-            $conflict = InvitationConflict::reasonFor($invitation->team_id, $address);
-
-            if ($conflict !== null) {
-                throw ValidationException::withMessages(['email' => $conflict]);
-            }
+            $this->guardAgainstConflict($invitation);
 
             if ($person instanceof Person) {
                 // An existing person keeps their record. The only thing an
@@ -112,56 +109,9 @@ final class AcceptInvitation
                 $person->forceFill(['email_verified_at' => now()])->save();
             }
 
-            $this->teams->runFor($team, function () use ($invitation, $person, $firstName, $lastName): void {
-                // The name goes in the insert, not a follow-up write:
-                // `first_name` is not nullable, so a membership cannot exist
-                // for a moment without one.
-                $membership = TeamMembership::query()->firstOrCreate(
-                    ['team_id' => $invitation->team_id, 'person_id' => $person->getKey()],
-                    [
-                        'first_name' => $firstName,
-                        'last_name' => $lastName ?? $invitation->last_name,
-                        'email' => $invitation->email,
-                        'status' => PersonLifecycleState::Active,
-                        'joined_at' => now(),
-                    ],
-                );
+            $this->attachMembership($invitation, $person, $firstName, $lastName ?? $invitation->last_name);
 
-                /*
-                 * The name the invitee typed, or the one the inviter typed for
-                 * them, on this team's row only. Somebody who already works in
-                 * another team keeps whatever that team calls them — a second
-                 * team is not entitled to rename them anywhere but here.
-                 *
-                 * `firstOrCreate` may have just made the row, and a membership
-                 * with no name renders as a blank line, so a fallback is
-                 * needed: the address before the @, which is the least-bad
-                 * thing anybody knows.
-                 */
-                // The invitee types their own name on the accept screen, and
-                // it is required there — so it always wins. Somebody who
-                // already works in another team keeps whatever that team
-                // calls them: a second team may name them here and nowhere
-                // else.
-                $membership->forceFill([
-                    'first_name' => $firstName,
-                    'last_name' => $lastName ?? $invitation->last_name ?? $membership->last_name,
-                    'email' => $membership->email ?? $invitation->email,
-                    'revoked_at' => null,
-                    'joined_at' => $membership->joined_at ?? now(),
-                ])->save();
-
-                $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
-            });
-
-            $invitation->forceFill(['accepted_at' => now()])->save();
-
-            $this->audit->record(
-                action: 'invitation.accepted',
-                auditable: $invitation,
-                teamId: $invitation->team_id,
-                actorPersonId: $person->getKey(),
-            );
+            $this->finalise($invitation, $person);
 
             /*
              * **An invitation is not a way into an existing account.**
@@ -177,5 +127,122 @@ final class AcceptInvitation
              */
             return ['person' => $person, 'mayAuthenticate' => ! $alreadyHadCredentials];
         });
+    }
+
+    /**
+     * Accept from inside the product, with no token (ADR 0003 · S09).
+     *
+     * The caller has already established that `$person` is signed in and that
+     * their sign-in address is the invited one — `PendingInvitations` is the
+     * only thing that answers that question, and it explains there why a
+     * matched session is not weaker than a matched token.
+     *
+     * Note what is missing compared with `handle()`: no password, no
+     * `email_verified_at`, no account creation, no branch on whether
+     * credentials existed. A claim can add a membership and nothing else,
+     * which is what makes it safe to offer without a token.
+     */
+    public function claim(TeamInvitation $invitation, Person $person): TeamMembership
+    {
+        return DB::transaction(function () use ($invitation, $person): TeamMembership {
+            $this->guardAgainstConflict($invitation);
+
+            /*
+             * Nobody typed a name here — that is the whole point of the
+             * screen, one button — so the invitation's is used, and failing
+             * that the address before the @. The same placeholder
+             * `ProvisionTeam::attachOwner` uses, changeable from their
+             * profile, and better than a blank line on the members screen.
+             */
+            $membership = $this->attachMembership(
+                $invitation,
+                $person,
+                $invitation->first_name ?? Str::before((string) $person->email, '@'),
+                $invitation->last_name,
+            );
+
+            $this->finalise($invitation, $person, 'Accepted in the application by the invited account.');
+
+            return $membership;
+        });
+    }
+
+    /**
+     * The directory-entry collision, asked at accept time.
+     *
+     * `MemberController::invite` asks it first, so an invitation that would
+     * land here mostly never gets sent — which matters, because the person who
+     * can fix it is the one typing the address, not the one holding the link.
+     * This is the second ask, because a contact can be added to the directory
+     * *after* the invitation goes out and a check that only ran at the start
+     * would be a check that stopped being true.
+     */
+    private function guardAgainstConflict(TeamInvitation $invitation): void
+    {
+        $conflict = InvitationConflict::reasonFor($invitation->team_id, mb_strtolower($invitation->email));
+
+        if ($conflict !== null) {
+            throw ValidationException::withMessages(['email' => $conflict]);
+        }
+    }
+
+    /**
+     * The membership, and the role that came with the invitation.
+     */
+    private function attachMembership(TeamInvitation $invitation, Person $person, string $firstName, ?string $lastName): TeamMembership
+    {
+        return $this->teams->runFor(
+            $invitation->team()->sole(),
+            function () use ($invitation, $person, $firstName, $lastName): TeamMembership {
+                // The name goes in the insert, not a follow-up write:
+                // `first_name` is not nullable, so a membership cannot exist
+                // for a moment without one.
+                $membership = TeamMembership::query()->firstOrCreate(
+                    ['team_id' => $invitation->team_id, 'person_id' => $person->getKey()],
+                    [
+                        'first_name' => $firstName,
+                        'last_name' => $lastName,
+                        'email' => $invitation->email,
+                        'status' => PersonLifecycleState::Active,
+                        'joined_at' => now(),
+                    ],
+                );
+
+                /*
+                 * The invitee types their own name on the accept screen, and
+                 * it is required there — so it always wins. Somebody who
+                 * already works in another team keeps whatever that team
+                 * calls them: a second team may name them here and nowhere
+                 * else.
+                 */
+                $membership->forceFill([
+                    'first_name' => $firstName,
+                    'last_name' => $lastName ?? $membership->last_name,
+                    'email' => $membership->email ?? $invitation->email,
+                    'revoked_at' => null,
+                    'joined_at' => $membership->joined_at ?? now(),
+                ])->save();
+
+                $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
+
+                return $membership;
+            },
+        );
+    }
+
+    /**
+     * Spend the invitation, once, and say so in the audit log.
+     */
+    private function finalise(TeamInvitation $invitation, Person $person, ?string $reason = null): void
+    {
+        $invitation->forceFill(['accepted_at' => now()])->save();
+
+        $this->audit->record(
+            action: 'invitation.accepted',
+            auditable: $invitation,
+            teamId: $invitation->team_id,
+            actorPersonId: $person->getKey(),
+            reason: $reason,
+        );
     }
 }

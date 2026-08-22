@@ -137,6 +137,7 @@ remembering them:
 | `tests/Isolation/UnscopedQueryConventionTest.php` | Every `withoutTeamScope()` in `app/` is listed with a reason, and each listed file has the count it says. Both spellings, comments stripped through the tokeniser | ADR 0002 |
 | `tests/Unit/SingleMutationPathTest.php` | Nothing but `AdvanceWorkflow` writes workflow state — across `app/`, `routes/` and `database/`, and through every spelling of the write, `DB::table('stages')` included. Carries its own dataset of bypasses so the detector cannot be narrowed by accident | PRD §8.3, issue #68 |
 | `tests/Feature/Workflow/StateMachinePersistenceTest.php` | An illegal transition throws on `save()` however the attribute was written — assignment, `setAttribute`, a variable column name, or `forceFill` | issue #65 |
+| `tests/Unit/EmailIndependenceTest.php` | Every mailable in `app/Mail`, and every mail-sending Fortify feature that is switched on, is catalogued in `EmailIndependence::FLOWS` with a non-email alternative — and every alternative it names resolves against the real route table or the artisan registry | ADR 0003 |
 
 When one of these fails, the fix is the code or the document — not the test.
 
@@ -150,6 +151,11 @@ thing they guard:
   red, which is the definition of done issue #42 asked for.
 - Deleting one `$this->authorize()` call turns the authorization-coverage test
   red, naming the route and the action.
+- Removing `TeamInvitationMail` from `EmailIndependence::FLOWS` turns the
+  email-independence test red, and so does pointing one of its alternatives at
+  a route name that does not exist — the second is the failure that matters,
+  because a catalogue of doors that are not there reads as coverage on every
+  review after this one.
 
 Do the same for the next one. An enumerating test you have never seen fail is a
 test you do not know the behaviour of.
@@ -170,6 +176,6 @@ on it produces tests written to satisfy the gate.
 |---|---|
 | 1 | ✅ The isolation suite proper, the authorization-coverage test, and the team-context helpers |
 | 2 | Gate evaluator unit tests; `AdvanceWorkflow` transaction and dispatch tests; the dashboard's query budget at 25 deals |
-| 3 | Approval-queue tests, and the safety rails: no message leaves without an approved state |
-| 4 | Derived date cascade tests, and magic-link expiry |
+| 3 | Approval-queue tests, and the safety rails: no message leaves without an approved state. Every new mailable needs its ADR 0003 second door catalogued and covered |
+| 4 | Derived date cascade tests, and magic-link expiry — including the non-email path to a status page link (ADR 0003) |
 | 5 | Extraction provenance: nothing reaches `key_dates` or `tasks` without a confirmed `extracted_fields` row |

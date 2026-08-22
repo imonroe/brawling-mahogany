@@ -16,6 +16,7 @@ import AppInput from '@/components/app/AppInput.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import Heading from '@/components/app/Heading.vue';
+import InvitationLinkPanel from '@/components/app/InvitationLinkPanel.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
@@ -42,6 +43,12 @@ defineProps<{
         name: string;
         description: string | null;
     }[];
+    /**
+     * The link the server just minted, if this render followed a request for
+     * one (ADR 0003). Null on every other visit, and deliberately so — see
+     * `InvitationLinkPanel`.
+     */
+    issuedLink: { id: string; email: string; url: string } | null;
 }>();
 
 const page = usePage();
@@ -80,6 +87,29 @@ function revoke(id: string, name: string): void {
     }
 
     router.delete(`/settings/members/${id}`, { preserveScroll: true });
+}
+
+/**
+ * Ask for the accept link instead of relying on the message (ADR 0003).
+ *
+ * The honest framing matters here: this *replaces* whatever was emailed, so
+ * the confirmation says so before anybody invalidates a link a colleague is
+ * about to click.
+ */
+function issueLink(id: string, email: string): void {
+    if (
+        !window.confirm(
+            `Generate an invitation link for ${email}? Any link already emailed to them stops working.`,
+        )
+    ) {
+        return;
+    }
+
+    router.post(
+        `/settings/members/invitations/${id}/link`,
+        {},
+        { preserveScroll: true },
+    );
 }
 
 function revokeInvitation(id: string): void {
@@ -158,6 +188,8 @@ function revokeInvitation(id: string): void {
             </form>
         </Card>
 
+        <InvitationLinkPanel v-if="issuedLink" :link="issuedLink" />
+
         <Card title="Pending invitations">
             <EmptyState
                 v-if="invitations.length === 0"
@@ -180,6 +212,11 @@ function revokeInvitation(id: string): void {
                     />
                     <span class="tabular text-[11px] text-muted-foreground"
                         >Expires {{ formatDate(invitation.expiresAt) }}</span
+                    >
+                    <AppButton
+                        variant="ghost"
+                        @click="issueLink(invitation.id, invitation.email)"
+                        >Get link</AppButton
                     >
                     <AppButton
                         variant="ghost"

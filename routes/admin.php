@@ -31,6 +31,11 @@ Route::middleware(['auth', 'verified', 'two-factor', 'super-admin'])
         Route::get('teams', [TeamController::class, 'index'])->name('teams.index');
         Route::post('teams', [TeamController::class, 'store'])->name('teams.store');
         Route::get('teams/{team}', [TeamController::class, 'show'])->name('teams.show');
+        // ADR 0003: the owner invited at provisioning time must be reachable
+        // on an install where no mail transport is configured.
+        Route::post('teams/{team}/invitations/{invitation}/link', [TeamController::class, 'issueInvitationLink'])
+            ->name('teams.invitations.link');
+
         Route::post('teams/{team}/suspend', [TeamController::class, 'suspend'])->name('teams.suspend');
         Route::post('teams/{team}/restore', [TeamController::class, 'restore'])->name('teams.restore');
 

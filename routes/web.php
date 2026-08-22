@@ -24,6 +24,21 @@ Route::post('invitations/{token}', [InvitationController::class, 'accept'])
     ->name('invitations.accept');
 
 /*
+ * The same acceptance, without the link (ADR 0003).
+ *
+ * Signed in as the invited address is the authorisation, so `auth` is the
+ * only middleware that belongs: `team` would redirect the very person this
+ * exists for — somebody with no membership anywhere — and `verified` and
+ * `two-factor` gate the tenant application, which this is not yet.
+ *
+ * Throttled like its emailed twin. An id is not a secret, and walking them
+ * against a signed-in session is the one probe this route makes possible.
+ */
+Route::post('invitations/{invitation}/claim', [InvitationController::class, 'claim'])
+    ->middleware(['auth', 'throttle:10,1'])
+    ->name('invitations.claim');
+
+/*
  * Signed in, but with no live membership anywhere: the team switcher's "no
  * access" state (S09). Deliberately reachable without the `team` middleware,
  * which is what redirects here.

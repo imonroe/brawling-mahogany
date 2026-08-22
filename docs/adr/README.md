@@ -13,6 +13,7 @@ something every later table, screen, or slice inherits.
 |---|---|---|---|
 | [0001](0001-data-and-persistence-conventions.md) | Data and persistence conventions — ULIDs, soft deletes, `team_id`, money as integer cents, JSONB config, enum-backed states | Accepted | [#27](https://github.com/imonroe/brawling-mahogany/issues/27) |
 | [0002](0002-multi-tenancy-enforcement.md) | Multi-tenancy enforcement — single schema, five layers, and what a violation does | Accepted | [#28](https://github.com/imonroe/brawling-mahogany/issues/28) |
+| [0003](0003-no-email-only-flows.md) | No user flow depends on email alone — every email-initiated flow carries a second door, catalogued and tested | Accepted | — |
 
 ## Writing one
 

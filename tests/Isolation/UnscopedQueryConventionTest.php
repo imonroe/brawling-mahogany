@@ -117,7 +117,10 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 
     'Http/Controllers/Admin/TeamController.php' => [
-        'count' => 3,
+        // Five, up from three: the pending-invitation list and the link the
+        // console issues for one (ADR 0003). Both name the team explicitly in
+        // the query, from a route that already carries it.
+        'count' => 5,
         'reason' => 'The super-admin console runs above the tenant boundary (ADR 0002), '.
             'behind the super-admin middleware, and every action it takes is audited.',
     ],
@@ -134,6 +137,23 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'names the team, and the membership this looks for is the one that team '.
             'already holds for the address. It is scoped to that team by hand, in the '.
             'query, which is the only shape a no-tenant context can use.',
+    ],
+
+    'Support/Teams/PendingInvitations.php' => [
+        'count' => 1,
+        'reason' => 'A question about the actor, and the case that makes the phrase literal: '.
+            'which teams have invited *me*. The person asking has no membership anywhere — '.
+            'that is the situation — so there is no team to scope to, and the invitation is '.
+            'what would establish one. Keyed on their own folded sign-in address, which is '.
+            'the same comparison AcceptInvitation and the unique index make.',
+    ],
+
+    'Console/Commands/IssueInvitationLink.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant. A console run has no session and therefore no '.
+            'resolved team, and the whole question is which team invited an address. --team '.
+            'narrows it by hand, in the query, which is the only shape a no-tenant context '.
+            'can use.',
     ],
 
     'Http/Controllers/Teams/InvitationController.php' => [

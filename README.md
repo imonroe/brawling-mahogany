@@ -85,9 +85,30 @@ migrates the database. When it finishes:
 | | |
 |---|---|
 | App | http://localhost:8000 |
-| Mailpit | http://localhost:8025 — every local send lands here and nowhere else |
+| Mailpit | http://localhost:8025 — every local send lands here and nowhere else. Handy, and never required: no flow depends on it ([ADR 0003](docs/adr/0003-no-email-only-flows.md)) |
 | Horizon | http://localhost:8000/horizon — add your address to `HORIZON_AUTHORIZED_EMAILS` |
 | Design system gallery | http://localhost:8000/design-system — every component, both themes |
+
+### Getting into a team on a fresh install
+
+`migrate:fresh --seed` gives you a working demo team — sign in as
+`emily@example.test` / `password`. Setting one up by hand takes four steps, and
+the fourth is the one that used to have no answer without working mail:
+
+```bash
+php artisan platform:promote you@example.com   # after registering at /register
+# then, in /admin: provision a team, which also invites its owner
+php artisan invitation:link you@example.com    # prints the accept link
+```
+
+You will rarely need that last command — if you are signed in as the address
+you invited, the invitation shows up on `/no-team` with an **Accept** button,
+and the team's page in `/admin` has a **Get link** action next to every pending
+invitation. `php artisan auth:reset-link <email>` is the same idea for a
+forgotten password. All three are ordinary product features rather than
+development shortcuts, and they behave identically in production —
+[ADR 0003](docs/adr/0003-no-email-only-flows.md) explains why that is
+deliberate.
 
 Day to day:
 
@@ -141,7 +162,7 @@ afterthought.
 - [`Testing.md`](docs/Testing.md) — the test suites and conventions
 - [`Environment and secrets.md`](docs/Environment%20and%20secrets.md) — what exists where, and how it is rotated
 - [`Deployment.md`](docs/Deployment.md) — staging, production, backups, and the restore drill
-- [`adr/`](docs/adr) — architecture decisions, starting with persistence conventions and multi-tenancy
+- [`adr/`](docs/adr) — architecture decisions: persistence conventions, multi-tenancy enforcement, and no email-only flows
 - [`The basic idea.md`](docs/The%20basic%20idea.md) — the originating concept
 - [`Rough data model.canvas`](docs/Rough%20data%20model.canvas) — the first-pass data model
 - [`Conversation with Emily and Heather.md`](docs/Conversation%20with%20Emily%20and%20Heather.md) — the working session that shaped v0.2 of the PRD

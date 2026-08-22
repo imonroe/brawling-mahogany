@@ -13,10 +13,11 @@ import { computed, ref, watch, watchEffect } from 'vue';
 import AppSidebar from '@/components/app/AppSidebar.vue';
 import ImpersonationBanner from '@/components/app/ImpersonationBanner.vue';
 import MobileTabBar from '@/components/app/MobileTabBar.vue';
+import PendingInvitationBanner from '@/components/app/PendingInvitationBanner.vue';
 import TopBar from '@/components/app/TopBar.vue';
 import { Toaster } from '@/components/ui/sonner';
 import { setTeamTimeZone } from '@/lib/formatters';
-import type { BreadcrumbItem } from '@/types';
+import type { BreadcrumbItem, PendingInvitation } from '@/types';
 
 const props = withDefaults(
     defineProps<{
@@ -46,6 +47,22 @@ watchEffect(() => {
 
 const impersonating = computed(() => page.props.auth?.impersonating ?? null);
 
+/*
+ * ADR 0003: no flow depends on email alone. Somebody already in a team never
+ * sees S09's "no access" state, so the shell is the only place a second
+ * invitation can reach them without one.
+ *
+ * Suppressed on `Teams/None` itself, which renders the same invitations as a
+ * card with room to say what they are. That page resolves to this layout like
+ * any other, so without the check the same invitation appears twice on the one
+ * screen built to show it.
+ */
+const invitations = computed<PendingInvitation[]>(() =>
+    page.component === 'Teams/None'
+        ? []
+        : ((page.props.invitations as PendingInvitation[] | undefined) ?? []),
+);
+
 const collapsed = ref(page.props.sidebarOpen === false);
 
 watch(collapsed, (value) => {
@@ -63,6 +80,11 @@ watch(collapsed, (value) => {
             :team-name="impersonating.teamName"
             :reason="impersonating.reason"
             :ends-at="impersonating.endsAt"
+        />
+
+        <PendingInvitationBanner
+            v-if="invitations.length > 0"
+            :invitations="invitations"
         />
 
         <div class="flex min-h-0 flex-1">

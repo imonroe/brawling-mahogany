@@ -181,7 +181,7 @@ Platform operator. Needs cross-tenant visibility for support, plus an audit trai
 |---|---|---|---|
 | F1.1 | Team as tenant boundary | Every business record belongs to exactly one team. Queries are team-scoped at the framework level, not per-controller. | Must |
 | F1.2 | Team control panel | Team profile, branding, sending identity, members, roles, templates. | Must |
-| F1.3 | Membership and invitations | Invite by email, assign role on invite, revoke without destroying historical attribution. | Must |
+| F1.3 | Membership and invitations | Invite by email, assign role on invite, revoke without destroying historical attribution. **The invitation is never email-only** (§8.5.1): the invitee can accept it in-app, and the inviter or a platform operator can hand the link over directly. | Must |
 | F1.4 | Multi-team users | One person, several memberships, context switching. Notes stay scoped to the recording team. | Should |
 | F1.5 | Super admin console | Cross-team lookup, impersonation with a logged reason, tenant provisioning. | Must |
 
@@ -398,7 +398,7 @@ Materially narrowed in v0.2. Executed contracts live in CTM. This product holds 
 
 Revised in v0.2 to reflect that guided onboarding is the market norm.
 
-1. Ian provisions a team and invites the owner.
+1. Ian provisions a team and invites the owner. The invitation is emailed; if it does not arrive, Ian copies the link from the team's page in the console, or Emily accepts it from inside the product if she already has an account (§8.5.1).
 2. Emily sets a password, enables 2FA, completes the team profile: name, logo, colors, signature block.
 3. She verifies a sending domain or accepts the shared default identity.
 4. She invites Heather as a Team Member.
@@ -740,6 +740,16 @@ Never synchronous, never trusted.
 
 Underrated, and it will bite. Required at launch: a dedicated sending subdomain, SPF, DKIM, and DMARC verified, SES production access requested early, SNS webhooks for bounces and complaints with automatic suppression, a per-team sending identity with reply-to pointing at the actual agent, and one-click unsubscribe on anything not strictly transactional.
 
+### 8.5.1 No user flow depends on email alone (new in v0.4)
+
+**Every flow the product initiates by email carries a second way to start it or answer it that does not involve email.** See [[adr/0003-no-email-only-flows|ADR 0003]].
+
+Email is a channel this product does not control. A message can be dropped by a relay, filed as spam, sent to a shared mailbox nobody reads, or — in every local environment, and in staging by design (§8.6) — never sent at all. Slice 1 shipped exactly one email-only flow and it was the invitation in F1.3, which is also the whole of onboarding in §5.1 step 1: a fresh install could provision a team and then had no path at all to somebody who could sign in to it.
+
+The second door need not be equally convenient, and often should not be. Three shapes satisfy the rule, in order of preference: the recipient answers it **in the application**; somebody who already controls the flow **hands the artifact over**; or an operator **issues it from the console**. Each ships in every environment, on the same code path, with the same audit trail — a path that exists only in staging is a path nobody tests and nobody reviews with production eyes.
+
+`App\Support\Mail\EmailIndependence::FLOWS` catalogues each email-initiated flow with its alternative, and `tests/Unit/EmailIndependenceTest.php` fails the build when a mailable has no entry or names one that does not resolve. This binds §4.5's automation work and §4.7's status page links as much as it binds F1.3.
+
 ### 8.6 Environments
 
 Local Docker, a staging droplet mirroring production, and production. Staging runs SES in sandbox mode with all mail redirected, so no test ever reaches a real client. Staging must also use a separate AI provider key with its own budget cap.
@@ -984,6 +994,7 @@ Still open, ordered by how much the answer changes the build.
 | 2026-08-22 | **A team data export carries document metadata and a manifest, never the files** | Slice 1, issue [#56](https://github.com/imonroe/brawling-mahogany/issues/56). An archive holding every uploaded inspection report is a second copy of the riskiest data the product has, sitting behind a link. Documents land in slice 3 and attach to `manifest.documents` |
 | 2026-08-22 | **Emily is the first customer, not a business partner** (Q1) | Ian's decision, entering slice 2. It settles what the PRD could not hold both of: this is a multi-tenant product with a pricing model, and Emily is its first paying user. **What follows.** The roadmap is Ian's to set; her process is input rather than specification, and where her way and the general case diverge, the general case wins. Her material goes into the seeded packs as *a* listing workflow, not *the* one. The terms — price, expectations, and the fact that her process informs a product sold to others — need to be in writing before her real client data is in a production system, and #17's customer agreement is where that lands. Heather's question, *"if you build this, you are marketing it to other people"*, was the right one and this is the answer to it |
 | 2026-08-22 | **Person records are separated per team, revising the shared decision of the same day** (Q7) | Slice 2, issue [#140](https://github.com/imonroe/brawling-mahogany/issues/140). Contact details — name, email, phone — move from `people` onto `team_memberships`. `people` keeps only what makes a login work: the sign-in address, the password, the second factor. **Why the reversal.** Sharing was chosen so a stager working for two teams would be one record with one phone number. Once every team-visible field lives on the membership, sharing the row buys nothing — each team holds its own view regardless — and it still costs the disclosure #140 documented: adding somebody by an existing address showed one team what another had typed. A trade-off with no remaining benefit is not a trade-off. **What it changes.** A credential-less contact gets its own `people` row per team, so PRD F2.1's *"one record per human"* now means one record per human **with a login**; the directory entry is the membership. Slice 1's identity-write machinery — the `updating` hook, `identityIsEditableBy()` — is deleted, because the shared row it protected no longer holds anything worth protecting |
+| 2026-08-22 | **No user flow depends on email alone** (§8.5.1) | Slice 2, [[adr/0003-no-email-only-flows|ADR 0003]]. The invitation in F1.3 could only be started and only be answered by an emailed link, which meant §5.1 step 1 could not be completed at all on an install with no mail transport — every fresh local environment, and staging, where `MAIL_REDIRECT_TO` deliberately diverts everything. The reproducible dead end: promote yourself, provision a team, invite yourself as its owner, and sit on `/no-team` holding every privilege in the system. **Deliberately not a pre-production affordance.** A path that exists only in staging is a path nobody tests and nobody audits; every alternative ships everywhere, on one code path, with one audit trail. Held by `tests/Unit/EmailIndependenceTest.php` rather than by memory, so Slice 5's status page links and client messages inherit it |
 | 2026-08-22 | **A low-contrast team accent warns rather than being silently adjusted** (Design System §15.6) | Slice 1, issue [#55](https://github.com/imonroe/brawling-mahogany/issues/55). The status page is held to WCAG 2.1 AA (§9), and a silently altered colour is a support ticket that arrives later and angrier |
 
 ---
