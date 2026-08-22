@@ -279,7 +279,12 @@ Adversarial review found all four:
 | The global scope, producing a 404 | `resolveRouteBinding()` on the model | Nothing did, so the policy answered **403** for "exists, not yours" and 404 for "does not exist" — a working existence oracle over every row on the platform. Layer 3 already forbids this by name |
 | A composite foreign key | A guard on the model's `creating`/`updating` | Ran on `saving`, which fires **before** `BelongsToTeam` fills `team_id` |
 | A partial unique index | A validation rule | Filtered `deleted_at` but not `archived_at`, and folded case with PHP's `mb_strtolower()` against an index built on Postgres `lower()` — two functions that disagree on real input |
-| A scoped count | An explicit `where` | Was written unscoped, and would have told one team how many deals every other team is running |
+| A scoped count | **A query against a scoped model**, not a hand-written `where` | Was written unscoped, and would have told one team how many deals every other team is running. The fix is not to add a `where`: the count is over `deals`, which *does* carry `BelongsToTeam`, so asking `Deal::query()` gets the scope for free. Reach for the model that has the layer rather than re-implementing it against the one that does not |
+
+That last row generalises past counting: **a shared table's screen still
+touches scoped tables, and those keep every layer.** Only the checks that are
+genuinely about the shared row have to be written by hand, and the smaller that
+set is kept, the fewer of these four mistakes there are to make.
 
 The rule that falls out: **when a hand-written check stands in for a database
 constraint, read the constraint and match it predicate for predicate**,

@@ -196,9 +196,15 @@ it('frees the name when a type is archived', function (): void {
 
     $type = DealType::query()->where('name', 'Land Sale')->sole();
 
-    $this->post("/settings/deal-types/{$type->getKey()}/archive")->assertSessionHasNoErrors();
+    // `assertRedirect` as well as `assertSessionHasNoErrors`: a 403 has no
+    // session errors either, so the negative assertion alone would pass on a
+    // refusal.
+    $this->post("/settings/deal-types/{$type->getKey()}/archive")
+        ->assertRedirect('/settings/deal-types')
+        ->assertSessionHasNoErrors();
 
     $this->post('/settings/deal-types', ['name' => 'Land Sale', 'side' => DealSide::Buy->value])
+        ->assertRedirect('/settings/deal-types')
         ->assertSessionHasNoErrors();
 
     expect(DealType::query()->where('name', 'Land Sale')->count())->toBe(2);
@@ -365,7 +371,9 @@ it('restores an archived type', function (): void {
 it('refuses to open a new deal on an archived type', function (): void {
     $type = DealType::factory()->create(['team_id' => $this->team->getKey()]);
 
-    $this->post("/settings/deal-types/{$type->getKey()}/archive")->assertSessionHasNoErrors();
+    $this->post("/settings/deal-types/{$type->getKey()}/archive")
+        ->assertRedirect('/settings/deal-types')
+        ->assertSessionHasNoErrors();
 
     expect(fn () => Deal::factory()->create([
         'team_id' => $this->team->getKey(),
@@ -424,15 +432,18 @@ it('audits every change to a deal type', function (): void {
     $this->post("/settings/deal-types/{$type->getKey()}/archive");
     $this->post("/settings/deal-types/{$type->getKey()}/restore");
 
-    expect(AuditEntry::query()->whereIn('action', [
-        'deal_type.created',
-        'deal_type.updated',
-        'deal_type.archived',
-        'deal_type.restored',
-    ])->pluck('action')->all())->toBe([
-        'deal_type.created',
-        'deal_type.updated',
-        'deal_type.archived',
-        'deal_type.restored',
-    ]);
+    // Ordered explicitly. `audit_log` has no guaranteed order without one, so
+    // asserting a sequence against an unordered query is a test that passes on
+    // whatever the planner felt like returning.
+    expect(AuditEntry::query()
+        ->where('action', 'like', 'deal_type.%')
+        ->orderBy('created_at')
+        ->orderBy('id')
+        ->pluck('action')
+        ->all())->toBe([
+            'deal_type.created',
+            'deal_type.updated',
+            'deal_type.archived',
+            'deal_type.restored',
+        ]);
 });

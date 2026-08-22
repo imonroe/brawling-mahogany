@@ -88,6 +88,10 @@ const editingId = ref<string | null>(null);
  */
 const busyId = ref<string | null>(null);
 
+function releaseRow(): void {
+    busyId.value = null;
+}
+
 const edit = useForm({ name: '', side: '' });
 
 function startEditing(type: DealType): void {
@@ -144,9 +148,12 @@ function archive(type: DealType): void {
         {},
         {
             preserveScroll: true,
-            onFinish: () => {
-                busyId.value = null;
-            },
+            onFinish: releaseRow,
+            // `onFinish` is skipped when a visit is *interrupted* rather than
+            // completed — a second navigation cancels the first — and a
+            // `busyId` left set is a button disabled until the next full page
+            // load.
+            onCancel: releaseRow,
         },
     );
 }
@@ -159,9 +166,8 @@ function restore(type: DealType): void {
         {},
         {
             preserveScroll: true,
-            onFinish: () => {
-                busyId.value = null;
-            },
+            onFinish: releaseRow,
+            onCancel: releaseRow,
         },
     );
 }

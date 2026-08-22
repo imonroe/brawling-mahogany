@@ -155,7 +155,9 @@ class DealTypeController extends Controller
         $type->forceFill([
             'team_id' => app(TeamContext::class)->requireId(DealType::class),
             'sort_order' => $this->nextSortOrder(),
-        ])->save();
+        ]);
+
+        $this->saveOrExplainTheCollision($type, 'name');
 
         $audit->record(
             action: 'deal_type.created',
@@ -174,7 +176,9 @@ class DealTypeController extends Controller
     {
         $before = ['name' => $dealType->name, 'side' => $dealType->side->value];
 
-        $dealType->fill($request->validated())->save();
+        $dealType->fill($request->validated());
+
+        $this->saveOrExplainTheCollision($dealType, 'name');
 
         $audit->record(
             action: 'deal_type.updated',
@@ -249,21 +253,9 @@ class DealTypeController extends Controller
             throw ValidationException::withMessages(['restore' => $nameTaken]);
         }
 
-        try {
-            $dealType->forceFill(['archived_at' => null])->save();
-        } catch (UniqueConstraintViolationException) {
-            /*
-             * The check above and this write are two statements, and the index
-             * is the only thing that is actually atomic. Two people restoring
-             * two types with the same name in the same second both pass the
-             * check and one loses at the index.
-             *
-             * Narrow window, ordinary outcome, and the same sentence either
-             * way — the second person needs to be told the name is taken, not
-             * shown a stack trace for having been half a second later.
-             */
-            throw ValidationException::withMessages(['restore' => $nameTaken]);
-        }
+        $dealType->forceFill(['archived_at' => null]);
+
+        $this->saveOrExplainTheCollision($dealType, 'restore', $nameTaken);
 
         $audit->record(
             action: 'deal_type.restored',
@@ -276,6 +268,36 @@ class DealTypeController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Deal type restored.')]);
 
         return to_route('deal-types.index');
+    }
+
+    /**
+     * Write it, or say the name is taken.
+     *
+     * Every path here checks the name with a validation rule and then writes,
+     * and those are two statements with only the index actually atomic between
+     * them. Two people adding "Land Sale" in the same second both pass the
+     * rule and one loses at the index; the same is true of two renames, and of
+     * a restore, which moves a row back *into* the partial index.
+     *
+     * Narrow window, ordinary outcome, and the answer is the sentence the rule
+     * would have given — the second person needs to be told the name is taken,
+     * not shown a stack trace for having been half a second later. It was
+     * caught on `restore()` alone for a round, which left the commoner two
+     * paths with the raw exception.
+     *
+     * The `UPDATE`/`INSERT` here can only reach a name index: the other unique
+     * constraint on this table is `(team_id, id)`, and a ULID collision is not
+     * a thing that needs a friendly message.
+     */
+    private function saveOrExplainTheCollision(DealType $type, string $key, ?string $message = null): void
+    {
+        try {
+            $type->save();
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages([
+                $key => $message ?? 'You already have a deal type with this name.',
+            ]);
+        }
     }
 
     /**
