@@ -241,8 +241,31 @@ it('keeps the name the team recorded when nobody typed a new one', function (): 
 });
 
 it('still lets the invitee name themselves on the emailed path', function (): void {
-    // The other half of the rule above: a typed name is authoritative and
-    // must keep overwriting whatever the team had.
+    /*
+     * The other half of the rule above: a typed name is authoritative and
+     * overwrites whatever the team had.
+     *
+     * It needs a membership that already carries a *different* name to test
+     * anything. The first cut of this created a brand-new person and a
+     * brand-new row, so `firstOrCreate` inserted the typed name and the
+     * `forceFill` wrote the same value back — it stayed green with
+     * `nameIsAuthoritative` flipped to false, which is the definition of
+     * vacuous (docs/Testing.md §"Proving a mechanical test is not vacuous").
+     */
+    $existing = Person::factory()->create(['email' => 'heather@example.test']);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($existing): void {
+        TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $existing->getKey(),
+            'first_name' => 'H',
+            'last_name' => 'C',
+            'email' => 'heather@example.test',
+            'status' => PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ])->forceFill(['revoked_at' => now()])->save();
+    });
+
     $token = TeamInvitation::newToken();
 
     inviteWithoutSending($this->team, $this->memberRole, 'heather@example.test', [
@@ -256,12 +279,136 @@ it('still lets the invitee name themselves on the emailed path', function (): vo
         'last_name' => 'Quinn',
         'password' => 'a-long-enough-password',
         'password_confirmation' => 'a-long-enough-password',
-    ])->assertRedirect(route('dashboard'));
+    ])->assertRedirect(route('login'));
 
-    $person = Person::query()->where('email', 'heather@example.test')->sole();
+    // Typed, so it wins over the 'H C' the team had recorded.
+    expect($existing->membershipIn($this->team)->first_name)->toBe('Heather')
+        ->and($existing->membershipIn($this->team)->last_name)->toBe('Quinn');
+});
 
-    expect($person->membershipIn($this->team)->first_name)->toBe('Heather')
-        ->and($person->membershipIn($this->team)->last_name)->toBe('Quinn');
+it('does not hand back the roles a revoked membership was still carrying', function (): void {
+    /*
+     * `TeamMembership::revoke()` writes `revoked_at` and nothing else — PRD
+     * F1.3 wants historical attribution to survive — and nothing anywhere
+     * detaches roles. `hasPermission()` only short-circuits on `isRevoked()`,
+     * so the roles are dormant rather than gone.
+     *
+     * Which made accepting a *demotion* a promotion: revoke a Team Owner,
+     * re-invite them as a Team Member, and `syncWithoutDetaching` added the
+     * new role on top of the owner role that was never removed. One click, no
+     * token, and the audit log said `invitation.accepted` rather than a
+     * permission grant.
+     */
+    [$team, $owner] = $this->teamWithOwner();
+
+    $membership = $owner->membershipIn($team);
+
+    expect($membership->roles->pluck('key')->all())->toContain(SystemRole::TeamOwner->value);
+
+    app(TeamContext::class)->runFor($team, fn () => $membership->revoke());
+
+    inviteWithoutSending($team, $this->memberRole, (string) $membership->email);
+
+    app(TeamContext::class)->set(null);
+
+    $this->actingAsPerson($owner);
+
+    $invitation = TeamInvitation::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->pending()
+        ->sole();
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect(route('dashboard'));
+
+    $revived = TeamMembership::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->where('person_id', $owner->getKey())
+        ->with('roles')
+        ->sole();
+
+    expect($revived->revoked_at)->toBeNull()
+        ->and($revived->roles->pluck('key')->all())->toBe([SystemRole::TeamMember->value]);
+});
+
+it('spends the invitation while another team is resolved, on the emailed path too', function (): void {
+    /*
+     * The twin of the claim case above. `handle()` had the same latent bug —
+     * `finalise()` outside `runFor` — and the fix moved both paths, but only
+     * the claim path had a test. A signed-in member of team A submitting the
+     * accept form for a team B invitation is the shape that would catch a
+     * future refactor pulling it back out.
+     */
+    [$otherTeam, $member] = $this->teamWithMember();
+
+    $token = TeamInvitation::newToken();
+
+    inviteWithoutSending($this->team, $this->memberRole, (string) $member->email, [
+        'token_hash' => TeamInvitation::hashToken($token),
+    ]);
+
+    $this->actingAsPerson($member, $otherTeam);
+
+    // They already hold a password, so the link attaches the membership and
+    // sends them to sign in rather than authenticating them.
+    $this->post("/invitations/{$token}", [
+        'first_name' => 'Heather',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect(route('login'));
+
+    $spent = TeamInvitation::withoutTeamScope()->where('team_id', $this->team->getKey())->sole();
+
+    expect($spent->isAccepted())->toBeTrue()
+        ->and(TeamMembership::withoutTeamScope()
+            ->where('team_id', $this->team->getKey())
+            ->where('person_id', $member->getKey())
+            ->whereNull('revoked_at')
+            ->exists())->toBeTrue();
+});
+
+it('says why when a claim collides with a directory contact', function (): void {
+    /*
+     * `AcceptInvitation` raises this as a `ValidationException` under the
+     * `email` key, and the claim is one button on a banner with no field to
+     * render an error into. Untested, that catch is a click that does nothing
+     * — the exact failure it exists to prevent.
+     */
+    $person = Person::factory()->create(['email' => 'heather@example.test']);
+
+    $invitation = inviteWithoutSending($this->team, $this->memberRole, 'heather@example.test');
+
+    // The directory entry arrives after the invitation went out, which is why
+    // the check is asked twice.
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $contact = Person::factory()->contactOnly()->create();
+
+        TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $contact->getKey(),
+            'first_name' => 'Heather',
+            'email' => 'heather@example.test',
+            'status' => PersonLifecycleState::Active,
+        ]);
+    });
+
+    app(TeamContext::class)->set(null);
+
+    $this->actingAsPerson($person);
+
+    /*
+     * A redirect rather than a 500 or a 404, the invitation untouched, and no
+     * membership for the claimer: the catch was taken and the transaction
+     * rolled back. The toast text itself is not asserted — Inertia's flash
+     * key is not part of any test surface in this suite, and guessing at it
+     * would be the vacuous half of a test rather than the useful half.
+     */
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect();
+
+    expect($invitation->fresh()->isAccepted())->toBeFalse()
+        ->and(TeamMembership::withoutTeamScope()
+            ->where('team_id', $this->team->getKey())
+            ->where('person_id', $person->getKey())
+            ->exists())->toBeFalse();
 });
 
 it('offers nothing, and accepts nothing, inside an impersonated session', function (): void {

@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Actions\Teams\IssueInvitationLink as IssueLink;
 use App\Models\Team;
 use App\Models\TeamInvitation;
+use App\Support\Tenancy\TeamContext;
 use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
 use Illuminate\Support\Collection;
@@ -44,7 +45,7 @@ class IssueInvitationLink extends Command
 
     protected $description = 'Print the accept link for an outstanding team invitation.';
 
-    public function handle(IssueLink $issue): int
+    public function handle(IssueLink $issue, TeamContext $teams): int
     {
         if (! $this->confirmToProceed()) {
             return self::FAILURE;
@@ -111,13 +112,23 @@ class IssueInvitationLink extends Command
             );
         }
 
-        $url = $issue->handle(
+        /*
+         * Inside the invitation's team, and not because anything here needs a
+         * scope: `IssueInvitationLink` writes the invitation, which is
+         * `BelongsToTeam`, so its `updating` guard compares the resolved team
+         * against the row's. A console run has no session and therefore no
+         * resolved team, so this worked by the *absence* of an ambient
+         * condition — which is exactly the shape of the bug ADR 0003 records
+         * under "what the adversarial review caught", and it would throw the
+         * day somebody calls this from a request.
+         */
+        $url = $teams->runFor($invitedTeam, fn (): string => $issue->handle(
             $invitation,
             // No actor: an operator with a shell is not a person the
             // application knows, and inventing one would be worse than a null.
             issuedBy: null,
             reason: 'Issued from the console by a server operator.',
-        );
+        ));
 
         $this->components->info(
             "{$invitedTeam->name} · {$invitation->role->name} · expires {$invitation->expires_at->toDayDateTimeString()}",

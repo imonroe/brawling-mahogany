@@ -31,8 +31,21 @@ use Illuminate\Support\Collection;
  * invited address, which is precisely what this does, for somebody who has
  * already proved they hold it by signing in.
  *
- * The claim is in fact the weaker of the two: it can only ever add a
- * membership. It cannot set a password, and it cannot create an account.
+ * The claim is in fact the weaker of the two. It cannot set a password and it
+ * cannot create an account, which the emailed link can and must. What it can
+ * do is bounded by the invitation: attach a membership, or add to an existing
+ * one exactly the role the invitation names — and when the membership it
+ * finds was revoked, that role becomes the *whole* set rather than an
+ * addition, because a revoked row keeps its roles and reviving one would
+ * otherwise hand back an access nobody granted (`AcceptInvitation`).
+ *
+ * ## What it still does not check
+ *
+ * Nothing here knows about impersonation. `HandleInertiaRequests` keeps the
+ * banner out of a support session and `InvitationController::claim` refuses
+ * the endpoint, but a future caller reading `propsFor()` directly would
+ * disclose another tenant's team names to an administrator acting as somebody
+ * else. Ask `Impersonation::isActive()` before you render this.
  */
 final class PendingInvitations
 {

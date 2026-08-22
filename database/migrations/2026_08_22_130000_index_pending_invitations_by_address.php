@@ -20,11 +20,17 @@ use Illuminate\Support\Facades\DB;
  * deleted before the 30-day purge, so the table grows with every invitation
  * ever sent across every tenant.
  *
- * Partial, over the same three predicates as `team_invitations_pending_unique`
- * and `scopePending()`, so it stays small: an accepted, revoked, expired, or
- * deleted invitation is not one anybody is waiting on. `expires_at` is
- * deliberately not in the predicate — `now()` is not immutable, so Postgres
- * will not accept it in a partial index, and the scope still filters it.
+ * Partial over the three predicates a partial index can hold — deleted,
+ * accepted, revoked — which are `team_invitations_pending_unique`'s own three.
+ * An invitation that has been spent, called back, or purged is not one
+ * anybody is waiting on, so it does not belong in the index.
+ *
+ * **Expired ones are still in it.** `scopePending()` has a fourth predicate,
+ * `expires_at > now()`, and `now()` is not immutable, so Postgres will not
+ * accept it here; the scope filters those rows after the index has found
+ * them. Nothing deletes an expired invitation before the 30-day purge, so
+ * this index does accumulate them — a much smaller set than the table, and
+ * the reason to say so rather than claim the predicates match.
  */
 return new class extends Migration
 {

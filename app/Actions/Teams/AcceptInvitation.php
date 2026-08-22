@@ -249,6 +249,29 @@ final class AcceptInvitation
         );
 
         /*
+         * **A revived membership does not get its old roles back.**
+         *
+         * `TeamMembership::revoke()` writes `revoked_at` and nothing else —
+         * deliberately, because PRD F1.3 wants historical attribution to
+         * survive — and nothing anywhere detaches roles. `hasPermission()`
+         * short-circuits on `isRevoked()`, so the roles are *dormant, not
+         * gone*, and they return the instant `revoked_at` is null.
+         *
+         * `firstOrCreate` finds the revoked row (the unique index is partial
+         * on `deleted_at`, not on `revoked_at`), so without this a team that
+         * revoked an owner and later re-invited them as a Team Member got an
+         * owner back: `syncWithoutDetaching` added the new role *on top of*
+         * the old one, and the audit log recorded `invitation.accepted`
+         * rather than a permission grant.
+         *
+         * So for a revival the invitation defines the whole role set. The
+         * team decided to bring them back **as** that role, and anything else
+         * is a grant nobody made. Captured before the `forceFill` below,
+         * which is what clears the flag.
+         */
+        $wasRevoked = $membership->isRevoked();
+
+        /*
          * Who gets to name somebody, when a membership already exists.
          *
          * On the accept screen the invitee types their own name and it is
@@ -264,7 +287,9 @@ final class AcceptInvitation
          * name is not authoritative, what the team already recorded stands.
          */
         $membership->forceFill([
-            'first_name' => $nameIsAuthoritative ? $firstName : ($membership->first_name ?: $firstName),
+            'first_name' => $nameIsAuthoritative || $membership->first_name === ''
+                ? $firstName
+                : $membership->first_name,
             'last_name' => $nameIsAuthoritative
                 ? ($lastName ?? $membership->last_name)
                 : ($membership->last_name ?? $lastName),
@@ -273,7 +298,9 @@ final class AcceptInvitation
             'joined_at' => $membership->joined_at ?? now(),
         ])->save();
 
-        $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
+        $wasRevoked
+            ? $membership->roles()->sync([$invitation->role_id])
+            : $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
 
         return $membership;
     }

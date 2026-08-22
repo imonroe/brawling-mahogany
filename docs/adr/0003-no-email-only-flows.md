@@ -65,7 +65,16 @@ Three shapes satisfy the rule, in order of preference:
 
 **A second door is not a weaker door.** Each one is authorised on its own
 terms, audited the same way, and — the case worth stating — never a way to
-*create* credentials. An in-app claim can attach a membership and nothing else.
+*create* credentials. An in-app claim cannot set a password or create an
+account, and what it *can* do is bounded by the invitation: a membership, and
+the one role the invitation names.
+
+That second half took two review rounds to make true. `syncWithoutDetaching`
+plus a cleared `revoked_at` quietly handed back every role a revoked
+membership was still carrying — so revoking an owner and re-inviting them as a
+member returned an owner. Reviving a revoked membership now `sync()`s to the
+invited role instead. **A sentence in an ADR is not a property of the code**,
+and this one was cited as the justification for offering the door at all.
 
 ### What this is not
 
@@ -156,7 +165,10 @@ it.
   `(team_id, email)` and a partial unique on `(team_id, lower(email))`, both
   leading with `team_id` — and this query has no `team_id` by construction,
   which is the whole point. `team_invitations_pending_email`, partial over the
-  same predicates as `scopePending()`, is what makes the sentence true.
+  three predicates a partial index can hold — deleted, accepted, revoked — is
+  what makes the sentence true. Not `scopePending()`'s fourth: `now()` is not
+  immutable, so expired invitations stay in the index and the scope filters
+  them out after it has found them.
 
 - **Not during impersonation.** A support session acts with the customer's
   permissions so an administrator can see what they see. Joining another team
