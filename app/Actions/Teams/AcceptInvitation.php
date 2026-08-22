@@ -304,11 +304,24 @@ final class AcceptInvitation
             return $membership;
         }
 
-        $before = $membership->roles->pluck('key')->sort()->values()->all();
+        /*
+         * `withTrashed()`, because `sync()` deletes the pivot row for a role
+         * the team has since retired just as readily as for a live one — and
+         * a log that omits it understates what was taken away. `Role` soft
+         * deletes (`HasProductDefaults`), so a plain read would not see it.
+         */
+        $roleKeys = fn (): array => $membership->roles()
+            ->withTrashed()
+            ->pluck('key')
+            ->sort()
+            ->values()
+            ->all();
+
+        $before = $roleKeys();
 
         $membership->roles()->sync([$invitation->role_id]);
 
-        $after = $membership->load('roles')->roles->pluck('key')->sort()->values()->all();
+        $after = $roleKeys();
 
         /*
          * PRD §9 audits permission changes, and this is the one place in the
@@ -316,6 +329,18 @@ final class AcceptInvitation
          * invitation was accepted; it does not say that somebody stopped
          * being a Team Owner, and the difference matters to whoever reads the
          * log later. Role keys, not names — reference data, never PII.
+         *
+         * Two consequences of reading through `withTrashed()`, both accepted:
+         *
+         *  - It can fire when no *effective* permission moved, because
+         *    `permissionKeys()` reads the soft-delete-scoped relation and an
+         *    archived role already granted nothing. Recording it anyway is
+         *    the safer half: restoring that role later would otherwise
+         *    silently fail to restore its member.
+         *  - A key can appear twice. The unique indexes on `roles` are
+         *    partial on `deleted_at`, so an archived role and a live one may
+         *    share a key, and the log says two pivot rows went rather than
+         *    collapsing them into one.
          */
         if ($before !== $after) {
             $this->audit->record(
