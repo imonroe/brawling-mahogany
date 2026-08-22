@@ -117,6 +117,44 @@ class Person extends Authenticatable implements PasskeyUser
     }
 
     /**
+     * May this team rewrite the shared record's name, address, and number?
+     *
+     * The `people` row is shared across teams (PRD decision log, 2026-08-22),
+     * which is the whole point — a stager working for two teams is one record
+     * with one phone number. It is also the sharp edge: without this check,
+     * any team could POST a stranger's address to attach a membership to
+     * their row, then PATCH that row and rewrite the address on somebody
+     * else's *account*. The password would be untouched and the reset link
+     * would arrive at the new address.
+     *
+     * So identity belongs to the person when they have one, and to the team
+     * only while the team is the only one who knows them:
+     *
+     *  - **Has credentials** — never. It is their account; they edit it at
+     *    `/settings/profile`, and nobody else does.
+     *  - **Known to another team** — never. Their view of this human is not
+     *    ours to rewrite.
+     *  - **Ours alone, no login** — yes. This is the ordinary case: a client
+     *    or vendor somebody typed in, whose details only we hold.
+     *
+     * What a team may always edit is its own membership: the lifecycle
+     * status, the private notes, the vendor assessment. Those are team-scoped
+     * by construction.
+     */
+    public function identityIsEditableBy(Team $team): bool
+    {
+        if ($this->hasCredentials()) {
+            return false;
+        }
+
+        return ! TeamMembership::withoutTeamScope()
+            ->where('person_id', $this->getKey())
+            ->whereKeyNot(optional($this->membershipIn($team))->getKey() ?? '')
+            ->whereNull('revoked_at')
+            ->exists();
+    }
+
+    /**
      * The membership this person holds in a team, revoked ones excluded.
      */
     public function membershipIn(Team $team): ?TeamMembership
@@ -129,7 +167,18 @@ class Person extends Authenticatable implements PasskeyUser
     }
 
     /**
-     * Every team this person can currently act in, for the switcher (S09).
+     * Every team this person can currently **act in**, for the switcher (S09).
+     *
+     * Being in a team's directory is not being on the team. A client, a
+     * vendor, and an opposing agent all hold a `team_memberships` row — that
+     * is what the table is for — and none of them may open the agent's
+     * dashboard. Counting any membership here handed the tenant to anybody a
+     * team merely knew who happened to have a password.
+     *
+     * The test is holding a role that carries at least one permission. That
+     * covers the shipped roles (Team Owner and Team Member do, Status Viewer
+     * and Contact hold nothing at all) and covers a team's own composed roles
+     * (PRD F2.3) without needing a list of their keys.
      *
      * @return \Illuminate\Support\Collection<int, Team>
      */
@@ -139,6 +188,7 @@ class Person extends Authenticatable implements PasskeyUser
             ->whereIn('id', TeamMembership::withoutTeamScope()
                 ->where('person_id', $this->getKey())
                 ->whereNull('revoked_at')
+                ->whereHas('roles', fn (Builder $roles) => $roles->whereHas('permissions'))
                 ->select('team_id'))
             ->whereNull('suspended_at')
             ->orderBy('name')

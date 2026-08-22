@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Settings;
 
+use App\Actions\Teams\RevokeMembership;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileDeleteRequest;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
@@ -46,11 +47,18 @@ class ProfileController extends Controller
     }
 
     /**
-     * Delete the user's profile.
+     * Delete this person's own account.
+     *
+     * The last-owner rule applies here as much as on the members screen
+     * (issue #45). Revoking the last owner there is refused; deleting the
+     * account was the way round the back, and it left the team unadministrable
+     * with no route to repair it.
      */
-    public function destroy(ProfileDeleteRequest $request): RedirectResponse
+    public function destroy(ProfileDeleteRequest $request, RevokeMembership $revoke): RedirectResponse
     {
         $user = $request->user();
+
+        $revoke->guardLastOwnerAnywhere($user);
 
         Auth::logout();
 

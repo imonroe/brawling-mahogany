@@ -300,6 +300,40 @@ it('allows revoking an owner once there is another one', function (): void {
     expect($membership->fresh()->isRevoked())->toBeTrue();
 });
 
+it('refuses to let the last owner delete their own account', function (): void {
+    // Revoking the last owner from the members screen is refused; deleting
+    // the account was the way round the back, and it left the team with
+    // nobody able to manage members, settings, or billing — and no route in
+    // `/admin` to repair it.
+    $this->delete('/settings/profile', ['password' => 'password'])
+        ->assertSessionHasErrors('password');
+
+    expect(session('errors')->first('password'))->toContain('last owner');
+
+    expect(Person::query()->find($this->owner->getKey()))->not->toBeNull();
+});
+
+it('lets an owner delete their account once somebody else owns the team', function (): void {
+    $second = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($second): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $second->getKey(),
+            'status' => App\Enums\PersonLifecycleState::Active,
+        ]);
+
+        $membership->roles()->attach(
+            Role::query()->whereNull('team_id')->where('key', 'team_owner')->sole()->getKey(),
+        );
+    });
+
+    $this->delete('/settings/profile', ['password' => 'password'])
+        ->assertSessionHasNoErrors();
+
+    expect(Person::query()->find($this->owner->getKey()))->toBeNull();
+});
+
 it('keeps a revoked member’s name on what they already did', function (): void {
     // PRD F1.3: "revoke without destroying historical attribution."
     $second = Person::factory()->create(['first_name' => 'Heather', 'last_name' => 'Quinn']);

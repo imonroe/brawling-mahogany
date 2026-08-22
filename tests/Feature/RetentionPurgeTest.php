@@ -3,13 +3,16 @@
 declare(strict_types=1);
 
 use App\Actions\Teams\ScheduleTeamPurge;
+use App\Enums\DataExportState;
 use App\Models\ActivityEvent;
 use App\Models\AuditEntry;
+use App\Models\DataExport;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Soft-delete retention and the 30-day purge (PRD §9 Deletion · issue #57).
@@ -136,6 +139,72 @@ it('leaves no rows behind when the window closes on a team', function (): void {
     // The shared person survives: another team may still know them, and a
     // human is not a tenant's property.
     expect(Person::query()->find($member->getKey()))->not->toBeNull();
+});
+
+it('deletes an expired export’s file, not just its row', function (): void {
+    // The archive is a copy of the team's whole record set. Marking the row
+    // expired while leaving the file is PRD §9's deletion policy honoured on
+    // paper only.
+    [$team, $owner] = $this->teamWithOwner();
+
+    $this->enrollTwoFactor($owner);
+    $this->actingAsPerson($owner, $team);
+
+    $this->post('/settings/export');
+
+    $export = DataExport::query()->sole();
+    $path = (string) $export->disk_path;
+
+    expect(Storage::exists($path))->toBeTrue();
+
+    $export->forceFill(['expires_at' => now()->subDay()])->save();
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(Storage::exists($path))->toBeFalse()
+        ->and($export->fresh()->disk_path)->toBeNull()
+        ->and($export->fresh()->state)->toBe(DataExportState::Expired);
+});
+
+it('leaves a live export alone', function (): void {
+    [$team, $owner] = $this->teamWithOwner();
+
+    $this->enrollTwoFactor($owner);
+    $this->actingAsPerson($owner, $team);
+
+    $this->post('/settings/export');
+
+    $path = (string) DataExport::query()->sole()->disk_path;
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(Storage::exists($path))->toBeTrue();
+});
+
+it('leaves no files behind when a team is purged', function (): void {
+    // Issue #57: "A purged team leaves no rows and no files." Object storage
+    // does not cascade, so the archives outlived everything that named them.
+    [$team, $owner] = $this->teamWithOwner();
+
+    $this->enrollTwoFactor($owner);
+    $this->actingAsPerson($owner, $team);
+
+    $this->post('/settings/export');
+
+    $path = (string) DataExport::query()->sole()->disk_path;
+
+    expect(Storage::exists($path))->toBeTrue();
+
+    $this->freezeAt('2026-08-01 09:00:00');
+
+    app(ScheduleTeamPurge::class)->schedule($team);
+
+    $this->freezeAt('2026-09-15 09:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(Storage::exists($path))->toBeFalse()
+        ->and(Team::query()->withTrashed()->find($team->getKey()))->toBeNull();
 });
 
 it('keeps the audit trail of the purge, which is the proof it happened', function (): void {

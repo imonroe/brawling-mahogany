@@ -47,6 +47,41 @@ class ProfileUpdateTest extends TestCase
         $this->assertNull($user->email_verified_at);
     }
 
+    public function test_retyping_your_own_address_with_a_capital_is_not_a_500(): void
+    {
+        $person = Person::factory()->create(['email' => 'emily@example.test']);
+
+        /*
+         * `Rule::unique` compares verbatim while the index is over
+         * `lower(email)`, so this passed validation and then hit the index —
+         * a 500 whose Postgres DETAIL line carries the address straight into
+         * the log (PRD §9: no PII in logs, ever).
+         */
+        $this->actingAs($person)
+            ->patch(route('profile.update'), [
+                'first_name' => 'Emily',
+                'last_name' => 'Bosart',
+                'email' => 'Emily@Example.TEST',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect(route('profile.edit'));
+
+        $this->assertSame('emily@example.test', $person->fresh()->email);
+    }
+
+    public function test_somebody_elses_address_is_still_refused_whatever_its_capitals(): void
+    {
+        Person::factory()->create(['email' => 'heather@example.test']);
+        $person = Person::factory()->create(['email' => 'emily@example.test']);
+
+        $this->actingAs($person)
+            ->patch(route('profile.update'), [
+                'first_name' => 'Emily',
+                'email' => 'Heather@Example.TEST',
+            ])
+            ->assertSessionHasErrors('email');
+    }
+
     public function test_email_verification_status_is_unchanged_when_the_email_address_is_unchanged(): void
     {
         $user = Person::factory()->create();

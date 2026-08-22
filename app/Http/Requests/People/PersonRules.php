@@ -18,6 +18,19 @@ use Illuminate\Validation\Rule;
 trait PersonRules
 {
     /**
+     * Fold the address before anything compares or stores it, so the form,
+     * the model, and the `lower(email)` index all agree.
+     */
+    protected function prepareForValidation(): void
+    {
+        $email = $this->input('email');
+
+        if (is_string($email)) {
+            $this->merge(['email' => mb_strtolower(trim($email))]);
+        }
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function personRules(): array

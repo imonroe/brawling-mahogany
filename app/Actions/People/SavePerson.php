@@ -63,13 +63,24 @@ final class SavePerson
     {
         return DB::transaction(function () use ($membership, $attributes): TeamMembership {
             $person = $membership->person;
+            $team = $membership->team()->sole();
 
-            // Only the keys the form actually sent: a partial update must not
-            // blank a column the screen did not show.
-            $person->fill(array_intersect_key(
-                $attributes,
-                array_flip(['first_name', 'last_name', 'email', 'phone']),
-            ))->save();
+            /*
+             * The shared record's identity is not always this team's to
+             * rewrite — see Person::identityIsEditableBy(). Silently dropping
+             * the fields rather than failing is deliberate: the screen shows
+             * them read-only, so a submission carrying them is a stale form
+             * or somebody poking at the endpoint, and neither deserves a
+             * 500.
+             */
+            if ($person->identityIsEditableBy($team)) {
+                // Only the keys the form actually sent: a partial update must
+                // not blank a column the screen did not show.
+                $person->fill(array_intersect_key(
+                    $attributes,
+                    array_flip(['first_name', 'last_name', 'email', 'phone']),
+                ))->save();
+            }
 
             $previousStatus = $membership->status;
 
@@ -112,11 +123,14 @@ final class SavePerson
         if ($person instanceof Person) {
             // Never overwrite a shared record's name with what one team typed:
             // the other team knows them by the name already there. Only fill
-            // what is genuinely missing.
-            $person->fill(array_filter([
-                'phone' => $person->phone ?? ($attributes['phone'] ?? null),
-                'last_name' => $person->last_name ?? ($attributes['last_name'] ?? null),
-            ]))->save();
+            // what is genuinely missing, and only when this record is not
+            // somebody's account — an account holder's details are theirs.
+            if (! $person->hasCredentials()) {
+                $person->fill(array_filter([
+                    'phone' => $person->phone ?? ($attributes['phone'] ?? null),
+                    'last_name' => $person->last_name ?? ($attributes['last_name'] ?? null),
+                ]))->save();
+            }
 
             return $person;
         }

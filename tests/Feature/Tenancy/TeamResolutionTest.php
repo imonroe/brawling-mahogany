@@ -99,10 +99,12 @@ it('shares the team’s timezone so every rendered time uses it', function (): v
         ->assertInertia(fn ($page) => $page->where('team.timezone', 'America/Denver'));
 });
 
-it('scopes a person’s permissions to the team they are standing in', function (): void {
+it('refuses to stand in a team that only knows you', function (): void {
+    // Being in a team's directory is not being on the team. A client is a
+    // Contact — no permissions — and a Contact has no tenant to stand in,
+    // however many memberships they hold.
     [$teamA, $member] = $this->teamWithMember();
 
-    // A second team where they are only a Contact: same human, no access.
     $teamB = Team::factory()->create();
 
     app(TeamContext::class)->runFor($teamB, function () use ($teamB, $member): void {
@@ -120,6 +122,43 @@ it('scopes a person’s permissions to the team they are standing in', function 
 
     $this->actingAsPerson($member, $teamA);
 
+    expect($member->activeTeams()->pluck('id')->all())->toBe([$teamA->getKey()]);
+
+    $this->put('/teams/current', ['team' => $teamB->getKey()])->assertNotFound();
+});
+
+it('scopes a person’s permissions to the team they are standing in', function (): void {
+    // The same human, two teams, two different sets of what they may do —
+    // which is the point of assigning roles per team (PRD F2.2).
+    [$teamA, $member] = $this->teamWithMember();
+
+    $teamB = Team::factory()->create();
+
+    app(TeamContext::class)->runFor($teamB, function () use ($teamB, $member): void {
+        // A team's own composed role (PRD F2.3), holding one permission that
+        // is not the one being asserted on.
+        $role = App\Models\Role::query()->create([
+            'team_id' => $teamB->getKey(),
+            'key' => 'calendar_only',
+            'name' => 'Calendar Only',
+        ]);
+
+        $role->permissions()->attach(
+            App\Models\Permission::query()->where('key', App\Support\Permissions::VIEW_CALENDAR)->sole()->getKey(),
+        );
+
+        $membership = TeamMembership::query()->create([
+            'team_id' => $teamB->getKey(),
+            'person_id' => $member->getKey(),
+            'status' => App\Enums\PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($member, $teamA);
+
     $this->get('/dashboard')
         ->assertOk()
         ->assertInertia(fn ($page) => $page->where(
@@ -127,13 +166,14 @@ it('scopes a person’s permissions to the team they are standing in', function 
             fn ($permissions) => collect($permissions)->contains('people.view'),
         ));
 
-    $this->put('/teams/current', ['team' => $teamB->getKey()]);
+    $this->put('/teams/current', ['team' => $teamB->getKey()])->assertRedirect('/dashboard');
 
     $this->get('/dashboard')
         ->assertOk()
         ->assertInertia(fn ($page) => $page->where(
             'auth.permissions',
-            fn ($permissions) => ! collect($permissions)->contains('people.view'),
+            fn ($permissions) => collect($permissions)->contains('calendar.view')
+                && ! collect($permissions)->contains('people.view'),
         ));
 
     // And the screen that permission guards is refused outright.

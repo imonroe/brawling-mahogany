@@ -66,6 +66,33 @@ it('does not let an un-enrolled owner run the team from settings', function (): 
     expect(App\Models\DataExport::withoutTeamScope()->count())->toBe(0);
 });
 
+it('does not hand an un-enrolled owner the archive through a signed link', function (): void {
+    // Every other route bounced correctly while the download — the one that
+    // actually carries the tenant's data — did not, because its middleware
+    // list was written separately and the mandate was left off it.
+    [$team, $owner] = $this->teamWithOwner();
+
+    $export = app(App\Support\Tenancy\TeamContext::class)->runFor(
+        $team,
+        fn () => App\Models\DataExport::factory()->create([
+            'team_id' => $team->getKey(),
+            'state' => App\Enums\DataExportState::Ready,
+            'disk_path' => 'exports/whatever.json',
+            'expires_at' => now()->addDay(),
+        ]),
+    );
+
+    $this->actingAsPerson($owner, $team);
+
+    $url = Illuminate\Support\Facades\URL::temporarySignedRoute(
+        'export.download',
+        now()->addHour(),
+        ['export' => $export->getKey()],
+    );
+
+    $this->get($url)->assertRedirect(route('security.edit'));
+});
+
 it('leaves the way out open', function (): void {
     [$team, $owner] = $this->teamWithOwner();
 

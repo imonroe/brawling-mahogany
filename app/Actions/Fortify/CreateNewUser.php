@@ -28,6 +28,10 @@ class CreateNewUser implements CreatesNewUsers
      */
     public function create(array $input): Person
     {
+        // The address is folded before the unique rule compares it — see
+        // App\Concerns\ProfileValidationRules::foldEmail().
+        $input = $this->foldEmail($input);
+
         Validator::make($input, [
             ...$this->profileRules(),
             'password' => $this->passwordRules(),

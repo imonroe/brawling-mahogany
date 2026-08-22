@@ -63,7 +63,10 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
  * authorisation across a link somebody may open from an email.
  */
 Route::get('settings/export/{export}/download', [DataExportController::class, 'download'])
-    ->middleware(['auth', 'verified', 'team', 'signed'])
+    // `two-factor` belongs here too. Every other team-settings route bounced
+    // an un-enrolled owner while this one handed them the whole tenant, which
+    // is the exact thing the mandate exists to stop.
+    ->middleware(['auth', 'verified', 'two-factor', 'team', 'signed'])
     ->name('export.download');
 
 Route::get('.well-known/passkey-endpoints', function () {

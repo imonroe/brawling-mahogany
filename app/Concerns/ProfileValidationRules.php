@@ -12,6 +12,27 @@ use Illuminate\Validation\Rules\Unique;
 trait ProfileValidationRules
 {
     /**
+     * Fold the address before anything compares it.
+     *
+     * `people.email` is stored lower-cased and its unique index is over
+     * `lower(email)`, but `Rule::unique` compares verbatim — so somebody
+     * retyping their own address with a capital passed validation and then hit
+     * the index, which is a 500 whose Postgres `DETAIL` line carries the
+     * address into the log (PRD §9: no PII in logs, ever).
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    protected function foldEmail(array $input): array
+    {
+        if (isset($input['email']) && is_string($input['email'])) {
+            $input['email'] = mb_strtolower(trim($input['email']));
+        }
+
+        return $input;
+    }
+
+    /**
      * The rules for a person's own profile fields.
      *
      * IA §10 formats a person as First Last and sorts by last, which is why
