@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use PDOException;
 
 /**
  * Who is on a deal — reading it, adding to it, and saying what is missing
@@ -201,13 +202,32 @@ final class DealRoster
      *
      * Matching on the constraint name rather than on the message, because the
      * message is a driver's and the name is ours.
+     *
+     * Public so it can be pinned. The branch is only reachable in production
+     * by losing a race, which is exactly why a test through the route cannot
+     * hold it — and round 3 proved that a test asserting *Postgres* includes
+     * the name passes whether or not this method reads it.
      */
-    private static function explain(
+    public static function explain(
         UniqueConstraintViolationException $violation,
         string $name,
         ParticipantRole $role,
     ): string {
-        if (str_contains($violation->getMessage(), 'deal_participants_one_primary_per_role')) {
+        /*
+         * The **driver's** message, not the exception's.
+         *
+         * Laravel appends the interpolated SQL to `getMessage()`, so matching
+         * there means matching against a string that carries the request's own
+         * data — a `notes` value containing the index name would flip the
+         * branch. `errorInfo[2]` is what Postgres said, and nothing else.
+         */
+        $driver = $violation->getPrevious();
+
+        $driverMessage = $driver instanceof PDOException && is_array($driver->errorInfo)
+            ? (string) ($driver->errorInfo[2] ?? '')
+            : '';
+
+        if (str_contains($driverMessage, 'deal_participants_one_primary_per_role')) {
             return 'Somebody else was just made the main contact for '.$role->label()
                 .' on this deal. Reload to see who.';
         }
@@ -335,12 +355,22 @@ final class DealRoster
         DealParticipant::query()
             ->where('deal_id', $deal->getKey())
             ->whereIn('team_membership_id', $memberships->modelKeys())
-            // Deterministic, and in the same PRD §6.3 order the people tab
-            // groups by — so "already on this deal as Seller, Attorney" reads
-            // the same way twice and matches the screen behind the modal.
-            ->orderByRaw('array_position(?::text[], participant_role)', [
-                '{'.implode(',', array_column(ParticipantRole::cases(), 'value')).'}',
-            ])
+            /*
+             * Deterministic, and in the same PRD §6.3 order the people tab
+             * groups by — so "already on this deal as Seller, Attorney" reads
+             * the same way twice and matches the screen behind the modal.
+             *
+             * `array[?, ?, …]` with one placeholder per case rather than a
+             * hand-built `'{a,b,c}'` literal. The literal was correctly bound
+             * and not injectable, but it did no element quoting — so a future
+             * role value containing a comma, brace or quote would parse into
+             * the wrong array and mis-order silently, with no error. This puts
+             * no constraint on what a value may contain.
+             */
+            ->orderByRaw(
+                'array_position(array['.implode(',', array_fill(0, count(ParticipantRole::cases()), '?')).'], participant_role)',
+                array_column(ParticipantRole::cases(), 'value'),
+            )
             ->get()
             ->each(function (DealParticipant $participant) use (&$held): void {
                 $held[$participant->team_membership_id][] = $participant->participant_role->label();

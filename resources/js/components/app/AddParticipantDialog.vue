@@ -138,6 +138,7 @@ watch(
         mode.value = 'search';
         term.value = '';
         selected.value = null;
+        stashed = null;
         form.reset();
         form.participant_role = props.suggestedRole ?? '';
         form.clearErrors();
@@ -149,11 +150,33 @@ function choose(candidate: Candidate): void {
     form.team_membership_id = candidate.id;
 }
 
+/** What an abandoned create was carrying, so going back is not destructive. */
+let stashed: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone: string;
+} | null = null;
+
 function startCreating(): void {
     mode.value = 'create';
     selected.value = null;
     form.team_membership_id = '';
-    // What they typed is almost always the name they meant.
+
+    if (stashed) {
+        // Coming back after a look at the directory. Restore what they typed
+        // rather than making them type it twice — checking whether somebody is
+        // already in there is the single most likely reason to have gone back.
+        form.first_name = stashed.first_name;
+        form.last_name = stashed.last_name;
+        form.email = stashed.email;
+        form.phone = stashed.phone;
+        stashed = null;
+
+        return;
+    }
+
+    // First time in: what they typed is almost always the name they meant.
     form.first_name = term.value;
 }
 
@@ -168,6 +191,16 @@ function startCreating(): void {
  * into each other regardless.
  */
 function backToSearch(): void {
+    // Stashed, not lost. The server picks its branch on whether a membership
+    // was chosen, so these must not travel with a pick — but they are still
+    // what somebody typed, and "Create someone new" brings them back.
+    stashed = {
+        first_name: form.first_name,
+        last_name: form.last_name,
+        email: form.email,
+        phone: form.phone,
+    };
+
     mode.value = 'search';
     form.first_name = '';
     form.last_name = '';
@@ -413,9 +446,12 @@ function submit(): void {
                 </p>
 
                 <!--
-                    Also here, not only inside the create half. An error with
-                    nowhere to render is a button that silently does nothing,
-                    which is the failure this modal already fixed once.
+                    A backstop rather than a live surface. With the rule gated
+                    on whether a membership was picked, the server does not
+                    produce an `email` error on this branch — and both routes
+                    into search mode clear the errors anyway. It stays because
+                    an error with nowhere to render is a button that silently
+                    does nothing, and this modal has already shipped that once.
                 -->
                 <p
                     v-if="mode === 'search' && form.errors.email"

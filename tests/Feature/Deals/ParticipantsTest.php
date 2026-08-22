@@ -10,6 +10,8 @@ use App\Models\DealParticipant;
 use App\Models\DealType;
 use App\Models\TeamMembership;
 use App\Support\Deals\DealRoster;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * S19 and S25 — deal participants (issue #60 · PRD §4.3 F3.3, §7.2).
@@ -400,6 +402,114 @@ it('leaves alone what a partial update did not send', function (): void {
     expect($participant->fresh()->is_primary)->toBeTrue()
         ->and($participant->fresh()->notes)->toBe('Prefers evenings.')
         ->and($participant->fresh()->participant_role)->toBe(ParticipantRole::Buyer);
+});
+
+/**
+ * The three round-3 pins.
+ *
+ * Round 3 mutation-tested the round-2 remediation and found three of six
+ * changes held by nothing: the constraint-name match, the held-roles ordering,
+ * and the role sort. `CLAUDE.md` says project rules are held by tests rather
+ * than by memory, and two of those three exist *because* behaviour drifted
+ * silently once already.
+ */
+it('names the right index when the main-contact slot is lost', function (): void {
+    /*
+     * Two indexes raise the same exception class and the sentence differs.
+     * Reached by writing straight onto the table, because losing the race is
+     * the only way there — which is exactly why it was untested.
+     */
+    $sam = directoryEntry('Sam');
+    $lee = directoryEntry('Lee');
+
+    $insert = function (TeamMembership $membership): void {
+        DB::table('deal_participants')->insert([
+            'id' => (string) Str::ulid(),
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $this->deal->getKey(),
+            'team_membership_id' => $membership->getKey(),
+            'participant_role' => ParticipantRole::Buyer->value,
+            'is_primary' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    };
+
+    $insert($sam);
+
+    /*
+     * `explain()` is asked directly, with a real exception from a real index.
+     *
+     * Asserting that the *driver's message* contains the constraint name would
+     * pass whether or not `explain()` reads it — round 3 caught that shape in
+     * the first version of this test, which stayed green with the match
+     * neutered. This asks the method what it decided.
+     */
+    try {
+        $insert($lee);
+
+        $this->fail('The one-primary index should have refused a second Buyer primary.');
+    } catch (Illuminate\Database\UniqueConstraintViolationException $violation) {
+        expect(DealRoster::explain($violation, 'Lee Candidate', ParticipantRole::Buyer))
+            ->toContain('main contact')
+            ->not->toContain('is already on this deal');
+    }
+});
+
+it('names the pairing index when that is the one that fired', function (): void {
+    // The other branch, and the default. A test that only pinned the primary
+    // case would pass on a method that always returned that sentence.
+    $claire = directoryEntry();
+
+    app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller);
+
+    try {
+        DB::table('deal_participants')->insert([
+            'id' => (string) Str::ulid(),
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $this->deal->getKey(),
+            'team_membership_id' => $claire->getKey(),
+            'participant_role' => ParticipantRole::Seller->value,
+            'is_primary' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->fail('The pairing index should have refused a duplicate.');
+    } catch (Illuminate\Database\UniqueConstraintViolationException $violation) {
+        expect(DealRoster::explain($violation, 'Claire Nakamura', ParticipantRole::Seller))
+            ->toBe('Claire Nakamura is already on this deal as Seller.');
+    }
+});
+
+it('orders the roles somebody already holds, deterministically', function (): void {
+    // Added in reverse PRD order, so an unordered query comes back reversed
+    // and the modal reads differently between requests.
+    $claire = directoryEntry();
+
+    $roster = app(DealRoster::class);
+    $roster->add($this->deal, $claire, ParticipantRole::Attorney);
+    $roster->add($this->deal, $claire, ParticipantRole::Inspector);
+    $roster->add($this->deal, $claire, ParticipantRole::Seller);
+
+    $this->getJson("/deals/{$this->deal->getKey()}/people/candidates?q=Claire")
+        ->assertOk()
+        ->assertJsonPath('candidates.0.heldRoles', ['Seller', 'Inspector', 'Attorney']);
+});
+
+it('does not demote a main contact for an is_primary that carried no instruction', function (): void {
+    // `is_primary: null` validates and used to map through `boolean()` to
+    // false. There is no third state for a checkbox, so a null is an absent
+    // instruction rather than a demotion.
+    $participant = app(DealRoster::class)
+        ->add($this->deal, directoryEntry(), ParticipantRole::Seller, isPrimary: true);
+
+    $this->patch("/deals/{$this->deal->getKey()}/people/{$participant->getKey()}", [
+        'participant_role' => ParticipantRole::Seller->value,
+        'is_primary' => null,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($participant->fresh()->is_primary)->toBeTrue();
 });
 
 it('removes a participant without touching the directory', function (): void {

@@ -48,6 +48,9 @@ class ParticipantController extends Controller
 
         $deal->load('participants.membership', 'dealType');
 
+        // PRD §6.3 order, as a lookup rather than a search per group.
+        $rolePositions = array_flip(array_column(ParticipantRole::cases(), 'value'));
+
         return Inertia::render('Deals/People', [
             'deal' => [
                 'id' => $deal->getKey(),
@@ -68,15 +71,16 @@ class ParticipantController extends Controller
                  * the inspector was booked before the listing agreement was
                  * signed should not render Inspector above Seller.
                  */
-                ->sortBy(function ($group, string $role): int {
-                    $position = array_search($role, array_column(ParticipantRole::cases(), 'value'), true);
-
-                    // `!== false` rather than `?:`, which maps both "index 0"
-                    // and "not found" to 0 — correct today only because every
-                    // role is in `cases()`, and one enum edit from putting an
-                    // unknown role in front of Seller.
-                    return $position !== false ? $position : count(ParticipantRole::cases());
-                })
+                /*
+                 * Every key here is a valid case already: `groupBy` above
+                 * reads `participant_role->value`, and the cast throws on
+                 * anything else before this runs. So no fallback — an earlier
+                 * version had one with a comment claiming it kept an unknown
+                 * role from sorting in front of Seller, which it could not do,
+                 * because the sort never sees one. What actually guards this
+                 * is `Rule::enum` on the way in and the cast on the way out.
+                 */
+                ->sortBy(fn ($group, string $role): int => $rolePositions[$role])
                 ->map(fn ($group, string $role): array => [
                     'role' => $role,
                     'label' => ParticipantRole::from($role)->label(),
@@ -195,12 +199,16 @@ class ParticipantController extends Controller
          */
         $changes = [];
 
-        foreach (['is_primary', 'notes'] as $field) {
-            if ($request->has($field)) {
-                $changes[$field] = $field === 'is_primary'
-                    ? $request->boolean($field)
-                    : $request->validated($field);
-            }
+        // A null `notes` is an instruction — clear it. A null `is_primary` is
+        // not: there is no third state for a checkbox, and `boolean(null)` is
+        // `false`, which would demote a main contact for a key that said
+        // nothing.
+        if ($request->has('is_primary') && $request->input('is_primary') !== null) {
+            $changes['is_primary'] = $request->boolean('is_primary');
+        }
+
+        if ($request->has('notes')) {
+            $changes['notes'] = $request->validated('notes');
         }
 
         $roster->replace(

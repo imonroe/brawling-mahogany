@@ -29,9 +29,20 @@ class UpdateParticipantRequest extends FormRequest
         // Remove them and add the right person.
         return [
             'participant_role' => ['required', Rule::enum(ParticipantRole::class)],
-            // Nullable rather than defaulted, so `DealRoster::replace()` can
-            // tell "not sent" from "set to empty" and leave what the screen
-            // did not show alone.
+            /*
+             * `DealRoster::replace()` tells "not sent" from "set to empty" by
+             * **presence in `$changes`**, not by nullability — the nullable
+             * shape was tried and could not work, because
+             * `ConvertEmptyStringsToNull` erases the difference before
+             * anything here sees it.
+             *
+             * They are still nullable for different reasons. A null `notes`
+             * means clear it, which is a thing somebody can want. A null
+             * `is_primary` means nothing at all — there is no third state for
+             * a checkbox — so the controller drops it rather than reading it
+             * as `false`, which would have demoted a main contact for a key
+             * that carried no instruction.
+             */
             'is_primary' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:10000'],
         ];
