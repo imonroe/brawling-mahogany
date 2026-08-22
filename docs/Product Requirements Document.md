@@ -1,10 +1,10 @@
 ---
 created: 2026-08-19
-modified: 2026-08-20
+modified: 2026-08-22
 project: Brawling Mahogany
 type: prd
 status: draft
-version: 0.3
+version: 0.4
 tags:
   - monroe-digital
   - prd
@@ -15,13 +15,15 @@ tags:
 # Product Requirements Document
 
 > [!info] Document status
-> **Draft v0.3**, last revised 2026-08-20.
+> **Draft v0.4**, last revised 2026-08-22.
 >
 > Sources: [[The basic idea]] (Ian's originating brain dump), [[Rough data model.canvas]], and [[Conversation with Emily and Heather]] (2026-08-20 working session).
 >
 > **v0.2** folded in the Emily and Heather session, which answered seven of the ten open questions from v0.1 and added four material features absent from the first draft.
 >
 > **v0.3** applies the terminology set by [[Information Architecture]]. No scope changed. Every occurrence of *Project* became *Deal*, every *Milestone* became *Stage*, and *Milestone* was reassigned to a narrower meaning. Feature IDs (F1.1, F4.8, and so on) are unchanged and remain the stable references used by [[Screen Inventory]].
+>
+> **v0.4** records what slice 1 settled. Three open questions closed — shared person records (Q7), Vendor as a flag rather than a status, and whether a team's data export carries document *files* — and the `users` table became `people`, which §6.2 had described all along. No scope changed.
 >
 > Everything decided is listed in [[#15. Decision Log]].
 
@@ -899,7 +901,11 @@ Subscription plans, Stripe, self-serve signup, trials, seat limits, plan and pac
 
 ### 14.1 Questions
 
-**Resolved on 2026-08-20:** commercial scope, rental scope, client upload, concurrent deal count, brokerage requirements, and partial validation of the SaaS thesis. Detail in [[#15. Decision Log]].
+**Resolved on 2026-08-20:** commercial scope, rental scope, client upload, concurrent deal count, brokerage requirements, and partial validation of the SaaS thesis.
+
+**Resolved on 2026-08-22, in slice 1:** shared versus duplicated person records (Q7), Vendor as a flag rather than a lifecycle status, and whether an export carries document files.
+
+Detail in [[#15. Decision Log]].
 
 Still open, ordered by how much the answer changes the build.
 
@@ -909,7 +915,8 @@ Still open, ordered by how much the answer changes the build.
 4. **Which AI provider, and on what terms?** Needs a DPA, a no-training commitment, a retention position, and a cost model. Blocks slice 5 entirely.
 5. **How accurate is contract extraction actually?** Build a hand-checked corpus of 20 real Colorado contracts and measure before committing. If critical dates are missed, F10.1 is a liability rather than a feature.
 6. **Does the sensitive-content scan work well enough to be worth having?** A scan that misses half the checks may be worse than no scan, because it implies a guarantee that is not there.
-7. **Shared versus duplicated person records across teams.** This PRD assumes shared records with team-scoped notes, which is the harder path. Still worth a deliberate decision.
+
+~~7. Shared versus duplicated person records across teams.~~ **Settled in slice 1: shared.** See the decision log.
 8. **How much does Emily want to say about the competitor?** "I'm gonna steal the whole thing from them" was said in jest, and the practical answer is to build our own from Emily's and Heather's real process. Worth being deliberate rather than casual about it, particularly if any of their material was shared under a demo agreement.
 9. **Out-of-state expansion.** Almost every scope reduction in v0.2 rests on Colorado norms: CTM, no DocuSign, no client uploads. Selling into a second state reopens all of them.
 
@@ -966,6 +973,12 @@ Still open, ordered by how much the answer changes the build.
 | 2026-08-20 | **Persistent left sidebar** as the internal navigation model, with tabs inside a deal | Ian |
 | 2026-08-20 | **Screen inventory depth:** full pages plus significant modals. Came to 91 screens | Ian |
 | 2026-08-20 | Client Portal renamed **Status Page**, Portal User renamed **Status Viewer** | Follows the v0.2 reduction to read-only |
+| 2026-08-22 | **Person records are shared across teams, not duplicated** (Q7). One `people` row per human; everything a team knows privately about them — lifecycle status, notes, vendor assessment — lives on `team_memberships` | Slice 1, issue [#18](https://github.com/imonroe/brawling-mahogany/issues/18). §7.4's stager working for two teams is the case that decides it, and §6.2 assumed it already. The isolation risk the alternative avoids is answered by the enforcement layers in ADR 0002 rather than by duplication |
+| 2026-08-22 | **`users` became `people`** — one table, credentials optional. `App\Models\Person` is the authenticatable | Slice 1. §6.2 described this table from the beginning, and ADR 0001 already called `users` "the precursor to `people`". F2.1 is unimplementable with two tables: a human with a login would have two records |
+| 2026-08-22 | **Vendor is a flag, not a lifecycle status** (IA §13.3) | Slice 1, issue [#48](https://github.com/imonroe/brawling-mahogany/issues/48). A stager can be a past client and a vendor at once, which one status column cannot express. `team_memberships.is_vendor`, with its own directory segment |
+| 2026-08-22 | **Roles and permissions built to §6.2's schema rather than on `spatie/laravel-permission`** | Slice 1, issue [#46](https://github.com/imonroe/brawling-mahogany/issues/46). The package attaches roles to a *model*; §6.2 attaches them to a **membership** (`membership_role`), which is what makes revoking somebody from one team leave the other alone. Its `permissions` table is `name`/`guard_name`; ours is `key`/`group`/`description`. Reconciling the two costs more than the ~150 lines it replaces |
+| 2026-08-22 | **A team data export carries document metadata and a manifest, never the files** | Slice 1, issue [#56](https://github.com/imonroe/brawling-mahogany/issues/56). An archive holding every uploaded inspection report is a second copy of the riskiest data the product has, sitting behind a link. Documents land in slice 3 and attach to `manifest.documents` |
+| 2026-08-22 | **A low-contrast team accent warns rather than being silently adjusted** (Design System §15.6) | Slice 1, issue [#55](https://github.com/imonroe/brawling-mahogany/issues/55). The status page is held to WCAG 2.1 AA (§9), and a silently altered colour is a support ticket that arrives later and angrier |
 
 ---
 
@@ -989,7 +1002,7 @@ Still open, ordered by how much the answer changes the build.
 - [ ] Build a 20-contract test corpus and measure extraction accuracy 📅 2026-09-24
 - [ ] Draft the listing-agreement disclosure language teams can paste in 📅 2026-09-17
 - [ ] Verify web push on a real iPhone before committing to the PWA plan 📅 2026-09-03
-- [ ] Decide shared-versus-duplicated person records (Q7) 📅 2026-08-27
+- [x] Decide shared-versus-duplicated person records (Q7) ✅ 2026-08-22
 - [ ] Rebuild [[Rough data model.canvas]] as v2 reflecting section 6 and the Deal/Stage terminology 📅 2026-08-31
 - [ ] Design the app shell (S06) and review with Heather before any other screen 📅 2026-08-31
 - [ ] Buy or reject Tailwind Plus, the design estimate swings ~80 days on it 📅 2026-08-27

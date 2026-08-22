@@ -1,6 +1,6 @@
 ---
 created: 2026-08-20
-modified: 2026-08-20
+modified: 2026-08-22
 project: Brawling Mahogany
 type: plan
 status: draft
@@ -26,8 +26,8 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 
 | Slice | Name | Issues | What it buys |
 |---|---|---|---|
-| **0** | Scaffolding, platform, design system | 19 | A stack that runs, a pipeline that gates once `scripts/protect-branches.sh` is run, and a component kit the other 70 screens assemble from |
-| **1** | Tenancy, identity, people | 19 | A team can exist, log in, and hold contacts — with isolation proven |
+| **0** ✅ | Scaffolding, platform, design system | 19 | A stack that runs, a pipeline that gates once `scripts/protect-branches.sh` is run, and a component kit the other 70 screens assemble from |
+| **1** ✅ | Tenancy, identity, people | 19 | A team can exist, log in, and hold contacts — with isolation proven |
 | **2** | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
 | **3** | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
 | **4** | Calendar, key dates, status page | 8 | Deadlines drive the work, and the client can look without calling |

@@ -1,6 +1,6 @@
 ---
 created: 2026-08-20
-modified: 2026-08-20
+modified: 2026-08-22
 project: Brawling Mahogany
 type: reference
 status: draft
@@ -21,6 +21,9 @@ tags:
 
 > [!note] Terminology
 > This document uses the [[Information Architecture]] vocabulary: **Deal** (not Project) and **Stage** (not Milestone). PRD v0.3 now matches. Feature IDs are stable across all versions.
+
+> [!success] Built in slice 1
+> S01–S06 and S09, S30–S33, S72, S74, S77, S79, and S81–S85. Two of them differ from the row below, and the rows say so: S31's route parameter is the **membership**, and S84 is a page rather than a modal.
 
 ---
 
@@ -97,7 +100,7 @@ tags:
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
 | S30 | People index | `/people` | Team | Segments (Clients, Vendors, Team, Leads), empty, 500+ rows, search | F2.4 | 1 | M |
-| S31 | Person detail | `/people/{person}` | Team | Contact log, related deals, no login, past client, vendor fields | F2.1, F2.5 | 1 | M |
+| S31 | Person detail | `/people/{membership}` | Team | Contact log, related deals, no login, past client, vendor fields | F2.1, F2.5 | 1 | M |
 | S32 | Create and edit person | modal | Team | New, edit, duplicate email warning, promote to login | F2.1 | 1 | S |
 | S33 | Contact import | `/people/import` | Agent | Source pick, field mapping, duplicate preview, partial failure, result summary | F2.8 | 1 | **L** |
 | S34 | Vendor directory | `/people?segment=vendors` | Team | Specialty filters, ratings, last used, empty | F2.6 | 2 | M |
@@ -217,7 +220,7 @@ tags:
 | S81 | Admin dashboard | `/admin` | Admin | Tenant count, health summary, recent errors | F1.5 | 1 | S |
 | S82 | Teams list | `/admin/teams` | Admin | Search, suspended, usage | F1.5 | 1 | S |
 | S83 | Team detail and provision | `/admin/teams/{team}` | Admin | Create, edit, suspend, usage detail | F1.5 | 1 | M |
-| S84 | Start impersonation | modal | Admin | **Reason required**, duration, audit warning | F1.5 | 1 | S |
+| S84 | Start impersonation | `/admin/teams/{team}/impersonate` | Admin | **Reason required**, duration, audit warning | F1.5 | 1 | S |
 | S85 | System health and queues | `/admin/health` | Admin | Queue depth, failed jobs, AI spend against cap, SES reputation | NFR | 1 | M |
 
 ## Q. Transactional email templates
@@ -277,6 +280,8 @@ Everything else assembles. These do not.
 | S16 | Deal timeline | The novel interaction in the product |
 | S23 | Advance stage | Must explain refusal clearly enough to act on |
 | S33 | Contact import | Field mapping and duplicate resolution are always harder than they look |
+| S31 | Person detail | Built against `{membership}` rather than `{person}`. A person is shared across teams (PRD decision log, 2026-08-22) and the membership is the team-scoped half, so binding to it means the global scope does the isolation — there is no route that could reach somebody this team has never met |
+| S84 | Start impersonation | Built as a page, not a modal. A typed reason, a duration, and an unmissable warning are more than a modal should carry, and the screen is reached from a team's detail page rather than from a list |
 | S41 | Workflow template editor | Reordering with in-flight deals to protect |
 | S42 | Stage template editor | Three child types on one screen |
 | S44 | Automation editor | Trigger, action, recipient rule, all interdependent |

@@ -34,9 +34,10 @@ A `BelongsToTeam` trait applies a global scope constraining every query to the
 current team. The point is the failure mode: a developer who forgets a `where`
 gets *no rows*, not *everybody's rows*.
 
-The scope is not removable by convenience. `withoutTeamScope()` exists for
-exactly two callers — the super-admin console and the console commands that
-operate across teams — and both are audited (layer 5 below).
+The scope is not removable by convenience. `withoutTeamScope()` exists for a
+named, countable set of callers — the super-admin console and the console
+commands that operate across teams — and each is audited (layer 5 below). See
+*Decided since* for what Slice 1 found that list actually has to contain.
 
 ### 2. Database constraints where they can be expressed
 
@@ -123,18 +124,53 @@ is a bug in every case, and a bug that hides is a bug that ships.
 - Every business model carries the trait, and every business table carries the
   column. `productDefaults()` (ADR 0001) makes that the default rather than a
   thing to remember.
-- Unscoped access is possible but never accidental: it has a name, two callers,
-  and an audit trail.
+- Unscoped access is possible but never accidental: it has a name, a short
+  list of callers, and an audit trail.
 - The isolation suite grows with every entity. That is a real, recurring cost,
   and it is the cheapest insurance in the project.
 - Queue and schedule contexts need an explicit team, which makes job payloads
   slightly heavier and job bugs much louder.
 
+## What Slice 1 built
+
+Written after the fact, so the ADR describes the code rather than the plan.
+
+| Layer | Where it lives |
+|---|---|
+| 1. Global scope | `App\Models\Concerns\BelongsToTeam` and `TeamScope`. `App\Support\Tenancy\TeamContext` holds the one resolved team |
+| 2. Database | `productDefaults()`'s foreign key and `(team_id, id)` unique index; `teamScopedForeign()` for composite child keys |
+| 3. Middleware | `ResolveCurrentTeam` (session first, route second) and `EnsureTeamContext` |
+| 4. Policies | `App\Policies\*`, all using `ChecksTeamPermissions`, all denying by default |
+| 5. Tests | `tests/Isolation/` — `CrossTenantAccessTest` for the vectors, `ModelTenancyConventionTest` for the models |
+
+Two things the implementation added that the decision did not name:
+
+- **The write side.** The scope protects reads; `BelongsToTeam` also fills
+  `team_id` on create and throws `CrossTenantException` when a save names a
+  different team. `team_id` is absent from every model's fillable list, so a
+  request body can never choose a tenant.
+- **`tests/Feature/AuthorizationCoverageTest.php`**, which reads the route
+  table and fails on any controller action that never asks a policy. Layer 4
+  said "every controller action is gated"; this is what holds it.
+
+## Decided since
+
+- **`people` is shared across teams** (issue #18, PRD decision log
+  2026-08-22). One row per human, with everything a team knows privately about
+  them on `team_memberships`. Six models carry no `team_id`, each recorded with
+  a reason in the isolation suite: `people` (shared), `teams` (the boundary
+  itself), `roles` (the five system roles have no team), `permissions` (flat
+  and identical everywhere), `audit_log` (outlives the team it describes), and
+  `passkeys` (a credential belongs to a human, not a tenancy — somebody who
+  works for two teams signs in once).
+- **`withoutTeamScope()` has three callers**, not two: the super admin console,
+  the console commands that operate across teams, and the invitation-accept
+  route — which has no team context by definition, because the token is what
+  establishes one. Each is audited or, in the invitation's case, constrained
+  to a single hashed token.
+
 ## Not decided here
 
-- Whether `people` is team-scoped, shared across teams, or duplicated per team
-  (IA §13, open question 3; issue #18). The enforcement model works for all
-  three; the choice affects the `team_memberships` design and belongs with
-  Slice 1.
-- The exact shape of `withoutTeamScope()`'s audit record, which lands with the
-  audit log itself.
+- The exact retention of `audit_log` beyond "it survives a tenant purge"
+  (issue #57). The rows are written; how long they are kept is a policy
+  question the first customer contract will settle.
