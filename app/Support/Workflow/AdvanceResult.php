@@ -91,9 +91,23 @@ final readonly class AdvanceResult
         return new self(advanced: false, refusal: $explanation);
     }
 
+    /**
+     * The advance did not happen, for either reason.
+     *
+     * `wasRefused()` is what tells the two apart, and a screen almost always
+     * wants to: *“this workflow is on hold”* names something somebody did on
+     * purpose and needs a different affordance from *“the survey has not come
+     * back”*, which names something to go and chase.
+     */
     public function wasBlocked(): bool
     {
         return ! $this->advanced;
+    }
+
+    /** The workflow itself would not move — a hold, a cancellation, a race. */
+    public function wasRefused(): bool
+    {
+        return $this->refusal !== null;
     }
 
     /**

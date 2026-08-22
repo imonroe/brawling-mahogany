@@ -86,12 +86,25 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 
     'Http/Controllers/Settings/ProfileController.php' => [
-        'count' => 2,
+        // Down from two: the collision check moved inside `runFor`, where the
+        // ordinary scope is the right one. Only the question that genuinely
+        // spans teams is left unscoped.
+        'count' => 1,
         'reason' => 'A question about the actor: which of my own memberships were '.
-            'carrying my old sign-in address, and does the team I am about to write to '.
-            'already hold the new one. Both span every team I am in by definition — '.
-            'scoping them to the resolved team would leave the other teams showing an '.
-            'address that stopped working.',
+            'carrying my old sign-in address. It spans every team I am in by '.
+            'definition — scoping it to the resolved team would leave the others '.
+            'showing an address that stopped working. The *write* that follows is '.
+            'scoped again with runFor, because lifting a read out of the scope does '.
+            'not lift the BelongsToTeam updating guard with it, and round 2 found '.
+            'exactly that 500.',
+    ],
+
+    'Support/Teams/InvitationConflict.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant. It is asked at accept time, before a '.
+            'token has established a team, and the team it is asked about comes from '.
+            'the invitation rather than from the session. Scoped to that team by hand, '.
+            'in the query, which is the only shape a no-tenant context can use.',
     ],
 
     'Support/Workflow/InstantiateWorkflow.php' => [

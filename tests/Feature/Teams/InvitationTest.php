@@ -476,6 +476,89 @@ it('keeps a revoked member’s name on what they already did', function (): void
         ->and($event->actor_person_id)->toBe($second->getKey());
 });
 
+/**
+ * A lead becoming a team member: the ordinary reason to invite anybody.
+ *
+ * Round 1 found this was a 500 on every click, forever. Round 2 found the fix
+ * for that had replaced it with a validation error on a screen with no field
+ * to render it, which is the same dead end without the stack trace.
+ */
+it('lets a contact in the directory accept an invitation', function (): void {
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    // Claire is a lead this team added. Her `people` row holds no credentials
+    // and no address at all (#140); the address lives on the membership.
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'lead',
+        'notes' => 'Met at the open house.',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Claire',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect(route('dashboard'));
+
+    // One membership, upgraded rather than duplicated — so her notes and her
+    // lifecycle history survive her getting a login, which is what the team
+    // expects and the only reason the row was worth keeping.
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['claire@example.test'])
+        ->sole();
+
+    expect($membership->notes)->toBe('Met at the open house.')
+        ->and($membership->person->hasCredentials())->toBeTrue();
+});
+
+/**
+ * The one conflict the product cannot resolve on its own, refused where
+ * somebody can act on it.
+ *
+ * A directory contact *and* a separate account for one address. Repointing the
+ * membership breaks every activity event naming the person it holds; attaching
+ * the account collides on `team_memberships_team_email_unique`. The refusal
+ * belongs on the members screen, in front of the person who can remove the
+ * duplicate — not in front of the invitee, who can do nothing about it.
+ */
+it('refuses to invite an address that is both a contact and an account', function (): void {
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    // Somebody who signs in — in another team, which is the realistic case.
+    Person::factory()->create(['email' => 'claire@example.test']);
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'lead',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasErrors('email');
+
+    // Nothing sent, so nobody is holding a link that can never work.
+    expect(TeamInvitation::query()->count())->toBe(0);
+    Mail::assertNotSent(TeamInvitationMail::class);
+});
+
 it('refuses an invitation from somebody who cannot manage members', function (): void {
     [$otherTeam, $member] = $this->teamWithMember();
 

@@ -14,6 +14,7 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -51,6 +52,24 @@ class ProfileController extends Controller
      */
     public function update(ProfileUpdateRequest $request, TeamContext $teams): RedirectResponse
     {
+        /*
+         * All of it, or none of it.
+         *
+         * Without the transaction the address and the memberships could
+         * disagree by half — and unrecoverably, because the propagation below
+         * finds memberships by the **old** address. A second attempt would
+         * find none still carrying it, skip the propagation entirely, and
+         * leave the stale rows permanent.
+         */
+        DB::transaction(fn () => $this->applyProfile($request, $teams));
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Profile updated.')]);
+
+        return to_route('profile.edit');
+    }
+
+    private function applyProfile(ProfileUpdateRequest $request, TeamContext $teams): void
+    {
         $validated = $request->validated();
         $person = $request->user();
 
@@ -82,30 +101,50 @@ class ProfileController extends Controller
                 ->where('person_id', $person->getKey())
                 ->whereNull('revoked_at')
                 ->whereRaw('lower(email) = ?', [mb_strtolower($previousAddress)])
+                ->with('team')
                 ->get();
 
             foreach ($carryingOldAddress as $held) {
                 /*
-                 * One team cannot hold one address twice, and the new one may
-                 * already be in this team's directory as somebody else — a
-                 * contact a colleague added last week, say. The index would
-                 * refuse the write, and a 500 on the profile screen is a
-                 * worse answer than a stale address on the members list.
+                 * **The read was lifted out of the scope; the write has to go
+                 * back into it.**
                  *
-                 * So the team keeps what it had, and the login address changes
-                 * regardless: the two columns exist precisely because they are
-                 * allowed to disagree.
+                 * `withoutTeamScope()` only lifts the global *select* scope.
+                 * `BelongsToTeam`'s `updating` hook still refuses a row whose
+                 * `team_id` is not the resolved one, so saving another team's
+                 * membership from inside this request threw
+                 * `CrossTenantException` — a 500 for anybody who belongs to
+                 * two teams, which is the ordinary case this whole column move
+                 * exists to serve.
+                 *
+                 * `runFor` resolves each team for the length of its own write,
+                 * which is the same thing `AcceptInvitation` does and the same
+                 * thing `RevokeMembership`'s docblock records learning a
+                 * review round earlier.
                  */
-                $taken = TeamMembership::withoutTeamScope()
-                    ->where('team_id', $held->team_id)
-                    ->whereKeyNot($held->getKey())
-                    ->whereNull('revoked_at')
-                    ->whereRaw('lower(email) = ?', [mb_strtolower((string) $person->email)])
-                    ->exists();
+                $teams->runFor($held->team, function () use ($held, $person): void {
+                    /*
+                     * One team cannot hold one address twice, and the new one
+                     * may already be in this team's directory as somebody
+                     * else — a contact a colleague added last week, say. The
+                     * index would refuse the write, and a 500 on the profile
+                     * screen is a worse answer than a stale address on the
+                     * members list.
+                     *
+                     * So the team keeps what it had, and the login address
+                     * changes regardless: the two columns exist precisely
+                     * because they are allowed to disagree.
+                     */
+                    $taken = TeamMembership::query()
+                        ->whereKeyNot($held->getKey())
+                        ->whereNull('revoked_at')
+                        ->whereRaw('lower(email) = ?', [mb_strtolower((string) $person->email)])
+                        ->exists();
 
-                if (! $taken) {
-                    $held->forceFill(['email' => $person->email])->save();
-                }
+                    if (! $taken) {
+                        $held->forceFill(['email' => $person->email])->save();
+                    }
+                });
             }
         }
 
@@ -118,10 +157,6 @@ class ProfileController extends Controller
             'first_name' => $validated['first_name'] ?? $membership->first_name,
             'last_name' => $validated['last_name'] ?? null,
         ])->save();
-
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Profile updated.')]);
-
-        return to_route('profile.edit');
     }
 
     /**

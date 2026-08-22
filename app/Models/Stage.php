@@ -76,9 +76,13 @@ class Stage extends Model
      * IA §8.
      *
      * `blocked` sits beside `active` rather than after it: a stage becomes
-     * blocked when a blocking gate refuses an advance, and clearing the gate
-     * puts it back. It is a *display* state for a stage somebody is standing
-     * in and cannot leave, not a stage of its own.
+     * blocked when a blocking gate refuses an advance. It is a *display* state
+     * for a stage somebody is standing in and cannot leave, not a stage of its
+     * own — which is why `blocked → complete` is legal. Gates are only
+     * evaluated inside `AdvanceWorkflow::handle()`, so clearing one does not
+     * clear the badge until the next advance is attempted; a screen that wants
+     * a live badge needs a re-evaluation path, and that arrives in Slice 3
+     * with the routes that mark a gate met.
      *
      * `complete` returns to `active` for #70's reopen. Emily's reason is
      * concrete — an inspection stage closes, the report comes back with a

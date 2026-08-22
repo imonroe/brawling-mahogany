@@ -10,7 +10,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Role;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
+use App\Support\Teams\InvitationConflict;
 use App\Support\Tenancy\TeamContext;
+use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -70,8 +72,39 @@ class MemberController extends Controller
 
         $this->authorize('create', TeamInvitation::class);
 
+        /*
+         * Folded before anything compares or stores it.
+         *
+         * Every other entry point folds — `PersonRules::prepareForValidation`,
+         * and the mutators on both models — and this one stored the address
+         * verbatim on `team_invitations.email`. Harmless while every lookup
+         * happens to use `lower(email)`, which is precisely the kind of
+         * harmless that stops being true in one commit.
+         */
+        $request->merge(['email' => mb_strtolower(trim((string) $request->input('email')))]);
+
         $validated = $request->validate([
-            'email' => ['required', 'string', 'email', 'max:255'],
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                /*
+                 * Refused here, where the person who can resolve it is
+                 * standing. Checking only at accept time meant the invitation
+                 * sent cleanly and the *invitee* met a validation error on a
+                 * screen with no field to show it — silent for everybody.
+                 */
+                function (string $attribute, mixed $value, Closure $fail) use ($team): void {
+                    $reason = is_string($value)
+                        ? InvitationConflict::reasonFor($team->getKey(), $value)
+                        : null;
+
+                    if ($reason !== null) {
+                        $fail($reason);
+                    }
+                },
+            ],
             'first_name' => ['nullable', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
             'role_id' => [

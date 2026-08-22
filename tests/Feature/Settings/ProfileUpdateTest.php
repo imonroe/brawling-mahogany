@@ -6,6 +6,7 @@ namespace Tests\Feature\Settings;
 
 use App\Models\Person;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use RuntimeException;
 use Tests\TestCase;
 
 class ProfileUpdateTest extends TestCase
@@ -247,5 +248,83 @@ class ProfileUpdateTest extends TestCase
 
         $this->assertSame('claire@example.test', $user->fresh()->email);
         $this->assertSame($original, $user->membershipIn($team)->email);
+    }
+
+    /**
+     * The case that made the first version of this a 500.
+     *
+     * `withoutTeamScope()` lifts the global *select* scope and nothing else —
+     * `BelongsToTeam`'s `updating` hook still refuses a row whose `team_id` is
+     * not the resolved one. So the read was correctly lifted out of the scope
+     * and the write was left inside it, and anybody belonging to two teams got
+     * a server error on an ordinary settings screen. Worse, `update()` was not
+     * transactional, so the person's address moved while some memberships
+     * stayed behind — and re-submitting could not repair it, because the
+     * propagation looks for the *old* address and no longer finds it.
+     */
+    public function test_a_person_in_two_teams_can_change_their_address(): void
+    {
+        [$teamA, $person] = $this->teamWithMember();
+        [$teamB] = $this->teamWithMember();
+
+        $address = $person->email;
+
+        app(\App\Support\Tenancy\TeamContext::class)->runFor($teamB, fn () => \App\Models\TeamMembership::query()->create([
+            'person_id' => $person->getKey(),
+            'first_name' => 'Shared',
+            'email' => $address,
+            'status' => 'active',
+        ]));
+
+        $this->actingAsPerson($person, $teamA);
+
+        $this->patch(route('profile.update'), [
+            'first_name' => 'Test',
+            'last_name' => 'User',
+            'email' => 'moved@example.test',
+        ])->assertRedirect(route('profile.edit'));
+
+        $this->assertSame(
+            ['moved@example.test', 'moved@example.test'],
+            \App\Models\TeamMembership::withoutTeamScope()
+                ->where('person_id', $person->getKey())
+                ->pluck('email')
+                ->all(),
+        );
+    }
+
+    /**
+     * And nothing moves at all if any part of it cannot.
+     *
+     * The address and the memberships have to agree or disagree together: a
+     * half-applied write leaves somebody signed in with an address half the
+     * product does not know, and unrecoverably, because the second attempt
+     * finds nothing still carrying the old one.
+     */
+    public function test_a_failed_profile_update_moves_nothing(): void
+    {
+        [$team, $person] = $this->teamWithMember();
+        $original = $person->email;
+
+        $this->actingAsPerson($person, $team);
+
+        \App\Models\TeamMembership::saving(function (): void {
+            throw new RuntimeException('Something failed partway through.');
+        });
+
+        try {
+            $this->patch(route('profile.update'), [
+                'first_name' => 'Test',
+                'last_name' => 'User',
+                'email' => 'moved@example.test',
+            ]);
+        } catch (RuntimeException) {
+            // Expected: the point is what the database looks like afterwards.
+        }
+
+        \App\Models\TeamMembership::flushEventListeners();
+        \Illuminate\Database\Eloquent\Model::clearBootedModels();
+
+        $this->assertSame($original, $person->fresh()->email);
     }
 }

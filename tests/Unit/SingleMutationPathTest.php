@@ -45,10 +45,21 @@ use Symfony\Component\Finder\Finder;
  *    Eloquent has no reason to mention `Stage::class`, so it never entered the
  *    candidate set at all.
  *
- * A guard that only catches the careless spelling of a mistake is worth less
- * than no guard, because it reads as coverage. So the shapes below are pinned
- * by `it('catches every shape…')` — the detector is run against each bypass,
- * and against innocent code that must stay quiet.
+ * Round 2 then found three more past the widened version — an array-key
+ * assignment (`$payload['state'] = …`), a literal dynamic property, and
+ * `setRawAttributes()` — which is the argument for the dataset below rather
+ * than for a cleverer regex. A guard that only catches the careless spelling
+ * of a mistake is worth less than no guard, because it reads as coverage. So
+ * every shape is pinned by `it('catches every shape…')`: the detector is run
+ * against each bypass, and against innocent code that must stay quiet.
+ *
+ * ## This test and the runtime hook cover different halves
+ *
+ * `HasStateMachine`'s `saving` hook holds the transition map on anything that
+ * goes through the model's save path. It does **not** see `saveQuietly()`, an
+ * Eloquent mass `update()`, or a query-builder write — those skip model events
+ * by design. Those three are exactly what a source-reading test can catch and
+ * a runtime one cannot, which is why both exist.
  */
 
 /**
@@ -66,10 +77,19 @@ const STATE_WRITE_PATTERNS = [
     '/->\s*transitionTo\s*\(/',
     // ->setAttribute('state', …) — the same write, spelled as a method call
     '/->\s*setAttribute\s*\(\s*[\'"]state[\'"]/',
-    // $stage->{$column} = … — a column name in a variable is still a column name
+    // $stage->{$column} = … and $stage->{'state'} = … — a dynamic property
+    // write is a column write whatever is inside the braces
+    '/->\s*\{[^}]*\}\s*=(?!=)/',
     '/->\s*\{\s*\$/',
     // ->update([$column => …]) — the same trick, one layer in
     '/\[\s*\$\w+\s*=>/',
+    // $payload['state'] = …; $stage->forceFill($payload) — building the
+    // update by key rather than as a literal. Ordinary code, and the `=>`
+    // pattern above does not match an `=`.
+    '/\[\s*[\'"]state[\'"]\s*\]\s*=(?!=)/',
+    // ->setRawAttributes([...], true) — straight past the mutators, the casts
+    // and the transition map in one call
+    '/->\s*setRawAttributes\s*\(/',
     // DB::table('stages')->update(…) — Eloquent bypassed entirely, so the
     // model, its casts, and its transition map never see the write
     '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows)[\'"]\s*\)/',
@@ -247,7 +267,13 @@ it('catches every shape of writing workflow state', function (string $shape): vo
     'variable property' => ['$column = \'state\'; $stage->{$column} = StageState::Complete;'],
     'variable array key' => ['$column = \'state\'; $stage->update([$column => StageState::Complete]);'],
     'query builder' => ['DB::table(\'stages\')->whereKey($stage->id)->update([\'state\' => \'complete\']);'],
+    'eloquent mass update' => ['Stage::query()->whereKey($stage->id)->update([\'state\' => \'complete\']);'],
     'raw sql' => ['DB::statement(\'UPDATE stages SET state = \\\'complete\\\'\');'],
+    // Round 2 found these three past the widened detector. The first is the
+    // one that matters: building an update payload by key is ordinary code.
+    'array key assignment' => ['$payload = []; $payload[\'state\'] = \'complete\'; $stage->forceFill($payload)->save();'],
+    'literal dynamic property' => ['$stage->{\'state\'} = StageState::Complete;'],
+    'setRawAttributes' => ['$stage->setRawAttributes([\'state\' => \'complete\'], true);'],
 ]);
 
 it('stays quiet about code that only reads workflow state', function (string $shape): void {

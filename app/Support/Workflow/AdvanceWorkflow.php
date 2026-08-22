@@ -154,8 +154,8 @@ final class AdvanceWorkflow
                  * The stage is marked blocked so the deals index and the stage
                  * rail can show it without re-running seven evaluators per
                  * row. It is a display state for a stage somebody is standing
-                 * in and cannot leave, and clearing the gate puts it back to
-                 * active on the next attempt.
+                 * in and cannot leave; it is refreshed the next time an
+                 * advance is attempted and not before (see below).
                  */
                 if ($stage->state === StageState::Active) {
                     $stage->transitionTo(StageState::Blocked)->save();
@@ -165,22 +165,27 @@ final class AdvanceWorkflow
             }
 
             /*
-             * Nothing blocks any more, so the badge stops saying it does.
+             * No re-activation here, and the reason is worth writing down
+             * because the obvious line is a no-op.
              *
-             * `blocked` is a display state, and a display state that only ever
-             * goes one way is a lie waiting to be rendered: the survey comes
-             * back, the gate clears, and the deals index still shows a blocked
-             * stage with nothing blocking it. Gates are evaluated here and
-             * nowhere else, so here is where the badge can be corrected.
+             * A `blocked → active` write on this path would sit inside the
+             * same transaction opened above: if `applyAdvance` throws, the
+             * rollback discards it and the stage reads `blocked` again; if it
+             * does not throw, the very next line completes the stage and the
+             * intermediate `active` is never observable. Neither branch can
+             * see it. (An earlier round shipped exactly that line with a
+             * comment claiming the rollback case as its justification, which
+             * is backwards.)
              *
-             * It matters even though the advance below usually completes the
-             * stage a line later, because the advance does not always happen —
-             * `applyAdvance` can still throw, and a rolled-back transaction
-             * should leave the stage reading `active`, not `blocked`.
+             * The real complaint stands and is not solvable here: between a
+             * gate clearing and somebody clicking Advance, the deals index
+             * shows a blocked badge with nothing blocking it, because gates
+             * are only ever evaluated inside `handle()`. Fixing that needs a
+             * re-evaluation path a screen can call without advancing —
+             * Slice 3's work, when a route can mark a gate met. `blocked →
+             * complete` is a legal transition precisely so this does not have
+             * to be pretended otherwise.
              */
-            if ($stage->state === StageState::Blocked) {
-                $stage->transitionTo(StageState::Active)->save();
-            }
 
             return $this->applyAdvance($workflow, $stage, $actor, $advisories);
         });

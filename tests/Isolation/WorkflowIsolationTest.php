@@ -97,6 +97,56 @@ it('refuses to create a deal against another team’s private deal type', functi
     });
 });
 
+it('lets a team use its own private deal type, with no team_id in the request', function (): void {
+    /*
+     * The shape `CLAUDE.md` mandates, and the shape nothing tested.
+     *
+     * `team_id` is deliberately not fillable — a request body must not choose
+     * a tenant — so a controller creates a deal without it and `BelongsToTeam`
+     * fills it on `creating`. The first version of the guard above ran on
+     * `saving`, which fires *first*, so it compared a real deal type against a
+     * null `team_id` and refused every team-owned type while waving the shared
+     * ones through. `DealFactory` sets `team_id`, which is why 455 tests
+     * agreed with it.
+     */
+    app(TeamContext::class)->runFor($this->teamA, function (): void {
+        $own = DealType::factory()->create(['team_id' => $this->teamA->getKey()]);
+
+        Deal::create(['deal_type_id' => $own->getKey(), 'name' => '11 Ash Court']);
+
+        $deal = Deal::query()->sole();
+
+        expect($deal->team_id)->toBe($this->teamA->getKey())
+            ->and($deal->deal_type_id)->toBe($own->getKey());
+    });
+});
+
+it('still refuses a foreign deal type when the request carries no team_id', function (): void {
+    $foreign = app(TeamContext::class)->runFor(
+        $this->teamB,
+        fn () => DealType::factory()->create(['team_id' => $this->teamB->getKey()]),
+    );
+
+    app(TeamContext::class)->runFor($this->teamA, function () use ($foreign): void {
+        expect(fn () => Deal::create(['deal_type_id' => $foreign->getKey(), 'name' => 'Probe']))
+            ->toThrow(ForeignReferenceException::class);
+    });
+});
+
+it('refuses a foreign deal type on an update too', function (): void {
+    $foreign = app(TeamContext::class)->runFor(
+        $this->teamB,
+        fn () => DealType::factory()->create(['team_id' => $this->teamB->getKey()]),
+    );
+
+    app(TeamContext::class)->runFor($this->teamA, function () use ($foreign): void {
+        $deal = Deal::factory()->create(['team_id' => $this->teamA->getKey()]);
+
+        expect(fn () => $deal->forceFill(['deal_type_id' => $foreign->getKey()])->save())
+            ->toThrow(ForeignReferenceException::class);
+    });
+});
+
 it('refuses to instantiate another team’s private workflow template', function (): void {
     $foreign = app(TeamContext::class)->runFor(
         $this->teamB,

@@ -7,8 +7,9 @@ namespace App\Http\Requests\People;
 use App\Enums\PersonLifecycleState;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
+use Closure;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Unique;
 
 /**
  * The fields S32 collects, in one place so create and edit cannot drift.
@@ -43,20 +44,44 @@ trait PersonRules
     }
 
     /**
-     * The rule that matches the index, including its `where` clauses.
+     * The rule that asks the question the index answers.
      *
-     * The index is partial — live rows only — so the rule has to be too, or
-     * an address freed by revoking somebody would still be refused.
+     * Written by hand rather than with `Rule::unique`, and the reason is the
+     * comparison. `Rule::unique('team_memberships', 'email')` emits
+     * `where "email" = ?`, which Postgres evaluates case-sensitively, while
+     * the index is over `lower(email)`. That rule matched the index only
+     * because `TeamMembership::email()`'s mutator folds every Eloquent write —
+     * so it was really matching the *mutator*, and a row written any other way
+     * (the migration's own `UPDATE`, for one) put B2's 500 straight back.
+     *
+     * `DB::table` rather than the model, so the global team scope and the
+     * soft-delete scope are both out of the picture and the three conditions
+     * below are visibly the three in the index: same team, live row, live
+     * membership.
      */
-    private function uniqueWithinTeam(?TeamMembership $ignoring): Unique
+    private function uniqueWithinTeam(?TeamMembership $ignoring): Closure
     {
-        $rule = Rule::unique('team_memberships', 'email')
-            ->where(fn ($query) => $query
+        return function (string $attribute, mixed $value, Closure $fail) use ($ignoring): void {
+            if (! is_string($value) || trim($value) === '') {
+                return;
+            }
+
+            $query = DB::table('team_memberships')
                 ->where('team_id', app(TeamContext::class)->id())
                 ->whereNull('deleted_at')
-                ->whereNull('revoked_at'));
+                ->whereNull('revoked_at')
+                ->whereRaw('lower(email) = ?', [mb_strtolower(trim($value))]);
 
-        return $ignoring instanceof TeamMembership ? $rule->ignore($ignoring->getKey()) : $rule;
+            // The row being edited is not its own duplicate, or nobody could
+            // ever change their own surname.
+            if ($ignoring instanceof TeamMembership) {
+                $query->where('id', '!=', $ignoring->getKey());
+            }
+
+            if ($query->exists()) {
+                $fail('Somebody in your directory already has this email address.');
+            }
+        };
     }
 
     /**

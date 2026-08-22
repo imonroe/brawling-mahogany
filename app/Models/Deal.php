@@ -112,20 +112,49 @@ class Deal extends Model
      */
     protected static function booted(): void
     {
-        static::saving(function (self $deal): void {
-            if (! $deal->isDirty('deal_type_id')) {
-                return;
-            }
+        /*
+         * `creating` and `updating`, deliberately **not** `saving`.
+         *
+         * `saving` fires before `creating`, and `BelongsToTeam` fills
+         * `team_id` on `creating` — so a guard on `saving` compares a real
+         * deal type id against a `team_id` that is still null, and refuses
+         * every team-owned type on insert while waving the shared ones
+         * through. The guard's whole effect on the create path was inverted,
+         * and the error said the row "belongs to another team" when it
+         * belonged to this one.
+         *
+         * The suite agreed with it, because `DealFactory` sets `team_id` and
+         * every call site passed it again on top. `CLAUDE.md` is explicit that
+         * a request body must not choose a tenant, so the shape that matters
+         * is the one with no `team_id` at all — which is the shape nothing
+         * tested.
+         */
+        static::creating(fn (self $deal) => $deal->guardDealType());
+        static::updating(fn (self $deal) => $deal->guardDealType());
+    }
 
-            $type = DealType::query()->whereKey($deal->deal_type_id)->first();
+    /**
+     * The deal type has to be this team's, or everybody's.
+     *
+     * `deals.deal_type_id` is a plain foreign key rather than a composite one,
+     * because a system deal type has `team_id = null` and a composite key from
+     * a NOT NULL `deals.team_id` can never match `(null, id)`. So the database
+     * accepts any id in the table and the model is what refuses.
+     */
+    private function guardDealType(): void
+    {
+        if (! $this->isDirty('deal_type_id')) {
+            return;
+        }
 
-            // Ours, or the shared kind. Never another team's.
-            if ($type instanceof DealType && ($type->isSystem() || $type->team_id === $deal->team_id)) {
-                return;
-            }
+        $type = DealType::query()->whereKey($this->deal_type_id)->first();
 
-            throw ForeignReferenceException::for('deal_types', (string) $deal->deal_type_id, $deal->team_id);
-        });
+        // Ours, or the shared kind. Never another team's.
+        if ($type instanceof DealType && ($type->isSystem() || $type->team_id === $this->team_id)) {
+            return;
+        }
+
+        throw ForeignReferenceException::for('deal_types', (string) $this->deal_type_id, $this->team_id);
     }
 
     /**

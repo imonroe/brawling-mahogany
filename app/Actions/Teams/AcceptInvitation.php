@@ -9,6 +9,7 @@ use App\Models\Person;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
+use App\Support\Teams\InvitationConflict;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -71,21 +72,21 @@ final class AcceptInvitation
 
             $alreadyHadCredentials = $person instanceof Person && $person->hasCredentials();
 
-            if ($membership instanceof TeamMembership && ! $alreadyHadCredentials && $account instanceof Person) {
-                /*
-                 * The directory entry and a separate account both exist. The
-                 * membership cannot simply be repointed — every activity event
-                 * on this deal names the person it currently holds — and
-                 * attaching the account would collide on the address.
-                 *
-                 * Rare, honest, and recoverable by a person rather than by a
-                 * support ticket: remove the duplicate contact, then invite.
-                 */
-                throw ValidationException::withMessages([
-                    'email' => 'Somebody already signs in with this address, and this team also has them '
-                        .'as a contact. Remove the contact from your people directory first, then send '
-                        .'the invitation again.',
-                ]);
+            /*
+             * The directory entry and a separate account both exist.
+             *
+             * `MemberController::invite` asks this first, so an invitation
+             * that would land here mostly never gets sent — which matters,
+             * because the person who can fix it is the one typing the address,
+             * not the one holding the link. This is the second ask, because a
+             * contact can be added to the directory *after* the invitation
+             * goes out and a check that only ran at the start would be a check
+             * that stopped being true.
+             */
+            $conflict = InvitationConflict::reasonFor($invitation->team_id, $address);
+
+            if ($conflict !== null) {
+                throw ValidationException::withMessages(['email' => $conflict]);
             }
 
             if ($person instanceof Person) {
