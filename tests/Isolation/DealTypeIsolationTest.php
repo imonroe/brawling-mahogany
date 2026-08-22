@@ -52,15 +52,31 @@ it('404s another team’s deal type on every route that writes', function (): vo
         'side' => 'sell',
     ])->assertRedirect();
 
-    // A foreign id in a URL is the vector the isolation suite enumerates, and
-    // every one of these has to refuse before it writes.
+    /*
+     * **404, not 403.** ADR 0002 layer 3: *"a route-bound model whose `team_id`
+     * does not match is a 404, not a 403 — a 403 confirms the record exists,
+     * which is itself a disclosure."* Every other table gets that from the
+     * global scope; `deal_types` has none, so
+     * `DealType::resolveRouteBinding()` does it.
+     *
+     * This test was written with the right title and the wrong assertion, and
+     * the 403s it accepted were a working existence oracle over every
+     * deal-type id on the platform.
+     */
     $this->patch("/settings/deal-types/{$foreign->getKey()}", [
         'name' => 'Renamed by the wrong team',
         'side' => 'sell',
-    ])->assertForbidden();
+    ])->assertNotFound();
 
-    $this->post("/settings/deal-types/{$foreign->getKey()}/archive")->assertForbidden();
-    $this->post("/settings/deal-types/{$foreign->getKey()}/restore")->assertForbidden();
+    $this->post("/settings/deal-types/{$foreign->getKey()}/archive")->assertNotFound();
+    $this->post("/settings/deal-types/{$foreign->getKey()}/restore")->assertNotFound();
+
+    // And indistinguishable from an id that exists nowhere, which is the
+    // property that makes it not an oracle.
+    $this->patch('/settings/deal-types/01JZZZZZZZZZZZZZZZZZZZZZZZ', [
+        'name' => 'Nothing',
+        'side' => 'sell',
+    ])->assertNotFound();
 
     expect($foreign->fresh()->name)->toBe('B Private Type')
         ->and($foreign->fresh()->isArchived())->toBeFalse();
@@ -91,7 +107,7 @@ it('never shows one team another team’s deal types', function (): void {
         ->not->toContain('B Private Type');
 });
 
-it('refuses to archive or rename a system deal type', function (): void {
+it('403s a system deal type rather than hiding it', function (): void {
     /*
      * Shared by every team on the platform. One team hiding "Rental Placement"
      * for everybody is not what that team asked for — and taking a system type
@@ -101,6 +117,13 @@ it('refuses to archive or rename a system deal type', function (): void {
 
     $this->actingAsPerson($this->ownerA, $this->teamA);
 
+    /*
+     * 403 here and 404 for a foreign row, and the difference is not an
+     * inconsistency. This actor can genuinely see a system type — it is
+     * shared, it is on their screen, it is in their picker — they simply may
+     * not edit it. A 403 discloses nothing they did not already know, while a
+     * 404 would claim a row they can see does not exist.
+     */
     $this->post("/settings/deal-types/{$system->getKey()}/archive")->assertForbidden();
     $this->patch("/settings/deal-types/{$system->getKey()}", [
         'name' => 'Renamed for everybody',
@@ -136,7 +159,7 @@ it('does not let one team’s deals affect another team’s in-use warning', fun
 
     $counts = collect(
         $this->get('/settings/deal-types')->assertOk()->viewData('page')['props']['dealTypes'],
-    )->pluck('liveDealCount', 'name');
+    )->pluck('dealCount', 'name');
 
     expect($counts['A Own Type'])->toBe(2)
         // Null rather than 5: a system type is not something this team

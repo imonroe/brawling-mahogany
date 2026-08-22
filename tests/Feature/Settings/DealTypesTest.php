@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 use App\Enums\DealSide;
+use App\Enums\DealState;
 use App\Models\AuditEntry;
 use App\Models\Deal;
 use App\Models\DealType;
-use App\Support\Tenancy\TeamContext;
 
 /**
  * S76 — deal types (issue #58 · PRD §4.3 F3.1, §7.6).
@@ -61,6 +61,16 @@ it('adds a deal type to this team', function (): void {
         // After everything already there, defaults included: a new type
         // belongs at the end of the picker rather than interleaved.
         ->and($type->sort_order)->toBe(3);
+});
+
+it('starts sort order at zero when there is nothing seeded', function (): void {
+    // `(int) null + 1` gave the first type in an empty table a `sort_order` of
+    // 1, out of step with the seeded rows which start at 0.
+    DealType::query()->whereNull('team_id')->forceDelete();
+
+    $this->post('/settings/deal-types', ['name' => 'Land Sale', 'side' => DealSide::Sell->value]);
+
+    expect(DealType::query()->sole()->sort_order)->toBe(0);
 });
 
 it('never lets a request body choose the team', function (): void {
@@ -127,6 +137,105 @@ it('refuses a name that shadows a system default', function (): void {
     ])->assertSessionHasErrors('name');
 });
 
+/**
+ * PHP folds case one way and Postgres folds it another, and the rule has to
+ * agree with the index rather than with PHP.
+ *
+ * `mb_strtolower('ΑΣ')` is `ας` — final-sigma folding — and Postgres `lower()`
+ * gives `ασ`. `İ` folds to `i̇` in PHP and `i` in Postgres. So a duplicate
+ * walked past a rule that folded its bind in PHP and hit
+ * `deal_types_team_name_unique` as a 500, and two names Postgres considered
+ * distinct were refused as the same. ASCII agrees, which is why every original
+ * test here passed.
+ */
+it('folds case the way the index folds it', function (string $first, string $second): void {
+    $this->post('/settings/deal-types', ['name' => $first, 'side' => DealSide::Sell->value])
+        ->assertSessionHasNoErrors();
+
+    $this->post('/settings/deal-types', ['name' => $second, 'side' => DealSide::Sell->value])
+        ->assertSessionHasErrors('name');
+
+    expect(DealType::query()->where('team_id', $this->team->getKey())->count())->toBe(1);
+})->with([
+    /*
+     * Each pair verified against this database rather than assumed:
+     *
+     *   lower('ΑΣ')        → 'ασ'   ·  mb_strtolower('ΑΣ')        → 'ας'
+     *   lower('İstanbul')  → 'istanbul'
+     *   lower('Istanbul')  → 'istanbul'  (Postgres merges these two…)
+     *   mb_strtolower('İstanbul') → 'i̇stanbul'  (…and PHP does not)
+     *
+     * So every pair below is one row to the index and was two to the old
+     * rule — a duplicate that walked past validation and landed as a 500.
+     */
+    'final sigma' => ['ΑΣ Sale', 'ΑΣ Sale'],
+    'dotted capital I against a plain one' => ['İstanbul Sale', 'Istanbul Sale'],
+    'plain ascii' => ['Land Sale', 'LAND SALE'],
+]);
+
+/**
+ * Archiving frees the name — the migration says so in as many words, and it is
+ * the documented way out of "I archived the wrong one, let me start clean".
+ *
+ * Both indexes are partial on `archived_at IS NULL` and the rule filtered only
+ * `deleted_at`, so the row blocking the new name was rendered on the same
+ * screen with an "Archived" badge and no explanation of why the name was
+ * taken.
+ */
+it('frees the name when a type is archived', function (): void {
+    $this->post('/settings/deal-types', ['name' => 'Land Sale', 'side' => DealSide::Sell->value]);
+
+    $type = DealType::query()->where('name', 'Land Sale')->sole();
+
+    $this->post("/settings/deal-types/{$type->getKey()}/archive")->assertSessionHasNoErrors();
+
+    $this->post('/settings/deal-types', ['name' => 'Land Sale', 'side' => DealSide::Buy->value])
+        ->assertSessionHasNoErrors();
+
+    expect(DealType::query()->where('name', 'Land Sale')->count())->toBe(2);
+});
+
+/**
+ * ...which makes restoring able to collide, so restoring asks the same
+ * question creating does.
+ *
+ * Clearing `archived_at` moves the row back *into* the partial index. Without
+ * the check this is a `UniqueConstraintViolationException` surfacing as an
+ * error modal rather than as a sentence somebody can act on.
+ */
+it('refuses to restore a type whose name has been taken since', function (): void {
+    $this->post('/settings/deal-types', ['name' => 'Land Sale', 'side' => DealSide::Sell->value]);
+
+    $type = DealType::query()->where('name', 'Land Sale')->sole();
+
+    $this->post("/settings/deal-types/{$type->getKey()}/archive");
+    $this->post('/settings/deal-types', ['name' => 'Land Sale', 'side' => DealSide::Buy->value]);
+
+    $this->post("/settings/deal-types/{$type->getKey()}/restore")
+        ->assertSessionHasErrors('restore');
+
+    // Still archived, and nothing 500d.
+    expect($type->fresh()->isArchived())->toBeTrue();
+});
+
+it('refuses to rename an archived type', function (): void {
+    // The screen already hid the button; the screen was the only thing hiding
+    // it, on the one table with no global scope behind the policy. A rename
+    // here is also a name freed and re-taken behind the validator's back.
+    $type = DealType::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'name' => 'Land Sale',
+        'archived_at' => now(),
+    ]);
+
+    $this->patch("/settings/deal-types/{$type->getKey()}", [
+        'name' => 'Renamed While Archived',
+        'side' => DealSide::Sell->value,
+    ])->assertForbidden();
+
+    expect($type->fresh()->name)->toBe('Land Sale');
+});
+
 it('lets another team use a name this team has taken', function (): void {
     DealType::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'Land Sale']);
 
@@ -158,30 +267,37 @@ it('counts the deals standing on a type', function (): void {
 
     $this->get('/settings/deal-types')
         ->assertInertia(fn ($page) => $page
-            ->where('dealTypes.3.liveDealCount', 3)
-            // Still archivable — the warning informs the choice, it does not
+            ->where('dealTypes.3.dealCount', 3)
+            // Still manageable — the warning informs the choice, it does not
             // remove it. Existing deals keep their type either way.
-            ->where('dealTypes.3.canArchive', true));
+            ->where('dealTypes.3.canManage', true));
 });
 
-it('counts only this team’s deals on a shared type', function (): void {
-    // The leak this closes: a system type is one row shared by every team, so
-    // an unscoped count would tell one team how many deals every other team is
-    // running.
-    $system = DealType::query()->whereNull('team_id')->where('name', 'Buyer Representation')->sole();
+it('counts a deal whatever state it is in', function (): void {
+    /*
+     * A cancelled deal still renders with its type and still orphans if the
+     * type goes, so an "in use" count that dropped it would understate the
+     * thing the warning exists to warn about. The method used to be called
+     * `liveDealCount` and count all states, which was a name promising a
+     * filter that was not there.
+     */
+    $type = DealType::factory()->create(['team_id' => $this->team->getKey()]);
 
-    Deal::factory()->create(['team_id' => $this->team->getKey(), 'deal_type_id' => $system->getKey()]);
+    Deal::factory()->create(['team_id' => $this->team->getKey(), 'deal_type_id' => $type->getKey()]);
 
-    [$other] = $this->teamWithMember();
+    $cancelled = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => $type->getKey(),
+    ]);
+    $cancelled->transitionTo(DealState::Cancelled)->save();
 
-    app(TeamContext::class)->runFor($other, fn () => Deal::factory()->count(4)->create([
-        'team_id' => $other->getKey(),
-        'deal_type_id' => $system->getKey(),
-    ]));
+    // A soft-deleted deal is already on its way out under the retention purge.
+    Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => $type->getKey(),
+    ])->delete();
 
-    app(TeamContext::class)->runFor($this->team, function () use ($system): void {
-        expect($system->liveDealCount())->toBe(1);
-    });
+    expect($type->dealCount())->toBe(2);
 });
 
 it('archives a type instead of deleting it, and the deals keep it', function (): void {

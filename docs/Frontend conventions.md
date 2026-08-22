@@ -250,10 +250,23 @@ choice.** Deal types (S76) is the first of these; roles (S75), template packs
   would have talked somebody out of a delete and handed them the same problem.
 - The count is scoped to the asking team. Lookups with a null `team_id` are
   shared rows, so an unscoped count answers "how many does *everybody* have"
-  and shows that number to one team. This was a real leak, caught by
-  `UnscopedQueryConventionTest` rather than by review.
+  and shows that number to one team. What holds it is
+  `tests/Isolation/DealTypeIsolationTest.php`, asserting through the route
+  that one team's deals never reach another team's count.
 - **System rows get no controls at all, not disabled ones** (IA §5.1). They
   belong to every team; a greyed-out button only invites the question.
+- **The count is one query for the page, not one per row**, and a budget test
+  holds it (`tests/Performance/DealTypesBudgetTest.php`). This is a screen
+  whose entire job is a count per row, so it is the shape most likely to grow
+  an N+1 — including through the tidy-looking version where each row asks the
+  policy, since `ChecksTeamPermissions` re-queries the membership every call.
+- **A validation rule that stands in for a database constraint has to match
+  it on every predicate, and fold case in the database.** Both of this table's
+  unique indexes are partial on `deleted_at IS NULL AND archived_at IS NULL`
+  and are over `lower(name)`; a rule that filtered only `deleted_at`, or that
+  folded its bind with PHP's `mb_strtolower()`, matched neither. PHP and
+  Postgres genuinely disagree — `ΑΣ` folds to `ας` in one and `ασ` in the
+  other — so the comparison belongs in SQL: `lower(name) = lower(?)`.
 
 **Consequential inputs carry their consequence beneath them.** The override
 reason field is followed by "This is written to the permanent audit log with

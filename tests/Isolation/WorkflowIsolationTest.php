@@ -279,14 +279,14 @@ it('counts in-use warnings within the team, not across the platform', function (
     });
 
     app(TeamContext::class)->runFor($this->teamA, function () use ($type): void {
-        expect($type->liveDealCount())->toBe(0);
+        expect($type->dealCount())->toBe(0);
 
         Deal::factory()->create([
             'team_id' => $this->teamA->getKey(),
             'deal_type_id' => $type->getKey(),
         ]);
 
-        expect($type->liveDealCount())->toBe(1);
+        expect($type->dealCount())->toBe(1);
     });
 });
 

@@ -18,15 +18,16 @@
  * labelled and takes the type out of every picker, which is what somebody
  * actually means when they try to delete one.
  */
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { Archive, Plus, RotateCcw } from '@lucide/vue';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import Heading from '@/components/app/Heading.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
 
 type DealType = {
@@ -37,9 +38,15 @@ type DealType = {
     isSystem: boolean;
     archivedAt: string | null;
     /** Null for a system type: a team does not archive one, so it is not asked. */
-    liveDealCount: number | null;
-    canEdit: boolean;
-    canArchive: boolean;
+    dealCount: number | null;
+    /*
+     * Two facts, not three. Editing and archiving open under exactly the same
+     * condition — `DealType::isManageableByTeam()`, which the policy reads
+     * too — so sending them separately would imply a distinction that does not
+     * exist.
+     */
+    canManage: boolean;
+    canRestore: boolean;
 };
 
 defineProps<{
@@ -48,10 +55,34 @@ defineProps<{
     sides: Record<string, string>;
 }>();
 
+const page = usePage();
+
+/*
+ * The one refusal that has no field to land on.
+ *
+ * Restoring an archived type fails when its name has since been taken —
+ * archiving frees the name, which is the point, so the collision is a real
+ * sequence rather than a corner. It comes back from a `router.post` with no
+ * form behind it, so it is read off the page's shared errors and given its own
+ * alert. Routing it to `restore.errors` would have put it somewhere nothing
+ * renders, which is a silent dead end rather than a message.
+ */
+const restoreError = computed(
+    () => (page.props.errors as Record<string, string>)?.restore ?? null,
+);
+
 const create = useForm({ name: '', side: '' });
 
 /** The row being edited, or null. One at a time, so a half-typed rename cannot be left behind on another row. */
 const editingId = ref<string | null>(null);
+
+/*
+ * The row with an archive or restore in flight, so its buttons can be
+ * disabled. Without it a double-click sends the request twice, and the second
+ * one is refused — archiving an already-archived type is a 403 — which
+ * surfaces as an error modal rather than as nothing at all.
+ */
+const busyId = ref<string | null>(null);
 
 const edit = useForm({ name: '', side: '' });
 
@@ -88,7 +119,7 @@ function submitEdit(id: string): void {
  * decision they can actually make.
  */
 function archive(type: DealType): void {
-    const count = type.liveDealCount ?? 0;
+    const count = type.dealCount ?? 0;
     const inUse =
         count > 0
             ? `${count} ${count === 1 ? 'deal keeps' : 'deals keep'} this type and stay exactly as they are — but no new deal will be able to use it. `
@@ -126,6 +157,10 @@ function restore(type: DealType): void {
             title="Deal types"
             description="What kind of transaction a deal is. This decides which workflows are offered when one is opened."
         />
+
+        <Alert v-if="restoreError" variant="destructive">
+            <AlertDescription>{{ restoreError }}</AlertDescription>
+        </Alert>
 
         <Card title="Add a deal type">
             <form
@@ -265,14 +300,12 @@ function restore(type: DealType): void {
                             }}</span>
                             <span
                                 v-if="
-                                    type.liveDealCount !== null &&
-                                    type.liveDealCount > 0
+                                    type.dealCount !== null &&
+                                    type.dealCount > 0
                                 "
                                 class="truncate text-[11px] text-muted-foreground"
-                                >{{ type.liveDealCount }}
-                                {{
-                                    type.liveDealCount === 1 ? 'deal' : 'deals'
-                                }}
+                                >{{ type.dealCount }}
+                                {{ type.dealCount === 1 ? 'deal' : 'deals' }}
                                 using this</span
                             >
                         </span>
@@ -303,22 +336,24 @@ function restore(type: DealType): void {
                             the question.
                         -->
                         <AppButton
-                            v-if="type.canEdit"
+                            v-if="type.canManage"
                             variant="ghost"
                             @click="startEditing(type)"
                             >Edit</AppButton
                         >
                         <AppButton
-                            v-if="type.canArchive"
+                            v-if="type.canManage"
                             variant="ghost"
+                            :disabled="busyId === type.id"
                             @click="archive(type)"
                         >
                             <Archive class="size-4" aria-hidden="true" />
                             Archive
                         </AppButton>
                         <AppButton
-                            v-if="type.archivedAt && !type.isSystem"
+                            v-if="type.canRestore"
                             variant="ghost"
+                            :disabled="busyId === type.id"
                             @click="restore(type)"
                         >
                             <RotateCcw class="size-4" aria-hidden="true" />

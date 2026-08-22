@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\DealSide;
 use App\Models\Concerns\HasProductDefaults;
+use App\Support\Tenancy\TeamContext;
 use Database\Factories\DealTypeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -87,6 +88,46 @@ class DealType extends Model
             ->withPivot('is_default');
     }
 
+    /**
+     * Route binding sees only what this team may see (ADR 0002, layer 3).
+     *
+     * Layer 3 is explicit: *"a route-bound model whose `team_id` does not
+     * match is a **404**, not a 403 — a 403 confirms the record exists, which
+     * is itself a disclosure."* Every other table gets that for free, because
+     * the global scope removes the row before the binder ever sees it and
+     * `firstOrFail()` does the rest.
+     *
+     * `deal_types` has no global scope, deliberately — a null `team_id` means
+     * "everybody's", which a scope cannot express — so the 404 has to be
+     * written here. Without it the five routes answered 403 for "exists, not
+     * yours" and 404 for "does not exist", which is a working existence oracle
+     * over every deal-type id on the platform.
+     *
+     * A **system** row still resolves and is still refused by the policy with
+     * a 403, and that is correct rather than an inconsistency: the actor can
+     * genuinely see it — it is shared, it is on their screen — they simply may
+     * not edit it. 403 discloses nothing they did not already know.
+     *
+     * `isUnscoped()` and `requireId()` mirror `TeamScope` exactly, so the
+     * super-admin bypass and the no-team failure behave the way they do
+     * everywhere else.
+     *
+     * @param  mixed  $value
+     * @param  string|null  $field
+     */
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        $context = app(TeamContext::class);
+
+        $query = $this->newQuery()->where($field ?? $this->getRouteKeyName(), $value);
+
+        if (! $context->isUnscoped()) {
+            $query->visibleTo($context->requireId(static::class));
+        }
+
+        return $query->first();
+    }
+
     /** A system default, shared by every team. */
     public function isSystem(): bool
     {
@@ -123,20 +164,42 @@ class DealType extends Model
     }
 
     /**
-     * Can this type be archived, or is something still standing on it?
+     * Is this a row this team may edit or archive at all?
      *
-     * A system default is never archivable by a team — it is not theirs, and
-     * hiding it for everybody because one team stopped doing rentals is not
-     * what they asked for. (Taking a system type out of *one* team's picker is
-     * a real want and a different feature; S76 does not have it yet.)
+     * **One fact, not two.** Editing and archiving are open under exactly the
+     * same condition, and the first draft of S76 sent the screen two props
+     * computed separately — implying a distinction that does not exist and
+     * giving each a chance to drift from the policy. The policy reads this,
+     * and so does the screen, so they cannot disagree.
+     *
+     * A system default is never either, by a team — it is not theirs, and
+     * hiding "Rental Placement" for everybody because one team stopped doing
+     * rentals is not what they asked for. (Taking a system type out of *one*
+     * team's picker is a real want and a different feature; S76 does not have
+     * it yet.) An archived one is not either: a rename there would free and
+     * re-take a name behind the validator's back.
      */
-    public function isArchivable(): bool
+    public function isManageableByTeam(): bool
     {
         return ! $this->isSystem() && ! $this->isArchived();
     }
 
+    /** The mirror image, and the only thing an archived row still allows. */
+    public function isRestorable(): bool
+    {
+        return ! $this->isSystem() && $this->isArchived();
+    }
+
     /**
-     * Live deals **this team** has on this type — what S76's warning counts.
+     * Deals **this team** has on this type — what S76's warning counts.
+     *
+     * Every one of them, whatever state it is in. A cancelled deal and a
+     * fell-through deal still render with their type and still orphan if the
+     * type goes, so an "in use" count that quietly dropped them would
+     * understate the thing it exists to warn about. (It was called
+     * `liveDealCount` and counted all states, which was a name promising a
+     * filter that was not there.) Soft-deleted deals are excluded, because
+     * those are already on their way out under the retention purge.
      *
      * Scoped, and the unscoped version was a leak. A system deal type is
      * shared by every team on the platform, so counting without the scope
@@ -144,7 +207,7 @@ class DealType extends Model
      * number to one team. It is also the wrong question: a team deciding
      * whether to archive a type means "am *I* still using this".
      */
-    public function liveDealCount(): int
+    public function dealCount(): int
     {
         return Deal::query()
             ->where('deal_type_id', $this->getKey())
