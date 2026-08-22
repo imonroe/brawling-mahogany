@@ -46,7 +46,7 @@ class TeamInvitationMail extends Mailable
             text: 'mail.team-invitation-text',
             with: [
                 'teamName' => $this->invitation->team()->sole()->name,
-                'inviterName' => $inviter?->fullName(),
+                'inviterName' => $inviter?->displayNameWithin($this->invitation->team()->sole()),
                 'acceptUrl' => route('invitations.show', ['token' => $this->token]),
                 'expiresAt' => $this->invitation->expires_at,
             ],

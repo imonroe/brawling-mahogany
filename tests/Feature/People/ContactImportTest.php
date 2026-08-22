@@ -61,12 +61,10 @@ it('parses a CSV, previews it, and writes nothing until told to', function (): v
 
     expect($import->state)->toBe(ContactImportState::Completed)
         ->and($import->summary['created'])->toBe(2)
-        ->and(Person::query()->where('email', 'claire@example.test')->exists())->toBeTrue();
+        ->and(TeamMembership::query()->where('email', 'claire@example.test')->exists())->toBeTrue();
 
     // Issue #49: imported people default to `lead`.
-    $membership = TeamMembership::query()
-        ->whereHas('person', fn ($query) => $query->where('email', 'claire@example.test'))
-        ->sole();
+    $membership = TeamMembership::query()->where('email', 'claire@example.test')->sole();
 
     expect($membership->status)->toBe(PersonLifecycleState::Lead);
 });
@@ -104,14 +102,11 @@ it('carries out the choice the person reviewed, not a fresh guess at it', functi
      * only "skip" — so a row marked "add as new" merged, and a row marked
      * "already have them" created a second person.
      */
-    $known = Person::factory()->contactOnly()->create([
+    $known = TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => Person::factory()->contactOnly()->create()->getKey(),
         'first_name' => 'Claire',
         'email' => 'claire@example.test',
-    ]);
-
-    TeamMembership::factory()->create([
-        'team_id' => $this->team->getKey(),
-        'person_id' => $known->getKey(),
     ]);
 
     $csv = "First Name,Last Name,Email,Phone\n"
@@ -143,23 +138,20 @@ it('carries out the choice the person reviewed, not a fresh guess at it', functi
         ->and(collect($import->failures)->pluck('reason')->implode(' '))
         ->toContain('nobody in your directory has this address');
 
-    expect(Person::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->count())->toBe(1)
-        ->and(Person::query()->whereRaw('lower(email) = ?', ['lee@example.test'])->exists())->toBeFalse();
+    expect(TeamMembership::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->count())->toBe(1)
+        ->and(TeamMembership::query()->whereRaw('lower(email) = ?', ['lee@example.test'])->exists())->toBeFalse();
 });
 
 it('actually merges when told to merge', function (): void {
     // "Merge" used to mean "do nothing". An import exists to end up knowing
     // more than you started with, so a blank column is filled from the file.
-    $known = Person::factory()->contactOnly()->create([
+    $known = TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => Person::factory()->contactOnly()->create()->getKey(),
         'first_name' => 'Claire',
         'last_name' => null,
         'phone' => null,
         'email' => 'claire@example.test',
-    ]);
-
-    TeamMembership::factory()->create([
-        'team_id' => $this->team->getKey(),
-        'person_id' => $known->getKey(),
     ]);
 
     $this->post('/people/import', [
@@ -183,19 +175,23 @@ it('actually merges when told to merge', function (): void {
         ->and($import->fresh()->summary['merged'])->toBe(1);
 });
 
-it('does not overwrite what another team already knows', function (): void {
-    // Only blanks are filled. Another team may know this person, and their
-    // name is not ours to rewrite from a spreadsheet.
-    $known = Person::factory()->contactOnly()->create([
+it('does not overwrite what this team already recorded', function (): void {
+    /*
+     * Only blanks are filled. What is already there is what somebody in this
+     * team chose to record, and a spreadsheet is not better evidence than
+     * that.
+     *
+     * Before #140 the reason was different — the row was shared, so the name
+     * might have been another team's. It is ours now, and the rule survives
+     * for the better reason.
+     */
+    $known = TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => Person::factory()->contactOnly()->create()->getKey(),
         'first_name' => 'Claire',
         'last_name' => 'Nakamura',
         'phone' => '3035550999',
         'email' => 'claire@example.test',
-    ]);
-
-    TeamMembership::factory()->create([
-        'team_id' => $this->team->getKey(),
-        'person_id' => $known->getKey(),
     ]);
 
     $this->post('/people/import', [
@@ -220,16 +216,15 @@ it('does not overwrite what another team already knows', function (): void {
 it('gives a team its own membership for somebody another team already knows', function (): void {
     [$otherTeam] = $this->teamWithMember();
 
-    $shared = app(TeamContext::class)->runFor($otherTeam, function () use ($otherTeam): Person {
-        $person = Person::factory()->contactOnly()->create(['email' => 'sam@example.test']);
-
-        TeamMembership::factory()->create([
+    $theirs = app(TeamContext::class)->runFor(
+        $otherTeam,
+        fn (): TeamMembership => TeamMembership::factory()->create([
             'team_id' => $otherTeam->getKey(),
-            'person_id' => $person->getKey(),
-        ]);
-
-        return $person;
-    });
+            'person_id' => Person::factory()->contactOnly()->create()->getKey(),
+            'first_name' => 'Sam',
+            'email' => 'sam@example.test',
+        ]),
+    );
 
     $this->actingAsPerson($this->member, $this->team);
 
@@ -243,14 +238,18 @@ it('gives a team its own membership for somebody another team already knows', fu
 
     $import = ContactImport::query()->sole();
 
-    // New to *this* team, so the preview says create — and one shared person
-    // gains a second membership rather than a second row.
+    // New to *this* team, so the preview says create — and since #140 that is
+    // a genuinely new record rather than a second membership on somebody
+    // else's row.
     expect($import->preview[0]['action'])->toBe('create');
 
     $this->post("/people/import/{$import->getKey()}", []);
 
-    expect(Person::query()->whereRaw('lower(email) = ?', ['sam@example.test'])->count())->toBe(1)
-        ->and(TeamMembership::withoutTeamScope()->where('person_id', $shared->getKey())->count())->toBe(2);
+    $ours = TeamMembership::query()->whereRaw('lower(email) = ?', ['sam@example.test'])->sole();
+
+    expect(TeamMembership::withoutTeamScope()->whereRaw('lower(email) = ?', ['sam@example.test'])->count())->toBe(2)
+        ->and($ours->getKey())->not->toBe($theirs->getKey())
+        ->and($ours->person_id)->not->toBe($theirs->person_id);
 });
 
 it('imports a row that has a phone number and no email', function (): void {
@@ -271,7 +270,7 @@ it('imports a row that has a phone number and no email', function (): void {
 
     expect($import->summary['created'])->toBe(1)
         ->and($import->summary['failed'])->toBe(0)
-        ->and(Person::query()->where('phone', '3035550100')->sole()->email)->toBeNull();
+        ->and(TeamMembership::query()->where('phone', '3035550100')->sole()->email)->toBeNull();
 });
 
 it('creates nothing new when the same file is imported twice', function (): void {
@@ -301,10 +300,7 @@ it('creates nothing new when the same file is imported twice', function (): void
 
     $this->post("/people/import/{$second->getKey()}", []);
 
-    expect(Person::query()->where('email', 'claire@example.test')->count())->toBe(1)
-        ->and(TeamMembership::query()
-            ->whereHas('person', fn ($query) => $query->where('email', 'claire@example.test'))
-            ->count())->toBe(1);
+    expect(TeamMembership::query()->where('email', 'claire@example.test')->count())->toBe(1);
 });
 
 it('skips a duplicate inside one file', function (): void {
@@ -442,11 +438,11 @@ it('never imports into another team', function (): void {
 
     expect(TeamMembership::withoutTeamScope()
         ->where('team_id', $otherTeam->getKey())
-        ->whereHas('person', fn ($query) => $query->where('email', 'claire@example.test'))
+        ->where('email', 'claire@example.test')
         ->exists())->toBeFalse()
         ->and(TeamMembership::withoutTeamScope()
             ->where('team_id', $this->team->getKey())
-            ->whereHas('person', fn ($query) => $query->where('email', 'claire@example.test'))
+            ->where('email', 'claire@example.test')
             ->exists())->toBeTrue();
 });
 

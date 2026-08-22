@@ -94,11 +94,11 @@ class TeamController extends Controller
                         SystemRole::TeamOwner->value,
                         SystemRole::TeamMember->value,
                     ]))
-                    ->with(['person:id,first_name,last_name,email', 'roles:id,key,name'])
+                    ->with(['person:id,email,password', 'roles:id,key,name'])
                     ->get()
                     ->map(fn (TeamMembership $membership): array => [
                         'id' => $membership->getKey(),
-                        'name' => $membership->person->fullName(),
+                        'name' => $membership->fullName(),
                         'email' => $membership->person->email,
                         'roles' => $membership->roles->pluck('name')->all(),
                         'revokedAt' => $membership->revoked_at?->toIso8601String(),

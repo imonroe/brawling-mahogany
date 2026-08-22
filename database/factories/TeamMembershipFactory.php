@@ -28,6 +28,11 @@ class TeamMembershipFactory extends Factory
         return [
             'team_id' => Team::factory(),
             'person_id' => Person::factory(),
+            // What this team knows about them (#140).
+            'first_name' => fake()->firstName(),
+            'last_name' => fake()->lastName(),
+            'email' => fake()->unique()->safeEmail(),
+            'phone' => fake()->phoneNumber(),
             'status' => PersonLifecycleState::Active,
             'is_vendor' => false,
             'joined_at' => now(),

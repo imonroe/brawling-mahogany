@@ -29,9 +29,11 @@ final class PeopleDirectory
     public function paginate(PersonSegment $segment, string $search = ''): LengthAwarePaginator
     {
         return $this->query($segment, $search)
-            ->with('person:id,first_name,last_name,email,phone,password')
-            ->orderBy('people.last_name')
-            ->orderBy('people.first_name')
+            // Only the login is still needed from `people` — S31's "no login"
+            // state asks whether they can sign in, and nothing else does.
+            ->with('person:id,password')
+            ->orderBy('team_memberships.last_name')
+            ->orderBy('team_memberships.first_name')
             ->paginate(self::PER_PAGE)
             ->withQueryString()
             ->through(fn (TeamMembership $membership): array => self::row($membership));
@@ -59,12 +61,19 @@ final class PeopleDirectory
      */
     public function query(PersonSegment $segment, string $search = ''): Builder
     {
-        // Joined rather than `whereHas` because the index sorts by surname,
-        // and a sort on a related column needs the join anyway. One query.
-        $query = TeamMembership::query()
-            ->join('people', 'people.id', '=', 'team_memberships.person_id')
-            ->whereNull('people.deleted_at')
-            ->select('team_memberships.*');
+        /*
+         * No join any more (#140).
+         *
+         * This used to join `people` because the sort and the search were on
+         * columns that lived there. They live here now, so the whole directory
+         * is one table — which is faster, and is the shape
+         * `team_memberships_name_index` was written for.
+         *
+         * A deleted account no longer needs filtering out either: deleting one
+         * revokes its memberships (`Person::revokeEveryMembership`), and a
+         * revoked membership is already excluded where that matters.
+         */
+        $query = TeamMembership::query()->select('team_memberships.*');
 
         $query = match ($segment) {
             PersonSegment::All => $query,
@@ -86,10 +95,10 @@ final class PeopleDirectory
 
             $query->where(function (Builder $inner) use ($term): void {
                 $inner
-                    ->whereRaw('lower(people.first_name) like ?', [$term])
-                    ->orWhereRaw('lower(people.last_name) like ?', [$term])
-                    ->orWhereRaw('lower(people.email) like ?', [$term])
-                    ->orWhereRaw('lower(coalesce(people.phone, \'\')) like ?', [$term]);
+                    ->whereRaw('lower(team_memberships.first_name) like ?', [$term])
+                    ->orWhereRaw('lower(coalesce(team_memberships.last_name, \'\')) like ?', [$term])
+                    ->orWhereRaw('lower(coalesce(team_memberships.email, \'\')) like ?', [$term])
+                    ->orWhereRaw('lower(coalesce(team_memberships.phone, \'\')) like ?', [$term]);
             });
         }
 
@@ -105,10 +114,11 @@ final class PeopleDirectory
 
         return [
             'id' => $membership->getKey(),
-            'firstName' => $person->first_name,
-            'lastName' => $person->last_name,
-            'email' => $person->email,
-            'phone' => $person->phone,
+            // This team's view of them (#140), not a shared record.
+            'firstName' => $membership->first_name,
+            'lastName' => $membership->last_name,
+            'email' => $membership->email,
+            'phone' => $membership->phone,
             'status' => $membership->status->value,
             'isVendor' => $membership->is_vendor,
             // S31's "no login" state. Most of this directory has none, and the

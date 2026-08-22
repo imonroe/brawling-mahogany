@@ -61,12 +61,13 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 
     'Models/Person.php' => [
-        'count' => 4,
-        'reason' => 'Questions about the actor, all four. Which teams may I act in '.
-            '(activeTeams), which membership am I holding here (membershipIn), may this '.
-            'team rewrite my shared record (identityIsEditableBy), and drop every '.
-            'membership I hold when my account goes (revokeEveryMembership). A person '.
-            'spans teams by design (#18), so asking about one inside a single team is '.
+        // Three, down from four: `identityIsEditableBy()` went with the shared
+        // identity columns it guarded (#140).
+        'count' => 3,
+        'reason' => 'Questions about the actor, all three. Which teams may I act in '.
+            '(activeTeams), which membership am I holding here (membershipIn), and drop '.
+            'every membership I hold when my account goes (revokeEveryMembership). A '.
+            'login spans teams by design, so asking about one inside a single team is '.
             'the bug, not the fix.',
     ],
 

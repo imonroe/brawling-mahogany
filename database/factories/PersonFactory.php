@@ -32,10 +32,10 @@ class PersonFactory extends Factory
     public function definition(): array
     {
         return [
-            'first_name' => fake()->firstName(),
-            'last_name' => fake()->lastName(),
+            // A login and nothing else (#140). A name and a phone number
+            // belong to a team's view of somebody, so they come from
+            // TeamMembershipFactory.
             'email' => fake()->unique()->safeEmail(),
-            'phone' => fake()->phoneNumber(),
             'is_super_admin' => false,
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
@@ -56,6 +56,9 @@ class PersonFactory extends Factory
     {
         return $this->state(fn (array $attributes): array => [
             'password' => null,
+            // No login means no sign-in address either: the address a team
+            // holds for them is on the membership.
+            'email' => null,
             'email_verified_at' => null,
             'remember_token' => null,
         ]);

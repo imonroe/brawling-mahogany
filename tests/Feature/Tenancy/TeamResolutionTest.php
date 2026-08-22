@@ -111,6 +111,8 @@ it('refuses to stand in a team that only knows you', function (): void {
         $membership = TeamMembership::query()->create([
             'team_id' => $teamB->getKey(),
             'person_id' => $member->getKey(),
+            // The second team's own record of them (#140).
+            'first_name' => 'Known here too',
             'status' => App\Enums\PersonLifecycleState::Active,
             'joined_at' => now(),
         ]);
@@ -150,6 +152,8 @@ it('scopes a person’s permissions to the team they are standing in', function 
         $membership = TeamMembership::query()->create([
             'team_id' => $teamB->getKey(),
             'person_id' => $member->getKey(),
+            // The second team's own record of them (#140).
+            'first_name' => 'Known here too',
             'status' => App\Enums\PersonLifecycleState::Active,
             'joined_at' => now(),
         ]);

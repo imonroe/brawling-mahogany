@@ -56,9 +56,9 @@ final class AcceptInvitation
                     ])->save();
                 }
             } else {
+                // The login, and nothing else. Their name belongs to the team
+                // they are joining (#140), so it goes on the membership below.
                 $person = Person::query()->create([
-                    'first_name' => $firstName,
-                    'last_name' => $lastName,
                     'email' => $invitation->email,
                     'password' => $password,
                 ]);
@@ -66,13 +66,45 @@ final class AcceptInvitation
                 $person->forceFill(['email_verified_at' => now()])->save();
             }
 
-            $this->teams->runFor($team, function () use ($invitation, $person): void {
+            $this->teams->runFor($team, function () use ($invitation, $person, $firstName, $lastName): void {
+                // The name goes in the insert, not a follow-up write:
+                // `first_name` is not nullable, so a membership cannot exist
+                // for a moment without one.
                 $membership = TeamMembership::query()->firstOrCreate(
                     ['team_id' => $invitation->team_id, 'person_id' => $person->getKey()],
-                    ['status' => PersonLifecycleState::Active, 'joined_at' => now()],
+                    [
+                        'first_name' => $firstName,
+                        'last_name' => $lastName ?? $invitation->last_name,
+                        'email' => $invitation->email,
+                        'status' => PersonLifecycleState::Active,
+                        'joined_at' => now(),
+                    ],
                 );
 
-                $membership->forceFill(['revoked_at' => null, 'joined_at' => $membership->joined_at ?? now()])->save();
+                /*
+                 * The name the invitee typed, or the one the inviter typed for
+                 * them, on this team's row only. Somebody who already works in
+                 * another team keeps whatever that team calls them — a second
+                 * team is not entitled to rename them anywhere but here.
+                 *
+                 * `firstOrCreate` may have just made the row, and a membership
+                 * with no name renders as a blank line, so a fallback is
+                 * needed: the address before the @, which is the least-bad
+                 * thing anybody knows.
+                 */
+                // The invitee types their own name on the accept screen, and
+                // it is required there — so it always wins. Somebody who
+                // already works in another team keeps whatever that team
+                // calls them: a second team may name them here and nowhere
+                // else.
+                $membership->forceFill([
+                    'first_name' => $firstName,
+                    'last_name' => $lastName ?? $invitation->last_name ?? $membership->last_name,
+                    'email' => $membership->email ?? $invitation->email,
+                    'revoked_at' => null,
+                    'joined_at' => $membership->joined_at ?? now(),
+                ])->save();
+
                 $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
             });
 

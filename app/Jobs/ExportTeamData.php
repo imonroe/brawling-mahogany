@@ -85,10 +85,10 @@ class ExportTeamData implements ShouldQueue
                 ->with('person')
                 ->get()
                 ->map(fn (TeamMembership $membership): array => [
-                    'first_name' => $membership->person->first_name,
-                    'last_name' => $membership->person->last_name,
-                    'email' => $membership->person->email,
-                    'phone' => $membership->person->phone,
+                    'first_name' => $membership->first_name,
+                    'last_name' => $membership->last_name,
+                    'email' => $membership->email,
+                    'phone' => $membership->phone,
                     'status' => $membership->status->value,
                     'is_vendor' => $membership->is_vendor,
                     'notes' => $membership->notes,

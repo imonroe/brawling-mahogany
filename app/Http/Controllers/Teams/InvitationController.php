@@ -51,7 +51,7 @@ class InvitationController extends Controller
             'firstName' => $invitation->first_name,
             'lastName' => $invitation->last_name,
             'teamName' => $invitation->team()->sole()->name,
-            'inviterName' => $invitation->invitedBy?->fullName(),
+            'inviterName' => $invitation->invitedBy?->displayNameWithin($invitation->team),
             'passwordRules' => Password::defaults()->toPasswordRulesString(),
         ]);
     }

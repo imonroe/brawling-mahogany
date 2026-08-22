@@ -23,28 +23,50 @@ class ProfileUpdateTest extends TestCase
         $response->assertOk();
     }
 
+    /**
+     * Two records, and the split is what the screen is for (#140).
+     *
+     * The address is the account and lives on `people`; the name is what this
+     * team calls them and lives on the membership. Somebody in two teams edits
+     * their name once per team, which is correct.
+     */
     public function test_profile_information_can_be_updated(): void
     {
-        $user = Person::factory()->create();
+        [$team, $user] = $this->teamWithMember();
 
-        $response = $this
-            ->actingAs($user)
-            ->patch(route('profile.update'), [
-                'first_name' => 'Test',
-                'last_name' => 'Person',
-                'email' => 'test@example.com',
-            ]);
+        $this->actingAsPerson($user, $team);
 
-        $response
+        $this->patch(route('profile.update'), [
+            'first_name' => 'Test',
+            'last_name' => 'Person',
+            'email' => 'test@example.com',
+        ])
             ->assertSessionHasNoErrors()
             ->assertRedirect(route('profile.edit'));
 
         $user->refresh();
+        $membership = $user->membershipIn($team);
 
-        $this->assertSame('Test', $user->first_name);
-        $this->assertSame('Person', $user->last_name);
+        $this->assertSame('Test', $membership->first_name);
+        $this->assertSame('Person', $membership->last_name);
         $this->assertSame('test@example.com', $user->email);
         $this->assertNull($user->email_verified_at);
+    }
+
+    public function test_a_name_change_does_not_reach_another_team(): void
+    {
+        [$teamA, $person] = $this->teamWithMember();
+        [$teamB] = $this->teamWithMember($person);
+
+        $this->actingAsPerson($person, $teamA);
+
+        $this->patch(route('profile.update'), [
+            'first_name' => 'Renamed',
+            'email' => $person->email,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame('Renamed', $person->membershipIn($teamA)->first_name);
+        $this->assertNotSame('Renamed', $person->membershipIn($teamB)->first_name);
     }
 
     public function test_retyping_your_own_address_with_a_capital_is_not_a_500(): void

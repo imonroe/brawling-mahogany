@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\HasProductDefaults;
-use App\Support\Tenancy\TeamContext;
 use Database\Factories\PersonFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -21,28 +20,42 @@ use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
 /**
- * One record per human (PRD §4.2 F2.1 · IA §2).
+ * **The login.** One row per human who can sign in (issue #140).
  *
- * **Credentials are optional.** Most people in this product — clients,
- * vendors, opposing agents, the other side's title officer — never log in, and
- * `password` is null for all of them. IA §11 is precise about why the word
- * matters: *User* means somebody with a login, so a client in the people
- * directory is a Person and calling them a user would imply an account they do
- * not have.
+ * That is narrower than it was, and the narrowing is the point. Slice 1 put a
+ * human's name, address, and phone number here and shared the row across
+ * teams, so adding somebody by an address another team had entered showed you
+ * what that team had typed. Slice 2 moved every team-visible field onto
+ * `team_memberships`, where it is private by construction rather than by a
+ * rule somebody has to remember.
  *
- * The class extends Laravel's `Authenticatable` because a Person *may* hold
- * credentials, not because they all do. `NullPasswordsCannotAuthenticate`
- * (App\Providers\FortifyServiceProvider) is what makes the difference real.
+ * What is left is what makes authentication work: the sign-in address, the
+ * password, the second factor, the passkeys, the super-admin flag. **Nothing
+ * a team types.** So there is nothing here for one team to show another, and
+ * the identity-write machinery Slice 1 needed — an `updating` hook,
+ * `identityIsEditableBy()` — is gone with the problem it solved.
  *
- * Deliberately **not** team-scoped. Issue #18 settled it the way PRD §6.2
- * proposed: one row per human shared across teams, with everything a team
- * knows privately about them on `team_memberships`.
+ * ## Credentials are still optional, and the null now means something precise
+ *
+ * IA §11 is exact about why the word matters: *User* means somebody with a
+ * login, so a client in the directory is a Person and calling them a user
+ * would imply an account they do not have. Most people in this product never
+ * sign in, and their row here holds a null `email` and a null `password`.
+ *
+ * A **null `email` means no login**, where before it meant "a contact who
+ * gave us no address". The address a team holds for somebody lives on the
+ * membership now. `NullPasswordsCannotAuthenticate`
+ * (App\Providers\FortifyServiceProvider) is what makes the null password real.
+ *
+ * ## What a person is called
+ *
+ * Not here. `TeamMembership::fullName()`, because a name is something a team
+ * recorded — and two teams may legitimately have written it differently.
+ * `Person::displayNameWithin()` exists for the one case that has no membership
+ * to read: a platform administrator acting outside any team.
  *
  * @property string $id
- * @property string $first_name
- * @property string|null $last_name
- * @property string $email
- * @property string|null $phone
+ * @property string|null $email
  * @property bool $is_super_admin
  * @property Carbon|null $email_verified_at
  * @property string|null $password
@@ -54,7 +67,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  */
-#[Fillable(['first_name', 'last_name', 'email', 'phone', 'password'])]
+#[Fillable(['email', 'password'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class Person extends Authenticatable implements PasskeyUser
 {
@@ -87,12 +100,12 @@ class Person extends Authenticatable implements PasskeyUser
     }
 
     /**
-     * An address is stored folded to lower case.
+     * A sign-in address is stored folded to lower case.
      *
-     * The unique index is over `lower(email)`, and a person is one person
+     * The unique index is over `lower(email)`, and one human is one account
      * whatever their mail client capitalised. Normalising on the way in means
-     * every lookup — this model's, the invitation's, the import's — is asking
-     * the same question the index answers.
+     * every lookup — this model's, the invitation's, the reset form's — asks
+     * the question the index answers.
      *
      * @return Attribute<string|null, string|null>
      */
@@ -105,98 +118,26 @@ class Person extends Authenticatable implements PasskeyUser
         );
     }
 
-    /** Display form, IA §10: First Last. */
-    public function fullName(): string
-    {
-        return trim($this->first_name.' '.($this->last_name ?? ''));
-    }
-
     /** A person who can sign in at all. Most people in the directory cannot. */
     public function hasCredentials(): bool
     {
         return is_string($this->password) && $this->password !== '';
     }
 
-    /**
-     * The fields that describe the human rather than a team's view of them.
-     *
-     * @var list<string>
-     */
-    public const IDENTITY_FIELDS = ['first_name', 'last_name', 'email', 'phone'];
-
-    /**
-     * The rule lives here, on the model, because it was not holding anywhere
-     * else.
-     *
-     * Slice 1's second review found the check on the People form and nowhere
-     * near the import's merge path, so a one-row CSV rewrote an account
-     * holder's name and number while the form correctly refused. A rule with
-     * three call sites has three chances to be forgotten and had already
-     * missed two — so every write goes past this hook, including the ones
-     * Slice 2 has not written yet.
-     *
-     * Offending fields are reverted rather than thrown on. A stale form, or a
-     * merge row for somebody another team also knows, is an ordinary thing to
-     * happen and not a 500; what matters is that the value does not land.
-     */
     protected static function booted(): void
     {
-        static::updating(function (self $person): void {
-            $person->discardForbiddenIdentityChanges();
-        });
-
         static::deleting(function (self $person): void {
             $person->revokeEveryMembership();
         });
-    }
-
-    public function discardForbiddenIdentityChanges(): void
-    {
-        $dirty = array_keys(array_intersect_key(
-            $this->getDirty(),
-            array_flip(self::IDENTITY_FIELDS),
-        ));
-
-        if ($dirty === []) {
-            return;
-        }
-
-        // Their own record, edited by them at /settings/profile. Nobody else's
-        // rule applies to a person editing themselves.
-        //
-        // Ambient `auth()`, deliberately, and it fails in the safe direction:
-        // a context with no authenticated person — a queued job on the real
-        // Redis driver, a console command — takes the other branch and gets
-        // the check rather than the exemption. The only cost is that somebody
-        // could not edit their own identity from a queued job, and nothing
-        // does.
-        $actor = auth()->user();
-
-        if ($actor instanceof self && $actor->getKey() === $this->getKey()) {
-            return;
-        }
-
-        // No team is acting: a console command, a seeder, or the invitation
-        // flow, none of which is a tenant reaching across the boundary.
-        $team = app(TeamContext::class)->get();
-
-        if ($team === null || $this->identityIsEditableBy($team)) {
-            return;
-        }
-
-        foreach ($dirty as $field) {
-            $this->setAttribute($field, $this->getOriginal($field));
-        }
     }
 
     /**
      * A deleted account cannot go on being a live member of anything.
      *
      * Without this the membership rows outlive the person and every screen
-     * that renders them — the members list, the export, the person detail —
-     * dereferences a null. `/settings/members` was the worst of them: it 500s
-     * for the whole team, and it is the only screen that could have undone
-     * the membership.
+     * that renders them dereferences a null. `/settings/members` was the worst
+     * of them: it 500s for the whole team, and it is the only screen that
+     * could have undone the membership.
      */
     public function revokeEveryMembership(): void
     {
@@ -204,50 +145,6 @@ class Person extends Authenticatable implements PasskeyUser
             ->where('person_id', $this->getKey())
             ->whereNull('revoked_at')
             ->update(['revoked_at' => now()]);
-    }
-
-    /**
-     * May this team rewrite the shared record's name, address, and number?
-     *
-     * The `people` row is shared across teams (PRD decision log, 2026-08-22),
-     * which is the whole point — a stager working for two teams is one record
-     * with one phone number. It is also the sharp edge: without this check,
-     * any team could POST a stranger's address to attach a membership to
-     * their row, then PATCH that row and rewrite the address on somebody
-     * else's *account*. The password would be untouched and the reset link
-     * would arrive at the new address.
-     *
-     * So identity belongs to the person when they have one, and to the team
-     * only while the team is the only one who knows them:
-     *
-     *  - **Has credentials** — never. It is their account; they edit it at
-     *    `/settings/profile`, and nobody else does.
-     *  - **Known to another team** — never. Their view of this human is not
-     *    ours to rewrite.
-     *  - **Ours alone, no login** — yes. This is the ordinary case: a client
-     *    or vendor somebody typed in, whose details only we hold.
-     *
-     * What a team may always edit is its own membership: the lifecycle
-     * status, the private notes, the vendor assessment. Those are team-scoped
-     * by construction.
-     */
-    public function identityIsEditableBy(Team $team): bool
-    {
-        if ($this->hasCredentials()) {
-            return false;
-        }
-
-        $ours = $this->membershipIn($team)?->getKey();
-
-        return ! TeamMembership::withoutTeamScope()
-            ->where('person_id', $this->getKey())
-            // Every membership *except* this team's. Guarded rather than
-            // passed an empty string: `whereKeyNot('')` happens to match every
-            // row on a `character(26)` key, and would raise the day a key
-            // column becomes a `uuid`.
-            ->when($ours !== null, fn (Builder $query) => $query->whereKeyNot($ours))
-            ->whereNull('revoked_at')
-            ->exists();
     }
 
     /**
@@ -260,6 +157,27 @@ class Person extends Authenticatable implements PasskeyUser
             ->where('person_id', $this->getKey())
             ->whereNull('revoked_at')
             ->first();
+    }
+
+    /**
+     * What to call this person on a screen inside a team.
+     *
+     * The membership answers it, because a name is something a team recorded.
+     * The fallbacks are for the one case with no membership to read — a
+     * platform administrator acting outside any team, whose name appears on an
+     * audit entry. Their sign-in address is the only thing anybody knows about
+     * them, and it is not a client's address, so showing it is not a
+     * disclosure.
+     */
+    public function displayNameWithin(?Team $team): string
+    {
+        $membership = $team instanceof Team ? $this->membershipIn($team) : null;
+
+        if ($membership instanceof TeamMembership) {
+            return $membership->fullName();
+        }
+
+        return $this->email ?? 'Unknown';
     }
 
     /**

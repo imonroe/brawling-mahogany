@@ -14,13 +14,21 @@ use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Create or update a person, as this team knows them (S32).
+ * Create or update a person, as this team knows them (S32 · #140).
  *
- * Two records move together and they belong to different owners: the shared
- * `people` row carries the facts about the human (name, email, phone), and the
- * `team_memberships` row carries what this team thinks (lifecycle, notes,
- * vendor assessment). Splitting the write here is what keeps Team A's private
- * notes out of Team B's view.
+ * Much shorter than it was, and the deletions are the interesting part.
+ *
+ * This used to write two records with two owners — a shared `people` row for
+ * the human and a `team_memberships` row for what this team thought — and
+ * that split was the disclosure in #140: finding the shared row by address
+ * meant a team could see what another team had typed into it. It also needed
+ * `identityIsEditableBy()` to decide, per field, whether this team was allowed
+ * to write, a rule that took three review rounds to hold.
+ *
+ * Now everything a team knows lives on the membership, so there is one write,
+ * no lookup across teams, and no rule to enforce. The `people` row is created
+ * blank: a directory entry is not a login (#140), and one appears only when
+ * somebody is invited.
  */
 final class SavePerson
 {
@@ -36,12 +44,29 @@ final class SavePerson
     public function create(array $attributes): TeamMembership
     {
         return DB::transaction(function () use ($attributes): TeamMembership {
-            $person = $this->personFor($attributes);
+            /*
+             * A credential-less row, per team.
+             *
+             * Deliberately *not* looked up by address. Sharing a row across
+             * teams bought one thing — a stager known to two teams having one
+             * phone number — and that stopped existing when the phone number
+             * moved onto the membership. What the lookup still cost was the
+             * disclosure in #140, and a way to probe whether an address is
+             * known to the platform. An account is created by an invitation,
+             * which is a deliberate act by somebody who already knows the
+             * address.
+             */
+            $person = Person::query()->create([]);
 
-            $membership = TeamMembership::query()->firstOrCreate(
-                ['team_id' => $this->teams->requireId(TeamMembership::class), 'person_id' => $person->getKey()],
-                ['status' => PersonLifecycleState::Lead, 'joined_at' => now()],
-            );
+            // One insert: `first_name` is not nullable, so a membership
+            // cannot exist for a moment without a name.
+            $membership = TeamMembership::query()->create([
+                'team_id' => $this->teams->requireId(TeamMembership::class),
+                'person_id' => $person->getKey(),
+                'status' => PersonLifecycleState::Lead,
+                'joined_at' => now(),
+                ...$this->identityFrom($attributes),
+            ]);
 
             $this->applyTeamAttributes($membership, $attributes);
 
@@ -63,24 +88,10 @@ final class SavePerson
     {
         return DB::transaction(function () use ($membership, $attributes): TeamMembership {
             $person = $membership->person;
-            $team = $membership->team()->sole();
 
-            /*
-             * The shared record's identity is not always this team's to
-             * rewrite — see Person::identityIsEditableBy(). Silently dropping
-             * the fields rather than failing is deliberate: the screen shows
-             * them read-only, so a submission carrying them is a stale form
-             * or somebody poking at the endpoint, and neither deserves a
-             * 500.
-             */
-            if ($person->identityIsEditableBy($team)) {
-                // Only the keys the form actually sent: a partial update must
-                // not blank a column the screen did not show.
-                $person->fill(array_intersect_key(
-                    $attributes,
-                    array_flip(['first_name', 'last_name', 'email', 'phone']),
-                ))->save();
-            }
+            // No permission question left to ask: this row is this team's view
+            // and nobody else reads it.
+            $this->applyIdentity($membership, $attributes);
 
             $previousStatus = $membership->status;
 
@@ -104,47 +115,28 @@ final class SavePerson
     }
 
     /**
-     * Find the shared person, or make one.
+     * The name, address, and number this team holds.
      *
-     * `firstOrCreate` on the address is the mechanism behind issue #45's rule
-     * that an invitation for a known address attaches a membership rather than
-     * creating a second human — and behind the import's merge behaviour.
+     * Only the keys the form actually sent: a partial update must not blank a
+     * column the screen did not show.
      *
      * @param  array<string, mixed>  $attributes
      */
-    private function personFor(array $attributes): Person
+    private function applyIdentity(TeamMembership $membership, array $attributes): void
     {
-        $email = $attributes['email'] ?? null;
+        $membership->fill($this->identityFrom($attributes))->save();
+    }
 
-        $person = is_string($email) && $email !== ''
-            ? Person::query()->whereRaw('lower(email) = ?', [mb_strtolower($email)])->first()
-            : null;
-
-        if ($person instanceof Person) {
-            /*
-             * Never overwrite a shared record's name with what one team typed:
-             * another team knows them by the name already there, and an
-             * account holder's details are their own.
-             *
-             * This was gated on credentials alone, which left the other half
-             * of its own promise unkept — a team could still fill blanks on a
-             * person a different team had entered. `Person` now reverts a
-             * forbidden identity change whatever asks for it.
-             */
-            $person->fill(array_filter([
-                'phone' => $person->phone ?? ($attributes['phone'] ?? null),
-                'last_name' => $person->last_name ?? ($attributes['last_name'] ?? null),
-            ]))->save();
-
-            return $person;
-        }
-
-        return Person::query()->create([
-            'first_name' => $attributes['first_name'],
-            'last_name' => $attributes['last_name'] ?? null,
-            'email' => $email,
-            'phone' => $attributes['phone'] ?? null,
-        ]);
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private function identityFrom(array $attributes): array
+    {
+        return array_intersect_key(
+            $attributes,
+            array_flip(['first_name', 'last_name', 'email', 'phone']),
+        );
     }
 
     /**

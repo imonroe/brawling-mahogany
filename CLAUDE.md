@@ -143,11 +143,18 @@ Two of these carry a distinction that the short form loses, and both are load-be
 
 - **Person, not User** — *because* "User" means specifically somebody with a
   login. The table is `people` and the model is `App\Models\Person`, which is
-  also the authenticatable: PRD §6.2 F2.1 is *"one record per human, login
-  credentials optional"*, and most of this directory — clients, vendors,
-  opposing agents — has no credentials at all. `password` is nullable, and a
-  null password never authenticates. (Slice 0 shipped an `App\Models\User`
-  from the Laravel skeleton; Slice 1 renamed it, as ADR 0001 said it would.)
+  also the authenticatable. `password` is nullable, and a null password never
+  authenticates. (Slice 0 shipped an `App\Models\User` from the Laravel
+  skeleton; Slice 1 renamed it, as ADR 0001 said it would.)
+
+  **A Person is a login; a `TeamMembership` is a person as a team knows them.**
+  Slice 2 moved name, email, and phone onto the membership (issue #140), so
+  `people` holds credentials and nothing a team types. Anything you want to
+  *show* — a name, a number, an address — comes from the membership, and
+  `TeamMembership::fullName()` is how. PRD F2.1's *"one record per human"* now
+  means one record per human **with a login**; a credential-less contact gets
+  its own row per team, because there is nothing left for a shared one to
+  share.
 - **Activity, not History or Log** — *because* "Audit" means the append-only
   security log. The two are different records with different retention and
   different readers, and merging the words merges the concepts.
@@ -186,11 +193,16 @@ an UPDATE, a DELETE, or a TRUNCATE.
 **A table with no `team_id` is outside every mechanism that keys on one.** Not
 just the five enforcement layers — the retention purge discovers its tables the
 same way, so `people` was never purged, and the identity-write rule had to move
-onto the model because no scope was going to hold it. Six models carry no
-`team_id` today; the next one needs its own reasoning for reads, writes, and
-retention rather than the protection the team-scoped tables inherit. See
+onto the model because no scope was going to hold it.
+
+Slice 2 settled it by **moving the data rather than adding a guard**: contact
+details went onto `team_memberships`, where all five layers and the purge
+already reach. The twelve models that still carry no `team_id` hold credentials
+or reference data and no customer data at all, which is the property that makes
+them safe. Before adding a thirteenth, read
 [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"The hole the
-layers do not cover"*.
+layers do not cover"* — the question is not "can we guard it" but "what does
+sharing buy once the team-visible fields live somewhere else".
 
 ### Testing
 

@@ -28,21 +28,24 @@ it('creates a person and their membership together', function (): void {
         'notes' => 'Met at the open house.',
     ])->assertRedirect();
 
-    $person = Person::query()->where('email', 'claire@example.test')->sole();
+    $membership = TeamMembership::query()->where('email', 'claire@example.test')->sole();
 
     // The person has no credentials: PRD F2.1 makes that the common case, and
-    // a directory entry is not an account.
-    expect($person->hasCredentials())->toBeFalse();
-
-    $membership = TeamMembership::query()->where('person_id', $person->getKey())->sole();
-
-    expect($membership->status)->toBe(PersonLifecycleState::Lead)
+    // a directory entry is not an account (#140).
+    expect($membership->person->hasCredentials())->toBeFalse()
+        ->and($membership->person->email)->toBeNull()
+        ->and($membership->fullName())->toBe('Claire Nakamura')
+        ->and($membership->phone)->toBe('+1 303 555 0100')
+        ->and($membership->status)->toBe(PersonLifecycleState::Lead)
         ->and($membership->notes)->toBe('Met at the open house.');
 });
 
-it('keeps team notes off the shared person record', function (): void {
-    // PRD §6.2: "Team-private notes live here, not on the person." The point
-    // of the whole membership table.
+it('keeps everything a team knows off the login record', function (): void {
+    /*
+     * PRD §6.2 said *"team-private notes live here, not on the person"*, and
+     * #140 finished the thought: the name, the address, and the number are as
+     * private as the notes. `people` is the login and holds none of it.
+     */
     $this->post('/people', [
         'first_name' => 'Sam',
         'email' => 'sam@example.test',
@@ -50,13 +53,23 @@ it('keeps team notes off the shared person record', function (): void {
         'notes' => 'Slow to return calls.',
     ]);
 
-    $person = Person::query()->where('email', 'sam@example.test')->sole();
+    $membership = TeamMembership::query()->where('email', 'sam@example.test')->sole();
+    $attributes = $membership->person->getAttributes();
 
-    expect($person->getAttributes())->not->toHaveKey('notes');
+    foreach (['notes', 'first_name', 'last_name', 'phone'] as $field) {
+        expect($attributes)->not->toHaveKey($field, "`people` still carries {$field}.");
+    }
+
+    expect($attributes['email'])->toBeNull();
 });
 
-it('attaches a second team to one shared person rather than duplicating them', function (): void {
-    // Issue #18's decision, exercised: the stager who works for two teams.
+it('gives each team its own record of the same human', function (): void {
+    /*
+     * Issue #18 decided this the other way and #140 revised it. The stager who
+     * works for two teams is two directory entries, because every field a team
+     * can see is the team's own — so a shared row would carry nothing worth
+     * sharing and would still let one team read the other's.
+     */
     $this->post('/people', [
         'first_name' => 'Sam',
         'last_name' => 'Ferreira',
@@ -77,13 +90,15 @@ it('attaches a second team to one shared person rather than duplicating them', f
         'notes' => 'Team B’s opinion.',
     ]);
 
-    expect(Person::query()->where('email', 'sam@example.test')->count())->toBe(1)
-        ->and(TeamMembership::withoutTeamScope()
-            ->whereHas('person', fn ($query) => $query->where('email', 'sam@example.test'))
-            ->count())->toBe(2);
+    // One row visible here, two across the platform, and two `people` rows —
+    // a credential-less contact is not an account, so nothing is shared.
+    expect(TeamMembership::query()->where('email', 'sam@example.test')->count())->toBe(1)
+        ->and(TeamMembership::withoutTeamScope()->where('email', 'sam@example.test')->count())->toBe(2)
+        ->and(TeamMembership::withoutTeamScope()->where('email', 'sam@example.test')
+            ->pluck('person_id')->unique())->toHaveCount(2);
 
     // And neither team can read the other's note about them.
-    $mine = TeamMembership::query()->whereHas('person', fn ($query) => $query->where('email', 'sam@example.test'))->sole();
+    $mine = TeamMembership::query()->where('email', 'sam@example.test')->sole();
 
     expect($mine->notes)->toBe('Team B’s opinion.');
 });
@@ -100,7 +115,8 @@ it('adds a person who has a phone number and no email', function (): void {
         'is_vendor' => true,
     ])->assertRedirect()->assertSessionHasNoErrors();
 
-    $person = Person::query()->where('phone', '+1 303 555 0100')->sole();
+    $membership = TeamMembership::query()->where('phone', '+1 303 555 0100')->sole();
+    $person = $membership->person;
 
     expect($person->email)->toBeNull();
 });
@@ -114,7 +130,7 @@ it('lets several people have no email at once', function (): void {
         ])->assertSessionHasNoErrors();
     }
 
-    expect(Person::query()->whereNull('email')->count())->toBe(3);
+    expect(TeamMembership::query()->whereNull('email')->count())->toBe(3);
 });
 
 it('treats one address as one human whatever its capitals', function (): void {
@@ -133,7 +149,7 @@ it('treats one address as one human whatever its capitals', function (): void {
     // Asked for by address rather than by "the first person with one" — the
     // team already has an owner and a member with addresses of their own, and
     // which row comes back first is up to the ULIDs.
-    $claire = Person::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->sole();
+    $claire = TeamMembership::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->sole();
 
     // Stored folded, so the index and every lookup agree.
     expect($claire->email)->toBe('claire@example.test');
@@ -153,9 +169,7 @@ it('keeps a vendor’s cost in integer cents end to end', function (): void {
         'vendor_rating' => 4,
     ])->assertRedirect();
 
-    $membership = TeamMembership::query()
-        ->whereHas('person', fn ($query) => $query->where('email', 'sam@example.test'))
-        ->sole();
+    $membership = TeamMembership::query()->where('email', 'sam@example.test')->sole();
 
     expect($membership->vendor_typical_cost)->toBe(120_000);
 
@@ -210,7 +224,9 @@ it('does not report a duplicate that belongs to another team', function (): void
     app(TeamContext::class)->runFor($otherTeam, function () use ($otherTeam): void {
         TeamMembership::query()->create([
             'team_id' => $otherTeam->getKey(),
-            'person_id' => Person::factory()->contactOnly()->create(['email' => 'theirs@example.test'])->getKey(),
+            'person_id' => Person::factory()->contactOnly()->create()->getKey(),
+            'first_name' => 'Theirs',
+            'email' => 'theirs@example.test',
             'status' => PersonLifecycleState::Active,
         ]);
     });
@@ -335,6 +351,7 @@ it('revokes rather than deletes when the person holds access', function (): void
         $membership = TeamMembership::query()->create([
             'team_id' => $team->getKey(),
             'person_id' => $second->getKey(),
+            'first_name' => 'Second',
             'status' => PersonLifecycleState::Active,
         ]);
 
@@ -404,6 +421,7 @@ it('refuses a person without the permission', function (): void {
         $membership = TeamMembership::query()->create([
             'team_id' => $this->team->getKey(),
             'person_id' => $contact->getKey(),
+            'first_name' => 'Casey',
             'status' => PersonLifecycleState::Active,
         ]);
 
@@ -429,11 +447,12 @@ function membershipFor(
 ): TeamMembership {
     return app(TeamContext::class)->runFor($team, fn (): TeamMembership => TeamMembership::query()->create([
         'team_id' => $team->getKey(),
-        'person_id' => Person::factory()->contactOnly()->create([
-            'first_name' => $firstName,
-            'email' => $email ?? Str::lower($firstName).'-'.Str::random(6).'@example.test',
-            'phone' => $phone,
-        ])->getKey(),
+        // A directory entry is a membership plus a credential-less `people`
+        // row that exists only so activity has somebody to point at (#140).
+        'person_id' => Person::factory()->contactOnly()->create()->getKey(),
+        'first_name' => $firstName,
+        'email' => $email ?? Str::lower($firstName).'-'.Str::random(6).'@example.test',
+        'phone' => $phone,
         'status' => $status,
         'is_vendor' => $vendor,
     ]));

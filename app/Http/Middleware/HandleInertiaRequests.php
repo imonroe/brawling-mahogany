@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Models\Person;
 use App\Models\Team;
+use App\Models\TeamMembership;
 use App\Support\Admin\Impersonation;
 use App\Support\Permissions;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -48,7 +51,7 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => [
-                'user' => $person,
+                'user' => $this->personProps($person, $team),
                 // The permissions this person holds *in this team* — the same
                 // question the policies ask, so the navigation hides exactly
                 // what the server would refuse (IA §5.1).
@@ -66,6 +69,39 @@ class HandleInertiaRequests extends Middleware
                 fn (Team $each): array => ['id' => $each->getKey(), 'name' => $each->name],
             )->all(),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+        ];
+    }
+
+    /**
+     * The signed-in person, as the front end needs them.
+     *
+     * Shaped rather than serialised, because since #140 the name is not on the
+     * `people` row — it is on the membership for the team they are standing
+     * in. Handing the model over would send a login record to a shell that
+     * wants a name and initials.
+     *
+     * A person with no team has no name yet: they have registered, or their
+     * access was revoked, and the switcher's "no access" state is what they
+     * see. The address is theirs, so it stands in.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function personProps(?Person $person, ?Team $team): ?array
+    {
+        if (! $person instanceof Person) {
+            return null;
+        }
+
+        $membership = $team instanceof Team ? $person->membershipIn($team) : null;
+
+        return [
+            'id' => $person->getKey(),
+            'email' => $person->email,
+            'first_name' => $membership instanceof TeamMembership
+                ? $membership->first_name
+                : Str::before((string) $person->email, '@'),
+            'last_name' => $membership?->last_name,
+            'email_verified_at' => $person->email_verified_at?->toIso8601String(),
         ];
     }
 

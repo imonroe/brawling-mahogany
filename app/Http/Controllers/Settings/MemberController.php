@@ -36,12 +36,12 @@ class MemberController extends Controller
         return Inertia::render('Settings/Members', [
             'members' => TeamMembership::query()
                 ->whereHas('roles', fn ($query) => $query->whereIn('roles.key', ['team_owner', 'team_member']))
-                ->with(['person:id,first_name,last_name,email,password', 'roles:id,key,name'])
+                ->with(['person:id,email,password', 'roles:id,key,name'])
                 ->get()
                 ->map(fn (TeamMembership $membership): array => [
                     'id' => $membership->getKey(),
-                    'name' => $membership->person->fullName(),
-                    'email' => $membership->person->email,
+                    'name' => $membership->fullName(),
+                    'email' => $membership->email,
                     'hasLogin' => $membership->person->hasCredentials(),
                     'roles' => $membership->roles->pluck('name')->all(),
                     'revokedAt' => $membership->revoked_at?->toIso8601String(),

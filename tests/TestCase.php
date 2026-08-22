@@ -132,6 +132,12 @@ abstract class TestCase extends BaseTestCase
             $membership = TeamMembership::query()->create([
                 'team_id' => $team->getKey(),
                 'person_id' => $person->getKey(),
+                // What this team knows about them (#140). `first_name` is not
+                // nullable, because a membership with no name renders as a
+                // blank row on every screen that lists people.
+                'first_name' => fake()->firstName(),
+                'last_name' => fake()->lastName(),
+                'email' => $person->email,
                 'status' => PersonLifecycleState::Active,
                 'joined_at' => now(),
             ]);
