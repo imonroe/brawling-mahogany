@@ -304,11 +304,24 @@ final class AcceptInvitation
             return $membership;
         }
 
-        $before = $membership->roles->pluck('key')->sort()->values()->all();
+        /*
+         * `withTrashed()`, because `sync()` deletes the pivot row for a role
+         * the team has since retired just as readily as for a live one — and
+         * a log that omits it understates what was taken away. `Role` soft
+         * deletes (`HasProductDefaults`), so a plain read would not see it.
+         */
+        $roleKeys = fn (): array => $membership->roles()
+            ->withTrashed()
+            ->pluck('key')
+            ->sort()
+            ->values()
+            ->all();
+
+        $before = $roleKeys();
 
         $membership->roles()->sync([$invitation->role_id]);
 
-        $after = $membership->load('roles')->roles->pluck('key')->sort()->values()->all();
+        $after = $roleKeys();
 
         /*
          * PRD §9 audits permission changes, and this is the one place in the

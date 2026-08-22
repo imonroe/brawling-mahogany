@@ -1,6 +1,6 @@
 ---
 created: 2026-08-22
-project: Brawling Mahogany
+project: Goldieflow
 type: adr
 status: accepted
 ---
@@ -152,9 +152,12 @@ it.
   designed with the feature, not retrofitted. For the status page that will
   most likely be a link the agent can copy from the deal; the catalogue is
   where that decision gets recorded.
-- **A little more surface to audit.** `invitation.link_issued` and
-  `auth.password_reset_link_issued` are new audit actions. Both are permission
-  or credential events under PRD §9 and were going to be needed anyway.
+- **A little more surface to audit.** Three new actions:
+  `invitation.link_issued`, `auth.password_reset_link_issued`, and
+  `membership.roles_replaced`. All three are permission or credential events
+  under PRD §9 and were going to be needed anyway — the third arrived late,
+  when the review found that reviving a revoked membership deletes roles and
+  said nothing about it.
 - **One extra query per authenticated request.** The pending-invitation list is
   a shared Inertia prop, because the shell renders a banner from it and
   somebody who has just been invited does not know where to look. It is empty
