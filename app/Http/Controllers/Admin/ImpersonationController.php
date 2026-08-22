@@ -82,7 +82,9 @@ class ImpersonationController extends Controller
             person: $person,
             team: $model,
             reason: $validated['reason'],
-            minutes: $validated['minutes'],
+            // A form post arrives as a string however the rule reads:
+            // `integer` validates, it does not cast.
+            minutes: (int) $validated['minutes'],
         );
 
         $request->session()->put(ResolveCurrentTeam::SESSION_KEY, $model->getKey());

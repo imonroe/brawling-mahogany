@@ -149,6 +149,23 @@ it('impersonates with a reason, a banner, and two audit entries', function (): v
     expect(AuditEntry::query()->where('action', 'impersonation.ended')->exists())->toBeTrue();
 });
 
+it('accepts the duration a browser actually posts', function (): void {
+    // A form sends strings. `integer` validates the value, it does not cast
+    // it, and `Impersonation::start()` takes an int — so a test posting a
+    // real int passes while the actual screen 500s.
+    [$team, $member] = $this->teamWithMember();
+
+    $this->actingAs($this->admin);
+
+    $this->post("/admin/teams/{$team->getKey()}/impersonate", [
+        'person_id' => $member->getKey(),
+        'reason' => 'Heather reported the people index is empty for her.',
+        'minutes' => '30',
+    ])->assertRedirect(route('dashboard'));
+
+    $this->assertAuthenticatedAs($member);
+});
+
 it('ends a support session when its clock runs out', function (): void {
     [$team, $member] = $this->teamWithMember();
 
