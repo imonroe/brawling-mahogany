@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
@@ -86,6 +87,29 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     Route::patch('people/{membership}', [PersonController::class, 'update'])->name('people.update');
     Route::delete('people/{membership}', [PersonController::class, 'destroy'])->name('people.destroy');
     Route::post('people/{membership}/contact-log', [ContactLogController::class, 'store'])->name('people.contact-log.store');
+
+    /*
+     * S19, S25 — deal people.
+     *
+     * `scopeBindings()` so `{participant}` is resolved *through* `{deal}`
+     * rather than beside it. Without it, a participant id from one deal
+     * reached through another deal's URL would bind happily — both rows are
+     * in the team, so the global scope has no objection — and the policy
+     * would agree. The tenancy layers answer "whose team", and only the
+     * nesting answers "whose deal".
+     */
+    Route::scopeBindings()->group(function (): void {
+        Route::get('deals/{deal}/people', [ParticipantController::class, 'index'])
+            ->name('deals.people.index');
+        Route::get('deals/{deal}/people/candidates', [ParticipantController::class, 'candidates'])
+            ->name('deals.people.candidates');
+        Route::post('deals/{deal}/people', [ParticipantController::class, 'store'])
+            ->name('deals.people.store');
+        Route::patch('deals/{deal}/people/{participant}', [ParticipantController::class, 'update'])
+            ->name('deals.people.update');
+        Route::delete('deals/{deal}/people/{participant}', [ParticipantController::class, 'remove'])
+            ->name('deals.people.remove');
+    });
 
     /*
      * The sidebar's remaining destinations (IA §5.1). Each renders a

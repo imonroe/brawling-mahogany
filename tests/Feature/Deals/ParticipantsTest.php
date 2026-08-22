@@ -1,0 +1,302 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Enums\DealSide;
+use App\Enums\ParticipantRole;
+use App\Models\ActivityEvent;
+use App\Models\Deal;
+use App\Models\DealParticipant;
+use App\Models\DealType;
+use App\Models\TeamMembership;
+use App\Support\Deals\DealRoster;
+
+/**
+ * S19 and S25 — deal participants (issue #60 · PRD §4.3 F3.3, §7.2).
+ *
+ * The definition of done is three things, and each gets its own tests: a
+ * person holds different roles on different deals at once; the tab groups by
+ * role and names the roles that are absent; and adding somebody already on the
+ * deal warns rather than duplicating.
+ */
+beforeEach(function (): void {
+    [$this->team, $this->member] = $this->teamWithMember();
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->seed(Database\Seeders\DealTypeSeeder::class);
+
+    $this->sellSide = DealType::query()->whereNull('team_id')
+        ->where('name', 'Seller Representation')->sole();
+
+    $this->deal = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => $this->sellSide->getKey(),
+        'name' => '123 Main St',
+    ]);
+});
+
+/** A membership in this team, which is what a participant points at (#140). */
+function directoryEntry(string $first = 'Claire', string $last = 'Nakamura'): TeamMembership
+{
+    return TeamMembership::query()->create([
+        'team_id' => test()->team->getKey(),
+        'person_id' => App\Models\Person::factory()->create()->getKey(),
+        'first_name' => $first,
+        'last_name' => $last,
+        'email' => mb_strtolower($first).'@example.test',
+        'status' => App\Enums\PersonLifecycleState::Active,
+    ]);
+}
+
+/**
+ * PRD §7.2's whole point, and the reason this table exists at all.
+ */
+it('lets one person hold different roles on different deals at once', function (): void {
+    $claire = directoryEntry();
+
+    $second = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => DealType::query()->whereNull('team_id')
+            ->where('name', 'Buyer Representation')->sole()->getKey(),
+    ]);
+
+    $roster = app(DealRoster::class);
+
+    $roster->add($this->deal, $claire, ParticipantRole::Seller);
+    $roster->add($second, $claire, ParticipantRole::Buyer);
+
+    // `pluck` returns the cast column, so these are enum instances.
+    expect(DealParticipant::query()->where('team_membership_id', $claire->getKey())
+        ->pluck('participant_role')
+        ->map(fn (ParticipantRole $role): string => $role->value)
+        ->all())
+        ->toEqualCanonicalizing(['seller', 'buyer']);
+});
+
+it('groups the tab by role', function (): void {
+    $roster = app(DealRoster::class);
+
+    $roster->add($this->deal, directoryEntry('Claire'), ParticipantRole::Seller);
+    $roster->add($this->deal, directoryEntry('Sam'), ParticipantRole::Seller);
+    $roster->add($this->deal, directoryEntry('Lee'), ParticipantRole::Inspector);
+
+    $this->get("/deals/{$this->deal->getKey()}/people")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Deals/People')
+            ->has('roles', 2)
+            ->where('roles.0.label', 'Seller')
+            ->has('roles.0.people', 2)
+            ->where('roles.1.label', 'Inspector'));
+});
+
+/**
+ * The state that earns the screen. Named, not counted.
+ */
+it('names the expected role a sell-side deal is missing', function (): void {
+    $this->get("/deals/{$this->deal->getKey()}/people")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('missingRoles', 1)
+            ->where('missingRoles.0.label', 'Seller'));
+
+    app(DealRoster::class)->add($this->deal, directoryEntry(), ParticipantRole::Seller);
+
+    $this->get("/deals/{$this->deal->getKey()}/people")
+        ->assertInertia(fn ($page) => $page->has('missingRoles', 0));
+});
+
+it('expects a Buyer on a buy-side deal', function (): void {
+    $deal = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => DealType::query()->whereNull('team_id')
+            ->where('name', 'Buyer Representation')->sole()->getKey(),
+    ]);
+
+    expect(app(DealRoster::class)->missingExpectedRoles($deal))
+        ->toBe([ParticipantRole::Buyer]);
+});
+
+it('expects nothing of a rental placement, rather than guessing', function (): void {
+    // PRD §6.3 has no Tenant or Landlord role, so any expectation here would
+    // be invented — and a screen asserting a wrong requirement is worse than
+    // one asserting none.
+    $deal = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => DealType::query()->whereNull('team_id')
+            ->where('name', 'Rental Placement')->sole()->getKey(),
+    ]);
+
+    expect(app(DealRoster::class)->missingExpectedRoles($deal))->toBe([]);
+});
+
+it('adds somebody the team already knows', function (): void {
+    $claire = directoryEntry();
+
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'team_membership_id' => $claire->getKey(),
+        'participant_role' => ParticipantRole::Seller->value,
+    ])->assertRedirect("/deals/{$this->deal->getKey()}/people")
+        ->assertSessionHasNoErrors();
+
+    expect(DealParticipant::query()->sole()->team_membership_id)->toBe($claire->getKey());
+});
+
+it('creates somebody inline without leaving the deal', function (): void {
+    // PRD §5.2: "from imported contacts or created inline". The inline path
+    // goes through the same action /people uses, so the person is a directory
+    // entry like any other rather than a lesser row from a second code path.
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'first_name' => 'Sam',
+        'last_name' => 'Ortiz',
+        'email' => 'sam@example.test',
+        'participant_role' => ParticipantRole::Buyer->value,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $membership = TeamMembership::query()->whereRaw('lower(email) = ?', ['sam@example.test'])->sole();
+
+    expect($membership->fullName())->toBe('Sam Ortiz')
+        ->and(DealParticipant::query()->sole()->team_membership_id)->toBe($membership->getKey());
+});
+
+it('needs either an existing person or a new one', function (): void {
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'participant_role' => ParticipantRole::Seller->value,
+    ])->assertSessionHasErrors(['team_membership_id', 'first_name']);
+
+    expect(DealParticipant::query()->count())->toBe(0);
+});
+
+/**
+ * The duplicate rule, both halves.
+ */
+it('refuses the same person in the same role twice', function (): void {
+    $claire = directoryEntry();
+
+    app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller);
+
+    // Meaningless rather than unusual, so the database refuses it outright.
+    expect(fn () => app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller))
+        ->toThrow(Illuminate\Database\UniqueConstraintViolationException::class);
+});
+
+it('allows the same person in a second role, because people do hold two parts', function (): void {
+    $claire = directoryEntry();
+
+    $roster = app(DealRoster::class);
+    $roster->add($this->deal, $claire, ParticipantRole::Seller);
+    $roster->add($this->deal, $claire, ParticipantRole::Attorney);
+
+    expect(DealParticipant::query()->where('team_membership_id', $claire->getKey())->count())->toBe(2);
+});
+
+it('tells the modal which roles somebody already holds, before the choice', function (): void {
+    $claire = directoryEntry();
+
+    app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller);
+
+    $this->getJson("/deals/{$this->deal->getKey()}/people/candidates?q=Claire")
+        ->assertOk()
+        ->assertJsonPath('candidates.0.heldRoles', ['Seller']);
+});
+
+/**
+ * One primary per role, and setting a new one means replacing the old one.
+ */
+it('demotes the incumbent when a new main contact is set', function (): void {
+    $roster = app(DealRoster::class);
+
+    $first = $roster->add($this->deal, directoryEntry('Claire'), ParticipantRole::Seller, isPrimary: true);
+    $second = $roster->add($this->deal, directoryEntry('Sam'), ParticipantRole::Seller, isPrimary: true);
+
+    expect($first->fresh()->is_primary)->toBeFalse()
+        ->and($second->fresh()->is_primary)->toBeTrue();
+});
+
+it('keeps a main contact per role rather than per deal', function (): void {
+    // Two roles, two mains. A message to "the Seller" and one to "the Buyer"
+    // resolve to different people, which is the point of the column.
+    $roster = app(DealRoster::class);
+
+    $seller = $roster->add($this->deal, directoryEntry('Claire'), ParticipantRole::Seller, isPrimary: true);
+    $agent = $roster->add($this->deal, directoryEntry('Sam'), ParticipantRole::CoAgent, isPrimary: true);
+
+    expect($seller->fresh()->is_primary)->toBeTrue()
+        ->and($agent->fresh()->is_primary)->toBeTrue();
+});
+
+it('refuses to move somebody into a role they already hold here', function (): void {
+    $claire = directoryEntry();
+
+    $roster = app(DealRoster::class);
+    $roster->add($this->deal, $claire, ParticipantRole::Seller);
+    $second = $roster->add($this->deal, $claire, ParticipantRole::Attorney);
+
+    // A sentence, not a constraint violation.
+    $this->patch("/deals/{$this->deal->getKey()}/people/{$second->getKey()}", [
+        'participant_role' => ParticipantRole::Seller->value,
+    ])->assertSessionHasErrors('participant_role');
+
+    expect($second->fresh()->participant_role)->toBe(ParticipantRole::Attorney);
+});
+
+/**
+ * IA §7: Remove detaches, Delete destroys.
+ */
+it('removes a participant without touching the directory', function (): void {
+    $claire = directoryEntry();
+
+    $participant = app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller);
+
+    $this->delete("/deals/{$this->deal->getKey()}/people/{$participant->getKey()}")
+        ->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(DealParticipant::query()->count())->toBe(0)
+        // Still in the directory, and still reachable.
+        ->and(TeamMembership::query()->whereKey($claire->getKey())->exists())->toBeTrue();
+});
+
+it('frees the pairing again once somebody is removed', function (): void {
+    $claire = directoryEntry();
+
+    $roster = app(DealRoster::class);
+    $participant = $roster->add($this->deal, $claire, ParticipantRole::Seller);
+
+    $roster->remove($participant);
+
+    // The unique index is partial on `deleted_at`, so re-adding works.
+    $roster->add($this->deal, $claire, ParticipantRole::Seller);
+
+    expect(DealParticipant::query()->count())->toBe(1);
+});
+
+it('timelines who joined and who left', function (): void {
+    // Activity, not audit: "when did the lender join" is ordinary work a team
+    // reads back, not a security event.
+    $claire = directoryEntry();
+
+    $roster = app(DealRoster::class);
+    $participant = $roster->add($this->deal, $claire, ParticipantRole::Lender);
+    $roster->remove($participant);
+
+    expect(ActivityEvent::query()->whereIn('event_type', ['participant.added', 'participant.removed'])
+        ->orderBy('created_at')->orderBy('id')->pluck('event_type')->all())
+        ->toBe(['participant.added', 'participant.removed']);
+});
+
+it('refuses a deal type side it has no opinion about, without crashing', function (): void {
+    // `other` is a real seeded side once a team adds its own type.
+    $type = DealType::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'side' => DealSide::Other,
+    ]);
+
+    $deal = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => $type->getKey(),
+    ]);
+
+    $this->get("/deals/{$deal->getKey()}/people")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('missingRoles', 0));
+});

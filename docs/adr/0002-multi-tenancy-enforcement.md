@@ -281,6 +281,26 @@ Adversarial review found all four:
 | A partial unique index | A validation rule | Filtered `deleted_at` but not `archived_at`, and folded case with PHP's `mb_strtolower()` against an index built on Postgres `lower()` — two functions that disagree on real input |
 | A scoped count | **A query against a scoped model**, not a hand-written `where` | Was written unscoped, and would have told one team how many deals every other team is running. The fix is not to add a `where`: the count is over `deals`, which *does* carry `BelongsToTeam`, so asking `Deal::query()` gets the scope for free. Reach for the model that has the layer rather than re-implementing it against the one that does not |
 
+### Choosing what a new table points at
+
+S76's lesson applied one step earlier. `deal_participants` (#60) had to
+reference a human, and PRD §6.2 said `person_id`. Since #140 that would have
+been the wrong half of the pair, for a reason worth reusing: **`people`
+carries no `team_id`, so a `person_id` column cannot be half of a composite
+key** — the database would accept a participant pointing at another team's
+person, exactly as `tasks.assignee_id` does and exactly as
+`InstantiateWorkflow::assignableWithin()` now has to compensate for by hand.
+
+`team_memberships` carries `team_id`, so `teamScopedForeign()` makes the
+cross-tenant participant unrepresentable and nothing needs writing by hand at
+all.
+
+So when a new table needs to reference something, the question is not only
+*"which model means the right thing"* but **"which model carries the layer"**.
+Where those disagree, prefer the one that carries it and check whether the
+other really means something different — here it did not: a membership is a
+person as this team knows them, which is precisely what a participant is.
+
 That last row generalises past counting: **a shared table's screen still
 touches scoped tables, and those keep every layer.** Only the checks that are
 genuinely about the shared row have to be written by hand, and the smaller that
