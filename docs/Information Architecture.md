@@ -1,7 +1,7 @@
 ---
 created: 2026-08-20
-modified: 2026-08-20
-project: Brawling Mahogany
+modified: 2026-08-22
+project: Goldieflow
 type: reference
 status: draft
 version: 1.0
@@ -10,13 +10,13 @@ tags:
   - ia
   - naming
   - design
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Information Architecture
 
 > [!info] What this document is for
-> This is the **naming authority** for Brawling Mahogany. When a table, a route, a button, a status badge, or a client-facing sentence needs a word, it comes from here. When this document and any other document disagree, this one wins and the other gets corrected.
+> This is the **naming authority** for Goldieflow. When a table, a route, a button, a status badge, or a client-facing sentence needs a word, it comes from here. When this document and any other document disagree, this one wins and the other gets corrected.
 >
 > Companion documents: [[Monroe Digital/brawling mahogany (real estate software)/docs/Product Requirements Document]] (what gets built), [[Screen Inventory]] (which screens exist), [[Design references]] (what they should look like).
 
@@ -388,7 +388,7 @@ PRD v0.2 predates this document and still uses the old terms. Apply this mapping
 
 ## 13. Open naming questions
 
-1. **The product name.** "Brawling Mahogany" is a codename. A real name is needed before the marketing site and before the sending domain is chosen, because the sending subdomain is painful to change once reputation is built.
+1. **The product name.** Settled as a working name on 2026-08-22: **Goldieflow**, after Emily's Great Dane, with `goldieflow.com` secured. Still open is whether it is the *launch* name. Confirm before the marketing site goes up and before the sending subdomain is chosen, because sending reputation is painful to move once built. Two pieces of prior art to clear first: an operating scheduling SaaS called Goldie (beauty and wellness, so a different industry) and a live/pending `GOLDIE VAULT` SaaS trademark covering chain-of-title tracking. Neither blocks a working name; both warrant a real USPTO clearance search before launch.
 2. **Workflow versus Template in the UI.** Both appear in the sidebar area and in a deal. Watch for confusion during the first usability pass with Heather. If it appears, "Playbook" for the template is the fallback.
 3. ~~**Vendor as a status or a flag.**~~ **Settled in slice 1: a flag.** `team_memberships.is_vendor`, with its own segment on the People index — a stager can be a past client and a vendor at the same time, and one status column cannot say both. The vendor fields (specialty tags, typical cost, service area, rating, history) live on the membership too, because what one team paid a stager is not another team's business.
 4. **Deal naming for buyer-side deals with no subject property yet.** Falls back to client surname, which produces "Bosart Purchase." Acceptable, but check with Heather once she has ten of them on one screen.

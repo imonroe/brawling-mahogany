@@ -1,7 +1,7 @@
 ---
 created: 2026-08-20
 modified: 2026-08-22
-project: Brawling Mahogany
+project: Goldieflow
 type: reference
 status: draft
 version: 1.0
@@ -9,7 +9,7 @@ tags:
   - monroe-digital
   - design
   - screens
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Screen Inventory

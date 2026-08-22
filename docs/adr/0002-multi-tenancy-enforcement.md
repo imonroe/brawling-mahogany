@@ -1,6 +1,6 @@
 ---
 created: 2026-08-21
-project: Brawling Mahogany
+project: Goldieflow
 type: adr
 status: accepted
 ---
@@ -260,6 +260,42 @@ sense than before: it holds credentials, which are genuinely one-per-human, and
 nothing else. If a future table wants to be shared, the question to answer is
 not "can we guard it" but "what does sharing buy, and is that still true once
 the team-visible fields are somewhere else".
+
+### Writing a screen for a shared table
+
+`people` was the case where sharing was wrong and the fix was to stop sharing.
+`deal_types` is the other case: a null `team_id` genuinely means *"a system
+default every team gets"*, so the table stays shared and the layers stay
+absent. `template_packs` and the four `*_template` tables have the same shape,
+and their screens are still unwritten — so the lesson from S76 (issue #58)
+belongs here rather than in that screen's docblock.
+
+**Every layer that is absent has to be replaced by hand, and each one was
+first replaced by something slightly different from what it replaces.**
+Adversarial review found all four:
+
+| Layer normally responsible | What replaced it | What went wrong first |
+|---|---|---|
+| The global scope, producing a 404 | `resolveRouteBinding()` on the model | Nothing did, so the policy answered **403** for "exists, not yours" and 404 for "does not exist" — a working existence oracle over every row on the platform. Layer 3 already forbids this by name |
+| A composite foreign key | A guard on the model's `creating`/`updating` | Ran on `saving`, which fires **before** `BelongsToTeam` fills `team_id` |
+| A partial unique index | A validation rule | Filtered `deleted_at` but not `archived_at`, and folded case with PHP's `mb_strtolower()` against an index built on Postgres `lower()` — two functions that disagree on real input |
+| A scoped count | **A query against a scoped model**, not a hand-written `where` | Was written unscoped, and would have told one team how many deals every other team is running. The fix is not to add a `where`: the count is over `deals`, which *does* carry `BelongsToTeam`, so asking `Deal::query()` gets the scope for free. Reach for the model that has the layer rather than re-implementing it against the one that does not |
+
+That last row generalises past counting: **a shared table's screen still
+touches scoped tables, and those keep every layer.** Only the checks that are
+genuinely about the shared row have to be written by hand, and the smaller that
+set is kept, the fewer of these four mistakes there are to make.
+
+The rule that falls out: **when a hand-written check stands in for a database
+constraint, read the constraint and match it predicate for predicate**,
+including which function folds the case and which side of the wire it runs on.
+A test that only exercises ASCII, or only the unarchived case, will agree with
+a rule that matches neither.
+
+And: **a 404 for a foreign row, a 403 for a shared one.** They are not
+inconsistent. The actor can genuinely see a system row — it is on their screen
+and in their picker — so refusing with a 403 discloses nothing. A foreign row
+they were never shown must not be confirmed to exist.
 
 ## Not decided here
 

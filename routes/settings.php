@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Settings\DataExportController;
+use App\Http\Controllers\Settings\DealTypeController;
 use App\Http\Controllers\Settings\MemberController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
@@ -55,6 +56,23 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     Route::delete('settings/members/invitations/{invitation}', [MemberController::class, 'revokeInvitation'])
         ->name('members.invitations.revoke');
     Route::delete('settings/members/{membership}', [MemberController::class, 'revoke'])->name('members.revoke');
+
+    /*
+     * S76 — deal types.
+     *
+     * No `destroy`, deliberately. A lookup that live deals point at cannot be
+     * removed without orphaning them, so the screen offers archive and restore
+     * instead — see `DealTypeController`'s docblock. A route that did not
+     * exist is a route nobody can reach by guessing the verb.
+     */
+    Route::get('settings/deal-types', [DealTypeController::class, 'index'])->name('deal-types.index');
+    Route::post('settings/deal-types', [DealTypeController::class, 'store'])->name('deal-types.store');
+    Route::patch('settings/deal-types/{dealType}', [DealTypeController::class, 'update'])
+        ->name('deal-types.update');
+    Route::post('settings/deal-types/{dealType}/archive', [DealTypeController::class, 'archive'])
+        ->name('deal-types.archive');
+    Route::post('settings/deal-types/{dealType}/restore', [DealTypeController::class, 'restore'])
+        ->name('deal-types.restore');
 
     // S79 — team data export.
     Route::get('settings/export', [DataExportController::class, 'index'])->name('export.index');

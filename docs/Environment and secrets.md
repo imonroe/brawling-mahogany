@@ -1,6 +1,6 @@
 ---
 created: 2026-08-21
-project: Brawling Mahogany
+project: Goldieflow
 type: reference
 status: draft
 version: 1.0

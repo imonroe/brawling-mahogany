@@ -1,6 +1,6 @@
 ---
 created: 2026-08-21
-project: Brawling Mahogany
+project: Goldieflow
 type: reference
 status: draft
 version: 1.0
@@ -233,6 +233,40 @@ Main St? This removes 14 tasks and cannot be undone."
 
 **Errors say what happened, then what to do**: "Couldn't send. Check the
 sending address in Settings." Not "An error occurred."
+
+**A lookup is archived, never deleted, and the warning comes before the
+choice.** Deal types (S76) is the first of these; roles (S75), template packs
+(S41), and every other lookup screen follow it. The rule and the reason:
+
+- A lookup is a value other rows *point at*. Deleting "Rental Placement" would
+  orphan every rental deal that ever used it, and the type is what decides
+  which workflow templates are offered and whether the Offers tab exists at
+  all (IA §5.2). So there is **no destroy route** — not a destroy route that
+  refuses, which is a route somebody can reach by guessing a verb.
+- The count is shown *before* the choice, not reported after it. "4 deals keep
+  this type and no new deal can use it" is a decision somebody can make; "Are
+  you sure?" tells them nothing they did not already know.
+- **Archiving must be reversible.** A screen that archived with no way back
+  would have talked somebody out of a delete and handed them the same problem.
+- The count is scoped to the asking team. Lookups with a null `team_id` are
+  shared rows, so an unscoped count answers "how many does *everybody* have"
+  and shows that number to one team. What holds it is
+  `tests/Isolation/DealTypeIsolationTest.php`, asserting through the route
+  that one team's deals never reach another team's count.
+- **System rows get no controls at all, not disabled ones** (IA §5.1). They
+  belong to every team; a greyed-out button only invites the question.
+- **The count is one query for the page, not one per row**, and a budget test
+  holds it (`tests/Performance/DealTypesBudgetTest.php`). This is a screen
+  whose entire job is a count per row, so it is the shape most likely to grow
+  an N+1 — including through the tidy-looking version where each row asks the
+  policy, since `ChecksTeamPermissions` re-queries the membership every call.
+- **A validation rule that stands in for a database constraint has to match
+  it on every predicate, and fold case in the database.** Both of this table's
+  unique indexes are partial on `deleted_at IS NULL AND archived_at IS NULL`
+  and are over `lower(name)`; a rule that filtered only `deleted_at`, or that
+  folded its bind with PHP's `mb_strtolower()`, matched neither. PHP and
+  Postgres genuinely disagree — `ΑΣ` folds to `ας` in one and `ασ` in the
+  other — so the comparison belongs in SQL: `lower(name) = lower(?)`.
 
 **Consequential inputs carry their consequence beneath them.** The override
 reason field is followed by "This is written to the permanent audit log with

@@ -1,18 +1,18 @@
 ---
 created: 2026-08-19
-modified: 2026-08-19
-project: Brawling Mahogany
+modified: 2026-08-22
+project: Goldieflow
 type: reference
 tags:
   - monroe-digital
   - design
   - ui-ux
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Design references
 
-Curated inspiration and reference sources for the [[Monroe Digital/brawling mahogany (real estate software)/docs/Product Requirements Document|Brawling Mahogany PRD]], organized by UI surface rather than by website, because the three surfaces have almost nothing in common.
+Curated inspiration and reference sources for the [[Monroe Digital/brawling mahogany (real estate software)/docs/Product Requirements Document|Goldieflow PRD]], organized by UI surface rather than by website, because the three surfaces have almost nothing in common.
 
 > [!tip] How to use this note
 > Do not browse for inspiration in the abstract. Pick one surface, open the sources listed under it, and capture only the specific screens named in the **What to capture** checklist. Save screenshots to a folder per surface. Vague browsing produces vague designs.

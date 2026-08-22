@@ -1,6 +1,6 @@
 ---
 created: 2026-08-21
-project: Brawling Mahogany
+project: Goldieflow
 type: reference
 status: draft
 version: 1.0
@@ -299,6 +299,10 @@ ssh root@<droplet-ip> 'bash /tmp/provision-staging.sh staging.example.com'
 It installs Docker, opens 22/80/443 and 443/udp, creates the `deploy` user,
 clones `dev` to `/srv/brawling-mahogany`, generates the deploy key, and writes a
 `0600` `.env`.
+
+That path, like the `brawling-mahogany_*` volumes above and the test database,
+still carries the old `Brawling Mahogany` codename. It is deliberate: renaming
+them is an infrastructure migration, not a documentation change. See `CLAUDE.md`.
 
 ### The managed block
 

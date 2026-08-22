@@ -1,6 +1,6 @@
 ---
 created: 2026-08-21
-project: Brawling Mahogany
+project: Goldieflow
 type: reference
 status: draft
 version: 1.0
@@ -56,6 +56,10 @@ testing, and SQLite models none of them faithfully.
 `phpunit.xml` therefore points at `brawling_mahogany_test` on the pgsql
 connection. Locally that database lives in the compose stack; in CI it is a
 service container on the same pinned version.
+
+That database name still carries the old `Brawling Mahogany` codename, as do
+the container and volume names. Renaming them is an infrastructure migration
+rather than a documentation change, so they were left alone. See `CLAUDE.md`.
 
 ---
 
