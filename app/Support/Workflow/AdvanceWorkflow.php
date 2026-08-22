@@ -65,9 +65,12 @@ final class AdvanceWorkflow
      * every route asks. What this owns is everything a policy cannot see: the
      * gates, the ordering, and the audit trail.
      */
-    public function handle(Workflow $workflow, ?Person $actor = null): AdvanceResult
-    {
-        return DB::transaction(function () use ($workflow, $actor): AdvanceResult {
+    public function handle(
+        Workflow $workflow,
+        ?Person $actor = null,
+        ?string $expectedStageId = null,
+    ): AdvanceResult {
+        return DB::transaction(function () use ($workflow, $actor, $expectedStageId): AdvanceResult {
             /*
              * Lock the workflow row first.
              *
@@ -83,10 +86,51 @@ final class AdvanceWorkflow
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            /*
+             * The workflow has to be running before its stages are asked
+             * anything.
+             *
+             * Without this an `on_hold` or `cancelled` workflow advanced
+             * silently — the stage completed, the next one activated, and the
+             * timeline said so — because the stage state machine had no
+             * opinion about the workflow's. Worse, the *last* stage of the
+             * same workflow threw instead, because completing it needs a
+             * workflow transition the map forbids. One bug with two faces:
+             * quietly wrong in the middle, loudly wrong at the end.
+             *
+             * A hold exists so a listing can pause while the sellers travel.
+             * Advancing through one is exactly what a hold is for preventing.
+             */
+            if (! $workflow->isRunning()) {
+                return AdvanceResult::refused($workflow->state->advanceRefusal());
+            }
+
             $stage = $workflow->activeStage();
 
             if (! $stage instanceof Stage) {
                 throw NothingToAdvance::for($workflow);
+            }
+
+            /*
+             * The lock serialises the two clicks; it does not make them one.
+             *
+             * Under READ COMMITTED the second transaction re-reads the row
+             * after the first commits — and finds the *newly activated* stage,
+             * which it then advances. Emily and Heather click within a second
+             * of each other and the deal moves two stages, exactly the outcome
+             * the lock was written to prevent, just in sequence rather than in
+             * parallel.
+             *
+             * The caller says which stage it was looking at when it rendered
+             * the button. If that is no longer the active one, somebody else
+             * got there first and the honest answer is to say so rather than
+             * to advance a stage this person never saw.
+             */
+            if ($expectedStageId !== null && $expectedStageId !== $stage->getKey()) {
+                return AdvanceResult::refused(
+                    'Somebody else advanced this workflow while you were looking at it. '
+                    .'Reload to see where it is now.',
+                );
             }
 
             $verdicts = $this->evaluateGates($stage);
@@ -118,6 +162,24 @@ final class AdvanceWorkflow
                 }
 
                 return AdvanceResult::blocked($stage, $blocking, $advisories);
+            }
+
+            /*
+             * Nothing blocks any more, so the badge stops saying it does.
+             *
+             * `blocked` is a display state, and a display state that only ever
+             * goes one way is a lie waiting to be rendered: the survey comes
+             * back, the gate clears, and the deals index still shows a blocked
+             * stage with nothing blocking it. Gates are evaluated here and
+             * nowhere else, so here is where the badge can be corrected.
+             *
+             * It matters even though the advance below usually completes the
+             * stage a line later, because the advance does not always happen —
+             * `applyAdvance` can still throw, and a rolled-back transaction
+             * should leave the stage reading `active`, not `blocked`.
+             */
+            if ($stage->state === StageState::Blocked) {
+                $stage->transitionTo(StageState::Active)->save();
             }
 
             return $this->applyAdvance($workflow, $stage, $actor, $advisories);

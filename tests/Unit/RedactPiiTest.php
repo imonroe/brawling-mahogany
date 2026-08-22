@@ -188,3 +188,65 @@ it('never lets a document body reach a log', function (): void {
     expect($result->context['category'])->toBe('bank_statement')
         ->and($result->context['body'])->toBe(RedactPii::REDACTED);
 });
+
+/**
+ * The exception object was the way round the whole redactor.
+ *
+ * `exception` is allow-listed as a key — a log line without one is hard to
+ * follow — so it passed the key checks, and then `value()` had no branch for
+ * an object and handed it through. Monolog serialises it by calling
+ * `getMessage()`, and a database driver quotes the offending row.
+ */
+it('redacts an address out of an exception message', function (): void {
+    $result = App\Logging\Redactor::context([
+        'exception' => new RuntimeException(
+            'duplicate key value violates unique constraint "team_memberships_team_email_unique" '
+            .'DETAIL: Key (team_id, lower(email))=(01abc, claire@example.test) already exists.',
+        ),
+    ]);
+
+    expect($result['exception']['message'])
+        ->not->toContain('claire@example.test')
+        ->toContain('duplicate key value violates unique constraint');
+});
+
+it('follows the exception chain, where a driver puts the interesting text', function (): void {
+    $result = App\Logging\Redactor::context([
+        'exception' => new RuntimeException(
+            'Wrapper',
+            0,
+            new RuntimeException('SQLSTATE: Key (email)=(lee@example.test) already exists.'),
+        ),
+    ]);
+
+    expect($result['exception']['previous']['message'])->not->toContain('lee@example.test');
+});
+
+/**
+ * And every other object, without needing a branch of its own.
+ *
+ * The `Throwable` branch above fixed one type. The lesson underneath it is
+ * that `default => $value` was an open door for *any* type the redactor had
+ * no opinion about — a model, a collection, a DTO — each of which is likelier
+ * to be carrying somebody's name than an exception is. Scalars are unchanged:
+ * a bool, an int, or a null cannot hold an address.
+ */
+it('redacts an object it has no branch for rather than passing it through', function (): void {
+    $carrier = new class
+    {
+        public string $email = 'claire@example.test';
+
+        public function __toString(): string
+        {
+            return $this->email;
+        }
+    };
+
+    $result = App\Logging\Redactor::context(['exception' => $carrier, 'attempts' => 3, 'line' => 42]);
+
+    expect($result['exception'])->toBe(App\Logging\Redactor::REDACTED)
+        // Scalars on allow-listed keys still come through, or a log line stops
+        // being followable.
+        ->and($result['attempts'])->toBe(3)
+        ->and($result['line'])->toBe(42);
+});

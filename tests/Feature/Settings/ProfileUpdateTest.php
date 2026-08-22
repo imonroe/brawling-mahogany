@@ -163,4 +163,89 @@ class ProfileUpdateTest extends TestCase
 
         $this->assertNotNull($user->fresh());
     }
+
+    /**
+     * Changing your sign-in address moves the address your team sees with it.
+     *
+     * `people.email` and `team_memberships.email` are two columns since #140,
+     * and nothing kept them together: a member changed their login and the
+     * members list, the directory search, and the export all went on showing
+     * an address that no longer worked.
+     */
+    public function test_changing_the_login_address_updates_the_membership(): void
+    {
+        [$team, $user] = $this->teamWithMember();
+
+        $this->actingAsPerson($user, $team);
+
+        $membership = $user->membershipIn($team);
+        $this->assertSame($user->email, $membership->email);
+
+        $this->patch(route('profile.update'), [
+            'first_name' => 'Test',
+            'last_name' => 'User',
+            'email' => 'moved@example.test',
+        ])->assertRedirect(route('profile.edit'));
+
+        $this->assertSame('moved@example.test', $user->fresh()->email);
+        $this->assertSame('moved@example.test', $membership->fresh()->email);
+    }
+
+    /**
+     * ...but only the memberships that were carrying the old login address.
+     *
+     * A membership whose address a team typed for itself is that team's record
+     * of how to reach somebody. Editing your own profile is not permission to
+     * rewrite it.
+     */
+    public function test_it_leaves_an_address_a_team_typed_for_itself_alone(): void
+    {
+        [$team, $user] = $this->teamWithMember();
+
+        $membership = $user->membershipIn($team);
+        $membership->forceFill(['email' => 'work@example.test'])->save();
+
+        $this->actingAsPerson($user, $team);
+
+        $this->patch(route('profile.update'), [
+            'first_name' => 'Test',
+            'last_name' => 'User',
+            'email' => 'moved@example.test',
+        ])->assertRedirect(route('profile.edit'));
+
+        $this->assertSame('moved@example.test', $user->fresh()->email);
+        $this->assertSame('work@example.test', $membership->fresh()->email);
+    }
+
+    /**
+     * And never at the cost of a 500.
+     *
+     * One team cannot hold one address twice, and the address somebody is
+     * moving to may already be in this team's directory as a colleague's
+     * contact. The index would refuse the write; a stale address on the
+     * members list is a better answer than a crash on the profile screen, and
+     * the two columns exist precisely because they are allowed to disagree.
+     */
+    public function test_it_keeps_the_team_address_when_the_new_one_is_taken(): void
+    {
+        [$team, $user] = $this->teamWithMember();
+        $original = $user->email;
+
+        $this->actingAsPerson($user, $team);
+
+        $this->post('/people', [
+            'first_name' => 'Claire',
+            'email' => 'claire@example.test',
+            'status' => 'lead',
+        ])->assertSessionHasNoErrors();
+
+        $this->patch(route('profile.update'), [
+            'first_name' => 'Test',
+            'last_name' => 'User',
+            'email' => 'claire@example.test',
+        ])->assertRedirect(route('profile.edit'));
+
+        $this->assertSame('claire@example.test', $user->fresh()->email);
+        $this->assertSame($original, $user->membershipIn($team)->email);
+    }
 }

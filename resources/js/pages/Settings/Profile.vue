@@ -94,6 +94,11 @@ const description = computed(() =>
                 </div>
             </div>
 
+            <!--
+                `user.email` is nullable since issue 140: it is the sign-in
+                address, and somebody in a team's directory has none. The field
+                is required, so an empty default is what they type over.
+            -->
             <div class="grid gap-2">
                 <Label for="email">Email address</Label>
                 <Input
@@ -101,7 +106,7 @@ const description = computed(() =>
                     type="email"
                     class="mt-1 block w-full"
                     name="email"
-                    :default-value="user.email"
+                    :default-value="user.email ?? ''"
                     required
                     autocomplete="username"
                     placeholder="Email address"

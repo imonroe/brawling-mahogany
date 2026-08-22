@@ -108,6 +108,22 @@ return new class extends Migration
         });
     }
 
+    /**
+     * As far back as it goes, which is not all the way.
+     *
+     * `up()` clears `people.email` for every credential-less row, and the
+     * address it clears now lives on however many memberships hold it. If two
+     * teams each added the same contact, there is no longer one answer to
+     * *"what is this person's email"* — restoring one team's is arbitrary and
+     * restoring both is impossible against `people`'s unique index.
+     *
+     * So `down()` puts back what it can and leaves the rest null rather than
+     * aborting halfway: a rollback that throws on the second colliding pair
+     * leaves the schema in neither shape, which is worse than a rollback that
+     * completes with less data than it started with. **Roll forward, and take
+     * a backup first** (`docs/Deployment.md` §5) — this direction exists for a
+     * bad deploy on the day, not as an undo.
+     */
     public function down(): void
     {
         Schema::table('people', function (Blueprint $table): void {
@@ -116,19 +132,56 @@ return new class extends Migration
             $table->string('phone')->nullable();
         });
 
+        // Names and phone numbers restore unconditionally: nothing is unique
+        // about them, so the oldest membership simply wins.
         DB::statement(<<<'SQL'
             UPDATE people
                SET first_name = m.first_name,
                    last_name  = m.last_name,
-                   phone      = m.phone,
-                   email      = COALESCE(people.email, m.email)
+                   phone      = m.phone
               FROM (
-                    SELECT DISTINCT ON (person_id) person_id, first_name, last_name, phone, email
+                    SELECT DISTINCT ON (person_id) person_id, first_name, last_name, phone
                       FROM team_memberships
                      WHERE deleted_at IS NULL
                      ORDER BY person_id, created_at
                    ) AS m
              WHERE m.person_id = people.id
+        SQL);
+
+        /*
+         * The address is restored only where it can be, and the deduplication
+         * is the whole point: two credential-less contacts in two teams
+         * sharing an address is a state this migration *created*, and
+         * `people`'s `lower(email)` unique index would refuse the second of
+         * them.
+         *
+         * `DISTINCT ON (lower(email))` rather than a `NOT EXISTS` against
+         * `people` alone, because a single `UPDATE` evaluates its subqueries
+         * against one snapshot: both colliding rows would see the address as
+         * free, both would be updated, and the index would abort the whole
+         * statement. Deduplicating inside the source set is what makes it one
+         * row per address before the write happens. Oldest membership wins;
+         * the rest stay null.
+         */
+        DB::statement(<<<'SQL'
+            UPDATE people
+               SET email = m.email
+              FROM (
+                    SELECT DISTINCT ON (lower(tm.email)) tm.person_id, tm.email
+                      FROM team_memberships AS tm
+                      JOIN people AS p ON p.id = tm.person_id
+                     WHERE tm.deleted_at IS NULL
+                       AND tm.email IS NOT NULL
+                       AND p.email IS NULL
+                       AND NOT EXISTS (
+                             SELECT 1
+                               FROM people AS taken
+                              WHERE lower(taken.email) = lower(tm.email)
+                           )
+                     ORDER BY lower(tm.email), tm.created_at
+                   ) AS m
+             WHERE m.person_id = people.id
+               AND people.email IS NULL
         SQL);
 
         DB::statement('DROP INDEX IF EXISTS team_memberships_team_email_unique');

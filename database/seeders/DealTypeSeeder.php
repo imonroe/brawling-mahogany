@@ -37,10 +37,23 @@ class DealTypeSeeder extends Seeder
         ];
 
         foreach ($types as $type) {
-            // Idempotent: this seeder runs in every environment including
-            // production, and running it twice must not duplicate a lookup
-            // that live deals point at.
-            DealType::query()->firstOrCreate(
+            /*
+             * Idempotent *and* current.
+             *
+             * This runs on every deploy, so running it twice must not
+             * duplicate a lookup that live deals point at — but `firstOrCreate`
+             * would also mean a corrected `side` or a re-ordered picker never
+             * landed after the first release, which is not what
+             * `deploy-staging.yml` promises the seed step does. The name is the
+             * identity; everything else is the definition, and the definition
+             * ships with the code that changed it.
+             *
+             * Renaming a system type is a different operation and needs a
+             * migration: this would insert the new name beside the old one and
+             * leave every existing deal pointing at the old row. That is what
+             * `ReferenceDataTest`'s "and no more" assertion is for.
+             */
+            DealType::query()->updateOrCreate(
                 ['team_id' => null, 'name' => $type['name']],
                 ['side' => $type['side'], 'sort_order' => $type['sort_order']],
             );

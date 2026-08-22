@@ -125,7 +125,11 @@ Three things worth knowing before it confuses somebody:
 
 `--demote` reverses it. Demoting the last administrator warns rather than
 refuses, because unlike the last-owner rule inside a team, this one is
-recoverable — the same command promotes somebody back.
+recoverable — the same command promotes somebody back. Skipping that warning
+takes its own flag, `--demote-last`: `--force` is Laravel's production
+confirmation gate and is typed by every operator running anything on a live
+box, so letting it answer this question too would silence the one prompt worth
+reading.
 
 Both directions write to the append-only audit log with no team and no actor:
 the privilege spans every team, and an operator with a shell is not somebody

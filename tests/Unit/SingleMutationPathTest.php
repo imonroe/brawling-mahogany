@@ -29,6 +29,26 @@ use Symfony\Component\Finder\Finder;
  * Slice 1 earned this lesson three times over: a rule enforced at call sites
  * was enforced at *some* call sites, twice in consecutive review rounds. So
  * the rules that matter get a machine.
+ *
+ * ## What the first version of this test missed
+ *
+ * Adversarial review found three writes it waved straight through, and the
+ * first two are the ones that matter, because neither is exotic:
+ *
+ *  - `$stage->setAttribute('state', …)` — the identical write, spelled as a
+ *    method call. Eloquent's own `fill()` ends up here.
+ *  - `$stage->{$column} = …` and `->update([$column => …])` — a column name
+ *    held in a variable is still a column name, and the regex was looking for
+ *    a literal.
+ *  - `DB::table('stages')->update(['state' => …])` — which the test did not
+ *    merely fail to match, it never *read* the file: a class that bypasses
+ *    Eloquent has no reason to mention `Stage::class`, so it never entered the
+ *    candidate set at all.
+ *
+ * A guard that only catches the careless spelling of a mistake is worth less
+ * than no guard, because it reads as coverage. So the shapes below are pinned
+ * by `it('catches every shape…')` — the detector is run against each bypass,
+ * and against innocent code that must stay quiet.
  */
 
 /**
@@ -40,10 +60,21 @@ use Symfony\Component\Finder\Finder;
 const STATE_WRITE_PATTERNS = [
     // ->state = StageState::Complete
     '/->\s*state\s*=(?!=)/',
-    // ['state' => …] inside a fill/update/forceFill argument
+    // ['state' => …] inside a fill/update/forceFill/insert argument
     '/[\'"]state[\'"]\s*=>/',
-    // ->update(['state' => …]) reached through a builder
+    // ->transitionTo(…), the model's own mechanism
     '/->\s*transitionTo\s*\(/',
+    // ->setAttribute('state', …) — the same write, spelled as a method call
+    '/->\s*setAttribute\s*\(\s*[\'"]state[\'"]/',
+    // $stage->{$column} = … — a column name in a variable is still a column name
+    '/->\s*\{\s*\$/',
+    // ->update([$column => …]) — the same trick, one layer in
+    '/\[\s*\$\w+\s*=>/',
+    // DB::table('stages')->update(…) — Eloquent bypassed entirely, so the
+    // model, its casts, and its transition map never see the write
+    '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows)[\'"]\s*\)/',
+    // …and the same by hand
+    '/\bUPDATE\s+(?:stages|workflows)\b/i',
 ];
 
 /**
@@ -52,22 +83,89 @@ const STATE_WRITE_PATTERNS = [
  * @var array<string, string>
  */
 const SANCTIONED_STATE_WRITERS = [
-    'Support/Workflow/AdvanceWorkflow.php' => 'The single mutation path itself (#68).',
+    'app/Support/Workflow/AdvanceWorkflow.php' => 'The single mutation path itself (#68).',
 
-    'Support/Workflow/InstantiateWorkflow.php' => 'Sets the opening state of a brand-new workflow. '.
+    'app/Support/Workflow/InstantiateWorkflow.php' => 'Sets the opening state of a brand-new workflow. '.
         'There is no stage being left, so there is nothing for the gates to evaluate — routing this '.
         'through AdvanceWorkflow would mean inventing a stage-zero for it to complete.',
 
-    'Models/Workflow.php' => 'Declares its own transition map; writes nothing.',
-    'Models/Stage.php' => 'Declares its own transition map; writes nothing.',
-    'Models/Deal.php' => 'Declares its own transition map; writes nothing. A deal state is not a '.
+    'app/Models/Workflow.php' => 'Declares its own transition map; writes nothing.',
+    'app/Models/Stage.php' => 'Declares its own transition map; writes nothing.',
+    'app/Models/Deal.php' => 'Declares its own transition map; writes nothing. A deal state is not a '.
         'workflow state — closing a deal is F3.8, not an advance.',
-    'Models/Concerns/HasStateMachine.php' => 'The transition mechanism. It says which moves are '.
+    'app/Models/Concerns/HasStateMachine.php' => 'The transition mechanism. It says which moves are '.
         'possible; AdvanceWorkflow decides which are permitted.',
+
+    'database/factories/WorkflowFactory.php' => 'Sets the opening state of a record being created, '.
+        'which is the one write no transition map has an opinion about — there is no previous state '.
+        'to move from. Factories are also test fixtures: a suite that could not build a workflow in '.
+        'a given state could not test the service that moves it out of one.',
+    'database/factories/StageFactory.php' => 'The same, one level down.',
 ];
 
 /**
- * Classes under app/ that touch a workflow-state model at all.
+ * Strip comments, keep strings.
+ *
+ * A docblock that *describes* `['state' => …]` is prose, and a test that
+ * flagged it would be measuring the explanation rather than the code. Strings
+ * stay, because `DB::table('stages')` and a heredoc of raw SQL are exactly
+ * what the last two patterns are for.
+ */
+function codeWithoutComments(string $contents): string
+{
+    $code = '';
+
+    foreach (token_get_all($contents) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+
+        $code .= is_array($token) ? $token[1] : $token;
+    }
+
+    return $code;
+}
+
+/** Does this source write workflow state, by any of the shapes above? */
+function writesWorkflowState(string $contents): bool
+{
+    $code = codeWithoutComments($contents);
+
+    foreach (STATE_WRITE_PATTERNS as $pattern) {
+        if (preg_match($pattern, $code) === 1) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Does this source go anywhere near workflow state?
+ *
+ * Naming the model is the ordinary way. Naming the *table* is the way somebody
+ * gets around the model, so it counts too — that omission is what let
+ * `DB::table('stages')` through the first version of this test.
+ */
+function touchesWorkflowState(string $contents): bool
+{
+    $code = codeWithoutComments($contents);
+
+    foreach ([
+        '/\b(?:Stage|Workflow)(?:::class|\s*\$|::query)/',
+        '/[\'"](?:stages|workflows)[\'"]/',
+        '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows)\b/i',
+    ] as $pattern) {
+        if (preg_match($pattern, $code) === 1) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Classes under app/ that touch a workflow-state model or table at all.
  *
  * @return array<string, string> relative path => contents
  */
@@ -75,16 +173,28 @@ function filesTouchingWorkflowState(): array
 {
     $found = [];
 
-    foreach ((new Finder)->files()->in([app_path()])->name('*.php') as $file) {
+    /*
+     * `app/`, and also `routes/` and `database/`.
+     *
+     * A closure route and a seeder are both places somebody writes a state
+     * because it was the quickest way to make a screen look right, and both
+     * were invisible to the first version of this test. `database/migrations`
+     * is excluded on purpose: a migration writing a column by name is what a
+     * migration is, and `stages.state` has to be created and backfilled by
+     * something.
+     */
+    $finder = (new Finder)
+        ->files()
+        ->in([app_path(), base_path('routes'), base_path('database')])
+        ->notPath('migrations')
+        ->name('*.php');
+
+    foreach ($finder as $file) {
         $contents = (string) file_get_contents($file->getRealPath());
 
-        $mentionsWorkflowModel = preg_match(
-            '/\b(Stage|Workflow)(::class|\s*\$|::query)/',
-            $contents,
-        ) === 1;
-
-        if ($mentionsWorkflowModel) {
-            $found[str_replace('\\', '/', $file->getRelativePathname())] = $contents;
+        if (touchesWorkflowState($contents)) {
+            $path = str_replace('\\', '/', $file->getRealPath());
+            $found[ltrim(str_replace(str_replace('\\', '/', base_path()), '', $path), '/')] = $contents;
         }
     }
 
@@ -99,11 +209,8 @@ it('lets nothing but the advance service write workflow state', function (): voi
             continue;
         }
 
-        foreach (STATE_WRITE_PATTERNS as $pattern) {
-            if (preg_match($pattern, $contents) === 1) {
-                $offenders[] = $path;
-                break;
-            }
+        if (writesWorkflowState($contents)) {
+            $offenders[] = $path;
         }
     }
 
@@ -117,6 +224,42 @@ it('lets nothing but the advance service write workflow state', function (): voi
         .'reason is not "it was easier".',
     );
 });
+
+/**
+ * The guard, guarded.
+ *
+ * Every entry here is a write that reached `stages.state` past the first
+ * version of this test. Pinning them means the next person who widens the
+ * patterns cannot narrow them by accident, and it is the only way to say
+ * "this catches X" that stays true after somebody edits the regexes.
+ */
+it('catches every shape of writing workflow state', function (string $shape): void {
+    $source = "<?php\n\nclass Sneaky\n{\n    public function run(Stage \$stage): void\n    {\n        {$shape}\n    }\n}\n";
+
+    expect(touchesWorkflowState($source))->toBeTrue("The detector never even reads: {$shape}")
+        ->and(writesWorkflowState($source))->toBeTrue("The detector waves through: {$shape}");
+})->with([
+    'plain property' => ['$stage->state = StageState::Complete;'],
+    'array key' => ['$stage->forceFill([\'state\' => StageState::Complete])->save();'],
+    'double-quoted key' => ['$stage->update(["state" => StageState::Complete]);'],
+    'transition method' => ['$stage->transitionTo(StageState::Complete);'],
+    'setAttribute' => ['$stage->setAttribute(\'state\', StageState::Complete);'],
+    'variable property' => ['$column = \'state\'; $stage->{$column} = StageState::Complete;'],
+    'variable array key' => ['$column = \'state\'; $stage->update([$column => StageState::Complete]);'],
+    'query builder' => ['DB::table(\'stages\')->whereKey($stage->id)->update([\'state\' => \'complete\']);'],
+    'raw sql' => ['DB::statement(\'UPDATE stages SET state = \\\'complete\\\'\');'],
+]);
+
+it('stays quiet about code that only reads workflow state', function (string $shape): void {
+    $source = "<?php\n\nclass Innocent\n{\n    public function run(Stage \$stage): void\n    {\n        {$shape}\n    }\n}\n";
+
+    expect(writesWorkflowState($source))->toBeFalse("The detector cries wolf over: {$shape}");
+})->with([
+    'reading' => ['$label = $stage->state->label();'],
+    'comparing' => ['if ($stage->state === StageState::Complete) { return; }'],
+    'querying' => ['Stage::query()->where(\'state\', StageState::Active)->get();'],
+    'counting' => ['$count = Stage::query()->whereIn(\'state\', [StageState::Active])->count();'],
+]);
 
 it('keeps the advance service free of HTTP concerns', function (): void {
     // F12.5: "the API layer should be designed so a native client can be added
@@ -136,7 +279,7 @@ it('keeps the advance service free of HTTP concerns', function (): void {
 
 it('names every sanctioned writer as a file that exists', function (): void {
     foreach (array_keys(SANCTIONED_STATE_WRITERS) as $path) {
-        expect(file_exists(app_path($path)))->toBeTrue(
+        expect(file_exists(base_path($path)))->toBeTrue(
             "{$path} is listed as a sanctioned state writer and no longer exists. Remove the entry — "
             .'a stale allow-list reads as coverage it does not have.',
         );

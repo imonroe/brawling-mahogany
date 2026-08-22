@@ -8,6 +8,7 @@ use App\Models\Person;
 use App\Support\Audit\AuditLogger;
 use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Make somebody a platform administrator (PRD §4.1 F1.5, §5.1 · issue #52).
@@ -45,6 +46,7 @@ class PromotePlatformAdministrator extends Command
     protected $signature = 'platform:promote
                             {email : The sign-in address of an existing account}
                             {--demote : Take the privilege away instead}
+                            {--demote-last : Allow demoting the only remaining administrator}
                             {--force : Skip the confirmation prompt in production}';
 
     protected $description = 'Grant or revoke platform administrator access for an existing account.';
@@ -99,12 +101,26 @@ class PromotePlatformAdministrator extends Command
                 .'Nobody will be able to open /admin until this command is run again.',
             );
 
-            if (! $this->option('force') && ! $this->confirm('Demote them anyway?', false)) {
+            /*
+             * Its own flag, not `--force`.
+             *
+             * `--force` is `ConfirmableTrait`'s production gate, and it is
+             * typed by every operator who runs anything in production. Letting
+             * it double as the answer to this question means the one prompt
+             * worth reading is the one nobody is ever asked.
+             */
+            if (! $this->option('demote-last') && ! $this->confirm('Demote them anyway?', false)) {
                 return self::FAILURE;
             }
         }
 
         $person->forceFill(['is_super_admin' => ! $demoting])->save();
+
+        // `/no-team` caches the answer to "does anybody administer this
+        // platform" for a minute. This command is the only thing that changes
+        // it, and the minute is exactly the minute somebody is staring at that
+        // screen waiting for it to change.
+        Cache::forget('platform.has-administrator');
 
         /*
          * PRD §9 requires permission changes to be audited, and this is the

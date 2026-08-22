@@ -133,6 +133,19 @@ it('lets several people have no email at once', function (): void {
     expect(TeamMembership::query()->whereNull('email')->count())->toBe(3);
 });
 
+/**
+ * One address is one person in this team, however it was typed.
+ *
+ * This test asserted `assertSessionHasNoErrors()` on both posts for a review
+ * round, and passed — because the second post was a **500**, and a 500 carries
+ * no session validation errors either. `->sole()` then passed for the same
+ * reason: only one row had been written. Two assertions, both green, both
+ * measuring a server error. Worth recording, because the shape recurs: a
+ * negative assertion about errors is satisfied by a crash.
+ *
+ * The Postgres DETAIL line from that 500 also carried the address into the
+ * log, which is what `Redactor::throwable()` now closes.
+ */
 it('treats one address as one human whatever its capitals', function (): void {
     $this->post('/people', [
         'first_name' => 'Claire',
@@ -140,11 +153,15 @@ it('treats one address as one human whatever its capitals', function (): void {
         'status' => PersonLifecycleState::Active->value,
     ])->assertSessionHasNoErrors();
 
+    // Refused in validation, which is a sentence on the form rather than a
+    // stack trace. S32's "warning and an offer to open the existing record"
+    // is `/people/lookup`, which warns before the submit; this is what stops
+    // the submit that follows it from being a 500.
     $this->post('/people', [
         'first_name' => 'Claire',
         'email' => 'claire@example.test',
         'status' => PersonLifecycleState::Lead->value,
-    ])->assertSessionHasNoErrors();
+    ])->assertSessionHasErrors('email');
 
     // Asked for by address rather than by "the first person with one" — the
     // team already has an owner and a member with addresses of their own, and
@@ -153,6 +170,55 @@ it('treats one address as one human whatever its capitals', function (): void {
 
     // Stored folded, so the index and every lookup agree.
     expect($claire->email)->toBe('claire@example.test');
+});
+
+it('lets another team hold the same address', function (): void {
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => PersonLifecycleState::Active->value,
+    ])->assertSessionHasNoErrors();
+
+    /*
+     * The unique rule asks about *this* team and nothing else, which is the
+     * point of the #140 move. A rule that asked globally would tell one team
+     * that another team already knows somebody — the exact disclosure the move
+     * was made to close, reintroduced by the validation that protects its
+     * index.
+     */
+    [$other, $member] = $this->teamWithMember();
+    $this->actingAsPerson($member, $other);
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => PersonLifecycleState::Lead->value,
+    ])->assertSessionHasNoErrors();
+
+    expect(TeamMembership::withoutTeamScope()
+        ->whereRaw('lower(email) = ?', ['claire@example.test'])
+        ->count())->toBe(2);
+});
+
+it('lets somebody keep their own address when their record is edited', function (): void {
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => PersonLifecycleState::Active->value,
+    ])->assertSessionHasNoErrors();
+
+    $claire = TeamMembership::query()->whereRaw('lower(email) = ?', ['claire@example.test'])->sole();
+
+    // The unique rule has to ignore the row it is validating, or nobody could
+    // ever change their own surname.
+    $this->patch("/people/{$claire->getKey()}", [
+        'first_name' => 'Claire',
+        'last_name' => 'Nakamura',
+        'email' => 'claire@example.test',
+        'status' => PersonLifecycleState::Active->value,
+    ])->assertSessionHasNoErrors();
+
+    expect($claire->fresh()->last_name)->toBe('Nakamura');
 });
 
 it('keeps a vendor’s cost in integer cents end to end', function (): void {

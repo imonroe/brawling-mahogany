@@ -11,6 +11,7 @@ use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Turn an invitation into a membership (Screen Inventory S04).
@@ -39,18 +40,62 @@ final class AcceptInvitation
             // Case-insensitively, because `Emily@Example.test` and
             // `emily@example.test` are one human (PRD decision log,
             // 2026-08-22) and the unique index says so too.
-            $person = Person::query()
-                ->whereRaw('lower(email) = ?', [mb_strtolower($invitation->email)])
+            $address = mb_strtolower($invitation->email);
+
+            /*
+             * Two places somebody with this address might already exist, and
+             * before #140 there was only one.
+             *
+             * A **directory entry** — a client this team added, who holds a
+             * membership carrying the address and a credential-less `people`
+             * row whose own `email` is null. Inviting one is the ordinary case
+             * of promoting a client to the status page, and looking only at
+             * `people` missed it entirely: a second person was created, a
+             * second membership inserted, and the partial unique index on
+             * `(team_id, lower(email))` refused it. A 500 on accept, and no
+             * way to fix it from inside the product.
+             *
+             * An **account** — somebody who already signs in, here or in
+             * another team. That is the case issue #45 is about, and it still
+             * works the way it did: one login, a second membership.
+             */
+            $membership = TeamMembership::withoutTeamScope()
+                ->where('team_id', $invitation->team_id)
+                ->whereRaw('lower(email) = ?', [$address])
+                ->whereNull('revoked_at')
                 ->first();
+
+            $account = Person::query()->whereRaw('lower(email) = ?', [$address])->first();
+
+            $person = $membership instanceof TeamMembership ? $membership->person : $account;
 
             $alreadyHadCredentials = $person instanceof Person && $person->hasCredentials();
 
+            if ($membership instanceof TeamMembership && ! $alreadyHadCredentials && $account instanceof Person) {
+                /*
+                 * The directory entry and a separate account both exist. The
+                 * membership cannot simply be repointed — every activity event
+                 * on this deal names the person it currently holds — and
+                 * attaching the account would collide on the address.
+                 *
+                 * Rare, honest, and recoverable by a person rather than by a
+                 * support ticket: remove the duplicate contact, then invite.
+                 */
+                throw ValidationException::withMessages([
+                    'email' => 'Somebody already signs in with this address, and this team also has them '
+                        .'as a contact. Remove the contact from your people directory first, then send '
+                        .'the invitation again.',
+                ]);
+            }
+
             if ($person instanceof Person) {
-                // An existing person keeps their name and their record. The
-                // only thing an invitation may add is credentials, and only
-                // when they had none.
+                // An existing person keeps their record. The only thing an
+                // invitation may add is credentials, and only when they had
+                // none — which is what turns a directory entry into an
+                // account without duplicating the human.
                 if (! $alreadyHadCredentials) {
                     $person->forceFill([
+                        'email' => $invitation->email,
                         'password' => $password,
                         'email_verified_at' => now(),
                     ])->save();

@@ -14,9 +14,11 @@ use App\Models\Stage;
 use App\Models\StageTemplate;
 use App\Models\Task;
 use App\Models\TaskTemplate;
+use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Models\WorkflowTemplate;
 use App\Support\Activity\RecordActivity;
+use App\Support\Tenancy\ForeignReferenceException;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -65,6 +67,35 @@ final class InstantiateWorkflow
         ?CarbonInterface $startingOn = null,
         array $roleAssignments = [],
     ): Workflow {
+        /*
+         * The template has to be one this deal's team may actually use.
+         *
+         * `workflow_templates` is a shared table — a null `team_id` is a
+         * system template from a pack — so no foreign key can express "mine or
+         * everybody's", and nothing was checking. Slice 2's first review
+         * instantiated another team's private template and watched its stage
+         * names, which are a team's process written down, land in the other
+         * team's runtime rows.
+         *
+         * Checked here rather than in the controller that will call it,
+         * because that controller is #74 and does not exist yet.
+         */
+        if (! $template->isSystem() && $template->team_id !== $deal->team_id) {
+            throw ForeignReferenceException::for('workflow_templates', $template->getKey(), $deal->team_id);
+        }
+
+        /*
+         * And the people the roles resolve to have to be on this team.
+         *
+         * `tasks.assignee_id` is a plain `people` reference — it has to be,
+         * because `people` is the login table and carries no `team_id` — so
+         * the database cannot refuse an id from another team. The only caller
+         * today is a test; the caller that matters is #74, which will pass a
+         * request body straight through. Validating here means that controller
+         * inherits the check rather than having to remember it.
+         */
+        $roleAssignments = $this->assignableWithin($deal, $roleAssignments);
+
         $start = $startingOn instanceof CarbonInterface ? $startingOn->toImmutable() : Carbon::now()->toImmutable();
 
         // Loaded once, outside the transaction, and used for both the copy and
@@ -212,6 +243,39 @@ final class InstantiateWorkflow
         }
 
         return $roleAssignments[$ownerRole] ?? null;
+    }
+
+    /**
+     * Keep only the assignments naming somebody this team actually has.
+     *
+     * Dropped rather than thrown, and the difference is what each mistake
+     * means. A foreign *template* is somebody reading another team's process,
+     * which has no innocent reading. A stale person id is the ordinary result
+     * of a colleague leaving between the picker rendering and the form being
+     * submitted — and the existing answer to "no person for this role" is
+     * already a null assignee that shows up unassigned on the stage and is
+     * fixable in a click.
+     *
+     * @param  array<string, string>  $roleAssignments
+     * @return array<string, string>
+     */
+    private function assignableWithin(Deal $deal, array $roleAssignments): array
+    {
+        if ($roleAssignments === []) {
+            return [];
+        }
+
+        $onTheTeam = TeamMembership::withoutTeamScope()
+            ->where('team_id', $deal->team_id)
+            ->whereNull('revoked_at')
+            ->whereIn('person_id', array_values($roleAssignments))
+            ->pluck('person_id')
+            ->all();
+
+        return array_filter(
+            $roleAssignments,
+            fn (string $personId): bool => in_array($personId, $onTheTeam, true),
+        );
     }
 
     /**

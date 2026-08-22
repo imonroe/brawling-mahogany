@@ -34,6 +34,45 @@ use BackedEnum;
 trait HasStateMachine
 {
     /**
+     * The map holds however the attribute was written.
+     *
+     * `transitionTo()` is the door, and a door only works on people who use
+     * it. `$stage->setAttribute('state', 'complete')`, `$stage->state =
+     * StageState::Complete`, and `->forceFill(['state' => …])` all reach the
+     * column without passing the map — adversarial review proved the first of
+     * those puts a `pending` stage straight to `complete` with nothing
+     * checked. The trait's own docblock argues that a rule enforced at call
+     * sites is enforced at some call sites; this is that argument applied to
+     * the trait itself.
+     *
+     * A record being created is exempt, because there is no previous state for
+     * a transition to be illegal *from*. That is how a workflow gets its
+     * opening state and how every factory works.
+     */
+    public static function bootHasStateMachine(): void
+    {
+        static::saving(function (self $model): void {
+            $column = static::stateColumn();
+
+            if (! $model->exists || ! $model->isDirty($column)) {
+                return;
+            }
+
+            $from = $model->getRawOriginal($column);
+            $to = $model->getAttribute($column);
+            $to = $to instanceof BackedEnum ? (string) $to->value : (string) $to;
+
+            if ($from === null || (string) $from === $to) {
+                return;
+            }
+
+            if (! in_array($to, static::stateTransitions()[(string) $from] ?? [], true)) {
+                throw IllegalStateTransition::between(static::class, (string) $from, $to);
+            }
+        });
+    }
+
+    /**
      * The states reachable from each state.
      *
      * A state absent from the map is terminal. An empty list is also terminal,

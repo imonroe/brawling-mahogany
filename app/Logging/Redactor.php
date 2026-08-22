@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Logging;
 
+use Throwable;
+
 /**
  * The redaction rules, in one place.
  *
@@ -162,8 +164,53 @@ final class Redactor
         return match (true) {
             is_array($value) => self::context($value),
             is_string($value) => self::text($value),
+            $value instanceof Throwable => self::throwable($value),
+            /*
+             * Anything else with a shape fails closed.
+             *
+             * The `Throwable` branch above exists because an object slipped
+             * through `default => $value` and Monolog serialised it — so the
+             * lesson is not "handle exceptions", it is "an unhandled type
+             * leaves by the open door". A model, a DTO, a collection: each
+             * would do the same, and each is likelier to hold a client's name
+             * than an exception is. Scalars stay, because a bool, an int, or
+             * a null cannot carry an address.
+             */
+            is_object($value) => self::REDACTED,
             default => $value,
         };
+    }
+
+    /**
+     * An exception, reduced to what is safe to keep.
+     *
+     * The hole this closes is narrow and was wide open. `exception` is on the
+     * allowlist — a log line without one is hard to follow — so the key passed
+     * the key checks, and then the *object* went through untouched, because
+     * `value()` had no branch for it. Monolog serialises it by calling
+     * `getMessage()`, and a database driver's message quotes the offending
+     * row: `Key (team_id, lower(email))=(01..., claire@example.test) already
+     * exists`. PRD §9 says no PII in logs, ever, and that is a client's
+     * address in a log aggregator.
+     *
+     * The message is redacted rather than dropped, because "duplicate key
+     * value violates unique constraint" is the half that makes the line worth
+     * having. The chain is walked for the same reason: a driver exception's
+     * useful text is usually in the previous one.
+     *
+     * @return array<string, mixed>
+     */
+    private static function throwable(Throwable $exception): array
+    {
+        return [
+            'class' => $exception::class,
+            'message' => self::text($exception->getMessage()),
+            'file' => $exception->getFile(),
+            'line' => $exception->getLine(),
+            'previous' => $exception->getPrevious() instanceof Throwable
+                ? self::throwable($exception->getPrevious())
+                : null,
+        ];
     }
 
     /**

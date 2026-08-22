@@ -6,12 +6,17 @@ use App\Models\Deal;
 use App\Models\DealType;
 use App\Models\Gate;
 use App\Models\Stage;
+use App\Models\StageTemplate;
 use App\Models\Task;
+use App\Models\TaskTemplate;
 use App\Models\Workflow;
+use App\Models\WorkflowTemplate;
 use App\Support\Tenancy\CrossTenantException;
+use App\Support\Tenancy\ForeignReferenceException;
 use App\Support\Tenancy\MissingTeamContextException;
 use App\Support\Tenancy\TeamContext;
 use App\Support\Workflow\AdvanceWorkflow;
+use App\Support\Workflow\InstantiateWorkflow;
 use Illuminate\Database\QueryException;
 
 /**
@@ -71,9 +76,87 @@ it('refuses to create a deal against another team’s private deal type', functi
     );
 
     app(TeamContext::class)->runFor($this->teamA, function () use ($foreign): void {
-        // Team A cannot even see it to pick it.
+        // Team A cannot see it to pick it...
         expect(DealType::query()->visibleTo($this->teamA)->pluck('id')->all())
             ->not->toContain($foreign->getKey());
+
+        /*
+         * ...and cannot use it by naming its id anyway.
+         *
+         * The read-side assertion above was the whole test for one review
+         * round, and it would have passed just as happily with the write wide
+         * open — which it was. `deals.deal_type_id` is a plain foreign key
+         * (a composite one cannot express the `team_id IS NULL` system rows),
+         * so the database will accept any id in the table and the model has to
+         * be the one that refuses.
+         */
+        expect(fn () => Deal::factory()->create([
+            'team_id' => $this->teamA->getKey(),
+            'deal_type_id' => $foreign->getKey(),
+        ]))->toThrow(ForeignReferenceException::class);
+    });
+});
+
+it('refuses to instantiate another team’s private workflow template', function (): void {
+    $foreign = app(TeamContext::class)->runFor(
+        $this->teamB,
+        fn () => WorkflowTemplate::factory()->create([
+            'team_id' => $this->teamB->getKey(),
+            'name' => 'Team B private process',
+        ]),
+    );
+
+    app(TeamContext::class)->runFor($this->teamA, function () use ($foreign): void {
+        $deal = Deal::factory()->create(['team_id' => $this->teamA->getKey()]);
+
+        /*
+         * A team's workflow template *is* its process written down — the stage
+         * names, the gate configuration, the task titles. Instantiating a
+         * foreign one copied all of it into this team's runtime rows, where it
+         * is readable on every screen the deal appears on.
+         *
+         * `stage_templates`, `gate_templates` and `task_templates` carry no
+         * `team_id` of their own; they inherit it through the parent. This is
+         * the check that actually asks the parent.
+         */
+        expect(fn () => app(InstantiateWorkflow::class)->handle($deal, $foreign))
+            ->toThrow(ForeignReferenceException::class);
+
+        expect(Workflow::query()->count())->toBe(0)
+            ->and(Stage::query()->count())->toBe(0);
+    });
+});
+
+it('drops a task assignee who is not on the deal’s team', function (): void {
+    // `tasks.assignee_id` references `people`, which carries no team_id — so
+    // the database cannot refuse a foreign person and the service has to.
+    $teamBPerson = (string) $this->memberB->getKey();
+
+    app(TeamContext::class)->runFor($this->teamA, function () use ($teamBPerson): void {
+        $deal = Deal::factory()->create(['team_id' => $this->teamA->getKey()]);
+
+        // The definition tables carry no `team_id` of their own — they inherit
+        // it through the workflow template, which is exactly why the check
+        // being tested has to ask the parent.
+        $template = WorkflowTemplate::factory()->create(['team_id' => $this->teamA->getKey()]);
+        $stageTemplate = StageTemplate::factory()->create([
+            'workflow_template_id' => $template->getKey(),
+        ]);
+        TaskTemplate::factory()->create([
+            'stage_template_id' => $stageTemplate->getKey(),
+            'owner_role' => 'coordinator',
+        ]);
+
+        app(InstantiateWorkflow::class)->handle(
+            $deal,
+            $template,
+            roleAssignments: ['coordinator' => (string) $teamBPerson],
+        );
+
+        // Unassigned, not assigned to somebody in another team. An unassigned
+        // task shows up on the stage and is fixable in a click.
+        expect(Task::query()->whereNotNull('assignee_id')->count())->toBe(0)
+            ->and(Task::query()->count())->toBe(1);
     });
 });
 
@@ -158,7 +241,7 @@ it('counts in-use warnings within the team, not across the platform', function (
 });
 
 it('counts template use within the team, not across the platform', function (): void {
-    $template = App\Models\WorkflowTemplate::factory()->create();
+    $template = WorkflowTemplate::factory()->create();
 
     app(TeamContext::class)->runFor($this->teamB, function () use ($template): void {
         $deal = Deal::factory()->create(['team_id' => $this->teamB->getKey()]);

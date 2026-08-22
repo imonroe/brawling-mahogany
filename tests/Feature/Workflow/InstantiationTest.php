@@ -14,6 +14,7 @@ use App\Models\TaskTemplate;
 use App\Models\Workflow;
 use App\Models\WorkflowTemplate;
 use App\Support\Workflow\InstantiateWorkflow;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Template instantiation and the snapshot guarantee (PRD F4.5 · issue #66).
@@ -226,24 +227,85 @@ it('produces two independent workflows when one template is used twice', functio
 it('leaves no partial workflow behind when instantiation fails', function (): void {
     $template = listingTemplate();
 
-    // Give a task template an owner role, then hand the resolver a person id
-    // that does not exist. `tasks.assignee_id` has a foreign key, so the
-    // insert fails on the *second* stage — after the workflow row and the
-    // first stage are already written. That is the state a non-transactional
-    // instantiation would leave behind.
-    TaskTemplate::factory()->create([
-        'stage_template_id' => $template->stageTemplates->first()->getKey(),
-        'title' => 'A task owned by nobody who exists',
-        'owner_role' => 'coordinator',
-    ]);
+    /*
+     * Blow up on the **third** stage, once two are already written.
+     *
+     * The position is what makes this a transaction test rather than an insert
+     * test: by the time this throws, the workflow row, two stages, their gates
+     * and their tasks are all in the database. That is exactly the wreckage a
+     * non-transactional instantiation would leave behind, and a deal carrying
+     * half a process is worse than a deal carrying none — the stage rail
+     * renders, the advance button works, and the missing stages are invisible.
+     *
+     * The failure used to be an assignee id that did not exist, which stopped
+     * being a failure when the service started dropping unassignable people
+     * rather than letting the foreign key refuse them. A hook is the honest
+     * replacement: the test is about the transaction, not about which write
+     * happens to be capable of failing this week.
+     */
+    Stage::creating(function (Stage $stage): bool {
+        if ($stage->name === 'Under Contract') {
+            throw new RuntimeException('Something failed partway through.');
+        }
 
-    expect(fn () => app(InstantiateWorkflow::class)->handle(
-        $this->deal,
-        $template,
-        roleAssignments: ['coordinator' => '01000000000000000000000000'],
-    ))->toThrow(Exception::class);
+        return true;
+    });
+
+    expect(fn () => app(InstantiateWorkflow::class)->handle($this->deal, $template))
+        ->toThrow(RuntimeException::class);
+
+    /*
+     * Both, and in this order. `flushEventListeners()` drops the hook above —
+     * and every hook the model booted with it, `HasStateMachine`'s transition
+     * guard included. `clearBootedModels()` makes the next test re-boot the
+     * model from scratch and get them all back.
+     */
+    Stage::flushEventListeners();
+    Model::clearBootedModels();
 
     expect(Workflow::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0)
         ->and(Stage::query()->count())->toBe(0)
         ->and(Task::query()->count())->toBe(0);
+});
+
+it('drops a role assignment naming somebody who is not on the team', function (): void {
+    // The person id in a request body is not proof of anything: a colleague
+    // can leave between the picker rendering and the form being submitted.
+    // Unassigned is the existing answer to "no person for this role", and it
+    // shows on the stage rather than assigning the task to a stranger.
+    $template = listingTemplate();
+
+    TaskTemplate::factory()->create([
+        'stage_template_id' => $template->stageTemplates->first()->getKey(),
+        'title' => 'A task owned by nobody who is here',
+        'owner_role' => 'coordinator',
+    ]);
+
+    app(InstantiateWorkflow::class)->handle(
+        $this->deal,
+        $template,
+        roleAssignments: ['coordinator' => '01000000000000000000000000'],
+    );
+
+    expect(Task::query()->where('title', 'A task owned by nobody who is here')->sole()->assignee_id)
+        ->toBeNull();
+});
+
+it('keeps a role assignment naming somebody who is', function (): void {
+    $template = listingTemplate();
+
+    TaskTemplate::factory()->create([
+        'stage_template_id' => $template->stageTemplates->first()->getKey(),
+        'title' => 'A task owned by somebody here',
+        'owner_role' => 'coordinator',
+    ]);
+
+    app(InstantiateWorkflow::class)->handle(
+        $this->deal,
+        $template,
+        roleAssignments: ['coordinator' => (string) $this->member->getKey()],
+    );
+
+    expect(Task::query()->where('title', 'A task owned by somebody here')->sole()->assignee_id)
+        ->toBe((string) $this->member->getKey());
 });

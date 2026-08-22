@@ -35,6 +35,7 @@ final readonly class AdvanceResult
         public ?string $milestoneAnnouncement = null,
         public array $blockedBy = [],
         public array $advisories = [],
+        public ?string $refusal = null,
     ) {}
 
     /**
@@ -72,6 +73,24 @@ final readonly class AdvanceResult
         );
     }
 
+    /**
+     * The workflow itself will not move, whatever its gates say.
+     *
+     * A hold, a cancellation, or a workflow that never started. This is a
+     * refusal rather than an exception for the same reason an unmet gate is:
+     * S23 has to render it, and *“this workflow is on hold”* is a sentence a
+     * person reads, not a stack trace. Throwing would have made the same
+     * screen a 500 for a state somebody deliberately put the deal into.
+     *
+     * No stage is completed and none is marked blocked — the stage is not the
+     * problem, and marking it would leave a blocked badge behind after the
+     * hold is lifted.
+     */
+    public static function refused(string $explanation): self
+    {
+        return new self(advanced: false, refusal: $explanation);
+    }
+
     public function wasBlocked(): bool
     {
         return ! $this->advanced;
@@ -84,6 +103,10 @@ final readonly class AdvanceResult
      */
     public function reasons(): array
     {
+        if ($this->refusal !== null) {
+            return [$this->refusal];
+        }
+
         return array_values(array_map(
             fn (GateVerdict $verdict): string => $verdict->explanation,
             $this->blockedBy,

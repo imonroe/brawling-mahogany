@@ -14,6 +14,7 @@ use App\Models\Workflow;
 use App\Support\Workflow\AdvanceWorkflow;
 use App\Support\Workflow\Gates\UnknownGateType;
 use App\Support\Workflow\NothingToAdvance;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The single mutation path (PRD §8.3 · issue #68).
@@ -290,15 +291,67 @@ it('throws rather than passing a gate whose type nobody recognises', function ()
     expect($first->fresh()->state)->toBe(StageState::Active);
 });
 
-it('refuses to advance a workflow with no active stage', function (): void {
+/**
+ * A workflow that is not running is refused, not thrown at.
+ *
+ * The refusal is a sentence S23 renders beside an unmet gate, because a hold
+ * is something somebody deliberately did rather than a bug: a listing paused
+ * while the sellers travel is exactly what a hold is for, and the screen
+ * saying so beats a 500.
+ */
+it('refuses to advance a workflow that is not running', function (WorkflowState $state, string $fragment): void {
+    [$workflow] = runningWorkflow($this->deal);
+
+    // Straight onto the row, because most of these are not states the machine
+    // will move to from `active` — which is the point.
+    DB::table('workflows')->where('id', $workflow->getKey())->update(['state' => $state->value]);
+
+    $result = app(AdvanceWorkflow::class)->handle($workflow->fresh(), $this->member);
+
+    expect($result->advanced)->toBeFalse()
+        ->and($result->refusal)->toContain($fragment)
+        ->and($result->reasons())->toHaveCount(1);
+
+    // Nothing moved, and nothing was recorded as having moved.
+    expect(Stage::query()->where('workflow_id', $workflow->getKey())
+        ->where('state', StageState::Complete)->count())->toBe(0)
+        ->and(AuditEntry::query()->where('action', 'workflow.advanced')->count())->toBe(0);
+})->with([
+    'on hold' => [WorkflowState::OnHold, 'on hold'],
+    'cancelled' => [WorkflowState::Cancelled, 'cancelled'],
+    'completed' => [WorkflowState::Completed, 'already finished'],
+    'not started' => [WorkflowState::NotStarted, 'has not started'],
+]);
+
+it('throws when a running workflow has no stage to advance', function (): void {
+    // A different thing entirely, and it still throws: a running workflow with
+    // nothing active means a screen offered a button it should not have.
     $workflow = Workflow::factory()->create([
         'team_id' => $this->team->getKey(),
         'deal_id' => $this->deal->getKey(),
-        'state' => WorkflowState::NotStarted,
+        'state' => WorkflowState::Active,
     ]);
 
     expect(fn () => app(AdvanceWorkflow::class)->handle($workflow, $this->member))
         ->toThrow(NothingToAdvance::class);
+});
+
+it('refuses when the stage somebody was looking at is no longer the active one', function (): void {
+    // Two people on the same screen after a call. The row lock serialises the
+    // clicks but does not merge them: the second transaction re-reads after
+    // the first commits and finds the *next* stage active. Without the
+    // expected-stage check it advances that one too, and the deal moves two
+    // stages with one never worked.
+    [$workflow, $first] = runningWorkflow($this->deal);
+
+    $advance = app(AdvanceWorkflow::class);
+
+    expect($advance->handle($workflow, $this->member, $first->getKey())->advanced)->toBeTrue();
+
+    $result = $advance->handle($workflow->fresh(), $this->member, $first->getKey());
+
+    expect($result->advanced)->toBeFalse()
+        ->and($result->refusal)->toContain('Somebody else advanced this workflow');
 });
 
 it('skips over a skipped stage rather than activating it', function (): void {

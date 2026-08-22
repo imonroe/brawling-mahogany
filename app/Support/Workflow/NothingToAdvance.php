@@ -23,7 +23,7 @@ final class NothingToAdvance extends RuntimeException
     public static function for(Workflow $workflow): self
     {
         return new self(
-            "Workflow [{$workflow->getKey()}] has no active stage to advance "
+            "Workflow [{$workflow->getKey()}] cannot be advanced "
             ."(state: {$workflow->state->value}).",
         );
     }

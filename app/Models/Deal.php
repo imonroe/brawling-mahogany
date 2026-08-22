@@ -8,6 +8,7 @@ use App\Enums\DealState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use App\Models\Concerns\HasStateMachine;
+use App\Support\Tenancy\ForeignReferenceException;
 use Database\Factories\DealFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -90,6 +91,41 @@ class Deal extends Model
             ],
             DealState::Cancelled->value => [],
         ];
+    }
+
+    /**
+     * A deal cannot borrow another team's private deal type.
+     *
+     * The one relationship in the runtime layer that a composite foreign key
+     * cannot police, because a **system** type has `team_id = null` and a
+     * composite key from a NOT NULL `deals.team_id` can never match it
+     * (see the migration). ADR 0002 anticipates exactly this — *"where
+     * Postgres cannot express the constraint, the relationship carries a test
+     * instead"* — and a test alone turned out not to be enough: the first
+     * review of Slice 2 created a deal against another team's private type
+     * and nothing objected.
+     *
+     * So the model carries it, for the same reason Slice 1's identity rule
+     * ended up on `Person`. The deal screens are #74 and not written yet, and
+     * a rule that lives in a controller nobody has written is a rule the
+     * controller will be written without.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $deal): void {
+            if (! $deal->isDirty('deal_type_id')) {
+                return;
+            }
+
+            $type = DealType::query()->whereKey($deal->deal_type_id)->first();
+
+            // Ours, or the shared kind. Never another team's.
+            if ($type instanceof DealType && ($type->isSystem() || $type->team_id === $deal->team_id)) {
+                return;
+            }
+
+            throw ForeignReferenceException::for('deal_types', (string) $deal->deal_type_id, $deal->team_id);
+        });
     }
 
     /**

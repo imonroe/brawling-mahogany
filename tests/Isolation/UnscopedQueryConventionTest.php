@@ -85,6 +85,24 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'the one resolved. Round 3 fixed both of these being scoped.',
     ],
 
+    'Http/Controllers/Settings/ProfileController.php' => [
+        'count' => 2,
+        'reason' => 'A question about the actor: which of my own memberships were '.
+            'carrying my old sign-in address, and does the team I am about to write to '.
+            'already hold the new one. Both span every team I am in by definition — '.
+            'scoping them to the resolved team would leave the other teams showing an '.
+            'address that stopped working.',
+    ],
+
+    'Support/Workflow/InstantiateWorkflow.php' => [
+        'count' => 1,
+        'reason' => 'The deal being instantiated names its own team, and the question '.
+            'is whether the people a caller nominated for the template roles are on '.
+            'that team. It runs before any team is resolved — #74 will call it from a '.
+            'controller, but the service is also called from a queue and from tests — '.
+            'so it scopes to the deal\'s team explicitly, in the query.',
+    ],
+
     'Http/Controllers/Admin/TeamController.php' => [
         'count' => 3,
         'reason' => 'The super-admin console runs above the tenant boundary (ADR 0002), '.
@@ -95,6 +113,14 @@ const SANCTIONED_UNSCOPED_QUERIES = [
         'count' => 2,
         'reason' => 'Same console. Impersonation additionally records a typed reason, '.
             'the team, the person, and when it ended.',
+    ],
+
+    'Actions/Teams/AcceptInvitation.php' => [
+        'count' => 1,
+        'reason' => 'Accepting an invitation has no team context either — the token '.
+            'names the team, and the membership this looks for is the one that team '.
+            'already holds for the address. It is scoped to that team by hand, in the '.
+            'query, which is the only shape a no-tenant context can use.',
     ],
 
     'Http/Controllers/Teams/InvitationController.php' => [

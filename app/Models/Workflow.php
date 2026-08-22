@@ -171,8 +171,17 @@ class Workflow extends Model
             ->first();
     }
 
+    /**
+     * Whether an advance may start from here at all.
+     *
+     * Asked by `AdvanceWorkflow` before anything looks at a stage. It was
+     * written in Slice 2 and called from nowhere for a review round, during
+     * which a cancelled workflow advanced silently — which is the argument for
+     * the guard being a line of the service rather than a habit of its
+     * callers.
+     */
     public function isRunning(): bool
     {
-        return $this->state === WorkflowState::Active;
+        return $this->state->isRunning();
     }
 }

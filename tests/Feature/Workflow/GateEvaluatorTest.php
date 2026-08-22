@@ -16,6 +16,15 @@ use App\Support\Workflow\Gates\UnknownGateType;
  * The rule the whole design rests on: *"adding a gate type means adding a
  * class, never touching advancement logic."* These tests exercise the classes
  * directly, without an advance, which is what proves they are separable.
+ *
+ * **Feature rather than Unit**, and it was in the wrong one first. Every gate
+ * type except the deferred three derives its answer from rows — the tasks on a
+ * stage, a field on the deal, the approver's membership — so these need a real
+ * Postgres. `tests/Pest.php` gives `RefreshDatabase` to everything but `Unit`,
+ * and docs/Testing.md says so plainly: *"everything but Unit talks to a real
+ * Postgres."* In `Unit` they passed locally only because a Feature test had
+ * already migrated the shared database, and failed in CI where the ordering
+ * differed. Order-dependence is a bug in the test, not a flake in the runner.
  */
 beforeEach(function (): void {
     [$this->team, $this->member] = $this->teamWithMember();

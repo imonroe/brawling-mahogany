@@ -111,6 +111,33 @@ it('takes the privilege away again', function (): void {
         ->toBeTrue();
 });
 
+it('does not let --force answer the last-administrator question', function (): void {
+    // `--force` is `ConfirmableTrait`'s production gate, and every operator
+    // types it. Letting it double as the answer here means the one prompt
+    // worth reading is the one nobody is ever asked.
+    $person = Person::factory()->create(['email' => 'operator@example.test']);
+    $person->forceFill(['is_super_admin' => true])->save();
+
+    $this->artisan('platform:promote', [
+        'email' => 'operator@example.test',
+        '--demote' => true,
+        '--force' => true,
+    ])
+        ->expectsConfirmation('Demote them anyway?', 'no')
+        ->assertFailed();
+
+    expect($person->fresh()->is_super_admin)->toBeTrue();
+
+    // Its own flag says it out loud, and is the only thing that skips it.
+    $this->artisan('platform:promote', [
+        'email' => 'operator@example.test',
+        '--demote' => true,
+        '--demote-last' => true,
+    ])->assertSuccessful();
+
+    expect($person->fresh()->is_super_admin)->toBeFalse();
+});
+
 it('warns before demoting the last administrator, and can be told to anyway', function (): void {
     $person = Person::factory()->create(['email' => 'operator@example.test']);
     $person->forceFill(['is_super_admin' => true])->save();

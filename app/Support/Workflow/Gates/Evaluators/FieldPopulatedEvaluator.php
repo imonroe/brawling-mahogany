@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Workflow\Gates\Evaluators;
 
+use App\Models\Deal;
 use App\Models\Gate;
 use App\Support\Workflow\Gates\GateEvaluator;
 use App\Support\Workflow\Gates\GateVerdict;
@@ -54,7 +55,24 @@ final class FieldPopulatedEvaluator implements GateEvaluator
             );
         }
 
-        $deal = $gate->stage->workflow->deal;
+        /*
+         * Walked one link at a time, because the chain can legitimately break.
+         *
+         * A soft-deleted deal, or a stage whose workflow went with it, leaves
+         * a gate pointing at nothing — and `$gate->stage->workflow->deal`
+         * turns that into a 500 on the advance screen. Every other refusal in
+         * this evaluator explains itself; this one has no business being the
+         * exception, least of all by throwing.
+         */
+        $deal = $gate->stage?->workflow?->deal;
+
+        if (! $deal instanceof Deal) {
+            return GateVerdict::unmet(
+                'This gate is attached to a deal that no longer exists, so it cannot be checked.',
+                ['type' => 'gate_config', 'gate' => $gate->getKey()],
+            );
+        }
+
         $value = $deal->getAttribute($field);
         $description = self::ASKABLE[$field];
 

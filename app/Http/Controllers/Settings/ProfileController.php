@@ -8,6 +8,7 @@ use App\Actions\Teams\RevokeMembership;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileDeleteRequest;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
@@ -55,11 +56,58 @@ class ProfileController extends Controller
 
         $person->fill(['email' => $validated['email'] ?? null]);
 
-        if ($person->isDirty('email')) {
+        $previousAddress = $person->getRawOriginal('email');
+        $addressChanged = $person->isDirty('email');
+
+        if ($addressChanged) {
             $person->email_verified_at = null;
         }
 
         $person->save();
+
+        /*
+         * The sign-in address and the address a team holds are two columns
+         * (#140), and changing one has to move the other or the members list
+         * shows an address that stopped working.
+         *
+         * Only the memberships that were carrying the **old login address**.
+         * A membership whose address a team typed for itself — a contact who
+         * later got a login through some other route — is that team's record
+         * of how to reach them, and a person editing their own profile is not
+         * entitled to rewrite it. Matching on the old address is what tells
+         * the two apart without needing a flag to remember.
+         */
+        if ($addressChanged && is_string($previousAddress) && $previousAddress !== '') {
+            $carryingOldAddress = TeamMembership::withoutTeamScope()
+                ->where('person_id', $person->getKey())
+                ->whereNull('revoked_at')
+                ->whereRaw('lower(email) = ?', [mb_strtolower($previousAddress)])
+                ->get();
+
+            foreach ($carryingOldAddress as $held) {
+                /*
+                 * One team cannot hold one address twice, and the new one may
+                 * already be in this team's directory as somebody else — a
+                 * contact a colleague added last week, say. The index would
+                 * refuse the write, and a 500 on the profile screen is a
+                 * worse answer than a stale address on the members list.
+                 *
+                 * So the team keeps what it had, and the login address changes
+                 * regardless: the two columns exist precisely because they are
+                 * allowed to disagree.
+                 */
+                $taken = TeamMembership::withoutTeamScope()
+                    ->where('team_id', $held->team_id)
+                    ->whereKeyNot($held->getKey())
+                    ->whereNull('revoked_at')
+                    ->whereRaw('lower(email) = ?', [mb_strtolower((string) $person->email)])
+                    ->exists();
+
+                if (! $taken) {
+                    $held->forceFill(['email' => $person->email])->save();
+                }
+            }
+        }
 
         $team = $teams->get();
         $membership = $team === null ? null : $person->membershipIn($team);

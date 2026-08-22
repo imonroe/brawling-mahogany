@@ -24,6 +24,10 @@ class UpdatePersonRequest extends FormRequest
      */
     public function rules(): array
     {
-        return $this->personRules();
+        // Ignoring their own row, or editing anything at all on somebody with
+        // an address would refuse for colliding with themselves.
+        $membership = $this->route('membership');
+
+        return $this->personRules($membership instanceof TeamMembership ? $membership : null);
     }
 }
