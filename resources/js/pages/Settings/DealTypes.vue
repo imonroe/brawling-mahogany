@@ -79,8 +79,12 @@ const editingId = ref<string | null>(null);
 /*
  * The row with an archive or restore in flight, so its buttons can be
  * disabled. Without it a double-click sends the request twice, and the second
- * one is refused — archiving an already-archived type is a 403 — which
+ * one is refused — restoring an already-restored type is a 403 — which
  * surfaces as an error modal rather than as nothing at all.
+ *
+ * Archive is incidentally protected by its `window.confirm`, which blocks the
+ * second click until the first is answered. Restore has no dialog and is the
+ * one that actually needed this.
  */
 const busyId = ref<string | null>(null);
 
@@ -133,18 +137,32 @@ function archive(type: DealType): void {
         return;
     }
 
+    busyId.value = type.id;
+
     router.post(
         `/settings/deal-types/${type.id}/archive`,
         {},
-        { preserveScroll: true },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                busyId.value = null;
+            },
+        },
     );
 }
 
 function restore(type: DealType): void {
+    busyId.value = type.id;
+
     router.post(
         `/settings/deal-types/${type.id}/restore`,
         {},
-        { preserveScroll: true },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                busyId.value = null;
+            },
+        },
     );
 }
 </script>

@@ -18,7 +18,9 @@ const page = usePage();
 /*
  * A person's own account first, then the team's. IA §5.1: a section somebody
  * lacks the permission for is **hidden**, never shown disabled — so an
- * ordinary Team Member sees three items here and a Team Owner sees six.
+ * ordinary Team Member sees the three personal items and a Team Owner sees
+ * those plus every team section they hold the permission for. Deliberately
+ * not a count: it went stale the first time a section was added.
  */
 const sidebarNavItems = computed<NavItem[]>(() => {
     const items: NavItem[] = [

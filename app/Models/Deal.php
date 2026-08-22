@@ -8,6 +8,7 @@ use App\Enums\DealState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use App\Models\Concerns\HasStateMachine;
+use App\Support\Tenancy\ArchivedReferenceException;
 use App\Support\Tenancy\ForeignReferenceException;
 use Database\Factories\DealFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -168,11 +169,29 @@ class Deal extends Model
         $type = DealType::query()->whereKey($this->deal_type_id)->first();
 
         // Ours, or the shared kind. Never another team's.
-        if ($type instanceof DealType && ($type->isSystem() || $type->team_id === $this->team_id)) {
-            return;
+        if (! $type instanceof DealType || (! $type->isSystem() && $type->team_id !== $this->team_id)) {
+            throw ForeignReferenceException::for('deal_types', (string) $this->deal_type_id, $this->team_id);
         }
 
-        throw ForeignReferenceException::for('deal_types', (string) $this->deal_type_id, $this->team_id);
+        /*
+         * And not one that has been archived.
+         *
+         * S76's archive dialog promises *"no new deal will be able to use
+         * it"*, and nothing was keeping that promise: `scopeSelectable()`
+         * existed for the pickers and had no production caller, so an archived
+         * id posted by hand — or held in a form somebody left open while a
+         * colleague archived the type — was accepted.
+         *
+         * Only when the column is changing, which the `isDirty` check above
+         * already guarantees. A deal that already points at a type archived
+         * since is untouched, and stays renameable and closeable: taking a
+         * type out of the pickers must never strand the deals that were
+         * already on it, which is the whole reason archiving exists here
+         * instead of deletion.
+         */
+        if ($type->isArchived()) {
+            throw ArchivedReferenceException::for('deal_types', $type->getKey());
+        }
     }
 
     /**

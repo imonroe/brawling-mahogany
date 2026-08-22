@@ -13,6 +13,7 @@ use App\Models\Deal;
 use App\Models\DealType;
 use App\Support\Audit\AuditLogger;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -241,14 +242,28 @@ class DealTypeController extends Controller
          * only thing in the way, and renaming the other one is a fix somebody
          * can carry out.
          */
+        $nameTaken = "Another deal type is called “{$dealType->name}” now. "
+            .'Rename that one first, then restore this.';
+
         if (DealTypeRules::nameIsTaken($dealType->name, $dealType)) {
-            throw ValidationException::withMessages([
-                'restore' => "Another deal type is called “{$dealType->name}” now. "
-                    .'Rename that one first, then restore this.',
-            ]);
+            throw ValidationException::withMessages(['restore' => $nameTaken]);
         }
 
-        $dealType->forceFill(['archived_at' => null])->save();
+        try {
+            $dealType->forceFill(['archived_at' => null])->save();
+        } catch (UniqueConstraintViolationException) {
+            /*
+             * The check above and this write are two statements, and the index
+             * is the only thing that is actually atomic. Two people restoring
+             * two types with the same name in the same second both pass the
+             * check and one loses at the index.
+             *
+             * Narrow window, ordinary outcome, and the same sentence either
+             * way — the second person needs to be told the name is taken, not
+             * shown a stack trace for having been half a second later.
+             */
+            throw ValidationException::withMessages(['restore' => $nameTaken]);
+        }
 
         $audit->record(
             action: 'deal_type.restored',

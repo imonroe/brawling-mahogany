@@ -7,6 +7,7 @@ use App\Enums\DealState;
 use App\Models\AuditEntry;
 use App\Models\Deal;
 use App\Models\DealType;
+use App\Support\Tenancy\ArchivedReferenceException;
 
 /**
  * S76 — deal types (issue #58 · PRD §4.3 F3.1, §7.6).
@@ -158,19 +159,27 @@ it('folds case the way the index folds it', function (string $first, string $sec
     expect(DealType::query()->where('team_id', $this->team->getKey())->count())->toBe(1);
 })->with([
     /*
-     * Each pair verified against this database rather than assumed:
+     * **Order matters, and the first version of this got it backwards.**
      *
-     *   lower('ΑΣ')        → 'ασ'   ·  mb_strtolower('ΑΣ')        → 'ας'
-     *   lower('İstanbul')  → 'istanbul'
-     *   lower('Istanbul')  → 'istanbul'  (Postgres merges these two…)
-     *   mb_strtolower('İstanbul') → 'i̇stanbul'  (…and PHP does not)
+     * The old rule compared `lower(stored)` against a PHP-folded literal, so
+     * whether it caught a pair depended on which name was stored first. Each
+     * row below was checked against this database — `lower(stored) = <the PHP
+     * folding of the second name>` — rather than assumed:
      *
-     * So every pair below is one row to the index and was two to the old
-     * rule — a duplicate that walked past validation and landed as a 500.
+     *   stored 'İstanbul Sale', typed 'Istanbul Sale'  → matched (caught)
+     *   stored 'Istanbul Sale', typed 'İstanbul Sale'  → NO match (escaped)
+     *   stored 'ΑΣ Sale',       typed 'ΑΣ Sale'        → NO match (escaped)
+     *   stored 'Land Sale',     typed 'LAND SALE'      → matched (caught)
+     *
+     * So the two non-ASCII rows are the regression cases: each is one row to
+     * the index and was two to the old rule, which is a duplicate walking past
+     * validation into a 500. The ASCII row is a **control** — it always
+     * worked, and it is here so a future narrowing of the rule cannot break
+     * the ordinary case unnoticed.
      */
     'final sigma' => ['ΑΣ Sale', 'ΑΣ Sale'],
-    'dotted capital I against a plain one' => ['İstanbul Sale', 'Istanbul Sale'],
-    'plain ascii' => ['Land Sale', 'LAND SALE'],
+    'plain I stored, dotted I typed' => ['Istanbul Sale', 'İstanbul Sale'],
+    'plain ascii (control — always worked)' => ['Land Sale', 'LAND SALE'],
 ]);
 
 /**
@@ -343,6 +352,48 @@ it('restores an archived type', function (): void {
         ->assertRedirect('/settings/deal-types');
 
     expect($type->fresh()->isArchived())->toBeFalse();
+});
+
+/**
+ * The archive dialog promises *"no new deal will be able to use it"*.
+ * Something has to keep that promise.
+ *
+ * `scopeSelectable()` takes an archived type out of the pickers, but a picker
+ * is a suggestion: an id posted by hand, or held in a form somebody left open
+ * while a colleague archived the type, reached the database unopposed.
+ */
+it('refuses to open a new deal on an archived type', function (): void {
+    $type = DealType::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->post("/settings/deal-types/{$type->getKey()}/archive")->assertSessionHasNoErrors();
+
+    expect(fn () => Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => $type->fresh()->getKey(),
+    ]))->toThrow(ArchivedReferenceException::class);
+});
+
+it('leaves the deals already on a type alone when it is archived', function (): void {
+    /*
+     * The other half, and the more important one. Taking a type out of the
+     * pickers must never strand the deals already on it — that is the whole
+     * reason archiving exists here instead of deletion, and a guard that
+     * refused every save would have turned the safe operation into the
+     * destructive one.
+     */
+    $type = DealType::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $deal = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_type_id' => $type->getKey(),
+    ]);
+
+    $this->post("/settings/deal-types/{$type->getKey()}/archive");
+
+    $deal->fresh()->forceFill(['name' => '11 Ash Court'])->save();
+
+    expect($deal->fresh()->name)->toBe('11 Ash Court')
+        ->and($deal->fresh()->deal_type_id)->toBe($type->getKey());
 });
 
 it('has no route that deletes a deal type', function (): void {

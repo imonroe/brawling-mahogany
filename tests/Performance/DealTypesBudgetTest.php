@@ -69,14 +69,21 @@ it('does not grow its query count with the number of deal types', function (): v
 
     $large = countDealTypeQueries(fn () => $this->get('/settings/deal-types')->assertOk());
 
-    // Ten times the rows, and the same page. `$small` is the count for the
-    // *pair* of requests because the listener accumulates, so the comparison
-    // is the second against the first rather than an absolute.
-    expect($large - $small)->toBeLessThanOrEqual(
+    /*
+     * **Exactly equal**, which is `PeopleIndexBudgetTest`'s assertion and the
+     * only one that catches this.
+     *
+     * The first version allowed `$large - $small <= $small` — that is,
+     * `$large <= 2 × $small` — and round 2 disproved it the right way, by
+     * restoring the per-row count and watching the test still pass. A budget
+     * that a tenfold N+1 fits inside is not a budget.
+     */
+    expect($large)->toBe(
         $small,
         'The deal types screen gained queries as it gained rows. The per-row '
-        .'deal count is the usual cause: one grouped count(*) for the page, '
-        .'not one per type.',
+        .'deal count is the usual cause, and so is asking the policy per row: '
+        .'one grouped count(*) and one permission check for the page, not one '
+        .'of each per type.',
     );
 });
 
