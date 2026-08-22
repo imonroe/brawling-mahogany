@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Actions\Teams\InvitePersonToTeam;
+use App\Actions\Teams\IssueInvitationLink;
 use App\Actions\Teams\ProvisionTeam;
 use App\Enums\SystemRole;
 use App\Http\Controllers\Controller;
 use App\Models\Role;
 use App\Models\Team;
+use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use App\Support\Tenancy\TeamContext;
@@ -88,6 +90,30 @@ class TeamController extends Controller
                         ->whereNull('revoked_at')
                         ->count(),
                 ],
+                /*
+                 * The invitations this team is still waiting on (ADR 0003).
+                 *
+                 * The console's first act is to provision a team *and invite
+                 * its owner*, and until this list existed the only record of
+                 * that invitation was a message the operator could not see,
+                 * resend, or replace. On an install with no mail transport —
+                 * every fresh local environment, and staging by design — the
+                 * product had no first user and no screen that admitted it.
+                 */
+                'invitations' => TeamInvitation::withoutTeamScope()
+                    ->where('team_id', $model->getKey())
+                    ->pending()
+                    ->with('role:id,name')
+                    ->get()
+                    ->map(fn (TeamInvitation $invitation): array => [
+                        'id' => $invitation->getKey(),
+                        'email' => $invitation->email,
+                        'role' => $invitation->role->name,
+                        'expiresAt' => $invitation->expires_at->toIso8601String(),
+                    ])->all(),
+                // Shown once, then gone: only the hash is stored, so there is
+                // nothing to read back on a later visit.
+                'issuedLink' => session('invitationLink'),
                 'members' => TeamMembership::withoutTeamScope()
                     ->where('team_id', $model->getKey())
                     ->whereHas('roles', fn ($query) => $query->whereIn('roles.key', [
@@ -132,6 +158,56 @@ class TeamController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Team provisioned and the owner invited.')]);
 
         return to_route('admin.teams.show', ['team' => $team->getKey()]);
+    }
+
+    /**
+     * The accept link for an invitation this console sent (ADR 0003).
+     *
+     * PRD §5.1 step 1 is *"Ian provisions a team and invites the owner"*, and
+     * step 2 was silently *"and hopes the mail landed"*. A platform operator
+     * already holds every privilege over every team; handing them a link to
+     * an invitation they caused adds nothing, and it is what makes the first
+     * customer reachable on an install where mail goes nowhere.
+     *
+     * Audited like everything else the console does — `IssueInvitationLink`
+     * writes the entry against the team, with this administrator as actor.
+     */
+    public function issueInvitationLink(
+        Request $request,
+        string $team,
+        string $invitation,
+        TeamContext $teams,
+        IssueInvitationLink $issue,
+    ): RedirectResponse {
+        $link = $teams->runWithoutScope(function () use ($team, $invitation, $request, $issue): ?array {
+            $model = TeamInvitation::withoutTeamScope()
+                ->where('team_id', $team)
+                ->pending()
+                // A deleted team takes its invitations with it. Without this
+                // the link mints happily and then 500s on S04, where
+                // `$invitation->team()->sole()` finds nothing.
+                ->whereHas('team')
+                ->whereKey($invitation)
+                ->first();
+
+            if (! $model instanceof TeamInvitation) {
+                return null;
+            }
+
+            return [
+                'id' => $model->getKey(),
+                'email' => $model->email,
+                'url' => $issue->handle($model, $request->user()),
+            ];
+        });
+
+        if ($link === null) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('That invitation is no longer live.')]);
+
+            return to_route('admin.teams.show', ['team' => $team]);
+        }
+
+        return to_route('admin.teams.show', ['team' => $team])->with('invitationLink', $link);
     }
 
     public function suspend(string $team, TeamContext $teams, AuditLogger $audit): RedirectResponse

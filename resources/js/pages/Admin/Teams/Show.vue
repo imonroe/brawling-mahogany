@@ -9,6 +9,8 @@
 import { Head, router } from '@inertiajs/vue3';
 import AppButton from '@/components/app/AppButton.vue';
 import Card from '@/components/app/Card.vue';
+import EmptyState from '@/components/app/EmptyState.vue';
+import InvitationLinkPanel from '@/components/app/InvitationLinkPanel.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { formatDate } from '@/lib/formatters';
@@ -24,6 +26,20 @@ const props = defineProps<{
         createdAt: string | null;
     };
     usage: { members: number; activeMembers: number };
+    /**
+     * Outstanding invitations (ADR 0003). The console provisions a team *and
+     * invites its owner*, and this is the only place that invitation can be
+     * seen, replaced, or delivered by hand — which is the whole of onboarding
+     * on an install where mail goes nowhere.
+     */
+    invitations: {
+        id: string;
+        email: string;
+        role: string;
+        expiresAt: string;
+    }[];
+    /** The link just minted, if this render followed a request for one. */
+    issuedLink: { id: string; email: string; url: string } | null;
     members: {
         id: string;
         name: string;
@@ -43,6 +59,25 @@ function suspend(): void {
     }
 
     router.post(`/admin/teams/${props.team.id}/suspend`);
+}
+
+/**
+ * Mint the accept link for an invitation this console sent.
+ *
+ * It replaces whatever was emailed, so the confirmation says so — a platform
+ * operator invalidating a customer's live link without being told would be a
+ * support call, not a feature.
+ */
+function issueInvitationLink(id: string, email: string): void {
+    if (
+        !window.confirm(
+            `Generate an invitation link for ${email}? Any link already emailed to them stops working.`,
+        )
+    ) {
+        return;
+    }
+
+    router.post(`/admin/teams/${props.team.id}/invitations/${id}/link`);
 }
 
 function restore(): void {
@@ -88,6 +123,42 @@ function restore(): void {
                 <p class="px-4 py-4 text-13">{{ team.timezone }}</p>
             </Card>
         </div>
+
+        <InvitationLinkPanel v-if="issuedLink" :link="issuedLink" />
+
+        <Card title="Pending invitations">
+            <EmptyState
+                v-if="invitations.length === 0"
+                title="No invitations outstanding"
+                description="Anyone invited to this team shows up here until they accept."
+            />
+            <ul v-else class="flex flex-col">
+                <li
+                    v-for="invitation in invitations"
+                    :key="invitation.id"
+                    class="flex min-h-11 flex-wrap items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
+                >
+                    <span class="min-w-0 flex-1 truncate text-13">{{
+                        invitation.email
+                    }}</span>
+                    <StatusBadge
+                        tone="neutral"
+                        :label="invitation.role"
+                        dotless
+                    />
+                    <span class="tabular text-[11px] text-muted-foreground"
+                        >Expires {{ formatDate(invitation.expiresAt) }}</span
+                    >
+                    <AppButton
+                        variant="ghost"
+                        @click="
+                            issueInvitationLink(invitation.id, invitation.email)
+                        "
+                        >Get link</AppButton
+                    >
+                </li>
+            </ul>
+        </Card>
 
         <Card title="Team access">
             <ul class="flex flex-col">

@@ -68,6 +68,21 @@ export type CurrentTeam = {
     logoPath: string | null;
 };
 
+/**
+ * An invitation waiting for whoever is signed in (ADR 0003 · S09).
+ *
+ * Shared on every response rather than fetched per screen: the shell renders
+ * a banner from it, and somebody who has just been invited is by definition
+ * somebody who does not know where to go looking.
+ */
+export type PendingInvitation = {
+    id: string;
+    teamName: string;
+    /** The role the invitation carries, by its display name. */
+    role: string;
+    expiresAt: string;
+};
+
 /** One entry in the team switcher (S09). */
 export type TeamOption = {
     id: string;

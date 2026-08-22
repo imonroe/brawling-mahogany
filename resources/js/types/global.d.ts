@@ -1,4 +1,4 @@
-import type { Auth } from '@/types/auth';
+import type { Auth, PendingInvitation } from '@/types/auth';
 
 // Extend ImportMeta interface for Vite...
 declare module 'vite/client' {
@@ -18,6 +18,8 @@ declare module '@inertiajs/core' {
         sharedPageProps: {
             name: string;
             auth: Auth;
+            /** ADR 0003 — see `PendingInvitation`. */
+            invitations: PendingInvitation[];
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

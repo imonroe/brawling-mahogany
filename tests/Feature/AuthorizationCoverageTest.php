@@ -31,6 +31,13 @@ const UNGATED_ROUTES = [
     'invitations.show',
     'invitations.accept',
 
+    // Same situation, no token (ADR 0003). There is no team to hold a policy
+    // — that *is* the case — and the authorisation is that the signed-in
+    // account's own address is the invited one, which
+    // `PendingInvitations::find()` is the only thing that performs. A miss is
+    // a 404, so nothing can be probed by walking ids either.
+    'invitations.claim',
+
     // The team switcher authorises by construction: it can only choose from
     // the teams the person already holds a live membership in, and anything
     // else is a 404.

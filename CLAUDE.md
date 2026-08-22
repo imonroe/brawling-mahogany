@@ -35,7 +35,7 @@ Before making architectural decisions or writing code, read [`docs/Product Requi
 | [`Testing.md`](docs/Testing.md) | The four test suites, the conventions every slice inherits, and the tests that hold project rules |
 | [`Environment and secrets.md`](docs/Environment%20and%20secrets.md) | Which secrets exist per environment, and how they are rotated |
 | [`Deployment.md`](docs/Deployment.md) | Staging and production, backups, and the restore drill |
-| [`adr/`](docs/adr) | Architecture decisions: persistence conventions, multi-tenancy enforcement |
+| [`adr/`](docs/adr) | Architecture decisions: persistence conventions, multi-tenancy enforcement, no email-only flows |
 | [`Rough data model.canvas`](docs/Rough%20data%20model.canvas) | First-pass data model (superseded in detail by PRD §6, but useful for visual orientation) |
 | [`The basic idea.md`](docs/The%20basic%20idea.md), [`Conversation with Emily and Heather.md`](docs/Conversation%20with%20Emily%20and%20Heather.md) | Origin material — useful for *why*, not for current spec |
 
@@ -68,6 +68,17 @@ These come from PRD §8 and should guide the eventual build:
 - **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
 - **A lookup is archived, never deleted.** Deal types (S76) is the first of these and sets the pattern for roles (S75), template packs, and every other lookup screen: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
+- **No user flow depends on email alone.** Every flow the product initiates by
+  email carries a second way to start or answer it that does not involve email
+  — the recipient answering in-app, somebody who already controls the flow
+  handing the artifact over, or an operator issuing it from the console. Email
+  is a channel we do not control, and Slice 1's invitation was unanswerable on
+  any install without a mail transport. Built in Slice 2 — see
+  [`docs/adr/0003`](docs/adr/0003-no-email-only-flows.md). New mailables **and
+  notifications that send mail** are catalogued in
+  `App\Support\Mail\EmailIndependence`, and
+  `tests/Unit/EmailIndependenceTest.php` fails the build when one has no second
+  door, or names one that does not resolve.
 
 ## Data handling and security
 
@@ -100,6 +111,8 @@ These come from PRD §8 and should guide the eventual build:
 | `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
 | `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it (`--demote-last` to skip the only-administrator warning). Audited |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
+| `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation, with no mail transport and no session (ADR 0003). `--team=<slug>` when the address is invited to more than one. Rotates the token, so it replaces any link already sent. Audited |
+| `php artisan auth:reset-link <email>` | Print a single-use password reset link for an existing account (ADR 0003). Starts a reset; only the account holder can finish one. Audited |
 
 `composer check` and `npm run check` are exactly what the pipeline runs. If one
 passes locally and fails in CI, that is a bug in the scripts, not something to

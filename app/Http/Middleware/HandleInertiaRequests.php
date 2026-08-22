@@ -9,6 +9,7 @@ use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Admin\Impersonation;
 use App\Support\Permissions;
+use App\Support\Teams\PendingInvitations;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -68,6 +69,26 @@ class HandleInertiaRequests extends Middleware
             'teams' => $person === null ? [] : $person->activeTeams()->map(
                 fn (Team $each): array => ['id' => $each->getKey(), 'name' => $each->name],
             )->all(),
+            /*
+             * Invitations waiting for whoever is signed in (ADR 0003 · S09).
+             *
+             * Shared rather than fetched per screen, for the same reason the
+             * team list is: the shell renders a banner from it, and a person
+             * who has just been invited is by definition somebody who does
+             * not know where to go looking. One indexed lookup on a folded
+             * address — see `team_invitations_pending_email` — and empty for
+             * the overwhelming majority of requests.
+             *
+             * **Never during impersonation.** A support session acts with the
+             * customer's permissions so that an administrator can see what
+             * they see; joining another team on their behalf is not seeing,
+             * it is a cross-tenant membership grant in one click, and
+             * `finalise()` would sign the audit entry with the customer's
+             * name rather than the administrator's.
+             */
+            'invitations' => Impersonation::isActive($request)
+                ? []
+                : PendingInvitations::propsFor($person),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

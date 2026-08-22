@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Settings;
 
 use App\Actions\Teams\InvitePersonToTeam;
+use App\Actions\Teams\IssueInvitationLink;
 use App\Actions\Teams\RevokeMembership;
 use App\Http\Controllers\Controller;
 use App\Models\Role;
@@ -59,6 +60,15 @@ class MemberController extends Controller
                     'role' => $invitation->role->name,
                     'expiresAt' => $invitation->expires_at->toIso8601String(),
                 ])->all(),
+            /*
+             * The link somebody just asked for (ADR 0003), shown once.
+             *
+             * Flashed through the redirect rather than held on the
+             * invitation, because the invitation holds only a hash — there is
+             * nothing to re-read, and a link that reappeared on every visit
+             * would be a stored credential by another name.
+             */
+            'issuedLink' => session('invitationLink'),
             'assignableRoles' => Role::query()
                 ->assignableWithinTeam($team)
                 ->orderBy('name')
@@ -174,9 +184,47 @@ class MemberController extends Controller
             lastName: $validated['last_name'] ?? null,
         );
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Invitation sent.')]);
+        // ADR 0003: the message is one channel, not the only one. Saying so
+        // here is what stops "she never got it" from being a dead end.
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => __('Invitation sent. You can also copy the link below and send it yourself.'),
+        ]);
 
         return to_route('members.index');
+    }
+
+    /**
+     * Hand the invite link over instead of relying on the message (ADR 0003).
+     *
+     * The rule is that no flow may depend on email alone, and an invitation
+     * is the flow that rule was written for: a team owner whose message
+     * bounced, went to spam, or was sent from an environment with no mail
+     * transport at all had no way to get their colleague in. Now they copy
+     * the link and send it however they like.
+     *
+     * This is not a new privilege — whoever can press this can already
+     * invite, revoke, and re-invite the same address. See
+     * `IssueInvitationLink` for why it rotates the token, and for the cost.
+     */
+    public function issueLink(Request $request, TeamInvitation $invitation, IssueInvitationLink $issue): RedirectResponse
+    {
+        $this->authorize('issueLink', $invitation);
+
+        if (! $invitation->isPending()) {
+            // Expired, revoked, or already spent. Minting a link for one
+            // would produce a URL that lands on S04's failure state, which
+            // reads as a broken button rather than a spent invitation.
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('That invitation is no longer live. Send a new one.')]);
+
+            return to_route('members.index');
+        }
+
+        return to_route('members.index')->with('invitationLink', [
+            'id' => $invitation->getKey(),
+            'email' => $invitation->email,
+            'url' => $issue->handle($invitation, $request->user()),
+        ]);
     }
 
     public function revokeInvitation(TeamInvitation $invitation): RedirectResponse

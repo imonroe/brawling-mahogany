@@ -50,6 +50,9 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     // S74 — members and invitations.
     Route::get('settings/members', [MemberController::class, 'index'])->name('members.index');
     Route::post('settings/members/invitations', [MemberController::class, 'invite'])->name('members.invite');
+    // ADR 0003: an invitation must be deliverable by hand as well as by mail.
+    Route::post('settings/members/invitations/{invitation}/link', [MemberController::class, 'issueLink'])
+        ->name('members.invitations.link');
     Route::delete('settings/members/invitations/{invitation}', [MemberController::class, 'revokeInvitation'])
         ->name('members.invitations.revoke');
     Route::delete('settings/members/{membership}', [MemberController::class, 'revoke'])->name('members.revoke');
