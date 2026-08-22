@@ -72,6 +72,13 @@ containers write appears in the repository owned by that user. If `id -u` and
 `id -g` do not say 1000, set them in `.env` and run `make build` — they are
 baked into the image.
 
+If the containers ever ran as root — anything built before this was in place —
+the working tree still holds root-owned files they generated: Wayfinder's
+output, compiled views, Inertia's devtools state. Git never cleans them up,
+because git never tracked them, and the symptom is a `Vite manifest not found`
+500 with `wayfinder:generate` failing on *Permission denied* behind it. Run
+`make fix-perms` once.
+
 That builds the images, starts the stack, generates an application key, and
 migrates the database. When it finishes:
 

@@ -75,6 +75,9 @@
     --color-brand: var(--brand);
     --color-brand-foreground: var(--brand-foreground);
 
+    /* The ground the product mark sits on — Design System §2.6. */
+    --color-logo-plate: var(--logo-plate);
+
     --color-sidebar: var(--sidebar);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar-primary: var(--sidebar-primary);
@@ -138,6 +141,14 @@
     --brand: var(--primary);
     --brand-foreground: var(--primary-foreground);
 
+    /*
+      The product mark is a fixed two-tone PNG: it cannot recolour per theme
+      the way an SVG on `currentColor` can. In light mode it already sits on a
+      light page, so the plate is the page and nothing is drawn. Dark mode
+      gives it its own light ground — see the .dark block.
+    */
+    --logo-plate: var(--background);
+
     --sidebar: oklch(1 0 0);
     --sidebar-foreground: oklch(0.28 0.02 250);
     --sidebar-primary: oklch(0.45 0.11 250);
@@ -192,6 +203,9 @@
 
     --brand: var(--primary);
     --brand-foreground: var(--primary-foreground);
+
+    /* Near-white, so the mark's darkest tone keeps its full contrast. */
+    --logo-plate: oklch(0.97 0.005 250);
 
     --sidebar: oklch(0.19 0.012 250);
     --sidebar-foreground: oklch(0.93 0.005 250);

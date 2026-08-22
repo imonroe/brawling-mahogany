@@ -21,11 +21,7 @@ withDefaults(defineProps<{ title?: string; description?: string }>(), {
         <div class="flex w-full max-w-sm flex-col gap-8">
             <div class="flex flex-col items-center gap-4">
                 <Link href="/" class="flex flex-col items-center gap-2">
-                    <span
-                        class="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground"
-                    >
-                        <AppLogoIcon class="size-5 fill-current" />
-                    </span>
+                    <AppLogoIcon class="size-9 dark:p-1" />
                     <span class="sr-only">Home</span>
                 </Link>
                 <div class="flex flex-col gap-2 text-center">

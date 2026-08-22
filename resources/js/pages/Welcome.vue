@@ -11,11 +11,7 @@ defineProps<{ name?: string }>();
     <div
         class="flex min-h-svh flex-col items-center justify-center gap-6 bg-background p-6"
     >
-        <span
-            class="flex size-11 items-center justify-center rounded-md bg-primary text-primary-foreground"
-        >
-            <AppLogoIcon class="size-6 fill-current" />
-        </span>
+        <AppLogoIcon class="size-50 dark:p-4" />
         <div class="flex max-w-md flex-col gap-2 text-center">
             <h1 class="text-2xl font-semibold text-foreground">
                 {{ $page.props.name }}

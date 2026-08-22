@@ -254,6 +254,26 @@ The `.dark` block inverts lightness and lifts chroma slightly on state colors so
 }
 ```
 
+**`--logo-plate`, the one token that exists because of dark mode.** Everything
+else here inverts. The product mark cannot: it is a fixed two-tone PNG, so
+unlike an SVG drawn in `currentColor` it has no way to answer the theme. Its
+darker tone is near-black, which on the dark ground leaves half the mark
+invisible — the shape reads as a fragment rather than a whole.
+
+```css
+:root { --logo-plate: var(--background);        /* the page is already the plate */ }
+.dark { --logo-plate: oklch(0.97 0.005 250);    /* so the darkest tone keeps its contrast */ }
+```
+
+`AppLogoIcon` applies it as `dark:bg-logo-plate` — dark only, because in light
+mode the mark already sits on a light page and a plate would be a white square
+on white. The inset is left to each call site: the mark appears at 200px and at
+32px, and one padding value cannot serve both.
+
+The general rule this illustrates: **a raster asset cannot participate in the
+token layer.** Where a mark has to work in both themes, the alternatives are a
+plate like this one, or a second asset authored for dark.
+
 ### 2.7 Team branding
 
 **Team branding applies to client-facing surfaces only:** the status page (S61 to S64) and transactional emails (S86 to S91). The internal app always wears the product's own palette.

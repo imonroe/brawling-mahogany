@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue';
 
+// Imported rather than written as a literal src: Vite fingerprints the file
+// and rewrites the URL for the built bundle. `transformAssetUrls` is switched
+// off for absolute paths in vite.config.ts, so a path in the template would
+// ship unrewritten and 404 against the hashed build output.
+import goldieflow from '../../../img/goldieflow.png';
+
 defineOptions({
     inheritAttrs: false,
 });
@@ -13,17 +19,25 @@ defineProps<Props>();
 </script>
 
 <template>
-    <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 40 42"
+    <!-- `object-contain` lives here, not at the call sites: the mark is 734x779,
+         so a square box would stretch it, and that is a property of the asset
+         rather than of any one place it appears.
+
+         The plate is the same kind of decision. The mark is a fixed two-tone
+         PNG, so its darkest tone all but disappears on the dark theme's
+         near-black ground; `--logo-plate` gives it a light one. Dark only —
+         in light mode the page is already the plate. The inset belongs to the
+         call sites, which are the ones that know how big the mark is: the
+         same padding cannot serve 200px and 32px.
+
+         Decorative `alt`: every call site already carries the product name in
+         text beside or beneath the mark, so naming it again only adds noise
+         for a screen reader. -->
+    <img
+        :src="goldieflow"
+        alt=""
+        class="object-contain dark:rounded-lg dark:bg-logo-plate"
         :class="className"
         v-bind="$attrs"
-    >
-        <path
-            fill="currentColor"
-            fill-rule="evenodd"
-            clip-rule="evenodd"
-            d="M17.2 5.633 8.6.855 0 5.633v26.51l16.2 9 16.2-9v-8.442l7.6-4.223V9.856l-8.6-4.777-8.6 4.777V18.3l-5.6 3.111V5.633ZM38 18.301l-5.6 3.11v-6.157l5.6-3.11V18.3Zm-1.06-7.856-5.54 3.078-5.54-3.079 5.54-3.078 5.54 3.079ZM24.8 18.3v-6.157l5.6 3.111v6.158L24.8 18.3Zm-1 1.732 5.54 3.078-13.14 7.302-5.54-3.078 13.14-7.3v-.002Zm-16.2 7.89 7.6 4.222V38.3L2 30.966V7.92l5.6 3.111v16.892ZM8.6 9.3 3.06 6.222 8.6 3.143l5.54 3.08L8.6 9.3Zm21.8 15.51-13.2 7.334V38.3l13.2-7.334v-6.156ZM9.6 11.034l5.6-3.11v14.6l-5.6 3.11v-14.6Z"
-        />
-    </svg>
+    />
 </template>
