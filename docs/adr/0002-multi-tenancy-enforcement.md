@@ -169,8 +169,33 @@ Two things the implementation added that the decision did not name:
   establishes one. Each is audited or, in the invitation's case, constrained
   to a single hashed token.
 
+## The hole the layers do not cover
+
+Five layers protect team-scoped rows. `people` is **not** team-scoped — it is
+shared, deliberately — and the layers have nothing to say about it.
+
+Slice 1's review found both halves of what that costs:
+
+- **Writes**, now closed. A team could attach a membership to any address and
+  then rewrite that row — including one carrying somebody's credentials,
+  redirecting their password reset while the password itself looked untouched.
+  `Person::identityIsEditableBy()` permits an identity edit only when the
+  person has no credentials and no other team holds a live membership.
+  `tests/Isolation/SharedPersonRecordTest.php` holds it.
+- **Reads**, open and filed as issue #140. Adding somebody by an existing
+  address shows the team what another team supplied. That is the shared-record
+  decision working as designed, and it is still a cross-tenant disclosure.
+
+The lesson for the next shared table: **a table without `team_id` is outside
+every layer in this document.** Five of the six exceptions are reference data
+or the boundary itself. `people` is the one that holds customer data, and it
+needs its own reasoning rather than the protection the others inherit.
+
 ## Not decided here
 
+- Whether `people` keeps shared identity fields or moves them to
+  `team_memberships` (issue #140). The enforcement model works either way; the
+  disclosure above does not survive the second option.
 - The exact retention of `audit_log` beyond "it survives a tenant purge"
   (issue #57). The rows are written; how long they are kept is a policy
   question the first customer contract will settle.
