@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Teams\ProvisionTeam;
 use App\Enums\PersonLifecycleState;
 use App\Enums\SystemRole;
 use App\Models\AuditEntry;
@@ -330,6 +331,76 @@ it('does not hand back the roles a revoked membership was still carrying', funct
         ->and($revived->roles->pluck('key')->all())->toBe([SystemRole::TeamMember->value]);
 });
 
+it('adds a role to an active membership rather than replacing its set', function (): void {
+    /*
+     * The other side of the revival rule, and the branch nothing held.
+     *
+     * Re-inviting somebody is the only way to change a membership's roles —
+     * S75 does not exist yet, and `grep roles routes/` finds nothing — so an
+     * unconditional `sync()` would strip a Team Owner down to Team Member on
+     * a re-invite. The whole suite stayed green through that, because every
+     * other case here is either a fresh row or a revoked one, and the one
+     * pre-existing active membership elsewhere carries no roles at all.
+     *
+     * A second owner first: this must exercise the add, not the last-owner
+     * rule.
+     */
+    [$team, $owner] = $this->teamWithOwner();
+
+    app(TeamContext::class)->runFor($team, fn () => app(ProvisionTeam::class)
+        ->attachOwner($team, Person::factory()->create()));
+
+    $membership = $owner->membershipIn($team);
+
+    inviteWithoutSending($team, $this->memberRole, (string) $membership->email);
+
+    app(TeamContext::class)->set(null);
+
+    $this->actingAsPerson($owner);
+
+    $invitation = TeamInvitation::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->pending()
+        ->sole();
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect(route('dashboard'));
+
+    expect($membership->fresh()->load('roles')->roles->pluck('key')->sort()->values()->all())
+        ->toBe([SystemRole::TeamMember->value, SystemRole::TeamOwner->value]);
+});
+
+it('records the roles it takes away when it revives a membership', function (): void {
+    // PRD §9 audits permission changes, and reviving is the one place the
+    // product removes a role. `invitation.accepted` does not say that
+    // somebody stopped being a Team Owner.
+    [$team, $owner] = $this->teamWithOwner();
+
+    app(TeamContext::class)->runFor($team, fn () => app(ProvisionTeam::class)
+        ->attachOwner($team, Person::factory()->create()));
+
+    $membership = $owner->membershipIn($team);
+
+    app(TeamContext::class)->runFor($team, fn () => $membership->revoke());
+
+    inviteWithoutSending($team, $this->memberRole, (string) $membership->email);
+
+    app(TeamContext::class)->set(null);
+
+    $this->actingAsPerson($owner);
+
+    $invitation = TeamInvitation::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->pending()
+        ->sole();
+
+    $this->post("/invitations/{$invitation->getKey()}/claim");
+
+    $entry = AuditEntry::query()->where('action', 'membership.roles_replaced')->sole();
+
+    expect($entry->before['roles'])->toBe([SystemRole::TeamOwner->value])
+        ->and($entry->after['roles'])->toBe([SystemRole::TeamMember->value]);
+});
+
 it('spends the invitation while another team is resolved, on the emailed path too', function (): void {
     /*
      * The twin of the claim case above. `handle()` had the same latent bug —
@@ -396,13 +467,20 @@ it('says why when a claim collides with a directory contact', function (): void 
     $this->actingAsPerson($person);
 
     /*
-     * A redirect rather than a 500 or a 404, the invitation untouched, and no
-     * membership for the claimer: the catch was taken and the transaction
-     * rolled back. The toast text itself is not asserted — Inertia's flash
-     * key is not part of any test surface in this suite, and guessing at it
-     * would be the vacuous half of a test rather than the useful half.
+     * `assertSessionHasNoErrors()` is what pins the catch, and it took a
+     * second look to see why the rest does not.
+     *
+     * A redirect, an untouched invitation and no membership are all true of
+     * an *uncaught* `ValidationException` too: Laravel's handler turns one
+     * into `back()->withErrors()` on a non-JSON request, so deleting the
+     * whole `try/catch` left those three assertions green. The error bag is
+     * the difference — the controller swallows it and flashes a toast
+     * instead, the default handler does not. No knowledge of Inertia's flash
+     * key required, which is the part I could not verify.
      */
-    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect();
+    $this->post("/invitations/{$invitation->getKey()}/claim")
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
 
     expect($invitation->fresh()->isAccepted())->toBeFalse()
         ->and(TeamMembership::withoutTeamScope()

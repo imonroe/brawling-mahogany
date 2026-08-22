@@ -298,9 +298,36 @@ final class AcceptInvitation
             'joined_at' => $membership->joined_at ?? now(),
         ])->save();
 
-        $wasRevoked
-            ? $membership->roles()->sync([$invitation->role_id])
-            : $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
+        if (! $wasRevoked) {
+            $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
+
+            return $membership;
+        }
+
+        $before = $membership->roles->pluck('key')->sort()->values()->all();
+
+        $membership->roles()->sync([$invitation->role_id]);
+
+        $after = $membership->load('roles')->roles->pluck('key')->sort()->values()->all();
+
+        /*
+         * PRD §9 audits permission changes, and this is the one place in the
+         * product that *removes* a role. `invitation.accepted` says an
+         * invitation was accepted; it does not say that somebody stopped
+         * being a Team Owner, and the difference matters to whoever reads the
+         * log later. Role keys, not names — reference data, never PII.
+         */
+        if ($before !== $after) {
+            $this->audit->record(
+                action: 'membership.roles_replaced',
+                auditable: $membership,
+                teamId: $invitation->team_id,
+                actorPersonId: $person->getKey(),
+                reason: 'A revoked membership was revived by an invitation, which defines its whole role set.',
+                before: ['roles' => $before],
+                after: ['roles' => $after],
+            );
+        }
 
         return $membership;
     }

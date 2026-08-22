@@ -179,6 +179,18 @@ function revokeInvitation(id: string): void {
                     </div>
                 </div>
 
+                <!--
+                    Re-inviting is the only way to change somebody's roles
+                    until S75 lands, and it means two different things — so
+                    the form says which, rather than leaving it to be
+                    discovered.
+                -->
+                <p class="text-[11px] text-muted-foreground">
+                    Inviting someone who is already on the team adds this role
+                    to the ones they have. Inviting someone whose access was
+                    revoked brings them back with this role and no other.
+                </p>
+
                 <div class="flex justify-end">
                     <AppButton type="submit" :disabled="invite.processing">
                         <UserPlus class="size-4" aria-hidden="true" />
