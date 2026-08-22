@@ -331,3 +331,71 @@ it('leaves the team’s record of what happened, with the human removed from it'
 
     unset($owner);
 });
+
+/**
+ * Files go before rows, because a purged row cannot tell you where its file was.
+ *
+ * Round 2 fixed this shape for an expired export. It was still reachable
+ * through a purged one: `purgeRowsFor()` hard-deleted the row whose window had
+ * closed, and the sweep that ran afterwards had nothing left to find — a copy
+ * of the team's whole client list still in object storage with nothing
+ * anywhere pointing at it.
+ */
+it('takes an export’s file with it when the row is purged', function (): void {
+    [$team, $owner] = $this->teamWithOwner();
+    $this->withTeam($team);
+
+    $this->freezeAt('2026-01-01 03:00:00');
+
+    $path = 'exports/'.$team->getKey().'/archive.zip';
+    Storage::put($path, 'the whole client list');
+
+    $export = DataExport::factory()->create([
+        'team_id' => $team->getKey(),
+        'state' => DataExportState::Ready,
+        'disk_path' => $path,
+        // Not expired: the row is on its way out for a different reason.
+        'expires_at' => now()->addDays(2),
+    ]);
+
+    DB::table('data_exports')->where('id', $export->getKey())->update(['deleted_at' => now()]);
+
+    $this->freezeAt('2026-02-05 03:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(DB::table('data_exports')->where('id', $export->getKey())->exists())->toBeFalse()
+        ->and(Storage::exists($path))->toBeFalse();
+
+    unset($owner);
+});
+
+it('sweeps an abandoned import’s upload once the window closes', function (): void {
+    [$team, $owner] = $this->teamWithOwner();
+    $this->withTeam($team);
+
+    $this->freezeAt('2026-01-01 03:00:00');
+
+    $path = 'imports/'.$team->getKey().'/contacts.csv';
+    Storage::put($path, "first_name,email\nClaire,claire@example.test\n");
+
+    // Reviewed and then never finished — the state the file outlives.
+    $import = App\Models\ContactImport::factory()->create([
+        'team_id' => $team->getKey(),
+        'state' => App\Enums\ContactImportState::AwaitingReview,
+        'disk_path' => $path,
+        'preview' => [['row' => 1, 'first_name' => 'Claire', 'email' => 'claire@example.test']],
+    ]);
+
+    $this->freezeAt('2026-02-05 03:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    $import->refresh();
+
+    expect(Storage::exists($path))->toBeFalse()
+        ->and($import->disk_path)->toBeNull()
+        ->and($import->preview)->toBeNull();
+
+    unset($owner);
+});

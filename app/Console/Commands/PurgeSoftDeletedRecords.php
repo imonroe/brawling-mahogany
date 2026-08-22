@@ -59,9 +59,21 @@ class PurgeSoftDeletedRecords extends Command
         // ambient team, and a purge would be the single worst place to
         // discover otherwise.
         foreach (Team::query()->withTrashed()->cursor() as $team) {
-            $purgedRows += $this->purgeRowsFor($team, $cutoff);
+            /*
+             * Files first, then rows — the same order, and for the same
+             * reason, as the team purge below.
+             *
+             * `purgeRowsFor()` hard-deletes any row whose window has closed,
+             * `data_exports` and `contact_imports` among them. Running it
+             * first deleted the only record of where the file was, and the
+             * sweep that came after had nothing left to find: a copy of the
+             * team's whole client list still in object storage, and now
+             * nothing anywhere pointing at it. Round 2 fixed this shape for
+             * an expired export and left it reachable through a purged one.
+             */
             $purgedFiles += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
                 + $this->purgeAbandonedImports($cutoff));
+            $purgedRows += $this->purgeRowsFor($team, $cutoff);
         }
 
         // `people` is not team-scoped, so it is purged once rather than per
@@ -108,10 +120,17 @@ class PurgeSoftDeletedRecords extends Command
         $purged = 0;
 
         $expired = DataExport::query()
+            // Trashed rows included, and this is the half that matters.
+            // `HasProductDefaults` brings `SoftDeletes` with it, so the
+            // ordinary builder cannot see a deleted export at all — while
+            // `purgeRowsFor()` hard-deletes it by table, without model
+            // events, moments later. The row went and the archive stayed.
+            ->withTrashed()
             ->whereNotNull('disk_path')
             ->where(fn ($query) => $query
                 ->where('expires_at', '<', now())
-                ->orWhereIn('state', [DataExportState::Expired->value, DataExportState::Failed->value]))
+                ->orWhereIn('state', [DataExportState::Expired->value, DataExportState::Failed->value])
+                ->orWhereNotNull('deleted_at'))
             ->get();
 
         foreach ($expired as $export) {
@@ -146,6 +165,8 @@ class PurgeSoftDeletedRecords extends Command
         $purged = 0;
 
         $abandoned = ContactImport::query()
+            // Trashed included, for the same reason as the export sweep.
+            ->withTrashed()
             ->whereNotNull('disk_path')
             ->where('created_at', '<', $cutoff)
             ->get();

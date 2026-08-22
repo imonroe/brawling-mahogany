@@ -32,6 +32,17 @@ use Symfony\Component\Finder\Finder;
  */
 
 /**
+ * Both spellings of lifting the scope.
+ *
+ * `withoutTeamScope()` is the sanctioned one and exists to be greppable. But
+ * it is a convenience over `withoutGlobalScope(TeamScope::class)`, which any
+ * model can call directly — so counting only the convenience would leave the
+ * whole convention one keystroke from being bypassed, silently, by somebody
+ * who never read this file. Counting both is what makes it a rule.
+ */
+const UNSCOPED_PATTERN = '/withoutTeamScope\s*\(|withoutGlobalScope\s*\(\s*[\\\\\w]*\bTeamScope::class/';
+
+/**
  * Every sanctioned call site, as `relative/path.php` => why.
  *
  * The line number is deliberately not part of the key: pinning it would make
@@ -43,7 +54,9 @@ use Symfony\Component\Finder\Finder;
  */
 const SANCTIONED_UNSCOPED_QUERIES = [
     'Models/Concerns/BelongsToTeam.php' => [
-        'count' => 1,
+        // Two: the method's own name, and the `withoutGlobalScope` call it
+        // wraps. This is the only file where the second spelling belongs.
+        'count' => 2,
         'reason' => 'The definition itself.',
     ],
 
@@ -90,14 +103,34 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 ];
 
+/**
+ * Count the real calls in a file, ignoring the ones written about.
+ *
+ * `TeamScope`'s own docblock explains what `withoutGlobalScope(TeamScope::class)`
+ * is for, and a test that counted that would be measuring prose. Comments and
+ * strings are stripped through the tokeniser rather than by a cleverer regex,
+ * because a cleverer regex is how this gets wrong again.
+ */
+function unscopedQueriesIn(string $contents): int
+{
+    $code = '';
+
+    foreach (token_get_all($contents) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT, T_CONSTANT_ENCAPSED_STRING], true)) {
+            continue;
+        }
+
+        $code .= is_array($token) ? $token[1] : $token;
+    }
+
+    return preg_match_all(UNSCOPED_PATTERN, $code);
+}
+
 it('has no unscoped query outside the sanctioned call sites', function (): void {
     $found = [];
 
     foreach ((new Finder)->files()->in([app_path()])->name('*.php') as $file) {
-        $matches = preg_match_all(
-            '/withoutTeamScope\s*\(/',
-            (string) file_get_contents($file->getRealPath()),
-        );
+        $matches = unscopedQueriesIn((string) file_get_contents($file->getRealPath()));
 
         if ($matches > 0) {
             $found[str_replace('\\', '/', $file->getRelativePathname())] = $matches;
@@ -116,9 +149,7 @@ it('has no unscoped query outside the sanctioned call sites', function (): void 
 });
 
 it('counts the unscoped queries in each sanctioned file', function (string $path, array $entry): void {
-    $contents = (string) file_get_contents(app_path($path));
-
-    $actual = preg_match_all('/withoutTeamScope\s*\(/', $contents);
+    $actual = unscopedQueriesIn((string) file_get_contents(app_path($path)));
 
     expect($actual)->toBe(
         $entry['count'],
