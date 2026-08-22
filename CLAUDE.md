@@ -4,11 +4,23 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 
 ## What this project is
 
-**Brawling Mahogany** (working codename) is a multi-tenant web application that runs the *process* side of a residential real estate practice: workflows, gated stages, tasks, and automated client communication, for small independent teams. See [README.md](README.md) for the full pitch.
+**Goldieflow** (working name) is a multi-tenant web application that runs the *process* side of a residential real estate practice: workflows, gated stages, tasks, and automated client communication, for small independent teams. See [README.md](README.md) for the full pitch.
+
+> **On the name.** `Goldieflow` replaced the `Brawling Mahogany` codename on
+> 2026-08-22, and `goldieflow.com` is secured. The rename was **documentation
+> only**. Infrastructure identifiers deliberately still carry the old codename —
+> container, volume and network names in the `compose*.yaml` files (and so the
+> `brawling-mahogany_*` Docker volumes), the `brawling_mahogany_test` database
+> in `phpunit.xml`, `/srv/brawling-mahogany` in `scripts/provision-staging.sh`,
+> the values in `.env.example`, and the `imonroe/brawling-mahogany` repository
+> itself. **Do not "fix" these.** Renaming them orphans local Docker volumes and
+> staging state, so it is a deliberate migration, not a find-and-replace.
+> Obsidian vault paths inside `[[wikilinks]]` also still read
+> `brawling mahogany` and must stay that way or the links break.
 
 **Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76). Its remaining screens, participants, properties, and the templates UI are still open under epic #3.
 
-Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.4) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
+Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
 ## Documentation map
 

@@ -1,7 +1,7 @@
 ---
 created: 2026-08-19
-modified: 2026-08-19
-project: Brawling Mahogany
+modified: 2026-08-22
+project: Goldieflow
 ---
 
 # The basic idea
@@ -9,7 +9,7 @@ project: Brawling Mahogany
 ## Summary
 
 > [!abstract] At a glance
-> A voice brain dump (~6.5 min) in which Ian lays out the founding concept for **Brawling Mahogany**: a workflow-driven CRM for small real estate teams, prompted by a collaboration request from Emily, a working real estate agent. The recording sets the product vision, sketches the user and permission model, names a preferred tech stack, and defines the immediate next step as writing a PRD and tightening the data model.
+> A voice brain dump (~6.5 min) in which Ian lays out the founding concept for **Goldieflow**: a workflow-driven CRM for small real estate teams, prompted by a collaboration request from Emily, a working real estate agent. The recording sets the product vision, sketches the user and permission model, names a preferred tech stack, and defines the immediate next step as writing a PRD and tightening the data model.
 
 ### Origin and context
 
