@@ -12,6 +12,11 @@ class ProfileUpdateRequest extends FormRequest
 {
     use ProfileValidationRules;
 
+    protected function prepareForValidation(): void
+    {
+        $this->merge($this->foldEmail($this->all()));
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *

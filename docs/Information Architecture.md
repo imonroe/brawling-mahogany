@@ -390,7 +390,7 @@ PRD v0.2 predates this document and still uses the old terms. Apply this mapping
 
 1. **The product name.** "Brawling Mahogany" is a codename. A real name is needed before the marketing site and before the sending domain is chosen, because the sending subdomain is painful to change once reputation is built.
 2. **Workflow versus Template in the UI.** Both appear in the sidebar area and in a deal. Watch for confusion during the first usability pass with Heather. If it appears, "Playbook" for the template is the fallback.
-3. **Vendor as a status or a flag.** A person can be a vendor and a past client at once, which argues for a flag rather than a lifecycle value. Currently modeled as a flag with its own directory segment. Confirm during slice 1.
+3. ~~**Vendor as a status or a flag.**~~ **Settled in slice 1: a flag.** `team_memberships.is_vendor`, with its own segment on the People index — a stager can be a past client and a vendor at the same time, and one status column cannot say both. The vendor fields (specialty tags, typical cost, service area, rating, history) live on the membership too, because what one team paid a stager is not another team's business.
 4. **Deal naming for buyer-side deals with no subject property yet.** Falls back to client surname, which produces "Bosart Purchase." Acceptable, but check with Heather once she has ten of them on one screen.
 
 ---

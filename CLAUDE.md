@@ -6,7 +6,9 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 
 **Brawling Mahogany** (working codename) is a multi-tenant web application that runs the *process* side of a residential real estate practice: workflows, gated stages, tasks, and automated client communication, for small independent teams. See [README.md](README.md) for the full pitch.
 
-**Slice 0 has landed:** the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Product features begin at Slice 1. Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.3) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
+**Slices 0 and 1 have landed.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Product features continue at Slice 2 (deals and workflows).
+
+Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.4) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
 ## Documentation map
 
@@ -51,7 +53,7 @@ These come from PRD §8 and should guide the eventual build:
 - **Template vs. instance split.** Every process entity has a definition layer (`workflow_templates`, `stage_templates`, `gate_templates`, `task_templates`) and a separate runtime layer (`workflows`, `stages`, `gates`, `tasks`). Instantiating a template snapshots it — later template edits must never rewrite an in-flight deal.
 - **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`AdvanceWorkflow` in the PRD's proposal) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly.
 - **Gate evaluation is data-driven.** One small evaluator per gate type (manual confirmation, required tasks complete, document present, field populated, action completed, date reached, approval), resolved by `gate_type`. Adding a gate type means adding a class, not touching advancement logic.
-- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up.
+- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 
 ## Data handling and security
@@ -82,6 +84,8 @@ These come from PRD §8 and should guide the eventual build:
 | `make check` | Everything CI runs, in the container |
 | `composer check` | Pint, PHPStan, Pest |
 | `npm run check` | Wayfinder, ESLint, Prettier, `vue-tsc`, Vitest |
+| `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
+| `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 
 `composer check` and `npm run check` are exactly what the pipeline runs. If one
 passes locally and fails in CI, that is a bug in the scripts, not something to
@@ -138,9 +142,12 @@ Organization or Workspace) · Extract (not Scan, Parse, or AI).
 Two of these carry a distinction that the short form loses, and both are load-bearing:
 
 - **Person, not User** — *because* "User" means specifically somebody with a
-  login. `App\Models\User` is correctly named; a client in the people
-  directory is a Person, and calling them a user would imply an account they
-  do not have.
+  login. The table is `people` and the model is `App\Models\Person`, which is
+  also the authenticatable: PRD §6.2 F2.1 is *"one record per human, login
+  credentials optional"*, and most of this directory — clients, vendors,
+  opposing agents — has no credentials at all. `password` is nullable, and a
+  null password never authenticates. (Slice 0 shipped an `App\Models\User`
+  from the Laravel skeleton; Slice 1 renamed it, as ADR 0001 said it would.)
 - **Activity, not History or Log** — *because* "Audit" means the append-only
   security log. The two are different records with different retention and
   different readers, and merging the words merges the concepts.
@@ -151,6 +158,39 @@ different audit consequences and must never be conflated in a label.
 
 `tests/Unit/CodeDisciplineTest.php` fails the build when a superseded table name
 appears in code.
+
+### Writing anything team-scoped
+
+Four things, and forgetting any of them is caught by a test rather than by
+review:
+
+1. **`use BelongsToTeam`** on the model, and `$table->productDefaults()` on the
+   migration. `tests/Isolation/ModelTenancyConventionTest.php` fails otherwise.
+2. **Never put `team_id` in `#[Fillable]`.** A request body must not choose a
+   tenant; the trait fills it from the resolved team. A factory that needs a
+   specific team uses `Database\Factories\Concerns\ForcesAttributes`.
+3. **Authorize every controller action** — `$this->authorize()`, a FormRequest
+   with `authorize()`, or `can:` middleware.
+   `tests/Feature/AuthorizationCoverageTest.php` reads the route table and
+   fails on any action that never asks.
+4. **A queued job carries its team**: `use RunsForTeam`, dispatch with
+   `->forTeam($id)`, and do the work inside `$this->withinTeam(...)`. A job
+   with no team context throws rather than running unscoped.
+
+Two services own their tables and nothing else writes to them:
+`App\Support\Activity\RecordActivity` for `activity_events`, and
+`App\Support\Audit\AuditLogger` for `audit_log`. The audit log redacts
+known-sensitive attributes before writing, and the table's own triggers refuse
+an UPDATE, a DELETE, or a TRUNCATE.
+
+**A table with no `team_id` is outside every mechanism that keys on one.** Not
+just the five enforcement layers — the retention purge discovers its tables the
+same way, so `people` was never purged, and the identity-write rule had to move
+onto the model because no scope was going to hold it. Six models carry no
+`team_id` today; the next one needs its own reasoning for reads, writes, and
+retention rather than the protection the team-scoped tables inherit. See
+[`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"The hole the
+layers do not cover"*.
 
 ### Testing
 

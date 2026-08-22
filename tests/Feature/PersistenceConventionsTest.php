@@ -2,19 +2,21 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
+use App\Models\Person;
+use App\Models\Team;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 /**
  * docs/adr/0001 says what every business table looks like. This proves the
  * macros actually produce it, against the database production runs.
  */
 afterEach(function (): void {
+    Schema::dropIfExists('convention_probe_child');
     Schema::dropIfExists('convention_probe');
-    Schema::dropIfExists('teams');
 });
 
 it('gives a business table a ULID key, a team, timestamps, and soft deletes', function (): void {
@@ -33,8 +35,10 @@ it('gives a business table a ULID key, a team, timestamps, and soft deletes', fu
 });
 
 it('allows a table that is deliberately not team-scoped', function (): void {
-    // `people` may end up shared across teams (IA §13, open question 3), so
-    // the convention has to have an explicit opt-out rather than a workaround.
+    // `people` is shared across teams (issue #18), and `audit_log` outlives
+    // the team it describes. The convention needs an explicit opt-out rather
+    // than a workaround, and each use of it is recorded in the isolation
+    // suite with a reason.
     Schema::create('convention_probe', function (Blueprint $table): void {
         $table->productDefaults(teamScoped: false);
     });
@@ -43,16 +47,12 @@ it('allows a table that is deliberately not team-scoped', function (): void {
         ->and(Schema::hasColumn('convention_probe', 'deleted_at'))->toBeTrue();
 });
 
-it('can constrain team_id to the teams table', function (): void {
-    // ADR 0002's second enforcement layer: the database's own half. `teams`
-    // arrives in Slice 1, so it is created here — the point is to exercise
-    // the macro's flag, not Laravel's `constrained()`.
-    Schema::create('teams', function (Blueprint $table): void {
-        $table->ulid('id')->primary();
-    });
-
+it('constrains team_id to the teams table by default', function (): void {
+    // ADR 0002's second enforcement layer: the database's own half. ADR 0001
+    // said this default would flip once `teams` existed, and Slice 1 is when
+    // it did.
     Schema::create('convention_probe', function (Blueprint $table): void {
-        $table->productDefaults(constrained: true);
+        $table->productDefaults();
     });
 
     $foreignKeys = collect(Schema::getForeignKeys('convention_probe'));
@@ -63,16 +63,56 @@ it('can constrain team_id to the teams table', function (): void {
         ->and($foreignKeys->first()['on_delete'])->toBe('cascade');
 });
 
-it('leaves team_id unconstrained but indexed by default', function (): void {
-    // The default is off only because `teams` does not exist yet; the column
-    // and its index are not optional either way.
+it('gives every team-scoped table the composite key a child can point at', function (): void {
+    // A composite foreign key over `(team_id, id)` is only accepted by
+    // Postgres if the parent carries a unique index over both columns. This
+    // is what makes `teamScopedForeign()` possible at all.
     Schema::create('convention_probe', function (Blueprint $table): void {
         $table->productDefaults();
     });
 
-    expect(Schema::getForeignKeys('convention_probe'))->toBe([])
-        ->and(collect(Schema::getIndexes('convention_probe'))
-            ->contains(fn (array $index): bool => $index['columns'] === ['team_id']))->toBeTrue();
+    expect(collect(Schema::getIndexes('convention_probe'))
+        ->contains(fn (array $index): bool => $index['columns'] === ['team_id', 'id'] && $index['unique']))
+        ->toBeTrue();
+});
+
+it('makes a cross-tenant pointer unrepresentable', function (): void {
+    // ADR 0002, layer 2: "a `task` pointing at a `stage` in another team is
+    // then not merely unlikely, it is unrepresentable." Proven against the
+    // real database, because that is the only place the claim is true.
+    Schema::create('convention_probe', function (Blueprint $table): void {
+        $table->productDefaults();
+    });
+
+    Schema::create('convention_probe_child', function (Blueprint $table): void {
+        $table->productDefaults();
+        $table->teamScopedForeign('parent_id', 'convention_probe');
+    });
+
+    $teams = Team::factory()->count(2)->create();
+
+    $parent = DB::table('convention_probe')->insertGetId([
+        'id' => (string) Str::ulid(), 'team_id' => $teams[0]->getKey(),
+    ], 'id');
+
+    // Inside a savepoint: Postgres poisons a transaction after a failed
+    // statement, and the surrounding test transaction has to survive it.
+    expect(fn () => DB::transaction(fn () => DB::table('convention_probe_child')->insert([
+        'id' => (string) Str::ulid(),
+        // The other team's id, pointing at the first team's parent row.
+        'team_id' => $teams[1]->getKey(),
+        'parent_id' => $parent,
+    ])))->toThrow(QueryException::class);
+
+    // The same insert with the matching team is accepted, so the test is
+    // proving the composite key rather than a broken table.
+    DB::table('convention_probe_child')->insert([
+        'id' => (string) Str::ulid(),
+        'team_id' => $teams[0]->getKey(),
+        'parent_id' => $parent,
+    ]);
+
+    expect(DB::table('convention_probe_child')->count())->toBe(1);
 });
 
 it('stores money as integer cents and config as JSONB', function (): void {
@@ -91,49 +131,51 @@ it('frees a deleted account’s email address', function (): void {
     // Soft delete plus a plain unique index would reserve the address
     // forever, so nobody could sign up again after deleting their account.
     // The index is partial: unique among the living only (see the migration).
-    $user = User::factory()->create(['email' => 'emily@example.com']);
+    $user = Person::factory()->create(['email' => 'emily@example.com']);
 
     $user->delete();
 
-    expect(User::withTrashed()->where('email', 'emily@example.com')->count())->toBe(1);
+    expect(Person::withTrashed()->where('email', 'emily@example.com')->count())->toBe(1);
 
-    $replacement = User::factory()->create(['email' => 'emily@example.com']);
+    $replacement = Person::factory()->create(['email' => 'emily@example.com']);
 
     expect($replacement->exists)->toBeTrue()
-        ->and(User::query()->where('email', 'emily@example.com')->count())->toBe(1);
+        ->and(Person::query()->where('email', 'emily@example.com')->count())->toBe(1);
 });
 
 it('still refuses two live accounts with the same address', function (): void {
-    User::factory()->create(['email' => 'emily@example.com']);
+    Person::factory()->create(['email' => 'emily@example.com']);
 
     // Inside a savepoint: Postgres poisons a transaction after a failed
     // statement, and the surrounding test transaction has to survive it.
     expect(fn () => DB::transaction(
-        fn () => User::factory()->create(['email' => 'emily@example.com']),
+        fn () => Person::factory()->create(['email' => 'emily@example.com']),
     ))->toThrow(QueryException::class);
 });
 
 it('lets somebody register again after deleting their account', function (): void {
     // The partial index is only half of it: the validation rule counts rows
     // itself, and this is the path a person actually travels.
-    $user = User::factory()->create(['email' => 'emily@example.com']);
+    $user = Person::factory()->create(['email' => 'emily@example.com']);
     $user->delete();
 
     $this->post('/register', [
-        'name' => 'Emily Bosart',
+        'first_name' => 'Emily',
+        'last_name' => 'Bosart',
         'email' => 'emily@example.com',
         'password' => 'a-long-enough-password',
         'password_confirmation' => 'a-long-enough-password',
     ])->assertSessionHasNoErrors();
 
-    expect(User::query()->where('email', 'emily@example.com')->count())->toBe(1);
+    expect(Person::query()->where('email', 'emily@example.com')->count())->toBe(1);
 });
 
 it('still refuses to register a live address twice', function (): void {
-    User::factory()->create(['email' => 'emily@example.com']);
+    Person::factory()->create(['email' => 'emily@example.com']);
 
     $this->post('/register', [
-        'name' => 'Someone Else',
+        'first_name' => 'Someone',
+        'last_name' => 'Else',
         'email' => 'emily@example.com',
         'password' => 'a-long-enough-password',
         'password_confirmation' => 'a-long-enough-password',

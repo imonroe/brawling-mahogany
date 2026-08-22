@@ -91,7 +91,11 @@ A test that genuinely wants to assert dispatch rather than behaviour calls
 
 | Helper | Use |
 |---|---|
-| `$this->actingAsPerson()` | Act as a person with credentials. Gains a team argument when tenancy lands in Slice 1 |
+| `$this->actingAsPerson($person, $team)` | Act as a person with credentials, inside a team. Passing no team is the "no access" case, and it must stay reachable |
+| `$this->teamWithMember()` | A team plus an ordinary Team Member. **The default for a test that just needs somebody signed in** |
+| `$this->teamWithOwner()` | A team plus a Team Owner. Note that an un-enrolled owner is redirected to 2FA enrolment (PRD §9), so every page assertion becomes a 302 — use `teamWithMember()` unless the test is *about* an owner |
+| `$this->enrollTwoFactor($person)` | Give somebody the enrolment the mandate insists on |
+| `$this->withTeam($team)` | Bind a team the way the middleware does, for tests that work against models rather than routes |
 | `$this->freezeAt('2026-08-20 15:00')` | Pin the clock. This product is dates, deadlines, and derived offsets — a test that depends on "now" without pinning it fails at midnight |
 | `$this->fakeQueue()` | Opt in to a faked queue |
 | `expect($value)->toBeSnakeCase()` | IA §8: state and enum values are `snake_case`, always |
@@ -121,7 +125,9 @@ remembering them:
 | `tests/Unit/DocumentedVocabularyTest.php` | The enums match the PRD §6.3 and IA §8 tables, exactly. Reads the markdown | issue #38 |
 | `tests/Unit/CodeDisciplineTest.php` | No value is interpolated into a log message; the superseded vocabulary never appears; page components are PascalCase | PRD §9, IA §12, IA §6 |
 | `tests/Unit/RedactPiiTest.php` | "No PII in logs, ever" | PRD §9 |
-| `tests/Isolation/ModelTenancyConventionTest.php` | Every model is tenant-scoped or explicitly recorded as team-agnostic | PRD §8.2 |
+| `tests/Isolation/ModelTenancyConventionTest.php` | Every model is tenant-scoped or explicitly recorded as team-agnostic; every scoped table has the column and the foreign key | PRD §8.2 |
+| `tests/Isolation/CrossTenantAccessTest.php` | **The release blocker.** Cross-tenant access is refused, by every vector: direct route, nested route, index, foreign id in a form, signed URL, and a queued job | PRD §8.2, §9, issue #42 |
+| `tests/Feature/AuthorizationCoverageTest.php` | Every controller action asks a policy. Reads the route table, so a controller added later is covered the day it lands | PRD §9, issue #46 |
 | `tests/js/tokenDiscipline.test.ts` | No raw hex and no Tailwind palette class in a component | Design System §2.1 |
 | `tests/js/tokens.test.ts` | Every state pair meets 4.5:1 in both themes; every colour token exists in both | Design System §11, §13.2 rule 8 |
 | `tests/js/controlSizes.test.ts` | Every button and input size matches the measured control table | Design System §4.2, §7.2, §11 |
@@ -130,6 +136,20 @@ remembering them:
 | `tests/Unit/BranchProtectionTest.php` | `scripts/protect-branches.sh`, `ci.yml`'s job names, and Deployment §7 agree — and every CI job has a `name:`, since an unnamed one cannot be required | issue #24, Deployment §7 |
 
 When one of these fails, the fix is the code or the document — not the test.
+
+### Proving a mechanical test is not vacuous
+
+A test that enumerates something can pass because it found nothing to check.
+Both of Slice 1's do the enumerating, so both were checked by breaking the
+thing they guard:
+
+- Removing `BelongsToTeam` from one model turns **all sixteen** isolation tests
+  red, which is the definition of done issue #42 asked for.
+- Deleting one `$this->authorize()` call turns the authorization-coverage test
+  red, naming the route and the action.
+
+Do the same for the next one. An enumerating test you have never seen fail is a
+test you do not know the behaviour of.
 
 ---
 
@@ -145,7 +165,7 @@ on it produces tests written to satisfy the gate.
 
 | Slice | Test work that comes with it |
 |---|---|
-| 1 | The isolation suite proper: every route, both directions. Team-context helpers |
+| 1 | ✅ The isolation suite proper, the authorization-coverage test, and the team-context helpers |
 | 2 | Gate evaluator unit tests; `AdvanceWorkflow` transaction and dispatch tests; the dashboard's query budget at 25 deals |
 | 3 | Approval-queue tests, and the safety rails: no message leaves without an approved state |
 | 4 | Derived date cascade tests, and magic-link expiry |

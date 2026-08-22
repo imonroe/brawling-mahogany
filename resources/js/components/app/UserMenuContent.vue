@@ -10,10 +10,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { logout } from '@/routes';
 import { edit } from '@/routes/profile';
-import type { User } from '@/types';
+import type { Person } from '@/types';
 
 type Props = {
-    user: User;
+    user: Person;
 };
 
 const handleLogout = () => {

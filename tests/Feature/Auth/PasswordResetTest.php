@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Auth;
 
-use App\Models\User;
+use App\Models\Person;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -33,7 +33,7 @@ class PasswordResetTest extends TestCase
     {
         Notification::fake();
 
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $this->post(route('password.email'), ['email' => $user->email]);
 
@@ -44,7 +44,7 @@ class PasswordResetTest extends TestCase
     {
         Notification::fake();
 
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $this->post(route('password.email'), ['email' => $user->email]);
 
@@ -61,7 +61,7 @@ class PasswordResetTest extends TestCase
     {
         Notification::fake();
 
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $this->post(route('password.email'), ['email' => $user->email]);
 
@@ -83,7 +83,7 @@ class PasswordResetTest extends TestCase
 
     public function test_password_cannot_be_reset_with_invalid_token(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this->post(route('password.update'), [
             'token' => 'invalid-token',

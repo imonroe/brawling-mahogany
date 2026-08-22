@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
+use App\Models\Person;
 use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia;
 
@@ -69,7 +69,7 @@ it('leaves the debug page alone when debug is on', function (): void {
 it('renders the component gallery for review', function (): void {
     // The gallery is what the AppLayout review with Heather is run against
     // (Design System §13.3), so it breaking is not a cosmetic problem.
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(Person::factory()->create());
 
     $this->get('/design-system')
         ->assertOk()
@@ -82,11 +82,18 @@ it('keeps the gallery behind authentication', function (): void {
 
 it('renders a placeholder for every sidebar destination', function (): void {
     // The shell has to be walkable end to end for the review to mean anything.
-    $this->actingAs(User::factory()->create());
+    // People is no longer a placeholder — Slice 1 built it (S30).
+    [$team, $member] = $this->teamWithMember();
 
-    foreach (['work', 'deals', 'people', 'properties', 'calendar', 'keep-in-touch', 'templates'] as $path) {
+    $this->actingAsPerson($member, $team);
+
+    foreach (['work', 'deals', 'properties', 'calendar', 'keep-in-touch', 'templates'] as $path) {
         $this->get("/{$path}")
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Placeholder'));
     }
+
+    $this->get('/people')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->component('People/Index'));
 });

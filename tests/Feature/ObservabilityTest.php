@@ -6,7 +6,7 @@ use App\Logging\Redactor;
 use App\Logging\ScrubPii;
 use App\Logging\ScrubSentryEvents;
 use App\Logging\StructuredLogging;
-use App\Models\User;
+use App\Models\Person;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Mail;
 use Sentry\Breadcrumb;
@@ -17,7 +17,7 @@ use Sentry\Logs\LogLevel;
 
 it('keeps the Horizon dashboard away from ordinary people', function (): void {
     // PRD §4.1: Horizon shows queue payloads, so it is a super-admin surface.
-    $this->actingAs(User::factory()->create());
+    $this->actingAs(Person::factory()->create());
 
     $this->get('/horizon')->assertForbidden();
 });
@@ -25,7 +25,7 @@ it('keeps the Horizon dashboard away from ordinary people', function (): void {
 it('opens the Horizon dashboard to an authorised address', function (): void {
     config()->set('horizon.authorized_emails', 'ops@example.com');
 
-    $this->actingAs(User::factory()->create(['email' => 'ops@example.com']));
+    $this->actingAs(Person::factory()->create(['email' => 'ops@example.com']));
 
     $this->get('/horizon')->assertOk();
 });

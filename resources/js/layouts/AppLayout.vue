@@ -44,13 +44,7 @@ watchEffect(() => {
     }
 });
 
-const impersonating = computed(
-    () =>
-        page.props.auth?.impersonating as {
-            name: string;
-            return_url?: string;
-        } | null,
-);
+const impersonating = computed(() => page.props.auth?.impersonating ?? null);
 
 const collapsed = ref(page.props.sidebarOpen === false);
 
@@ -66,7 +60,9 @@ watch(collapsed, (value) => {
         <ImpersonationBanner
             v-if="impersonating"
             :person-name="impersonating.name"
-            :return-href="impersonating.return_url"
+            :team-name="impersonating.teamName"
+            :reason="impersonating.reason"
+            :ends-at="impersonating.endsAt"
         />
 
         <div class="flex min-h-0 flex-1">

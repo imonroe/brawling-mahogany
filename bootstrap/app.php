@@ -2,8 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\EnsureSuperAdministrator;
+use App\Http\Middleware\EnsureTeamContext;
 use App\Http\Middleware\HandleAppearance;
+use App\Http\Middleware\HandleImpersonation;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RequireTwoFactorAuthentication;
+use App\Http\Middleware\ResolveCurrentTeam;
+use App\Http\Middleware\ThrottlePasswordResetRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -21,10 +27,29 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
+        /*
+         * Order matters, and this is the order.
+         *
+         * The impersonation guard runs first because it can change who the
+         * authenticated person *is* — an expired support session reverts to
+         * the administrator before anything downstream reads `auth()->user()`.
+         * The team is resolved next (ADR 0002, layer 3), because the shared
+         * Inertia props read the resolved team, the permissions the person
+         * holds *in* it, and the impersonation banner.
+         */
         $middleware->web(append: [
+            ThrottlePasswordResetRequests::class,
             HandleAppearance::class,
+            HandleImpersonation::class,
+            ResolveCurrentTeam::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+        ]);
+
+        $middleware->alias([
+            'team' => EnsureTeamContext::class,
+            'two-factor' => RequireTwoFactorAuthentication::class,
+            'super-admin' => EnsureSuperAdministrator::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

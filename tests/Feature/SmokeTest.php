@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
+use App\Models\Person;
 use Inertia\Testing\AssertableInertia;
 
 it('renders the welcome page', function (): void {
@@ -12,7 +12,13 @@ it('renders the welcome page', function (): void {
 });
 
 it('renders the dashboard for a signed-in person', function (): void {
-    $this->actingAs(User::factory()->create());
+    // A team, because the tenant app needs a resolved one (ADR 0002). A
+    // person without a membership is a different case, covered in
+    // tests/Feature/Tenancy — and a Team Member rather than an owner,
+    // because an owner without 2FA is redirected to enrolment by design.
+    [$team, $member] = $this->teamWithMember();
+
+    $this->actingAsPerson($member, $team);
 
     $this->get('/dashboard')
         ->assertOk()

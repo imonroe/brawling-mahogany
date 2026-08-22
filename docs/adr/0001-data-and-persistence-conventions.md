@@ -40,6 +40,10 @@ deletes as part of this decision rather than left as the one table with a
 sequential id. The convention having an exception on day one is how conventions
 stop being conventions.
 
+**Slice 1 completed that sentence:** `users` *is* `people` now, one row per
+human with credentials optional (PRD §6.2 F2.1). See the decision log entry
+dated 2026-08-22.
+
 ### Timestamps and soft deletes on every business table
 
 `created_at`, `updated_at`, and `deleted_at`, always.
@@ -60,10 +64,21 @@ Not nullable, not optional, and indexed. The enforcement layers are
 [ADR 0002](0002-multi-tenancy-enforcement.md); this ADR fixes the column.
 
 `$table->productDefaults(teamScoped: false)` exists for the deliberate
-exceptions — `users` today, and possibly `people` depending on the
-shared-versus-duplicated decision (IA §13, open question 3). Every exception is
-recorded in `tests/Isolation/ModelTenancyConventionTest.php`, which fails when
-a new model is neither scoped nor listed.
+exceptions. Every exception is recorded in
+`tests/Isolation/ModelTenancyConventionTest.php`, which fails when a new model
+is neither scoped nor listed, and there are six: `people` (shared across
+teams — PRD's 2026-08-22 decision), `teams` itself, `roles` (the five system
+roles have no team), `permissions` (flat and identical everywhere),
+`audit_log` (which outlives the team it describes), and `passkeys` (a
+credential belongs to a human, not a tenancy).
+
+**Slice 1 flipped `$constrained` to default true**, as this ADR said it would
+once `teams` existed. `productDefaults()` now also adds a unique index over
+`(team_id, id)` — not because `id` needs one, but because Postgres will only
+accept a composite foreign key if the parent carries it. That is what makes
+`$table->teamScopedForeign('stage_id', 'stages')` possible, and with it ADR
+0002's second enforcement layer: a child row pointing at a parent in another
+team is a database error rather than a code review.
 
 ### Table names match the PRD §6.2 entity reference exactly
 

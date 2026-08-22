@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Settings;
 
-use App\Models\User;
+use App\Models\Person;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -27,7 +27,7 @@ class SecurityTest extends TestCase
             'confirmPassword' => true,
         ]);
 
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $this->actingAs($user)
             ->withSession(['auth.password_confirmed_at' => time()])
@@ -45,7 +45,7 @@ class SecurityTest extends TestCase
     {
         $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
 
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         Features::twoFactorAuthentication([
             'confirm' => true,
@@ -64,7 +64,7 @@ class SecurityTest extends TestCase
 
         config(['fortify.features' => []]);
 
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $this->actingAs($user)
             ->withSession(['auth.password_confirmed_at' => time()])
@@ -82,7 +82,7 @@ class SecurityTest extends TestCase
 
     public function test_password_can_be_updated(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this
             ->actingAs($user)
@@ -102,7 +102,7 @@ class SecurityTest extends TestCase
 
     public function test_correct_password_must_be_provided_to_update_password(): void
     {
-        $user = User::factory()->create();
+        $user = Person::factory()->create();
 
         $response = $this
             ->actingAs($user)
