@@ -81,7 +81,15 @@ class IssuePasswordResetLink extends Command
             return self::FAILURE;
         }
 
-        $token = Password::broker()->createToken($person);
+        /*
+         * The default broker's own `createToken`, reached through the facade
+         * rather than through `broker()`: the contract `broker()` returns does
+         * not declare it, and narrowing to the concrete class with a docblock
+         * would be asserting an implementation nobody promised. Same token,
+         * same repository, same expiry and same one-shot consumption as the
+         * emailed link — which is the whole point.
+         */
+        $token = Password::createToken($person);
 
         /*
          * PRD §9 audits authentication events, and starting a reset for

@@ -88,8 +88,8 @@ class IssueInvitationLink extends Command
             $this->table(
                 ['Team', 'Slug', 'Role', 'Expires'],
                 $invitations->map(fn (TeamInvitation $invitation): array => [
-                    $invitation->team?->name ?? '—',
-                    $invitation->team?->slug ?? '—',
+                    $invitation->team->name,
+                    $invitation->team->slug,
                     $invitation->role->name,
                     $invitation->expires_at->toDateTimeString(),
                 ])->all(),
@@ -100,15 +100,6 @@ class IssueInvitationLink extends Command
 
         $invitation = $invitations->sole();
         $invitedTeam = $invitation->team;
-
-        // `whereHas` already required one, so this is unreachable — but every
-        // line below reads a team name, and a fatal is a worse answer than a
-        // sentence.
-        if (! $invitedTeam instanceof Team) {
-            $this->components->error('That invitation belongs to a team that no longer exists.');
-
-            return self::FAILURE;
-        }
 
         // Not a refusal: an operator issuing a link while a team is suspended
         // is plausibly about to restore it. But nobody can sign in to a
@@ -158,14 +149,19 @@ class IssueInvitationLink extends Command
      */
     private function outstandingFor(string $email, ?Team $team): Collection
     {
-        return TeamInvitation::withoutTeamScope()
+        $query = TeamInvitation::withoutTeamScope()
             ->pending()
             ->whereRaw('lower(email) = ?', [$email])
             // A deleted team takes its invitations with it, and an invitation
-            // pointing at nothing is not one anybody can accept.
+            // pointing at nothing is not one anybody can accept. This is also
+            // what lets everything downstream read `->team` without a guard.
             ->whereHas('team')
-            ->when($team instanceof Team, fn ($query) => $query->where('team_id', $team?->getKey()))
-            ->with(['team', 'role:id,name'])
-            ->get();
+            ->with(['team', 'role:id,name']);
+
+        if ($team instanceof Team) {
+            $query->where('team_id', $team->getKey());
+        }
+
+        return $query->get();
     }
 }

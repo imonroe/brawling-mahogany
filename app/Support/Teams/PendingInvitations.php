@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Support\Teams;
 
 use App\Models\Person;
-use App\Models\Team;
 use App\Models\TeamInvitation;
 use Illuminate\Support\Collection;
 
@@ -86,6 +85,11 @@ final class PendingInvitations
      * access" screen render from one source, and neither should be shaping a
      * model itself.
      *
+     * `team` is read without a null check because `for()` requires one in the
+     * query. A guard on a property that already holds is a guard that will
+     * one day be trusted for the wrong reason (ADR 0002 makes the same
+     * argument about the identity-write hook).
+     *
      * @return list<array{id: string, teamName: string, role: string, expiresAt: string}>
      */
     public static function propsFor(?Person $person): array
@@ -93,19 +97,9 @@ final class PendingInvitations
         $props = [];
 
         foreach (self::for($person) as $invitation) {
-            $team = $invitation->team;
-
-            // `whereHas` already required one, so this cannot happen — but a
-            // banner reading "You've been invited to" with nothing after it
-            // is worse than no banner, and the relation is nullable in type
-            // whatever the query guarantees.
-            if (! $team instanceof Team) {
-                continue;
-            }
-
             $props[] = [
                 'id' => (string) $invitation->getKey(),
-                'teamName' => $team->name,
+                'teamName' => $invitation->team->name,
                 'role' => $invitation->role->name,
                 'expiresAt' => $invitation->expires_at->toIso8601String(),
             ];
