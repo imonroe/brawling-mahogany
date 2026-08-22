@@ -35,6 +35,10 @@ const sidebarNavItems = computed<NavItem[]>(() => {
         items.push({ title: 'Members', href: '/settings/members' });
     }
 
+    if (page.props.team && can('settings.manage')) {
+        items.push({ title: 'Deal types', href: '/settings/deal-types' });
+    }
+
     if (page.props.team && can('team.export')) {
         items.push({ title: 'Export', href: '/settings/export' });
     }

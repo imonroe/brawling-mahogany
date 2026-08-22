@@ -54,6 +54,22 @@ class DealTypePolicy
         return $dealType->isArchivable() && $this->update($person, $dealType);
     }
 
+    /**
+     * Its own ability, not a second use of `archive`.
+     *
+     * `isArchivable()` is false for a type that is *already* archived — which
+     * is exactly the row somebody restores, so reusing `archive` here made the
+     * undo unreachable and turned archiving into the one-way door it exists to
+     * avoid being.
+     */
+    public function restore(Person $person, DealType $dealType): bool
+    {
+        return ! $dealType->isSystem()
+            && $dealType->isArchived()
+            && $this->visibleHere($dealType)
+            && $this->allows($person, Permissions::MANAGE_SETTINGS);
+    }
+
     /** Ours, or the shared kind. Never another team's. */
     private function visibleHere(DealType $dealType): bool
     {

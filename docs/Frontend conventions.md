@@ -234,6 +234,27 @@ Main St? This removes 14 tasks and cannot be undone."
 **Errors say what happened, then what to do**: "Couldn't send. Check the
 sending address in Settings." Not "An error occurred."
 
+**A lookup is archived, never deleted, and the warning comes before the
+choice.** Deal types (S76) is the first of these; roles (S75), template packs
+(S41), and every other lookup screen follow it. The rule and the reason:
+
+- A lookup is a value other rows *point at*. Deleting "Rental Placement" would
+  orphan every rental deal that ever used it, and the type is what decides
+  which workflow templates are offered and whether the Offers tab exists at
+  all (IA §5.2). So there is **no destroy route** — not a destroy route that
+  refuses, which is a route somebody can reach by guessing a verb.
+- The count is shown *before* the choice, not reported after it. "4 deals keep
+  this type and no new deal can use it" is a decision somebody can make; "Are
+  you sure?" tells them nothing they did not already know.
+- **Archiving must be reversible.** A screen that archived with no way back
+  would have talked somebody out of a delete and handed them the same problem.
+- The count is scoped to the asking team. Lookups with a null `team_id` are
+  shared rows, so an unscoped count answers "how many does *everybody* have"
+  and shows that number to one team. This was a real leak, caught by
+  `UnscopedQueryConventionTest` rather than by review.
+- **System rows get no controls at all, not disabled ones** (IA §5.1). They
+  belong to every team; a greyed-out button only invites the question.
+
 **Consequential inputs carry their consequence beneath them.** The override
 reason field is followed by "This is written to the permanent audit log with
 your name and the time. It cannot be edited or deleted."
