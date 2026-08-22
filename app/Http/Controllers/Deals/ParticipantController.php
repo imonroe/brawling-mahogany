@@ -68,11 +68,15 @@ class ParticipantController extends Controller
                  * the inspector was booked before the listing agreement was
                  * signed should not render Inspector above Seller.
                  */
-                ->sortBy(fn ($group, string $role): int => array_search(
-                    $role,
-                    array_column(ParticipantRole::cases(), 'value'),
-                    true,
-                ) ?: 0)
+                ->sortBy(function ($group, string $role): int {
+                    $position = array_search($role, array_column(ParticipantRole::cases(), 'value'), true);
+
+                    // `!== false` rather than `?:`, which maps both "index 0"
+                    // and "not found" to 0 — correct today only because every
+                    // role is in `cases()`, and one enum edit from putting an
+                    // unknown role in front of Seller.
+                    return $position !== false ? $position : count(ParticipantRole::cases());
+                })
                 ->map(fn ($group, string $role): array => [
                     'role' => $role,
                     'label' => ParticipantRole::from($role)->label(),
@@ -181,13 +185,28 @@ class ParticipantController extends Controller
         DealParticipant $participant,
         DealRoster $roster,
     ): RedirectResponse {
-        // `has()` rather than a default, so an absent key stays absent all the
-        // way to the service rather than arriving as `false`.
+        /*
+         * Only the keys that arrived, by presence rather than by value.
+         *
+         * `notes: ''` reaches here as null — `ConvertEmptyStringsToNull` runs
+         * before every request — so a nullable argument could not tell
+         * "clear it" from "leave it". `has()` still distinguishes the two,
+         * because the key is present either way.
+         */
+        $changes = [];
+
+        foreach (['is_primary', 'notes'] as $field) {
+            if ($request->has($field)) {
+                $changes[$field] = $field === 'is_primary'
+                    ? $request->boolean($field)
+                    : $request->validated($field);
+            }
+        }
+
         $roster->replace(
             participant: $participant,
             role: ParticipantRole::from((string) $request->validated('participant_role')),
-            isPrimary: $request->has('is_primary') ? $request->boolean('is_primary') : null,
-            notes: $request->has('notes') ? $request->validated('notes') : null,
+            changes: $changes,
         );
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Participant updated.')]);

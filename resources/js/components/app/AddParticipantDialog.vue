@@ -157,6 +157,25 @@ function startCreating(): void {
     form.first_name = term.value;
 }
 
+/*
+ * Going back drops what the create branch collected.
+ *
+ * The server decides which branch to take on whether a membership was picked,
+ * so leftover `first_name`/`email` from an abandoned create are fields it will
+ * never use — and, before the rule was gated on the right question, an email
+ * left behind here got the submit refused for an address that was not going to
+ * be written. Clearing them keeps the two halves of the modal from leaking
+ * into each other regardless.
+ */
+function backToSearch(): void {
+    mode.value = 'search';
+    form.first_name = '';
+    form.last_name = '';
+    form.email = '';
+    form.phone = '';
+    form.clearErrors();
+}
+
 function submit(): void {
     form.post(`/deals/${props.dealId}/people`, {
         preserveScroll: true,
@@ -321,7 +340,7 @@ function submit(): void {
                     <AppButton
                         variant="ghost"
                         size="compact"
-                        @click="mode = 'search'"
+                        @click="backToSearch"
                         >Back to search</AppButton
                     >
                 </template>
@@ -391,6 +410,18 @@ function submit(): void {
                     class="text-[11px] text-state-danger"
                 >
                     {{ form.errors.team_membership_id }}
+                </p>
+
+                <!--
+                    Also here, not only inside the create half. An error with
+                    nowhere to render is a button that silently does nothing,
+                    which is the failure this modal already fixed once.
+                -->
+                <p
+                    v-if="mode === 'search' && form.errors.email"
+                    class="text-[11px] text-state-danger"
+                >
+                    {{ form.errors.email }}
                 </p>
 
                 <DialogFooter>

@@ -55,7 +55,13 @@ const promote = useForm({ participant_role: '', is_primary: true, notes: '' });
  * role somebody already holds, and the first error it ever returns here would
  * otherwise be invisible.
  */
-const promoteError = computed(() => promote.errors.participant_role ?? null);
+const promoteError = computed(
+    () =>
+        promote.errors.participant_role ??
+        promote.errors.is_primary ??
+        promote.errors.notes ??
+        null,
+);
 
 function openFor(role: string | null): void {
     suggestedRole.value = role;

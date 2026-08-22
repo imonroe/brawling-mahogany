@@ -79,10 +79,9 @@ final class DealRoster
              */
             try {
                 $participant->save();
-            } catch (UniqueConstraintViolationException) {
+            } catch (UniqueConstraintViolationException $violation) {
                 throw ValidationException::withMessages([
-                    'participant_role' => $membership->fullName()
-                        .' is already on this deal as '.$role->label().'.',
+                    'participant_role' => self::explain($violation, $membership->fullName(), $role),
                 ]);
             }
 
@@ -111,24 +110,39 @@ final class DealRoster
      * needs the incumbent demoted first. The demotion happens here; the
      * duplicate is refused with a sentence.
      */
+    /**
+     * @param  array<string, mixed>  $changes  only the keys the request sent
+     */
     public function replace(
         DealParticipant $participant,
         ParticipantRole $role,
-        ?bool $isPrimary = null,
-        ?string $notes = null,
+        array $changes = [],
     ): DealParticipant {
         /*
-         * Nulls mean "not sent", not "set to empty".
+         * **The keys present, not their values.**
          *
          * `SavePerson::applyIdentity()` states the rule this follows: *a
          * partial update must not blank a column the screen did not show*. The
-         * first version defaulted both to false/null and `forceFill`ed, so a
-         * PATCH carrying only a role demoted a main contact and erased their
-         * notes. Today's UI always sends all three, which is exactly why the
-         * bug would have waited for the second caller.
+         * first version defaulted to false/null and `forceFill`ed, so a PATCH
+         * carrying only a role demoted a main contact and erased their notes.
+         *
+         * The second version passed nullable arguments and read null as "not
+         * sent" — which cannot work, because Laravel's global
+         * `ConvertEmptyStringsToNull` turns `notes: ''` into null before
+         * anything here sees it. That made "clear the notes" indistinguishable
+         * from "leave them alone", so the notes became unclearable: the mirror
+         * image of the bug the fix was for.
+         *
+         * An array of the keys that arrived is the only shape that carries the
+         * distinction, because presence survives what value-coercion erases.
          */
-        $isPrimary ??= $participant->is_primary;
-        $notes ??= $participant->notes;
+        $isPrimary = array_key_exists('is_primary', $changes)
+            ? (bool) $changes['is_primary']
+            : $participant->is_primary;
+
+        $notes = array_key_exists('notes', $changes)
+            ? ($changes['notes'] === null ? null : (string) $changes['notes'])
+            : $participant->notes;
 
         return DB::transaction(function () use ($participant, $role, $isPrimary, $notes): DealParticipant {
             $roleChanged = $participant->participant_role !== $role;
@@ -157,10 +171,9 @@ final class DealRoster
 
             try {
                 $participant->save();
-            } catch (UniqueConstraintViolationException) {
+            } catch (UniqueConstraintViolationException $violation) {
                 throw ValidationException::withMessages([
-                    'participant_role' => $participant->fullName()
-                        .' is already on this deal as '.$role->label().'.',
+                    'participant_role' => self::explain($violation, $participant->fullName(), $role),
                 ]);
             }
 
@@ -174,6 +187,32 @@ final class DealRoster
 
             return $participant;
         });
+    }
+
+    /**
+     * Which index refused, and what that means in a sentence.
+     *
+     * Two of them raise the same exception class here, and the difference
+     * matters to the person reading it: telling somebody *"Sam is already on
+     * this deal as Seller"* when Sam is not on the deal at all — and what
+     * actually happened is that a colleague made somebody else the main
+     * contact half a second earlier — sends them looking for a row that is not
+     * there.
+     *
+     * Matching on the constraint name rather than on the message, because the
+     * message is a driver's and the name is ours.
+     */
+    private static function explain(
+        UniqueConstraintViolationException $violation,
+        string $name,
+        ParticipantRole $role,
+    ): string {
+        if (str_contains($violation->getMessage(), 'deal_participants_one_primary_per_role')) {
+            return 'Somebody else was just made the main contact for '.$role->label()
+                .' on this deal. Reload to see who.';
+        }
+
+        return $name.' is already on this deal as '.$role->label().'.';
     }
 
     /** Is this membership already on this deal in that role? */
@@ -296,6 +335,12 @@ final class DealRoster
         DealParticipant::query()
             ->where('deal_id', $deal->getKey())
             ->whereIn('team_membership_id', $memberships->modelKeys())
+            // Deterministic, and in the same PRD §6.3 order the people tab
+            // groups by — so "already on this deal as Seller, Attorney" reads
+            // the same way twice and matches the screen behind the modal.
+            ->orderByRaw('array_position(?::text[], participant_role)', [
+                '{'.implode(',', array_column(ParticipantRole::cases(), 'value')).'}',
+            ])
             ->get()
             ->each(function (DealParticipant $participant) use (&$held): void {
                 $held[$participant->team_membership_id][] = $participant->participant_role->label();

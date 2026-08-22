@@ -84,16 +84,26 @@ class StoreParticipantRequest extends FormRequest
              * `revoked_at IS NULL`, `lower(email)` — which is why it is reused
              * rather than re-derived.
              *
-             * Only when a new person is actually being created: picking an
-             * existing one sends no name, and the modal sends an empty `email`
-             * either way.
+             * **Gated on the branch the controller actually takes.**
+             * `ParticipantController::store()` asks *"was a membership
+             * picked"*, so this asks the same question rather than a proxy for
+             * it. The first version asked *"was a name typed"*, and the two
+             * answers differ on a real flow: the modal's "Back to search"
+             * leaves `first_name` and `email` behind, so picking an existing
+             * person was refused for an address that was never going to be
+             * used — with the error rendered only in create mode, which meant
+             * the button silently did nothing.
+             *
+             * Worse, that flow is the one this rule's own message invites:
+             * told the address is already in the directory, the obvious move
+             * is to go back and pick the person who has it.
              */
             'first_name' => ['required_without:team_membership_id', 'nullable', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
             'email' => [
                 'nullable', 'string', 'email', 'max:255',
                 Rule::when(
-                    fn (): bool => is_string($this->input('first_name')) && trim($this->input('first_name')) !== '',
+                    fn (): bool => blank($this->input('team_membership_id')),
                     [$this->uniqueWithinTeam(null)],
                 ),
             ],

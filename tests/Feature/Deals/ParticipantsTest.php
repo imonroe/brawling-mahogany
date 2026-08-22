@@ -237,6 +237,54 @@ it('folds the address before comparing it, like the index does', function (): vo
     ])->assertSessionHasErrors('email');
 });
 
+/**
+ * The regression the first version of the rule introduced.
+ *
+ * The rule asked *"was a name typed"*; the controller asks *"was a membership
+ * picked"*. The modal's "Back to search" leaves `first_name` and `email`
+ * behind, so picking an existing person was refused for an address that was
+ * never going to be written — and the error rendered only in create mode, so
+ * the button appeared to do nothing.
+ *
+ * The path in is the one the rule's own message invites: told the address is
+ * already in the directory, the obvious move is to go back and pick the person
+ * who has it.
+ */
+it('does not refuse an existing person for fields the create branch left behind', function (): void {
+    $claire = directoryEntry();
+
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'team_membership_id' => $claire->getKey(),
+        // Left over from an abandoned create, exactly as the modal sent it.
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'participant_role' => ParticipantRole::Seller->value,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(DealParticipant::query()->sole()->team_membership_id)->toBe($claire->getKey());
+});
+
+it('frees the pairing again through the route, not just the service', function (): void {
+    /*
+     * The rule's `whereNull('deleted_at')` is what makes this work, and it was
+     * only ever exercised by a service-level test that never touches the
+     * FormRequest — so the predicate the commit message calls load-bearing was
+     * untested where it actually runs.
+     */
+    $claire = directoryEntry();
+
+    $participant = app(DealRoster::class)->add($this->deal, $claire, ParticipantRole::Seller);
+
+    app(DealRoster::class)->remove($participant);
+
+    $this->post("/deals/{$this->deal->getKey()}/people", [
+        'team_membership_id' => $claire->getKey(),
+        'participant_role' => ParticipantRole::Seller->value,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(DealParticipant::query()->count())->toBe(1);
+});
+
 it('still lets an existing person be picked while the rule is on', function (): void {
     // The control: the uniqueness rule applies to the create-inline branch
     // only, so picking somebody from the directory is not refused for having
@@ -314,6 +362,28 @@ it('refuses to move somebody into a role they already hold here', function (): v
 /**
  * IA §7: Remove detaches, Delete destroys.
  */
+it('clears the notes when a partial update sends an empty one', function (): void {
+    /*
+     * The mirror image of the test below, and the case that made the first fix
+     * wrong. `ConvertEmptyStringsToNull` turns `notes: ''` into null before
+     * anything in the app sees it, so reading null as "not sent" made the
+     * notes unclearable. Presence is what survives the coercion.
+     */
+    $participant = app(DealRoster::class)->add(
+        $this->deal,
+        directoryEntry(),
+        ParticipantRole::Seller,
+        notes: 'Prefers evenings.',
+    );
+
+    $this->patch("/deals/{$this->deal->getKey()}/people/{$participant->getKey()}", [
+        'participant_role' => ParticipantRole::Seller->value,
+        'notes' => '',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($participant->fresh()->notes)->toBeNull();
+});
+
 it('leaves alone what a partial update did not send', function (): void {
     // `SavePerson::applyIdentity()` states the rule: a partial update must not
     // blank a column the screen did not show. A PATCH carrying only a role
