@@ -13,6 +13,7 @@ export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
 export type StateDomain =
     | 'deal'
+    | 'property'
     | 'workflow'
     | 'stage'
     | 'task'
@@ -82,6 +83,34 @@ const person: StateTable = {
     archived: { label: 'Archived', tone: 'neutral', clientLabel: null },
 };
 
+/**
+ * Market status, not a state machine (PRD §6.3, §7.11).
+ *
+ * The only table here whose codes come from PRD §6.3's lookup list rather than
+ * IA §8's state vocabulary, because a property does not transition — a team
+ * sets what is true. PRD §7.11 is what keeps it that way: "Undergoing
+ * improvements" and "Staged" look like they belong and are **workflow
+ * positions**, so they live on a stage and not here.
+ *
+ * No client label on any of them. A client reads their own deal's status page,
+ * and what the market thinks of the house is the agent's to say.
+ */
+const property: StateTable = {
+    pre_listing: { label: 'Pre-listing', tone: 'neutral', clientLabel: null },
+    for_sale: { label: 'For Sale', tone: 'info', clientLabel: null },
+    // `info`, like For Sale: the label already says which, and amber is for
+    // things that need attention (Design System §2.4).
+    under_contract: {
+        label: 'Under Contract',
+        tone: 'info',
+        clientLabel: null,
+    },
+    sold: { label: 'Sold', tone: 'success', clientLabel: null },
+    off_market: { label: 'Off Market', tone: 'neutral', clientLabel: null },
+    rented: { label: 'Rented', tone: 'success', clientLabel: null },
+    other: { label: 'Other', tone: 'neutral', clientLabel: null },
+};
+
 const automation: StateTable = {
     pending: { label: 'Scheduled', tone: 'neutral', clientLabel: null },
     awaiting_approval: {
@@ -109,6 +138,7 @@ const document: StateTable = {
 
 export const STATES: Record<StateDomain, StateTable> = {
     deal,
+    property,
     workflow,
     stage,
     task,

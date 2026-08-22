@@ -7,8 +7,12 @@ namespace Database\Seeders;
 use App\Actions\Teams\ProvisionTeam;
 use App\Enums\ActivitySource;
 use App\Enums\PersonLifecycleState;
+use App\Enums\PropertyStatus;
+use App\Enums\PropertyType;
 use App\Enums\SystemRole;
+use App\Models\ExternalLink;
 use App\Models\Person;
+use App\Models\Property;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamMembership;
@@ -77,11 +81,77 @@ class DemoTeamSeeder extends Seeder
                 source: ActivitySource::Manual,
                 payload: ['contact_type' => 'phone_call', 'note' => 'Walked through the listing timeline.'],
             );
+
+            $this->properties();
         });
 
         $this->command->info("Demo team seeded. Sign in as emily@example.test / password (super admin: {$superAdmin->email}).");
 
         unset($superAdminDetails);
+    }
+
+    /**
+     * Two houses, so S35 and S36 have something to render (#61).
+     *
+     * One on the market with links out, one pre-listing with none — the two
+     * shapes the detail screen has to handle, and the empty links panel is the
+     * one somebody would otherwise only see by deleting a row.
+     *
+     * The links go to `.test` addresses on purpose. A seed that pointed at a
+     * real listing site would put a request to somebody else's servers in
+     * every developer's `migrate:fresh --seed`, and PRD §10 is emphatic that
+     * this product links out and never fetches.
+     */
+    private function properties(): void
+    {
+        $listed = Property::query()->firstOrCreate(
+            ['parcel_number' => '0512-14-002-0031'],
+            [
+                'street' => '1420 Pearl St',
+                'city' => 'Boulder',
+                'state_code' => 'CO',
+                'postal_code' => '80302',
+                'type' => PropertyType::SingleFamily,
+                'status' => PropertyStatus::ForSale,
+                'beds' => 3,
+                'baths' => '2.5',
+                'sqft' => 1840,
+                'year_built' => 1962,
+                'notes' => 'Seller wants a Thursday listing date.',
+            ],
+        );
+
+        foreach ([
+            ['Listing', 'https://listings.example.test/1420-pearl-st'],
+            ['County assessor', 'https://assessor.example.test/parcel/0512-14-002-0031'],
+        ] as $position => [$label, $url]) {
+            $link = new ExternalLink;
+            $link->forceFill([
+                'linkable_type' => $listed->getMorphClass(),
+                'linkable_id' => $listed->getKey(),
+            ]);
+            $link->fill(['label' => $label, 'url' => $url, 'sort_order' => $position]);
+
+            if (! $listed->externalLinks()->where('url', $url)->exists()) {
+                $link->save();
+            }
+        }
+
+        Property::query()->firstOrCreate(
+            ['parcel_number' => '0512-14-002-0044'],
+            [
+                'street' => '88 Mapleton Ave',
+                'city' => 'Boulder',
+                'state_code' => 'CO',
+                'postal_code' => '80304',
+                'type' => PropertyType::Condo,
+                'status' => PropertyStatus::PreListing,
+                'beds' => 2,
+                'baths' => '1.0',
+                'sqft' => 960,
+                'year_built' => 1998,
+            ],
+        );
     }
 
     /**

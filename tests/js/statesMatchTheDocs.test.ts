@@ -67,6 +67,46 @@ function iaStates(heading: string): Record<string, string> {
     return pairs;
 }
 
+/** The values column of a PRD §6.3 lookup row, split on commas. */
+function prdLookupValues(lookup: string): string[] {
+    const section = (
+        doc('Product Requirements Document').split(
+            '### 6.3 Lookup values',
+        )[1] ?? ''
+    ).split('\n---')[0];
+
+    expect(section, 'PRD §6.3 Lookup values is missing').not.toBe('');
+
+    for (const line of section.split('\n')) {
+        if (!line.trim().startsWith('|')) {
+            continue;
+        }
+
+        const cells = line
+            .split('|')
+            .slice(1, -1)
+            .map((cell) => cell.trim());
+
+        if (cells.length < 2) {
+            continue;
+        }
+
+        if (
+            cells[0].replace(/\*/g, '').trim().toLowerCase() !==
+            lookup.toLowerCase()
+        ) {
+            continue;
+        }
+
+        return cells[1]
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean);
+    }
+
+    throw new Error(`PRD §6.3 has no row for "${lookup}".`);
+}
+
 /** UI label → tone, from the Design System §2.4 table. */
 function designSystemTones(entity: string): Record<string, Tone> {
     const table =
@@ -170,6 +210,37 @@ describe('the state table matches the documents', () => {
             }
         },
     );
+
+    /**
+     * Property status is the one domain whose values are a **lookup**, not a
+     * state machine, so IA §8 has no sub-section for it and this reads PRD
+     * §6.3 instead. `tests/Unit/DocumentedVocabularyTest.php` holds the PHP
+     * enum against the same row; this holds the badge table against it, so the
+     * two sides of the wire cannot drift from each other or from the document.
+     */
+    it('has PRD §6.3’s property status values, in order', () => {
+        expect(
+            Object.values(STATES.property).map(
+                (descriptor) => descriptor.label,
+            ),
+        ).toEqual(prdLookupValues('Property status'));
+    });
+
+    it('has Design System §2.4’s tone for every property status', () => {
+        const documented = designSystemTones('Property');
+
+        expect(
+            Object.keys(documented).length,
+            'no §2.4 rows for Property',
+        ).toBeGreaterThan(0);
+
+        for (const descriptor of Object.values(STATES.property)) {
+            expect(
+                documented[descriptor.label],
+                `Property · ${descriptor.label}`,
+            ).toBe(descriptor.tone);
+        }
+    });
 
     it('carries the document state from Design System §2.4', () => {
         // The only document state with a badge is the refusal (PRD §4.6 F6.2).

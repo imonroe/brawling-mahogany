@@ -537,11 +537,34 @@ erDiagram
 | `deal_types` | team_id (nullable), name, side (buy/sell/rent/other) | Many deals share one type. |
 | `deals` | team_id, deal_type_id, name, generated_name, state, opened_at, closed_at, transaction_value, notes | State includes `closed` and `nurture`. |
 | `deal_participants` | deal_id, **team_membership_id**, participant_role, is_primary, notes | Per deal, not global. `team_membership_id` rather than `person_id` since #140 — see §7.2. |
-| `properties` | team_id, address fields, parcel_number, type_id, status_id, beds, baths, sqft, year_built, notes | Team-owned, reusable across deals. |
-| `deal_property` | deal_id, property_id, link_role (subject/candidate), interest_status, sort_order | |
-| `external_links` | linkable_type/id, label, url | Replaces per-site columns. |
+| `properties` | team_id, street, unit, city, **state_code**, postal_code, parcel_number, **type**, **status**, beds, baths, sqft, year_built, notes | Team-owned, reusable across deals. Enum columns rather than `type_id`/`status_id` since #61 — see below. |
+| `deal_properties` | team_id, deal_id, property_id, **is_subject**, (interest_status in #62) | Plural, like every other table here. `is_subject` is the `link_role` this row was drafted with, narrowed — see below. |
+| `external_links` | team_id, linkable_type/id, label, url, sort_order | Replaces per-site columns (§7.13). Carries `team_id` because a polymorphic pointer is outside the composite-key layer — ADR 0002. |
 | `offers` | deal_id, property_id, direction, amount, earnest_money, terms, contingencies JSON, status, submitted_at, expires_at | |
 | `key_dates` | deal_id, name, date, anchor_key_date_id, offset_days, offset_basis, is_derived, is_critical, **source (manual/extracted), confirmed_by, confirmed_at** | The contingency calendar. Extraction provenance is now tracked here. |
+
+**Amended by #61 (Slice 2), three ways.**
+
+*`type` and `status`, not `type_id` and `status_id`.* Both vocabularies are
+fixed by §6.3 above and held against this document by
+`tests/Unit/DocumentedVocabularyTest.php`, so a lookup table would have been a
+second, editable copy of a list this document owns. That matters most for
+status: §7.11 rules that "Undergoing improvements" and "Staged" are **workflow
+positions, not market status**, and a team-editable lookup is exactly how they
+would get added back. Deal *types* stay a table because teams genuinely add
+their own (§7.6); property types do not work that way.
+
+*`state_code`, not `state`.* Every other table in this schema uses `state` for
+a state machine, and a column meaning Colorado sitting where `HasStateMachine`
+looks would have been read wrongly by a person before it was read wrongly by
+code.
+
+*`is_subject`, not `link_role`.* The drafted `link_role (subject/candidate)`
+carries two ideas: which property names the deal (§10's generated name), and
+how interested the buyer is in each of the others. The first is a single
+boolean with a database-level "at most one per deal"; the second is a
+vocabulary #62 adds as `interest_status`. Splitting them means the name rule
+can be enforced by an index instead of by an application check on a string.
 
 #### Workflow definition layer
 

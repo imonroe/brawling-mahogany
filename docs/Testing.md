@@ -142,6 +142,8 @@ remembering them:
 | `tests/Unit/SingleMutationPathTest.php` | Nothing but `AdvanceWorkflow` writes workflow state — across `app/`, `routes/` and `database/`, and through every spelling of the write, `DB::table('stages')` included. Carries its own dataset of bypasses so the detector cannot be narrowed by accident | PRD §8.3, issue #68 |
 | `tests/Feature/Workflow/StateMachinePersistenceTest.php` | An illegal transition throws on `save()` however the attribute was written — assignment, `setAttribute`, a variable column name, or `forceFill` | issue #65 |
 | `tests/Unit/EmailIndependenceTest.php` | Every mailable in `app/Mail`, every notification in `app/Notifications` with a `toMail`, and every mail-sending Fortify feature that is switched on, is catalogued in `EmailIndependence::FLOWS` with a non-email alternative — and every alternative it names resolves against the real route table or the artisan registry | ADR 0003 |
+| `tests/Unit/ExternalLinkConventionTest.php` | The models that use `HasExternalLinks` and the class names in `ExternalLink::LINKABLE` are the same set, and every one of them carries a team. A polymorphic pointer has no composite key to refuse a foreign target, so the allowlist *is* the constraint | ADR 0002, issue #61 |
+| `tests/Unit/SafeUrlTest.php` | Only `http` and `https` may be stored and rendered as a link. `javascript:` and `data:text/html` parse cleanly and are script execution in the reader's session — Laravel's `url` rule accepts both | PRD §4.3 F3.4, issue #61 |
 
 When one of these fails, the fix is the code or the document — not the test.
 

@@ -82,18 +82,26 @@ it('keeps the gallery behind authentication', function (): void {
 
 it('renders a placeholder for every sidebar destination', function (): void {
     // The shell has to be walkable end to end for the review to mean anything.
-    // People is no longer a placeholder — Slice 1 built it (S30).
+    // People is no longer a placeholder — Slice 1 built it (S30) — and neither
+    // is Properties, which Slice 2 built (S35, issue #61).
     [$team, $member] = $this->teamWithMember();
 
     $this->actingAsPerson($member, $team);
 
-    foreach (['work', 'deals', 'properties', 'calendar', 'keep-in-touch', 'templates'] as $path) {
+    foreach (['work', 'deals', 'calendar', 'keep-in-touch', 'templates'] as $path) {
         $this->get("/{$path}")
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Placeholder'));
     }
 
-    $this->get('/people')
-        ->assertOk()
-        ->assertInertia(fn (AssertableInertia $page) => $page->component('People/Index'));
+    $built = [
+        '/people' => 'People/Index',
+        '/properties' => 'Properties/Index',
+    ];
+
+    foreach ($built as $path => $component) {
+        $this->get($path)
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page->component($component));
+    }
 });
