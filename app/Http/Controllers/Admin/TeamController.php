@@ -183,6 +183,10 @@ class TeamController extends Controller
             $model = TeamInvitation::withoutTeamScope()
                 ->where('team_id', $team)
                 ->pending()
+                // A deleted team takes its invitations with it. Without this
+                // the link mints happily and then 500s on S04, where
+                // `$invitation->team()->sole()` finds nothing.
+                ->whereHas('team')
                 ->whereKey($invitation)
                 ->first();
 

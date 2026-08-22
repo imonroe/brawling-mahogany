@@ -6,6 +6,7 @@ use App\Models\Person;
 use App\Support\Mail\EmailIndependence;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Mail\Mailable;
+use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
@@ -26,24 +27,58 @@ use Tests\Support\Sources;
  * registry. An entry is not a promise; the thing it names has to exist.
  */
 
-/** @return list<class-string<Mailable>> */
-function mailableClasses(): array
+/**
+ * Everything in `app/` that can put a message in somebody's inbox.
+ *
+ * **Both kinds, and the second one is the point.** The first cut of this test
+ * globbed `app/Mail` for `Mailable` subclasses and stopped there — which left
+ * `Illuminate\Notifications\Notification` invisible to it. That is not a
+ * hypothetical gap: Fortify's password reset is a notification, which is
+ * exactly why it needed a hand-written constant to be covered at all, and a
+ * per-recipient client message in Slice 5 is far likelier to be written as a
+ * notification than as a mailable. The load-bearing claim of ADR 0003 is that
+ * Slice 5 inherits the rule on the day it lands; a scanner that cannot see
+ * the class of sender Slice 5 will use would have let it land green.
+ *
+ * @return list<class-string>
+ */
+function emailSenderClasses(): array
 {
-    return array_values(array_filter(array_map(
-        static fn (string $path): string => 'App\\Mail\\'.str_replace(['/', '.php'], ['\\', ''], $path),
-        Sources::files(['app/Mail'], ['php']),
-    ), static fn (string $class): bool => class_exists($class) && is_subclass_of($class, Mailable::class)));
+    $found = [];
+
+    foreach ([['app/Mail', 'App\\Mail\\'], ['app/Notifications', 'App\\Notifications\\']] as [$directory, $namespace]) {
+        if (! is_dir(base_path($directory))) {
+            continue;
+        }
+
+        foreach (Sources::files([$directory], ['php']) as $path) {
+            $class = $namespace.str_replace(['/', '.php'], ['\\', ''], $path);
+
+            if (! class_exists($class)) {
+                continue;
+            }
+
+            // A mailable sends by definition. A notification only sends by
+            // mail if it says so, and `toMail` is how it says so.
+            if (is_subclass_of($class, Mailable::class)
+                || (is_subclass_of($class, Notification::class) && method_exists($class, 'toMail'))) {
+                $found[] = $class;
+            }
+        }
+    }
+
+    return $found;
 }
 
-it('lists every mailable in the catalogue', function (): void {
+it('lists every mailable and mail-sending notification in the catalogue', function (): void {
     // A test that examines nothing passes for the wrong reason.
-    expect(mailableClasses())->not->toBeEmpty();
+    expect(emailSenderClasses())->not->toBeEmpty();
 
-    $uncatalogued = array_values(array_diff(mailableClasses(), EmailIndependence::coveredSenders()));
+    $uncatalogued = array_values(array_diff(emailSenderClasses(), EmailIndependence::coveredSenders()));
 
     expect($uncatalogued)->toBe(
         [],
-        'A mailable exists with no non-email alternative recorded. ADR 0003: every flow the '
+        'Something that sends email exists with no non-email alternative recorded. ADR 0003: every flow the '
         .'product initiates by email must have a second way to be started or answered. Add it '
         .'to App\\Support\\Mail\\EmailIndependence::FLOWS along with the route or command that '
         .'is the second door — and if there is no second door yet, that is the thing to build, '

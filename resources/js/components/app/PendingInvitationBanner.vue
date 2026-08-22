@@ -12,14 +12,34 @@
  */
 import { router } from '@inertiajs/vue3';
 import { MailPlus } from '@lucide/vue';
+import { ref } from 'vue';
 import type { PendingInvitation } from '@/types';
 
 const props = defineProps<{
     invitations: PendingInvitation[];
 }>();
 
+/**
+ * Accepting is not idempotent: each post spends the invitation and writes an
+ * `invitation.accepted` row into a log whose whole point is that it is
+ * append-only. Two rapid clicks used to produce two of them.
+ */
+const accepting = ref<string | null>(null);
+
 function accept(id: string): void {
-    router.post(`/invitations/${id}/claim`);
+    if (accepting.value !== null) {
+        return;
+    }
+
+    accepting.value = id;
+
+    router.post(
+        `/invitations/${id}/claim`,
+        {},
+        {
+            onFinish: () => (accepting.value = null),
+        },
+    );
 }
 </script>
 
@@ -43,10 +63,11 @@ function accept(id: string): void {
         </p>
         <button
             type="button"
-            class="text-13 font-semibold underline"
+            class="text-13 font-semibold underline disabled:opacity-60"
+            :disabled="accepting !== null"
             @click="accept(invitation.id)"
         >
-            Accept
+            {{ accepting === invitation.id ? 'Accepting…' : 'Accept' }}
         </button>
     </div>
 </template>

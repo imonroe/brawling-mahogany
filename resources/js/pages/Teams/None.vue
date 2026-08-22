@@ -14,7 +14,7 @@
  */
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { Users } from '@lucide/vue';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
@@ -53,8 +53,24 @@ const description = computed(() =>
         : 'Access to a team comes from an invitation. Ask whoever runs your team to send you one — they can email it, or hand you the link directly.',
 );
 
+/**
+ * One at a time. Accepting spends the invitation and writes to the
+ * append-only audit log, so a double-click used to do both twice.
+ */
+const accepting = ref<string | null>(null);
+
 function accept(id: string): void {
-    router.post(`/invitations/${id}/claim`);
+    if (accepting.value !== null) {
+        return;
+    }
+
+    accepting.value = id;
+
+    router.post(
+        `/invitations/${id}/claim`,
+        {},
+        { onFinish: () => (accepting.value = null) },
+    );
 }
 
 function signOut(): void {
@@ -89,8 +105,14 @@ function signOut(): void {
                             :label="invitation.role"
                             dotless
                         />
-                        <AppButton @click="accept(invitation.id)"
-                            >Accept</AppButton
+                        <AppButton
+                            :disabled="accepting !== null"
+                            @click="accept(invitation.id)"
+                            >{{
+                                accepting === invitation.id
+                                    ? 'Accepting…'
+                                    : 'Accept'
+                            }}</AppButton
                         >
                     </li>
                 </ul>

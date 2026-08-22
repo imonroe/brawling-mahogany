@@ -61,8 +61,9 @@ These come from PRD §8 and should guide the eventual build:
   handing the artifact over, or an operator issuing it from the console. Email
   is a channel we do not control, and Slice 1's invitation was unanswerable on
   any install without a mail transport. Built in Slice 2 — see
-  [`docs/adr/0003`](docs/adr/0003-no-email-only-flows.md). New mailables are
-  catalogued in `App\Support\Mail\EmailIndependence` and
+  [`docs/adr/0003`](docs/adr/0003-no-email-only-flows.md). New mailables **and
+  notifications that send mail** are catalogued in
+  `App\Support\Mail\EmailIndependence`, and
   `tests/Unit/EmailIndependenceTest.php` fails the build when one has no second
   door, or names one that does not resolve.
 

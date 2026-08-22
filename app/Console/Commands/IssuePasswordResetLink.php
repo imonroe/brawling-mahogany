@@ -32,9 +32,21 @@ use Laravel\Fortify\Features;
  *
  * It does not change or clear a password, and it does not sign anybody in. It
  * mints the same single-use, expiring token the emailed link carries, through
- * the same broker — so the same expiry, the same throttle, and the same
- * one-shot consumption apply. An operator running this can start a reset; only
- * the account holder can finish one.
+ * the same broker — so the same expiry and the same one-shot consumption
+ * apply. An operator running this can start a reset; only the account holder
+ * can finish one.
+ *
+ * Two things it does **not** inherit from `sendResetLink`, both worth knowing
+ * before running it against a customer's account:
+ *
+ *  - **It rotates.** `DatabaseTokenRepository::create()` deletes any existing
+ *    token for the address first, so this kills a link the account holder
+ *    requested by email a minute ago, and a later emailed request kills this
+ *    one. Same trade as the invitation link, for the same reason: nothing
+ *    recoverable is stored.
+ *  - **It skips the resend throttle.** `tokenRecentlyCreated` gates the
+ *    *screen*, not the broker's `createToken`, so this is not rate-limited by
+ *    anything except shell access.
  */
 class IssuePasswordResetLink extends Command
 {
@@ -112,6 +124,12 @@ class IssuePasswordResetLink extends Command
         $this->components->warn(
             'Single use, and it expires like any other reset link. Anyone holding it can set '
             .'this account’s password, so hand it over the way you would a password.',
+        );
+
+        // The surprising half, said where somebody will actually read it.
+        $this->components->warn(
+            'This replaces any reset link already outstanding for this address, including one '
+            .'the account holder requested themselves.',
         );
 
         return self::SUCCESS;

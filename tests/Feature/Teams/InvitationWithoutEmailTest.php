@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\PersonLifecycleState;
 use App\Enums\SystemRole;
 use App\Models\AuditEntry;
 use App\Models\Person;
@@ -154,6 +155,159 @@ it('refuses a claim on an invitation that is no longer live', function (array $s
     'revoked' => [['revoked_at' => '2026-01-01 00:00:00']],
     'accepted' => [['accepted_at' => '2026-01-01 00:00:00']],
 ]);
+
+it('accepts while another team is already resolved', function (): void {
+    /*
+     * The case the shell banner exists for, and the one every other claim
+     * test here missed: somebody who is *already* on a team, claiming an
+     * invitation to a different one.
+     *
+     * `ResolveCurrentTeam` is global middleware, so their own team is
+     * resolved on this request. Spending the invitation outside
+     * `runFor($invitation->team)` therefore tripped `BelongsToTeam`'s
+     * `updating` guard — a 500, and a rolled-back transaction, on the one
+     * population the banner was built to reach. Every case above sets the
+     * context to null and claims as somebody with no membership anywhere,
+     * which is exactly why they all passed.
+     */
+    [$otherTeam, $member] = $this->teamWithMember();
+
+    $invitation = inviteWithoutSending($this->team, $this->memberRole, (string) $member->email);
+
+    $this->actingAsPerson($member, $otherTeam);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")
+        ->assertRedirect(route('dashboard'));
+
+    expect($invitation->fresh()->isAccepted())->toBeTrue()
+        ->and(TeamMembership::withoutTeamScope()
+            ->where('team_id', $this->team->getKey())
+            ->where('person_id', $member->getKey())
+            ->whereNull('revoked_at')
+            ->exists())->toBeTrue()
+        // And the team they were already in is untouched.
+        ->and(TeamMembership::withoutTeamScope()
+            ->where('team_id', $otherTeam->getKey())
+            ->where('person_id', $member->getKey())
+            ->whereNull('revoked_at')
+            ->exists())->toBeTrue();
+});
+
+it('keeps the name the team recorded when nobody typed a new one', function (): void {
+    /*
+     * A claim types nothing, so the name it carries is the invitation's or
+     * the address before the @ — neither chosen by anybody. Letting that win
+     * turned "Heather Cole" into "heather Cole" on the ordinary
+     * revoke-then-re-invite path, silently, on the one field #140 moved onto
+     * the membership so that the team would own it.
+     */
+    $person = Person::factory()->create(['email' => 'heather@example.test']);
+
+    $membership = app(TeamContext::class)->runFor($this->team, function () use ($person): TeamMembership {
+        $row = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'Heather',
+            'last_name' => 'Cole',
+            'email' => 'heather@example.test',
+            'status' => PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        $row->forceFill(['revoked_at' => now()])->save();
+
+        return $row;
+    });
+
+    // Re-invited with no name filled in, which is the common case.
+    $invitation = inviteWithoutSending(
+        $this->team,
+        $this->memberRole,
+        'heather@example.test',
+        ['first_name' => null, 'last_name' => null],
+    );
+
+    app(TeamContext::class)->set(null);
+
+    $this->actingAsPerson($person);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect(route('dashboard'));
+
+    $membership->refresh();
+
+    expect($membership->first_name)->toBe('Heather')
+        ->and($membership->last_name)->toBe('Cole')
+        ->and($membership->revoked_at)->toBeNull();
+});
+
+it('still lets the invitee name themselves on the emailed path', function (): void {
+    // The other half of the rule above: a typed name is authoritative and
+    // must keep overwriting whatever the team had.
+    $token = TeamInvitation::newToken();
+
+    inviteWithoutSending($this->team, $this->memberRole, 'heather@example.test', [
+        'token_hash' => TeamInvitation::hashToken($token),
+    ]);
+
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$token}", [
+        'first_name' => 'Heather',
+        'last_name' => 'Quinn',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect(route('dashboard'));
+
+    $person = Person::query()->where('email', 'heather@example.test')->sole();
+
+    expect($person->membershipIn($this->team)->first_name)->toBe('Heather')
+        ->and($person->membershipIn($this->team)->last_name)->toBe('Quinn');
+});
+
+it('offers nothing, and accepts nothing, inside an impersonated session', function (): void {
+    /*
+     * A support session exists so an administrator can see what the customer
+     * sees. Joining another team on their behalf is not seeing — and the
+     * audit entry would carry the customer's name, not the administrator's.
+     */
+    [$otherTeam, $member] = $this->teamWithMember();
+
+    $invitation = inviteWithoutSending($this->team, $this->memberRole, (string) $member->email);
+
+    $administrator = Person::factory()->create(['is_super_admin' => true]);
+    $this->enrollTwoFactor($administrator);
+
+    app(TeamContext::class)->set(null);
+
+    $this->actingAsPerson($administrator);
+
+    $this->post("/admin/teams/{$otherTeam->getKey()}/impersonate", [
+        'person_id' => $member->getKey(),
+        'reason' => 'Investigating a support ticket about their dashboard.',
+        'minutes' => 30,
+    ])->assertRedirect(route('dashboard'));
+
+    /*
+     * Assert the session actually started before asserting what it cannot do.
+     * Without this the test passes whether or not impersonation began — the
+     * administrator's own address matches no invitation either way — which
+     * would make every assertion below vacuous.
+     */
+    $this->assertAuthenticatedAs($member);
+
+    $this->get('/no-team')->assertInertia(fn ($page) => $page
+        ->where('auth.impersonating.name', fn ($name) => $name !== null)
+        ->has('invitations', 0));
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertNotFound();
+
+    expect($invitation->fresh()->isAccepted())->toBeFalse();
+
+    // And the moment the support session ends, it is offered again.
+    $this->delete('/impersonation');
+
+    $this->get('/no-team')->assertInertia(fn ($page) => $page->has('invitations', 1));
+});
 
 it('requires a session — an id is not a credential', function (): void {
     $invitation = inviteWithoutSending($this->team, $this->memberRole, 'heather@example.test');

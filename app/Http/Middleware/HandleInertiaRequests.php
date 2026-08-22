@@ -75,10 +75,20 @@ class HandleInertiaRequests extends Middleware
              * Shared rather than fetched per screen, for the same reason the
              * team list is: the shell renders a banner from it, and a person
              * who has just been invited is by definition somebody who does
-             * not know where to go looking. One indexed query on a folded
-             * address, and empty for the overwhelming majority of requests.
+             * not know where to go looking. One indexed lookup on a folded
+             * address — see `team_invitations_pending_email` — and empty for
+             * the overwhelming majority of requests.
+             *
+             * **Never during impersonation.** A support session acts with the
+             * customer's permissions so that an administrator can see what
+             * they see; joining another team on their behalf is not seeing,
+             * it is a cross-tenant membership grant in one click, and
+             * `finalise()` would sign the audit entry with the customer's
+             * name rather than the administrator's.
              */
-            'invitations' => PendingInvitations::propsFor($person),
+            'invitations' => Impersonation::isActive($request)
+                ? []
+                : PendingInvitations::propsFor($person),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

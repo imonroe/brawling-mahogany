@@ -148,11 +148,52 @@ it.
   or credential events under PRD §9 and were going to be needed anyway.
 - **One extra query per authenticated request.** The pending-invitation list is
   a shared Inertia prop, because the shell renders a banner from it and
-  somebody who has just been invited does not know where to look. It is one
-  indexed lookup on a folded address, and empty for almost every request.
+  somebody who has just been invited does not know where to look. It is empty
+  for almost every request.
+
+  It needed an index to be one *lookup* rather than one *scan*, and the first
+  cut of this ADR claimed one that did not exist. `team_invitations` had
+  `(team_id, email)` and a partial unique on `(team_id, lower(email))`, both
+  leading with `team_id` — and this query has no `team_id` by construction,
+  which is the whole point. `team_invitations_pending_email`, partial over the
+  same predicates as `scopePending()`, is what makes the sentence true.
+
+- **Not during impersonation.** A support session acts with the customer's
+  permissions so an administrator can see what they see. Joining another team
+  on the customer's behalf is not seeing, and the audit entry would carry the
+  customer's name — so the banner is suppressed and the claim endpoint refuses,
+  because hiding a button whose endpoint still answers is not a control.
 - **Mailpit stops being load-bearing for local development.** It is still the
   right way to see what a message looks like; it is no longer the only way to
   finish setting up an environment.
+
+## What the adversarial review caught
+
+Recorded because both were in the code this decision added, and both were
+invisible to a suite that passed:
+
+- **Spending the invitation outside its team threw `CrossTenantException`.**
+  `AcceptInvitation` attached the membership inside `runFor()` and then marked
+  the invitation accepted outside it. `TeamInvitation` is `BelongsToTeam`, so
+  its `updating` guard compares the resolved team against the row's — and
+  `ResolveCurrentTeam` is global middleware, so anybody already on a team has
+  one resolved. The result was a 500 for exactly the population the shell
+  banner exists to serve: somebody in team A, invited to team B. Every test
+  missed it because every test cleared the context first and claimed as
+  somebody with no membership anywhere.
+
+  ADR 0002's *"the hole the layers do not cover"* has a sibling here: **the
+  layers also catch you when you are right about the data and wrong about the
+  context.** `ProfileController` documents the identical mistake, and cited
+  `AcceptInvitation` as the example of doing it correctly. It was not.
+
+- **A claim overwrote the name the team had recorded.** The accept screen
+  requires the invitee to type their name, so it wins. A claim types nothing,
+  so its name is the invitation's or the address before the @ — and letting
+  that win turned *Heather Cole* into *heather Cole* on the ordinary
+  revoke-then-re-invite path. Silent, on the one field #140 moved onto the
+  membership so the team would own it. `attachMembership` now takes
+  `nameIsAuthoritative`, and only a typed name is.
 
 ## Not decided here
 

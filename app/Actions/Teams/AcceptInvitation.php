@@ -50,6 +50,8 @@ final class AcceptInvitation
     public function handle(TeamInvitation $invitation, string $firstName, ?string $lastName, string $password): array
     {
         return DB::transaction(function () use ($invitation, $firstName, $lastName, $password): array {
+            $team = $invitation->team()->sole();
+
             // Case-insensitively, because `Emily@Example.test` and
             // `emily@example.test` are one human (PRD decision log,
             // 2026-08-22) and the unique index says so too.
@@ -109,9 +111,31 @@ final class AcceptInvitation
                 $person->forceFill(['email_verified_at' => now()])->save();
             }
 
-            $this->attachMembership($invitation, $person, $firstName, $lastName ?? $invitation->last_name);
+            /*
+             * Both writes inside one `runFor`, and the invitation write is
+             * the reason.
+             *
+             * `finalise()` saves the `TeamInvitation`, which is
+             * `BelongsToTeam` — so its `updating` hook asks whether the
+             * resolved team matches the row's, and throws when it does not.
+             * `ResolveCurrentTeam` is global middleware, so a signed-in
+             * member of another team has one resolved on this request.
+             * Attaching inside the team and then spending the invitation
+             * outside it is exactly the mistake ProfileController documents.
+             */
+            $this->teams->runFor($team, function () use ($invitation, $person, $firstName, $lastName): void {
+                $this->attachMembership(
+                    $invitation,
+                    $person,
+                    $firstName,
+                    $lastName ?? $invitation->last_name,
+                    // The invitee typed this on the accept screen, where it is
+                    // required. It wins over anything the team recorded.
+                    nameIsAuthoritative: true,
+                );
 
-            $this->finalise($invitation, $person);
+                $this->finalise($invitation, $person);
+            });
 
             /*
              * **An invitation is not a way into an existing account.**
@@ -144,27 +168,34 @@ final class AcceptInvitation
      */
     public function claim(TeamInvitation $invitation, Person $person): TeamMembership
     {
-        return DB::transaction(function () use ($invitation, $person): TeamMembership {
-            $this->guardAgainstConflict($invitation);
+        return DB::transaction(fn (): TeamMembership => $this->teams->runFor(
+            $invitation->team()->sole(),
+            function () use ($invitation, $person): TeamMembership {
+                $this->guardAgainstConflict($invitation);
 
-            /*
-             * Nobody typed a name here — that is the whole point of the
-             * screen, one button — so the invitation's is used, and failing
-             * that the address before the @. The same placeholder
-             * `ProvisionTeam::attachOwner` uses, changeable from their
-             * profile, and better than a blank line on the members screen.
-             */
-            $membership = $this->attachMembership(
-                $invitation,
-                $person,
-                $invitation->first_name ?? Str::before((string) $person->email, '@'),
-                $invitation->last_name,
-            );
+                /*
+                 * Nobody typed a name here — that is the whole point of the
+                 * screen, one button — so the invitation's is used, and
+                 * failing that the address before the @. The same placeholder
+                 * `ProvisionTeam::attachOwner` uses, changeable from their
+                 * profile, and better than a blank line on the members screen.
+                 *
+                 * `nameIsAuthoritative: false` because of that: a placeholder
+                 * nobody chose must never overwrite a name a team typed.
+                 */
+                $membership = $this->attachMembership(
+                    $invitation,
+                    $person,
+                    $invitation->first_name ?? Str::before((string) $person->email, '@'),
+                    $invitation->last_name,
+                    nameIsAuthoritative: false,
+                );
 
-            $this->finalise($invitation, $person, 'Accepted in the application by the invited account.');
+                $this->finalise($invitation, $person, 'Accepted in the application by the invited account.');
 
-            return $membership;
-        });
+                return $membership;
+            },
+        ));
     }
 
     /**
@@ -188,50 +219,72 @@ final class AcceptInvitation
 
     /**
      * The membership, and the role that came with the invitation.
+     *
+     * **Must be called inside `runFor($invitation->team)`.** It writes two
+     * team-scoped models, and `BelongsToTeam` refuses a write aimed at a team
+     * other than the resolved one — which is a feature, and the reason both
+     * callers resolve the team themselves rather than leaving it to chance.
+     *
+     * @param  bool  $nameIsAuthoritative  Whether `$firstName` came from a
+     *                                     human who typed it for this team.
      */
-    private function attachMembership(TeamInvitation $invitation, Person $person, string $firstName, ?string $lastName): TeamMembership
-    {
-        return $this->teams->runFor(
-            $invitation->team()->sole(),
-            function () use ($invitation, $person, $firstName, $lastName): TeamMembership {
-                // The name goes in the insert, not a follow-up write:
-                // `first_name` is not nullable, so a membership cannot exist
-                // for a moment without one.
-                $membership = TeamMembership::query()->firstOrCreate(
-                    ['team_id' => $invitation->team_id, 'person_id' => $person->getKey()],
-                    [
-                        'first_name' => $firstName,
-                        'last_name' => $lastName,
-                        'email' => $invitation->email,
-                        'status' => PersonLifecycleState::Active,
-                        'joined_at' => now(),
-                    ],
-                );
-
-                /*
-                 * The invitee types their own name on the accept screen, and
-                 * it is required there — so it always wins. Somebody who
-                 * already works in another team keeps whatever that team
-                 * calls them: a second team may name them here and nowhere
-                 * else.
-                 */
-                $membership->forceFill([
-                    'first_name' => $firstName,
-                    'last_name' => $lastName ?? $membership->last_name,
-                    'email' => $membership->email ?? $invitation->email,
-                    'revoked_at' => null,
-                    'joined_at' => $membership->joined_at ?? now(),
-                ])->save();
-
-                $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
-
-                return $membership;
-            },
+    private function attachMembership(
+        TeamInvitation $invitation,
+        Person $person,
+        string $firstName,
+        ?string $lastName,
+        bool $nameIsAuthoritative,
+    ): TeamMembership {
+        // The name goes in the insert, not a follow-up write: `first_name` is
+        // not nullable, so a membership cannot exist for a moment without one.
+        $membership = TeamMembership::query()->firstOrCreate(
+            ['team_id' => $invitation->team_id, 'person_id' => $person->getKey()],
+            [
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'email' => $invitation->email,
+                'status' => PersonLifecycleState::Active,
+                'joined_at' => now(),
+            ],
         );
+
+        /*
+         * Who gets to name somebody, when a membership already exists.
+         *
+         * On the accept screen the invitee types their own name and it is
+         * required, so it wins — somebody who already works in another team
+         * keeps whatever that team calls them, and a second team may name
+         * them here and nowhere else.
+         *
+         * A claim types nothing. The name is the invitation's, or the address
+         * before the @, and neither is a name anybody chose. Letting that win
+         * turned *Heather Cole* into *heather Cole* on the ordinary
+         * revoke-then-re-invite path — silently, on the one field #140 moved
+         * onto the membership precisely so the team would own it. So when the
+         * name is not authoritative, what the team already recorded stands.
+         */
+        $membership->forceFill([
+            'first_name' => $nameIsAuthoritative ? $firstName : ($membership->first_name ?: $firstName),
+            'last_name' => $nameIsAuthoritative
+                ? ($lastName ?? $membership->last_name)
+                : ($membership->last_name ?? $lastName),
+            'email' => $membership->email ?? $invitation->email,
+            'revoked_at' => null,
+            'joined_at' => $membership->joined_at ?? now(),
+        ])->save();
+
+        $membership->roles()->syncWithoutDetaching([$invitation->role_id]);
+
+        return $membership;
     }
 
     /**
      * Spend the invitation, once, and say so in the audit log.
+     *
+     * **Must be called inside `runFor($invitation->team)`**, for the same
+     * reason `attachMembership` must: this writes the invitation, which is
+     * team-scoped, and the `updating` guard throws when the resolved team is
+     * somebody else's.
      */
     private function finalise(TeamInvitation $invitation, Person $person, ?string $reason = null): void
     {

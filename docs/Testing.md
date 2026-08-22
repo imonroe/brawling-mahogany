@@ -137,7 +137,7 @@ remembering them:
 | `tests/Isolation/UnscopedQueryConventionTest.php` | Every `withoutTeamScope()` in `app/` is listed with a reason, and each listed file has the count it says. Both spellings, comments stripped through the tokeniser | ADR 0002 |
 | `tests/Unit/SingleMutationPathTest.php` | Nothing but `AdvanceWorkflow` writes workflow state — across `app/`, `routes/` and `database/`, and through every spelling of the write, `DB::table('stages')` included. Carries its own dataset of bypasses so the detector cannot be narrowed by accident | PRD §8.3, issue #68 |
 | `tests/Feature/Workflow/StateMachinePersistenceTest.php` | An illegal transition throws on `save()` however the attribute was written — assignment, `setAttribute`, a variable column name, or `forceFill` | issue #65 |
-| `tests/Unit/EmailIndependenceTest.php` | Every mailable in `app/Mail`, and every mail-sending Fortify feature that is switched on, is catalogued in `EmailIndependence::FLOWS` with a non-email alternative — and every alternative it names resolves against the real route table or the artisan registry | ADR 0003 |
+| `tests/Unit/EmailIndependenceTest.php` | Every mailable in `app/Mail`, every notification in `app/Notifications` with a `toMail`, and every mail-sending Fortify feature that is switched on, is catalogued in `EmailIndependence::FLOWS` with a non-email alternative — and every alternative it names resolves against the real route table or the artisan registry | ADR 0003 |
 
 When one of these fails, the fix is the code or the document — not the test.
 
@@ -156,6 +156,13 @@ thing they guard:
   a route name that does not exist — the second is the failure that matters,
   because a catalogue of doors that are not there reads as coverage on every
   review after this one.
+
+  Its first cut scanned only `app/Mail` for `Mailable` subclasses, so a
+  notification with a `toMail` was invisible to it — which is the class of
+  sender Slice 5's client messages will most likely be, and the whole reason
+  Fortify's reset needed a hand-written constant. An enumerating test is only
+  as good as what it enumerates: ask what it *cannot see* as well as what it
+  finds.
 
 Do the same for the next one. An enumerating test you have never seen fail is a
 test you do not know the behaviour of.

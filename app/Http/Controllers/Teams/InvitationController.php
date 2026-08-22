@@ -10,11 +10,13 @@ use App\Http\Controllers\Controller;
 use App\Http\Middleware\ResolveCurrentTeam;
 use App\Models\Person;
 use App\Models\TeamInvitation;
+use App\Support\Admin\Impersonation;
 use App\Support\Teams\PendingInvitations;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -126,7 +128,16 @@ class InvitationController extends Controller
     {
         $person = $request->user();
 
-        $model = $person instanceof Person
+        /*
+         * Not while impersonating.
+         *
+         * The shell already hides the banner in a support session, and hiding
+         * a button whose endpoint still answers is not a control. A support
+         * session exists so an administrator can see what the customer sees;
+         * joining another team on their behalf is a cross-tenant membership
+         * grant, and the audit entry would carry the customer's name.
+         */
+        $model = $person instanceof Person && ! Impersonation::isActive($request)
             ? PendingInvitations::find($person, $invitation)
             : null;
 
@@ -134,7 +145,24 @@ class InvitationController extends Controller
             throw new NotFoundHttpException;
         }
 
-        $accept->claim($model, $person);
+        try {
+            $accept->claim($model, $person);
+        } catch (ValidationException $conflict) {
+            /*
+             * The directory collision, which `AcceptInvitation` raises under
+             * the `email` key. There is no form here — the claim is one
+             * button on a banner — so an unrendered validation bag is a click
+             * that does nothing at all, forever, with the invitation still
+             * sitting there. The sentence is already written for a human, so
+             * it goes in a toast.
+             */
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => $conflict->validator->errors()->first('email'),
+            ]);
+
+            return back();
+        }
 
         // Straight into the team they just joined, rather than leaving them
         // to find the switcher: they came here from a screen that exists to

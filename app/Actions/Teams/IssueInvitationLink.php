@@ -8,6 +8,7 @@ use App\Models\Person;
 use App\Models\TeamInvitation;
 use App\Support\Audit\AuditLogger;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 /**
  * Hand the invitation link to somebody who may already send it (ADR 0003).
@@ -50,6 +51,16 @@ final class IssueInvitationLink
     public function handle(TeamInvitation $invitation, ?Person $issuedBy = null, ?string $reason = null): string
     {
         return DB::transaction(function () use ($invitation, $issuedBy, $reason): string {
+            /*
+             * All three callers check first. The fourth is the one that will
+             * forget, and what it would produce is a URL that lands on S04's
+             * failure state — which reads as a broken button rather than as a
+             * spent invitation. Cheaper to refuse here than to explain there.
+             */
+            if (! $invitation->isPending()) {
+                throw new RuntimeException('An invitation link can only be issued while the invitation is live.');
+            }
+
             $token = TeamInvitation::newToken();
 
             // `token_hash` is not fillable — an invitation link is a
