@@ -57,8 +57,14 @@ return new class extends Migration
          * for a raw query, a tinker session, or a future developer who has not
          * read the ADR.
          *
-         * PRD §9's stronger form — revoking UPDATE and DELETE from the
-         * application's database role — needs a second role the deployment
+         * **Three statements, not two.** A row-level trigger does not fire for
+         * `TRUNCATE` — Postgres documents this, and it is the exact hole
+         * somebody tidying up would fall through: `DELETE FROM audit_log`
+         * raises, `TRUNCATE audit_log` silently empties the table. The third
+         * trigger is statement-level, which is the only kind `TRUNCATE` fires.
+         *
+         * PRD §9's stronger form — revoking UPDATE, DELETE, and TRUNCATE from
+         * the application's database role — needs a second role the deployment
          * does not have yet; see docs/Deployment.md. This is the floor, not
          * the ceiling.
          */
@@ -76,6 +82,10 @@ return new class extends Migration
             CREATE TRIGGER audit_log_no_delete
                 BEFORE DELETE ON audit_log
                 FOR EACH ROW EXECUTE FUNCTION audit_log_is_append_only();
+
+            CREATE TRIGGER audit_log_no_truncate
+                BEFORE TRUNCATE ON audit_log
+                FOR EACH STATEMENT EXECUTE FUNCTION audit_log_is_append_only();
         SQL);
     }
 

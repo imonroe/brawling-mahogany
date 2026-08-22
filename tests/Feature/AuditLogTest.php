@@ -11,7 +11,6 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
-use RuntimeException;
 
 /**
  * The append-only security record (PRD §6.2, §9 Audit · issue #51).
@@ -54,6 +53,23 @@ it('refuses to delete an entry, at the model and at the table', function (): voi
     ))->toThrow(QueryException::class);
 
     expect(AuditEntry::query()->find($entry->getKey()))->not->toBeNull();
+});
+
+it('refuses to be truncated', function (): void {
+    // The hole a row-level trigger leaves. Postgres does not fire `FOR EACH
+    // ROW` triggers on `TRUNCATE`, so `DELETE FROM audit_log` raises while
+    // `TRUNCATE audit_log` empties the table without a word — which is
+    // exactly the shape of "somebody tidying up" the table exists to survive.
+    [$team] = $this->teamWithMember();
+
+    $this->withTeam($team);
+
+    app(AuditLogger::class)->record(action: 'test.performed');
+
+    expect(fn () => DB::transaction(fn () => DB::statement('TRUNCATE audit_log')))
+        ->toThrow(QueryException::class);
+
+    expect(AuditEntry::query()->count())->toBeGreaterThan(0);
 });
 
 it('has no updated_at to rewrite', function (): void {

@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
-use ReflectionMethod;
 
 /**
  * PRD §9 Authorization: *"Deny by default. Every controller action gated by a
