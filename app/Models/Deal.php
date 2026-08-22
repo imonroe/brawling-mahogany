@@ -140,6 +140,24 @@ class Deal extends Model
      * because a system deal type has `team_id = null` and a composite key from
      * a NOT NULL `deals.team_id` can never match `(null, id)`. So the database
      * accepts any id in the table and the model is what refuses.
+     *
+     * ## Which half this covers
+     *
+     * A model-event guard, so it covers the model's save path and nothing
+     * else. `Deal::query()->update(['deal_type_id' => …])`, `saveQuietly()`,
+     * and a query-builder write all skip model events by design, and a foreign
+     * type written any of those ways lands. `HasStateMachine` has the same
+     * seam and says so; the difference is that `stages.state` also has
+     * `SingleMutationPathTest` reading the source for the spellings the hook
+     * cannot see, and `deal_type_id` has no equivalent. **Do not mass-update
+     * it.** #74 is the first code that will be tempted to.
+     *
+     * It also asks only when the column is *dirty*, so a row already pointing
+     * at a foreign type can be renamed or closed without the question being
+     * re-put. That is deliberate — the alternative is a `deal_types` query on
+     * every save of every deal — and it is sound as long as nothing writes the
+     * column past this guard, which is the same sentence as the paragraph
+     * above.
      */
     private function guardDealType(): void
     {

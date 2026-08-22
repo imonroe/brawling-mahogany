@@ -8,6 +8,7 @@ use App\Actions\Teams\RevokeMembership;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileDeleteRequest;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
@@ -105,6 +106,22 @@ class ProfileController extends Controller
                 ->get();
 
             foreach ($carryingOldAddress as $held) {
+                /*
+                 * A membership whose team has been soft-deleted has nothing to
+                 * resolve, and `runFor(null, …)` would set *no* team — at
+                 * which point the scoped query below throws
+                 * `MissingTeamContextException` and the whole update 500s.
+                 *
+                 * `TeamMembership::person()` carries `withTrashed()` for
+                 * exactly this reason; `BelongsToTeam::team()` does not, and
+                 * should not — a deleted team is not somewhere a write should
+                 * quietly land. Skipping is the honest answer: there is nobody
+                 * left to show the address to.
+                 */
+                if (! $held->team instanceof Team) {
+                    continue;
+                }
+
                 /*
                  * **The read was lifted out of the scope; the write has to go
                  * back into it.**

@@ -66,8 +66,20 @@ trait PersonRules
                 return;
             }
 
+            /*
+             * `requireId()`, not `id()`, and the difference is which way this
+             * fails with no team resolved.
+             *
+             * `where('team_id', null)` becomes `whereNull('team_id')` on a
+             * NOT NULL column, so the rule would match nothing and *pass* —
+             * granting permission where every neighbouring layer refuses.
+             * `TeamScope`, `BelongsToTeam::creating` and the query below all
+             * throw or fail closed; a validation rule that answers "no team"
+             * with "go ahead" is the odd one out. Unreachable behind the
+             * `team` middleware today, which is exactly when this is cheap.
+             */
             $query = DB::table('team_memberships')
-                ->where('team_id', app(TeamContext::class)->id())
+                ->where('team_id', app(TeamContext::class)->requireId(TeamMembership::class))
                 ->whereNull('deleted_at')
                 ->whereNull('revoked_at')
                 ->whereRaw('lower(email) = ?', [mb_strtolower(trim($value))]);

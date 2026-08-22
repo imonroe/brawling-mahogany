@@ -559,6 +559,56 @@ it('refuses to invite an address that is both a contact and an account', functio
     Mail::assertNotSent(TeamInvitationMail::class);
 });
 
+/**
+ * One outstanding invitation per address per team.
+ *
+ * `team_invitations_pending_unique` has existed since Slice 1 and nothing
+ * validated against it, so the second invitation to a still-pending address
+ * was a 500 — reachable by *"she says she never got it, send it again"* and by
+ * a double-click on Send. The same defect round 1 called blocking as B2, one
+ * table over.
+ */
+it('refuses a second invitation while one is still outstanding', function (): void {
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    // Capitals included, because the index is over `lower(email)` and the
+    // rule has to ask the question the index answers.
+    $this->post('/settings/members/invitations', [
+        'email' => 'Heather@Example.TEST',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasErrors('email');
+
+    expect(TeamInvitation::query()->count())->toBe(1);
+});
+
+it('lets a revoked invitation’s address be invited again', function (): void {
+    // The index is partial — live rows only — so revoking frees the address.
+    // That is what makes "revoke it first" a remedy rather than advice.
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    $invitation = TeamInvitation::query()->sole();
+
+    $this->delete("/settings/members/invitations/{$invitation->getKey()}")
+        ->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    expect(TeamInvitation::query()->whereNull('revoked_at')->count())->toBe(1);
+});
+
 it('refuses an invitation from somebody who cannot manage members', function (): void {
     [$otherTeam, $member] = $this->teamWithMember();
 

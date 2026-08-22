@@ -68,21 +68,52 @@ use Symfony\Component\Finder\Finder;
  * Deliberately not a general "does this file mention state" check, which would
  * be noise. These are the shapes an actual write takes.
  */
+/**
+ * The calls that take an array of columns and write them.
+ *
+ * Interpolated into the array-shaped patterns below so `['state' => …]` counts
+ * only when it is an *argument to a write*. Without that, the pattern cannot
+ * tell a write from a serialisation — and
+ *
+ *     Inertia::render('Deals/Show', ['stages' => $workflow->stages
+ *         ->map(fn (Stage $s) => ['id' => $s->id, 'state' => $s->state->value])])
+ *
+ * is what the deal detail screen (#74) and the deals index will both look
+ * like. Flagging a read-only prop map would be worse than a miss, because the
+ * failure message's own remedy is to add the file to
+ * SANCTIONED_STATE_WRITERS — a blanket exemption, for the rest of that
+ * controller's life, earned by a read. The guard's remedy would be the thing
+ * that turns the guard off in the file most likely to break it later.
+ */
+const WRITE_CALLS = '(?:fill|forceFill|update|updateOrCreate|firstOrCreate|updateQuietly|insert|insertGetId|create|createQuietly|setRawAttributes|forceCreate)';
+
+/**
+ * One level of nesting inside the argument array.
+ *
+ * `->update(['configuration' => ['a'], 'state' => …])` has a `]` before the
+ * key that matters, so a plain `[^\]]*` stops too early.
+ */
+const ARRAY_BODY = '(?:[^\[\]]|\[(?:[^\[\]]*)\])*';
+
 const STATE_WRITE_PATTERNS = [
     // ->state = StageState::Complete
     '/->\s*state\s*=(?!=)/',
-    // ['state' => …] inside a fill/update/forceFill/insert argument
-    '/[\'"]state[\'"]\s*=>/',
+    // ->fill(['state' => …]) and friends — the array shape, but only as an
+    // argument to something that writes. See WRITE_CALLS.
+    '/'.WRITE_CALLS.'\s*\(\s*\['.ARRAY_BODY.'[\'"]state[\'"]\s*=>/s',
     // ->transitionTo(…), the model's own mechanism
     '/->\s*transitionTo\s*\(/',
-    // ->setAttribute('state', …) — the same write, spelled as a method call
+    // ->setAttribute('state', …) and ->setAttribute($column, …) — the same
+    // write spelled as a method call, and a column name in a variable is
+    // still a column name
     '/->\s*setAttribute\s*\(\s*[\'"]state[\'"]/',
+    '/->\s*setAttribute\s*\(\s*\$/',
     // $stage->{$column} = … and $stage->{'state'} = … — a dynamic property
     // write is a column write whatever is inside the braces
     '/->\s*\{[^}]*\}\s*=(?!=)/',
-    '/->\s*\{\s*\$/',
-    // ->update([$column => …]) — the same trick, one layer in
-    '/\[\s*\$\w+\s*=>/',
+    // ->update([$column => …]) — a variable key, again only as an argument to
+    // a write, because `[$key => $value]` inside a mapWithKeys is ordinary
+    '/'.WRITE_CALLS.'\s*\(\s*\['.ARRAY_BODY.'\$\w+\s*=>/s',
     // $payload['state'] = …; $stage->forceFill($payload) — building the
     // update by key rather than as a literal. Ordinary code, and the `=>`
     // pattern above does not match an `=`.
@@ -274,6 +305,12 @@ it('catches every shape of writing workflow state', function (string $shape): vo
     'array key assignment' => ['$payload = []; $payload[\'state\'] = \'complete\'; $stage->forceFill($payload)->save();'],
     'literal dynamic property' => ['$stage->{\'state\'} = StageState::Complete;'],
     'setRawAttributes' => ['$stage->setRawAttributes([\'state\' => \'complete\'], true);'],
+    // Round 3: the spelling in between two that were already pinned — a
+    // variable column name, as a method call. `active → complete` is a legal
+    // transition, so HasStateMachine's hook lets it through and this is the
+    // only thing standing there.
+    'setAttribute with a variable' => ['$column = \'state\'; $stage->setAttribute($column, StageState::Complete);'],
+    'nested array' => ['$stage->update([\'configuration\' => [\'a\'], \'state\' => \'complete\']);'],
 ]);
 
 it('stays quiet about code that only reads workflow state', function (string $shape): void {
@@ -285,6 +322,17 @@ it('stays quiet about code that only reads workflow state', function (string $sh
     'comparing' => ['if ($stage->state === StageState::Complete) { return; }'],
     'querying' => ['Stage::query()->where(\'state\', StageState::Active)->get();'],
     'counting' => ['$count = Stage::query()->whereIn(\'state\', [StageState::Active])->count();'],
+    /*
+     * Round 3 found these two flagged, and both are what #74 looks like.
+     *
+     * A false positive is worse than a miss here, because the failure
+     * message's remedy is a whole-file exemption: the guard would be switched
+     * off in the deal controller by the act of rendering a stage rail.
+     */
+    'serialising a prop' => [
+        '$props = $stage->workflow->stages->map(fn (Stage $s) => [\'id\' => $s->id, \'state\' => $s->state->value])->all();',
+    ],
+    'keying a collection' => ['$byId = $stages->mapWithKeys(fn (Stage $s) => [$key => $s->name]);'],
 ]);
 
 it('keeps the advance service free of HTTP concerns', function (): void {
