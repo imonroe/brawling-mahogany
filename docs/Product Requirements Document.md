@@ -594,6 +594,7 @@ erDiagram
 
 | Lookup | Values |
 |---|---|
+| Deal side | Buy, Sell, Rent, Other |
 | Property type | Single Family, Multi Family, Condo, Townhouse, Apartment, Land, Other |
 | Property status | Pre-listing, For Sale, Under Contract, Sold, Off Market, Rented, Other |
 | Contact type | Phone call, Email, Text, Meeting, Showing, Other |

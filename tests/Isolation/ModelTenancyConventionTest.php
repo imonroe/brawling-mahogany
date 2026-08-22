@@ -55,6 +55,37 @@ const TEAM_AGNOSTIC_MODELS = [
     // the audit trail of a purge to survive the purge — and some entries have
     // no team at all. Reading it is gated by policy instead.
     App\Models\AuditEntry::class,
+
+    /*
+     * The definition layer, and the lookup beside it (Slice 2, issues #58 and
+     * #64).
+     *
+     * These six share one shape and one reason. A null `team_id` means a
+     * **system** row — a seeded deal type, or a template that arrived in a
+     * pack — that every team can see; a set one means a row a team wrote for
+     * itself. A global scope cannot express "mine or everybody's": applied to
+     * these tables it would hide the seeded Listing pack from every team on
+     * the platform, which is the opposite of the failure the scope exists to
+     * prevent, and it would do it silently.
+     *
+     * So visibility is a named scope — `visibleTo($team)` on the two that a
+     * team picks from — and the children inherit it through their parent
+     * rather than carrying their own copy of the question.
+     *
+     * What makes this safe where `people` was not: **these hold no customer
+     * data.** A stage template says "Listing Preparation, 5 days, owned by the
+     * transaction coordinator". It says nothing about a client, an address, or
+     * a price. The moment one of them holds a fact about a person, it belongs
+     * in the runtime layer instead — which is team-scoped, by construction,
+     * for exactly this reason. See ADR 0002, "The hole the layers do not
+     * cover".
+     */
+    App\Models\DealType::class,
+    App\Models\TemplatePack::class,
+    App\Models\WorkflowTemplate::class,
+    App\Models\StageTemplate::class,
+    App\Models\GateTemplate::class,
+    App\Models\TaskTemplate::class,
 ];
 
 /**
