@@ -80,7 +80,17 @@ class TeamMembership extends Model
      */
     public function person(): BelongsTo
     {
-        return $this->belongsTo(Person::class);
+        /*
+         * Trashed people included, deliberately.
+         *
+         * PRD §9 gives a deleted account a 30-day recovery window, and PRD
+         * F1.3 keeps historical attribution through a revocation. A
+         * soft-delete-scoped relation gave neither: the membership survived
+         * and its person came back null, so the members screen, the export,
+         * and the person detail each dereferenced it — and the members screen
+         * is the only one that could have undone the membership.
+         */
+        return $this->belongsTo(Person::class)->withTrashed();
     }
 
     /**

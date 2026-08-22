@@ -121,16 +121,20 @@ final class SavePerson
             : null;
 
         if ($person instanceof Person) {
-            // Never overwrite a shared record's name with what one team typed:
-            // the other team knows them by the name already there. Only fill
-            // what is genuinely missing, and only when this record is not
-            // somebody's account — an account holder's details are theirs.
-            if (! $person->hasCredentials()) {
-                $person->fill(array_filter([
-                    'phone' => $person->phone ?? ($attributes['phone'] ?? null),
-                    'last_name' => $person->last_name ?? ($attributes['last_name'] ?? null),
-                ]))->save();
-            }
+            /*
+             * Never overwrite a shared record's name with what one team typed:
+             * another team knows them by the name already there, and an
+             * account holder's details are their own.
+             *
+             * This was gated on credentials alone, which left the other half
+             * of its own promise unkept — a team could still fill blanks on a
+             * person a different team had entered. `Person` now reverts a
+             * forbidden identity change whatever asks for it.
+             */
+            $person->fill(array_filter([
+                'phone' => $person->phone ?? ($attributes['phone'] ?? null),
+                'last_name' => $person->last_name ?? ($attributes['last_name'] ?? null),
+            ]))->save();
 
             return $person;
         }

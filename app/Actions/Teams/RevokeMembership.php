@@ -65,9 +65,19 @@ final class RevokeMembership
         ]);
     }
 
+    /**
+     * Unscoped on purpose, and the reason is worth stating.
+     *
+     * `guardLastOwnerAnywhere()` asks about **every** team a person owns, so
+     * the scoped builder made the SQL `team_id = <resolved> AND team_id =
+     * <the membership's>` — always zero for any team but the current one, and
+     * an exception when no team resolves at all. So an owner of two healthy
+     * teams was refused account deletion with a message she could never
+     * satisfy, and the owner of a suspended team got a 500.
+     */
     private function otherOwnerCount(TeamMembership $membership): int
     {
-        return TeamMembership::query()
+        return TeamMembership::withoutTeamScope()
             ->where('team_id', $membership->team_id)
             ->whereKeyNot($membership->getKey())
             ->whereNull('revoked_at')

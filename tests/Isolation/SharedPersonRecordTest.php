@@ -199,6 +199,103 @@ it('does not hand a tenant to somebody the team merely knows', function (): void
     unset($member);
 });
 
+it('refuses the identity write through the import’s merge path too', function (): void {
+    /*
+     * The rule was on the People form and nowhere near the import. Attaching
+     * a membership to a credentialed Team Owner is allowed and correctly
+     * refuses the form's identity write — and then a one-row CSV marked
+     * "merge" wrote their surname and number anyway.
+     *
+     * Reachable because nothing ever collects an account holder's phone, so
+     * every one of them is null and therefore a "blank" the merge would fill.
+     */
+    $victim = Person::factory()->create([
+        'email' => 'emily@bosartgroup.test',
+        'last_name' => null,
+        'phone' => null,
+        'password' => Hash::make('emilys-real-password'),
+    ]);
+
+    [$attackersTeam, $attacker] = $this->teamWithMember();
+
+    $this->actingAsPerson($attacker, $attackersTeam);
+
+    $this->post('/people', [
+        'first_name' => 'Emily',
+        'email' => 'emily@bosartgroup.test',
+        'status' => 'lead',
+    ]);
+
+    $this->post('/people/import', [
+        'source' => 'csv',
+        'file' => Illuminate\Http\UploadedFile::fake()->createWithContent(
+            'contacts.csv',
+            "First Name,Last Name,Email,Phone\nEmily,Attacker,emily@bosartgroup.test,5550199\n",
+        ),
+    ]);
+
+    $import = App\Models\ContactImport::query()->sole();
+
+    expect($import->preview[0]['action'])->toBe('merge');
+
+    $this->post("/people/import/{$import->getKey()}", []);
+
+    $victim->refresh();
+
+    expect($victim->last_name)->toBeNull()
+        ->and($victim->phone)->toBeNull();
+});
+
+it('refuses the identity write on somebody another team entered', function (): void {
+    // The other half of the rule's own promise, which was gated on
+    // credentials alone: a contact with no login, entered by one team, is
+    // still not another team's to fill in.
+    [$firstTeam, $firstMember] = $this->teamWithMember();
+    [$secondTeam, $secondMember] = $this->teamWithMember();
+
+    $this->actingAsPerson($firstMember, $firstTeam);
+
+    $this->post('/people', [
+        'first_name' => 'Sam',
+        'email' => 'sam@example.test',
+        'status' => 'active',
+    ]);
+
+    $this->actingAsPerson($secondMember, $secondTeam);
+
+    $this->post('/people', [
+        'first_name' => 'Sam',
+        'last_name' => 'Impostor',
+        'email' => 'sam@example.test',
+        'phone' => '5550199',
+        'status' => 'lead',
+    ]);
+
+    $person = Person::query()->whereRaw('lower(email) = ?', ['sam@example.test'])->sole();
+
+    expect($person->last_name)->toBeNull()
+        ->and($person->phone)->toBeNull();
+});
+
+it('lets somebody edit their own record whatever their teams', function (): void {
+    // The rule is about a *team* reaching across. A person editing themselves
+    // at /settings/profile is not that, and blocking it would be a worse bug
+    // than the one being fixed.
+    [$teamA, $person] = $this->teamWithMember();
+    $this->teamWithMember($person);
+
+    $this->actingAsPerson($person, $teamA);
+
+    $this->patch('/settings/profile', [
+        'first_name' => 'Renamed',
+        'last_name' => 'Themselves',
+        'email' => 'renamed@example.test',
+    ])->assertSessionHasNoErrors();
+
+    expect($person->fresh()->first_name)->toBe('Renamed')
+        ->and($person->fresh()->email)->toBe('renamed@example.test');
+});
+
 it('still counts a membership that holds a real role', function (): void {
     // The other half: the fix must not lock out the people who belong here.
     [$team, $member] = $this->teamWithMember();

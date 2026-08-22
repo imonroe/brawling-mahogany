@@ -184,6 +184,13 @@ class CommitContactImport implements ShouldQueue
      */
     private function merge(Person $person, array $row): string
     {
+        /*
+         * Blanks only. Whether this team may write those blanks at all is
+         * decided by `Person`'s updating hook, which reverts an identity
+         * change on a record another team also holds. This method used to
+         * carry no such check and was the path that proved the rule needed to
+         * live on the model rather than at each call site.
+         */
         $person->fill(array_filter([
             'last_name' => $person->last_name === null ? ($row['last_name'] ?? null) : null,
             'phone' => $person->phone === null ? ($row['phone'] ?? null) : null,

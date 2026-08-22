@@ -7,6 +7,7 @@ use App\Enums\SystemRole;
 use App\Mail\TeamInvitationMail;
 use App\Models\Person;
 use App\Models\Role;
+use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
@@ -332,6 +333,92 @@ it('lets an owner delete their account once somebody else owns the team', functi
         ->assertSessionHasNoErrors();
 
     expect(Person::query()->find($this->owner->getKey()))->toBeNull();
+});
+
+it('leaves no live membership behind when somebody deletes their account', function (): void {
+    /*
+     * A soft-deleted person with a live membership broke three screens at
+     * once — the members list, the export, and the person detail — because
+     * each dereferenced a person the relation had scoped away. The members
+     * list is the worst of them: it 500s for the whole team, and it is the
+     * only screen that could have undone the membership.
+     */
+    $second = Person::factory()->create(['first_name' => 'Heather', 'last_name' => 'Quinn']);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($second): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $second->getKey(),
+            'status' => App\Enums\PersonLifecycleState::Active,
+        ]);
+
+        $membership->roles()->attach(
+            Role::query()->whereNull('team_id')->where('key', 'team_member')->sole()->getKey(),
+        );
+    });
+
+    $this->actingAs($second);
+    $this->delete('/settings/profile', ['password' => 'password'])->assertSessionHasNoErrors();
+
+    $this->actingAsPerson($this->owner, $this->team);
+
+    // The screens still render, and the membership still carries their name.
+    $this->get('/settings/members')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where(
+            'members',
+            fn ($members) => collect($members)->contains(
+                fn (array $member): bool => $member['name'] === 'Heather Quinn' && $member['revokedAt'] !== null,
+            ),
+        ));
+
+    $this->post('/settings/export')->assertRedirect();
+
+    expect(App\Models\DataExport::query()->sole()->state)
+        ->toBe(App\Enums\DataExportState::Ready);
+});
+
+it('does not refuse account deletion to an owner of two healthy teams', function (): void {
+    /*
+     * `otherOwnerCount()` asked a cross-team question through the team scope,
+     * so the SQL was `team_id = <resolved> AND team_id = <the other one>` —
+     * always zero. An owner of two teams that each had a second owner was
+     * refused with a message she could never satisfy.
+     */
+    $person = Person::factory()->create();
+
+    foreach ([$this->team, Team::factory()->create()] as $team) {
+        app(TeamContext::class)->runFor($team, function () use ($team, $person): void {
+            foreach ([$person, Person::factory()->create()] as $owner) {
+                $membership = TeamMembership::query()->firstOrCreate(
+                    ['team_id' => $team->getKey(), 'person_id' => $owner->getKey()],
+                    ['status' => App\Enums\PersonLifecycleState::Active],
+                );
+
+                $membership->roles()->syncWithoutDetaching([
+                    Role::query()->whereNull('team_id')->where('key', 'team_owner')->sole()->getKey(),
+                ]);
+            }
+        });
+    }
+
+    $this->actingAs($person);
+
+    $this->delete('/settings/profile', ['password' => 'password'])->assertSessionHasNoErrors();
+
+    expect(Person::query()->find($person->getKey()))->toBeNull();
+});
+
+it('does not 500 when the owner’s only team is suspended', function (): void {
+    // No team resolves, so the scoped query threw rather than answering.
+    $this->team->forceFill(['suspended_at' => now()])->save();
+
+    $this->actingAs($this->owner);
+
+    $this->delete('/settings/profile', ['password' => 'password'])
+        ->assertSessionHasErrors('password');
+
+    expect(session('errors')->first('password'))->toContain('last owner');
 });
 
 it('keeps a revoked member’s name on what they already did', function (): void {

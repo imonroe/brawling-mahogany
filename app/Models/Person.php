@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\HasProductDefaults;
+use App\Support\Tenancy\TeamContext;
 use Database\Factories\PersonFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -114,6 +115,88 @@ class Person extends Authenticatable implements PasskeyUser
     public function hasCredentials(): bool
     {
         return is_string($this->password) && $this->password !== '';
+    }
+
+    /**
+     * The fields that describe the human rather than a team's view of them.
+     *
+     * @var list<string>
+     */
+    public const IDENTITY_FIELDS = ['first_name', 'last_name', 'email', 'phone'];
+
+    /**
+     * The rule lives here, on the model, because it was not holding anywhere
+     * else.
+     *
+     * Slice 1's second review found the check on the People form and nowhere
+     * near the import's merge path, so a one-row CSV rewrote an account
+     * holder's name and number while the form correctly refused. A rule with
+     * three call sites has three chances to be forgotten and had already
+     * missed two — so every write goes past this hook, including the ones
+     * Slice 2 has not written yet.
+     *
+     * Offending fields are reverted rather than thrown on. A stale form, or a
+     * merge row for somebody another team also knows, is an ordinary thing to
+     * happen and not a 500; what matters is that the value does not land.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (self $person): void {
+            $person->discardForbiddenIdentityChanges();
+        });
+
+        static::deleting(function (self $person): void {
+            $person->revokeEveryMembership();
+        });
+    }
+
+    public function discardForbiddenIdentityChanges(): void
+    {
+        $dirty = array_keys(array_intersect_key(
+            $this->getDirty(),
+            array_flip(self::IDENTITY_FIELDS),
+        ));
+
+        if ($dirty === []) {
+            return;
+        }
+
+        // Their own record, edited by them at /settings/profile. Nobody else's
+        // rule applies to a person editing themselves.
+        $actor = auth()->user();
+
+        if ($actor instanceof self && $actor->getKey() === $this->getKey()) {
+            return;
+        }
+
+        // No team is acting: a console command, a seeder, or the invitation
+        // flow, none of which is a tenant reaching across the boundary.
+        $team = app(TeamContext::class)->get();
+
+        if ($team === null || $this->identityIsEditableBy($team)) {
+            return;
+        }
+
+        foreach ($dirty as $field) {
+            $this->setAttribute($field, $this->getOriginal($field));
+        }
+    }
+
+    /**
+     * A deleted account cannot go on being a live member of anything.
+     *
+     * Without this the membership rows outlive the person and every screen
+     * that renders them — the members list, the export, the person detail —
+     * dereferences a null. `/settings/members` was the worst of them: it 500s
+     * for the whole team, and it is the only screen that could have undone
+     * the membership.
+     */
+    public function revokeEveryMembership(): void
+    {
+        TeamMembership::withoutTeamScope()
+            ->where('person_id', $this->getKey())
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => now()]);
     }
 
     /**

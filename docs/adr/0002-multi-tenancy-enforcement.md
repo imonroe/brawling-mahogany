@@ -176,12 +176,22 @@ shared, deliberately — and the layers have nothing to say about it.
 
 Slice 1's review found both halves of what that costs:
 
-- **Writes**, now closed. A team could attach a membership to any address and
-  then rewrite that row — including one carrying somebody's credentials,
-  redirecting their password reset while the password itself looked untouched.
-  `Person::identityIsEditableBy()` permits an identity edit only when the
-  person has no credentials and no other team holds a live membership.
-  `tests/Isolation/SharedPersonRecordTest.php` holds it.
+- **Writes**, closed at the model. A team could attach a membership to any
+  address and then rewrite that row — including one carrying somebody's
+  credentials, redirecting their password reset while the password itself
+  looked untouched. `Person::identityIsEditableBy()` permits an identity edit
+  only when the person has no credentials and no other team holds a live
+  membership.
+
+  Where that check *runs* is the part worth recording, because the first
+  attempt got it wrong. It went in at the two call sites the review had named,
+  and the third — the contact import's merge path — went on rewriting account
+  holders' names and numbers for another round. It is now an `updating` hook in
+  `Person::booted()`, so a write does not have to remember to ask: every path
+  into the table passes it, including Slice 2's. Offending fields are reverted
+  rather than thrown on; a stale form or a merge row is an ordinary event, not
+  a 500. `tests/Isolation/SharedPersonRecordTest.php` holds it, exercising the
+  form, the import, and the self-edit that must still be allowed.
 - **Reads**, open and filed as issue #140. Adding somebody by an existing
   address shows the team what another team supplied. That is the shared-record
   decision working as designed, and it is still a cross-tenant disclosure.
