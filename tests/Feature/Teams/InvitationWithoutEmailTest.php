@@ -274,10 +274,20 @@ it('offers nothing, and accepts nothing, inside an impersonated session', functi
 
     $invitation = inviteWithoutSending($this->team, $this->memberRole, (string) $member->email);
 
+    app(TeamContext::class)->set(null);
+
+    // The control, taken first: signed in as themselves, they are offered it.
+    // Without this the assertions below pass whether or not the suppression
+    // is what silenced the banner.
+    $this->actingAsPerson($member);
+
+    $this->get('/no-team')->assertInertia(fn ($page) => $page->has('invitations', 1));
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
     $administrator = Person::factory()->create(['is_super_admin' => true]);
     $this->enrollTwoFactor($administrator);
-
-    app(TeamContext::class)->set(null);
 
     $this->actingAsPerson($administrator);
 
@@ -302,11 +312,6 @@ it('offers nothing, and accepts nothing, inside an impersonated session', functi
     $this->post("/invitations/{$invitation->getKey()}/claim")->assertNotFound();
 
     expect($invitation->fresh()->isAccepted())->toBeFalse();
-
-    // And the moment the support session ends, it is offered again.
-    $this->delete('/impersonation');
-
-    $this->get('/no-team')->assertInertia(fn ($page) => $page->has('invitations', 1));
 });
 
 it('requires a session — an id is not a credential', function (): void {
