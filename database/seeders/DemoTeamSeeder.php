@@ -107,22 +107,23 @@ class DemoTeamSeeder extends Seeder
      */
     private function properties(): void
     {
-        $listed = Property::query()->firstOrCreate(
-            ['parcel_number' => '0512-14-002-0031'],
-            [
-                'street' => '1420 Pearl St',
-                'city' => 'Boulder',
-                'state_code' => 'CO',
-                'postal_code' => '80302',
-                'type' => PropertyType::SingleFamily,
-                'status' => PropertyStatus::ForSale,
-                'beds' => 3,
-                'baths' => '2.5',
-                'sqft' => 1840,
-                'year_built' => 1962,
-                'notes' => 'Seller wants a Thursday listing date.',
-            ],
-        );
+        // `whereParcel()` rather than a raw `where`: a lookup by value has to
+        // fold and trim the way the index does, or a second run inserts a
+        // duplicate it cannot see.
+        $listed = Property::query()->whereParcel('0512-14-002-0031')->first() ?? Property::query()->create([
+            'parcel_number' => '0512-14-002-0031',
+            'street' => '1420 Pearl St',
+            'city' => 'Boulder',
+            'state_code' => 'CO',
+            'postal_code' => '80302',
+            'type' => PropertyType::SingleFamily,
+            'status' => PropertyStatus::ForSale,
+            'beds' => 3,
+            'baths' => '2.5',
+            'sqft' => 1840,
+            'year_built' => 1962,
+            'notes' => 'Seller wants a Thursday listing date.',
+        ]);
 
         foreach ([
             ['Listing', 'https://listings.example.test/1420-pearl-st'],
@@ -140,21 +141,19 @@ class DemoTeamSeeder extends Seeder
             }
         }
 
-        Property::query()->firstOrCreate(
-            ['parcel_number' => '0512-14-002-0044'],
-            [
-                'street' => '88 Mapleton Ave',
-                'city' => 'Boulder',
-                'state_code' => 'CO',
-                'postal_code' => '80304',
-                'type' => PropertyType::Condo,
-                'status' => PropertyStatus::PreListing,
-                'beds' => 2,
-                'baths' => '1.0',
-                'sqft' => 960,
-                'year_built' => 1998,
-            ],
-        );
+        Property::query()->whereParcel('0512-14-002-0044')->first() ?? Property::query()->create([
+            'parcel_number' => '0512-14-002-0044',
+            'street' => '88 Mapleton Ave',
+            'city' => 'Boulder',
+            'state_code' => 'CO',
+            'postal_code' => '80304',
+            'type' => PropertyType::Condo,
+            'status' => PropertyStatus::PreListing,
+            'beds' => 2,
+            'baths' => '1.0',
+            'sqft' => 960,
+            'year_built' => 1998,
+        ]);
 
         /*
          * And one deal, so S36's "linked deals" is not an empty state.

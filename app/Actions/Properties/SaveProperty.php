@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Actions\Properties;
 
+use App\Models\Deal;
+use App\Models\DealProperty;
 use App\Models\ExternalLink;
 use App\Models\Property;
 use App\Support\Activity\RecordActivity;
+use App\Support\Deals\NameDeal;
 use App\Support\Links\SafeUrl;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +25,10 @@ use Illuminate\Validation\ValidationException;
  */
 final class SaveProperty
 {
-    public function __construct(private readonly RecordActivity $activity) {}
+    public function __construct(
+        private readonly RecordActivity $activity,
+        private readonly NameDeal $names,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $attributes
@@ -67,6 +73,8 @@ final class SaveProperty
 
             $this->saveOrExplainTheCollision($property);
 
+            $this->renameDealsNamedAfter($property);
+
             /*
              * `null` and `[]` mean different things, and the difference is the
              * one #148 got wrong the first time: a request that did not send
@@ -96,6 +104,47 @@ final class SaveProperty
     }
 
     /**
+     * The other half of #59's requirement: *"editing the name does not stop
+     * `generated_name` from updating **when the property changes**."*
+     *
+     * `PropertyDeals::link()` and `unlink()` cover the moment a property
+     * arrives on a deal or leaves it. This covers the moment the property
+     * itself changes, which is the commoner event and the one three docblocks
+     * in this repository were quoting the requirement about while nothing
+     * implemented it.
+     *
+     * It matters most on the screen it happens on: S37's edit dialog sits
+     * beside S36's "Linked deals" panel, so correcting a typo in a street left
+     * the deal beside it showing the old address — and a property created
+     * from a parcel number and given a street later left its deal reading
+     * *Untitled deal* for good, which is exactly the symptom the naming work
+     * was done to remove, reached by a different door.
+     *
+     * Bounded: one query, and a refresh only for the links that name
+     * something. `NameDeal` writes nothing when the name has not changed.
+     */
+    private function renameDealsNamedAfter(Property $property): void
+    {
+        // `street` is the only column the name is built from (IA §10 puts the
+        // street on line one and `NameDeal` takes only that).
+        if (! $property->wasChanged('street')) {
+            return;
+        }
+
+        DealProperty::query()
+            ->where('property_id', $property->getKey())
+            ->where('is_subject', true)
+            ->with('deal')
+            ->get()
+            ->each(function (DealProperty $link): void {
+                if ($link->deal instanceof Deal) {
+                    $this->names->refresh($link->deal);
+                }
+            });
+    }
+
+    /**
+     * Make the stored links match what the form sent.    /**
      * Make the stored links match what the form sent.
      *
      * Matched by id rather than replaced wholesale. Soft-deleting every link

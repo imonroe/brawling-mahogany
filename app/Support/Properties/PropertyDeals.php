@@ -96,12 +96,6 @@ final class PropertyDeals
             }
 
             /*
-             * Recorded against the deal, not the property. The timeline
-             * somebody reads back is the deal's — "when did this house come
-             * onto it" — and a property's own history is the sum of the deals
-             * it appeared on.
-             */
-            /*
              * And the flag has to do something, or it is a column with an
              * argument attached.
              *
@@ -114,6 +108,12 @@ final class PropertyDeals
              */
             $this->names->refresh($deal);
 
+            /*
+             * Recorded against the deal, not the property. The timeline
+             * somebody reads back is the deal's — "when did this house come
+             * onto it" — and a property's own history is the sum of the deals
+             * it appeared on.
+             */
             $this->activity->record(
                 subject: $deal,
                 eventType: 'property.linked',
@@ -159,14 +159,22 @@ final class PropertyDeals
             }
 
             /*
-             * The deal keeps the name it had until a new fact arrives.
+             * Only the subject can have been naming anything.
              *
-             * `NameDeal` only rewrites when there is something to build from,
-             * so removing the subject does not blank the column — a stale
-             * name is far better than a row that reads "Untitled deal" in
-             * every list a moment after somebody tidied up a property.
+             * Removing a property that was never the subject recomputes a name
+             * identical to the one already stored, so the refresh cannot change
+             * an outcome — and deleting a property unlinks every one of its
+             * deals in a loop.
+             *
+             * When it *was* the subject, the deal keeps the name it had:
+             * `NameDeal` rewrites only when there is something to build from,
+             * so a stale name survives rather than a row reading "Untitled
+             * deal" in every list a moment after somebody tidied up a
+             * property.
              */
-            $this->names->refresh($deal);
+            if ($link->is_subject) {
+                $this->names->refresh($deal);
+            }
 
             $this->activity->record(
                 subject: $deal,

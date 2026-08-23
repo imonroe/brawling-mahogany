@@ -537,7 +537,19 @@ it('orders the directory by something unique, so a page cannot repeat a row', fu
         $method->getEndLine() - $method->getStartLine() + 1,
     ));
 
-    expect($source)->toMatch("/->orderBy\('id'\)\s*\n\s*->paginate\(/");
+    /*
+     * Offsets, not a regex over the whitespace between them.
+     *
+     * The first version required a literal newline, so joining the two calls
+     * onto one line — valid, Pint-clean, and behaviourally identical — failed
+     * it. A guard that fails on a reformat is a guard the next person deletes.
+     */
+    $tiebreaker = strpos($source, "->orderBy('id')");
+    $paginate = strpos($source, '->paginate(');
+
+    expect($tiebreaker)->not->toBeFalse('the directory query has no unique tiebreaker')
+        ->and($paginate)->not->toBeFalse()
+        ->and($tiebreaker)->toBeLessThan($paginate, 'the tiebreaker has to be part of this query');
 });
 
 it('takes a deleted property’s links with it, so the purge can reach them', function (): void {
@@ -630,6 +642,74 @@ it('names a deal after the property that is linked to it', function (): void {
 
     expect($deal->fresh()->generated_name)->toBe('1420 Pearl St')
         ->and($deal->fresh()->displayName())->toBe('1420 Pearl St');
+});
+
+it('renames the deal when the subject property’s street is corrected', function (): void {
+    /*
+     * The half of #59's requirement three docblocks were quoting while nothing
+     * implemented it: *"editing the name does not stop `generated_name` from
+     * updating when the property changes."*
+     *
+     * It matters most on the screen it happens on — S37's edit dialog sits
+     * beside S36's "Linked deals" panel, so a corrected street left the deal
+     * next to it showing the old address. A property created from a parcel
+     * number and given a street later read "Untitled deal" for good.
+     */
+    $property = Property::factory()->withoutAddress()->create([
+        'team_id' => $this->team->getKey(),
+        'parcel_number' => '0512-14-002-0031',
+    ]);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => null, 'generated_name' => null]);
+
+    $this->post("/properties/{$property->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    // No street yet, so nothing to name it after.
+    expect($deal->fresh()->displayName())->toBe('Untitled deal');
+
+    $this->patch("/properties/{$property->getKey()}", [
+        'street' => '1420 Pearl St',
+        'type' => $property->type->value,
+        'status' => $property->status->value,
+    ])->assertRedirect();
+
+    expect($deal->fresh()->generated_name)->toBe('1420 Pearl St');
+});
+
+it('leaves deals alone when a property that names nothing is edited', function (): void {
+    // The second property on a deal is not its subject, so editing it cannot
+    // change what the deal is called.
+    $subject = Property::factory()->create(['team_id' => $this->team->getKey(), 'street' => '1420 Pearl St']);
+    $other = Property::factory()->create(['team_id' => $this->team->getKey(), 'street' => '88 Mapleton Ave']);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => null, 'generated_name' => null]);
+
+    $this->post("/properties/{$subject->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+    $this->post("/properties/{$other->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    $this->patch("/properties/{$other->getKey()}", [
+        'street' => '90 Mapleton Ave',
+        'type' => $other->type->value,
+        'status' => $other->status->value,
+    ])->assertRedirect();
+
+    expect($deal->fresh()->generated_name)->toBe('1420 Pearl St');
+});
+
+it('looks a parcel number up the way the index compares them', function (): void {
+    /*
+     * The mutator governs writes; a query's `where` is not a write. So
+     * `firstOrCreate(['parcel_number' => '  zz  '])` asked for the untrimmed
+     * string, missed the row it had just written, and inserted a second —
+     * straight into the partial unique index. `whereParcel()` is the lookup
+     * that folds and trims the way the index does.
+     */
+    $property = Property::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'parcel_number' => '0512-14-002-0031',
+    ]);
+
+    expect(Property::query()->whereParcel('  0512-14-002-0031  ')->first()?->getKey())
+        ->toBe($property->getKey())
+        ->and(Property::query()->whereParcel('0512-14-002-0031A')->exists())->toBeFalse();
 });
 
 it('leaves a typed deal name alone when a property is linked', function (): void {

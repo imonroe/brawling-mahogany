@@ -101,6 +101,27 @@ class Property extends Model
         return Attribute::set(fn (mixed $value): ?string => self::normaliseParcel($value));
     }
 
+    /**
+     * Look a parcel number up the way the index compares them.
+     *
+     * The mutator above governs what is **written**; a query's `where` is not
+     * a write, so `firstOrCreate(['parcel_number' => '  zz  '])` asks for the
+     * untrimmed string, misses the row it wrote a moment ago, and inserts a
+     * second — straight into `properties_team_parcel_unique`. Anything that
+     * looks a parcel number up by value should come through here.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeWhereParcel(Builder $query, mixed $parcel): Builder
+    {
+        $parcel = self::normaliseParcel($parcel);
+
+        return $parcel === null
+            ? $query->whereNull('parcel_number')
+            : $query->whereRaw('lower(parcel_number) = lower(?)', [$parcel]);
+    }
+
     /** The one spelling of "the same parcel number", shared with the rule. */
     public static function normaliseParcel(mixed $value): ?string
     {

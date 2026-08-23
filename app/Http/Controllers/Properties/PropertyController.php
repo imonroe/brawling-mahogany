@@ -171,7 +171,9 @@ class PropertyController extends Controller
         $this->authorize('delete', $property);
 
         DB::transaction(function () use ($property, $deals, $activity): void {
-            $property->dealLinks()->with('deal', 'property')->get()
+            // `deal.dealType`, because `NameDeal` asks the deal for its
+            // side — without it that is one `deal_types` select per link.
+            $property->dealLinks()->with('deal.dealType', 'property')->get()
                 ->each(fn (DealProperty $link) => $deals->unlink($link));
 
             /*
