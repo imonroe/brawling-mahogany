@@ -204,7 +204,15 @@ const chosenRole = computed({
          */
         const membership = props.draft.membershipId;
 
-        if (value !== null && membership) {
+        /*
+         * Clearing it is an answer too. `AppSelect` renders the placeholder as
+         * a selectable option mapping to null, so choosing it is a real action
+         * — and guarding on `value !== null` meant the screen showed no role
+         * while the server still held the old one, then created the deal with
+         * the role the screen said was unanswered. The server refuses a null
+         * where one is required, with the sentence that says why.
+         */
+        if (membership) {
             stepTwo.team_membership_id = membership;
             stepTwo.patch('/deals/create', { preserveScroll: true });
         }
@@ -487,7 +495,11 @@ function abandon(): void {
                         {{ roleError }}
                     </p>
                     <p v-else class="text-[11px] text-muted-foreground">
-                        This deal type doesn’t imply one, so pick it.
+                        {{
+                            draft.dealTypeId
+                                ? 'This deal type doesn’t imply one, so pick it.'
+                                : 'Choose a deal type first and this may fill itself in.'
+                        }}
                     </p>
                 </div>
                 <p
@@ -853,10 +865,17 @@ function abandon(): void {
                     offer, deactivating it empties `templates`, which took this
                     button away with it. The advice was then impossible to
                     follow and the only exit was discarding four steps of work.
-                    Skipping is legal on every deal (F4.7), so it is offered on
-                    every deal.
+                    Skipping is legal on every deal (F4.7), so it is offered
+                    wherever there is something to skip *past* — which includes
+                    a draft still holding a template that has since been
+                    withdrawn, and excludes a team with no templates at all,
+                    where the button would PATCH null over null next to a
+                    paragraph already saying the same thing.
                 -->
-                <AppButton variant="ghost" @click="chooseTemplate(null)"
+                <AppButton
+                    v-if="templates.length > 0 || draft.workflowTemplateId"
+                    variant="ghost"
+                    @click="chooseTemplate(null)"
                     >Not yet — I’ll attach one later</AppButton
                 >
 

@@ -6,6 +6,7 @@ namespace App\Support\Deals;
 
 use App\Enums\DealDraftStep;
 use App\Models\DealDraft;
+use App\Models\DealType;
 use App\Models\Person;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -21,7 +22,10 @@ use Illuminate\Support\Facades\DB;
  */
 final class RecordDealDraft
 {
-    public function __construct(private readonly TeamContext $teams) {}
+    public function __construct(
+        private readonly TeamContext $teams,
+        private readonly SelectableTemplates $templates,
+    ) {}
 
     /**
      * The draft this person already has open, if any, without starting one.
@@ -140,10 +144,18 @@ final class RecordDealDraft
      *   the draft still held "Selling a Property" — and the last button
      *   attached the one nothing on screen had named.
      *
-     * Cleared rather than re-derived, because clearing sends somebody back to
-     * a question they can answer and guessing does not. `participant_role` is
-     * dropped entirely rather than set to null, so the step's `requiredIf`
-     * sees an unanswered question rather than a refused one.
+     * Cleared rather than re-derived, because guessing a role from a side the
+     * person did not choose is how the wrong client role got onto a deal in
+     * the first place. `participant_role` is dropped entirely rather than set
+     * to null, so the step's `requiredIf` sees an unanswered question rather
+     * than a refused one.
+     *
+     * **Clearing here is only half of it, and the other half is on the
+     * screen.** `router.patch` preserves state, so the component's `useForm`
+     * initializers never re-run and its copies of these two fields would go on
+     * showing answers the draft no longer holds — a ticked template over an
+     * empty payload, which produced a deal with no workflow and a success
+     * toast. `Deals/Create.vue` watches the draft props and re-syncs both.
      *
      * @param  array<string, mixed>  $answers
      * @param  array<string, mixed>  $payload
@@ -173,9 +185,36 @@ final class RecordDealDraft
             return $payload;
         }
 
-        unset($payload['participant_role'], $payload['workflow_template_id']);
+        /*
+         * The role always goes: it was answered against a side the deal no
+         * longer has, and there is nothing to check it against.
+         *
+         * The template only goes when the new type cannot start from it.
+         * Clearing one the new type still offers is pure loss — and it is the
+         * case where clearing is *least* necessary and *most* harmful, because
+         * the picker still draws that row as chosen and gives nobody a reason
+         * to look again.
+         */
+        unset($payload['participant_role']);
 
-        return $payload;
+        $template = $payload['workflow_template_id'] ?? null;
+        $type = DealType::query()->whereKey($answers['deal_type_id'])->first();
+
+        if (is_string($template) && (! $type instanceof DealType || ! $this->templates->offers($type, $template))) {
+            unset($payload['workflow_template_id']);
+        }
+
+        /*
+         * `$answers` wins over the payload it was merged into, always. Nothing
+         * pairs a changed `deal_type_id` with either of these keys today —
+         * `answers()` puts them in different steps — but the merge's whole
+         * rule is "the new answer wins", and this is the one place that could
+         * have quietly stopped being true.
+         */
+        return [...$payload, ...array_intersect_key($answers, array_flip([
+            'participant_role',
+            'workflow_template_id',
+        ]))];
     }
 
     /**

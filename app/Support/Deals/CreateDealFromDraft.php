@@ -134,17 +134,18 @@ final class CreateDealFromDraft
             ]);
         }
 
-        $membership = TeamMembership::query()
-            ->whereKey($id)
-            /*
-             * Revoked since the draft was started. Both the step's `exists`
-             * rule and S25's own picker refuse a revoked membership; this is
-             * the third place that has to, because a draft can sit between
-             * them for a month. Without it the wizard was the one way to put
-             * somebody back on a deal after their access was taken away.
-             */
-            ->whereNull('revoked_at')
-            ->first();
+        /*
+         * Revoked since the draft was started. The step's `exists` rule, S25's
+         * picker and the wizard's own recovery screen all refuse one; this is
+         * the fourth place that has to, because a draft can sit between them
+         * for a month. Without it the wizard was the one way to put somebody
+         * back on a deal after their access was taken away.
+         *
+         * Through `active()` rather than a fourth literal `whereNull` — three
+         * hand-written copies of a rule is how the fifth gets forgotten, which
+         * is exactly how this one was missed.
+         */
+        $membership = TeamMembership::query()->active()->whereKey($id)->first();
 
         if (! $membership instanceof TeamMembership) {
             /*

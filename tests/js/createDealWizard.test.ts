@@ -14,7 +14,7 @@ const patch = vi.fn();
 const post = vi.fn();
 
 vi.mock('@inertiajs/vue3', async () => {
-    const { defineComponent, h } = await import('vue');
+    const { defineComponent, h, reactive } = await import('vue');
 
     return {
         Head: defineComponent({
@@ -39,7 +39,14 @@ vi.mock('@inertiajs/vue3', async () => {
          * time the request went out.
          */
         useForm: (fields: Record<string, unknown>) => {
-            const form: Record<string, unknown> = {
+            /*
+             * `reactive()`, because the real one is. A plain object survives
+             * the two tests here — one reads the DOM before any form mutation,
+             * the other asserts on a spy snapshot — but a mount test that
+             * changes a form field and asserts on what renders would silently
+             * not re-render, which is the one thing mount tests are for.
+             */
+            const form: Record<string, unknown> = reactive({
                 ...fields,
                 errors: {},
                 processing: false,
@@ -48,7 +55,7 @@ vi.mock('@inertiajs/vue3', async () => {
                     patch(url, { ...form }, options),
                 post: (url: string, options?: unknown) =>
                     post(url, { ...form }, options),
-            };
+            });
 
             return form;
         },
@@ -108,7 +115,19 @@ describe('the create-deal wizard', () => {
          * button away with it. The advice was then impossible to follow and
          * the only exit was discarding four steps of work.
          */
-        const labels = build({ templates: [] })
+        const labels = build({
+            /*
+             * The scenario the refusal actually describes: a template *was*
+             * chosen and has since been deactivated, so the picker is empty
+             * and the draft still holds it. The first version of this test
+             * left `workflowTemplateId` null, which is a different state — a
+             * team with no templates at all, where there is nothing to skip
+             * past and the button is a no-op beside a paragraph that already
+             * says so.
+             */
+            draft: draft({ workflowTemplateId: 'WITHDRAWN' }),
+            templates: [],
+        })
             .findAll('button')
             .map((button) => button.text());
 

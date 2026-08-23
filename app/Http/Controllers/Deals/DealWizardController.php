@@ -27,6 +27,7 @@ use App\Queries\PropertyDirectory;
 use App\Support\Deals\CreateDealFromDraft;
 use App\Support\Deals\DealRoster;
 use App\Support\Deals\RecordDealDraft;
+use App\Support\Deals\SelectableTemplates;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -128,7 +129,7 @@ class DealWizardController extends Controller
             'participantRoles' => ParticipantRole::options(),
             'propertyTypes' => PropertyType::options(),
             'propertyStatuses' => PropertyStatus::options(),
-            'templates' => $this->templatesFor($type, $teams),
+            'templates' => $this->templatesFor($type),
             // What is already picked, so a resumed draft can render its
             // choices without a second round trip.
             'chosen' => [
@@ -226,6 +227,8 @@ class DealWizardController extends Controller
 
         $memberships = $directory
             ->query(PersonSegment::All, trim((string) $request->query('q', '')))
+            // Join-qualified, so `active()` cannot be used here — the scope
+            // writes an unqualified column and the directory query joins.
             ->whereNull('team_memberships.revoked_at')
             ->orderBy('last_name')
             ->orderBy('first_name')
@@ -343,20 +346,15 @@ class DealWizardController extends Controller
      *
      * @return array<int, array<string, mixed>>
      */
-    private function templatesFor(?DealType $type, TeamContext $teams): array
+    private function templatesFor(?DealType $type): array
     {
         if (! $type instanceof DealType) {
             return [];
         }
 
-        $query = WorkflowTemplate::query()
-            ->visibleTo($teams->requireId(WorkflowTemplate::class))
-            ->where('is_active', true)
+        $query = app(SelectableTemplates::class)
+            ->forType($type)
             ->withCount('stageTemplates');
-
-        if ($type->workflowTemplates()->exists()) {
-            $query->whereHas('dealTypes', fn ($types) => $types->whereKey($type->getKey()));
-        }
 
         return $query->orderBy('name')->get()->map(fn (WorkflowTemplate $template): array => [
             'id' => $template->getKey(),
@@ -383,10 +381,7 @@ class DealWizardController extends Controller
          * client who had since been revoked came back as a green "chosen"
          * badge on the very page whose job was to tell somebody to pick again.
          */
-        $membership = TeamMembership::query()
-            ->whereKey($id)
-            ->whereNull('revoked_at')
-            ->first();
+        $membership = TeamMembership::query()->active()->whereKey($id)->first();
 
         return $membership instanceof TeamMembership
             ? ['id' => $membership->getKey(), 'name' => $membership->fullName(), 'email' => $membership->email]

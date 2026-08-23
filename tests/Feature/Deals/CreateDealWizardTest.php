@@ -590,13 +590,28 @@ it('clears the chosen role when the deal type changes under it', function (): vo
         ->toBe(ParticipantRole::Seller);
 });
 
-it('clears the chosen template when the deal type changes under it', function (): void {
-    // The picker is filtered by the deal type's associations, so after a
-    // switch it offered one template while the draft still held another — and
-    // the last button attached the one nothing on screen had named.
+it('clears a chosen template the new deal type cannot start from', function (): void {
+    /*
+     * The genuine mismatch. The first version of this test never associated
+     * the template with either type, so `templatesFor()` took the "no
+     * associations, offer everything" branch and *both* types offered it — it
+     * pinned the shared-template case and asserted that dropping the answer
+     * was correct, which is the opposite of what the next test says.
+     */
     $first = typeOn(DealSide::Sell);
     $second = typeOn(DealSide::Buy);
     $template = templateWithStages();
+
+    /*
+     * Both types need associations for this to be a mismatch at all. A type
+     * with none offers *everything* — that is `templatesFor()`'s deliberate
+     * "a team that has not wired its templates up should not meet an empty
+     * picker" branch — so attaching only to the first would leave the second
+     * offering it anyway, and the test would be asserting the opposite case
+     * under a name that says otherwise.
+     */
+    $template->dealTypes()->attach($first->getKey());
+    templateWithStages()->dealTypes()->attach($second->getKey());
 
     $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $first->getKey()])->assertRedirect();
     $this->patch('/deals/create', ['step' => 'template', 'workflow_template_id' => $template->getKey()])
@@ -607,9 +622,38 @@ it('clears the chosen template when the deal type changes under it', function ()
 
     $this->post('/deals/create')->assertSessionHasNoErrors();
 
-    // No workflow, rather than the one belonging to the abandoned type. S28
+    // No workflow, rather than one the new type was never offered. S28
     // attaches one to the live deal, which is the recovery.
     expect(Deal::query()->sole()->workflows()->count())->toBe(0);
+});
+
+it('keeps a chosen template the new deal type still offers', function (): void {
+    /*
+     * The case where clearing is least necessary and most harmful. The answer
+     * was never invalid — the picker goes on offering exactly this template —
+     * so dropping it is pure loss, and the row would still have rendered as
+     * chosen over a draft that no longer held it.
+     */
+    $first = typeOn(DealSide::Sell);
+    $second = typeOn(DealSide::Buy);
+    $template = templateWithStages();
+
+    $template->dealTypes()->attach([$first->getKey(), $second->getKey()]);
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $first->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'template', 'workflow_template_id' => $template->getKey()])
+        ->assertRedirect();
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $second->getKey()])->assertRedirect();
+
+    // Still chosen, and still shown as chosen.
+    $this->get('/deals/create')
+        ->assertInertia(fn ($page) => $page->where('draft.workflowTemplateId', $template->getKey()));
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertSessionHasNoErrors();
+
+    expect(Deal::query()->sole()->workflows()->count())->toBe(1);
 });
 
 it('keeps a re-saved deal type from clearing answers it did not invalidate', function (): void {
@@ -705,6 +749,12 @@ it('reports a cleared template to the screen, not just to the payload', function
     $first = typeOn(DealSide::Sell);
     $second = typeOn(DealSide::Buy);
     $template = templateWithStages();
+
+    // Both types associated, so the second genuinely excludes this template —
+    // a type with no associations offers everything, which would make the
+    // switch a no-op. The shared-template case is the test above.
+    $template->dealTypes()->attach($first->getKey());
+    templateWithStages()->dealTypes()->attach($second->getKey());
 
     $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $first->getKey()])->assertRedirect();
     $this->patch('/deals/create', ['step' => 'template', 'workflow_template_id' => $template->getKey()])
