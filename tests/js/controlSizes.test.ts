@@ -133,8 +133,17 @@ describe('control sizes', () => {
             },
         });
 
-        // A null model selects the placeholder rather than the first option.
-        expect((select.element as HTMLSelectElement).value).toBe('');
+        /*
+         * The placeholder option itself, not the rendered value.
+         *
+         * `expect(element.value).toBe('')` for a null model cannot fail —
+         * Vue coerces a null `:value` to `''` and a select with no matching
+         * option reports `''` anyway, so it passed whatever the component
+         * did. What can fail is whether the empty option is rendered at all,
+         * which is the `v-if` the null mapping depends on.
+         */
+        expect(select.findAll('option')[0].attributes('value')).toBe('');
+        expect(select.findAll('option')).toHaveLength(2);
 
         /*
          * `find('select')`, not the component wrapper.

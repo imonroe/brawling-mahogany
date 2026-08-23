@@ -23,7 +23,6 @@
  * A native select is also the accessible default on a phone: it opens the
  * platform picker, which is a better control than anything rebuilt in a div.
  */
-import { computed } from 'vue';
 import { appInputVariants } from '@/components/app/controlVariants';
 import type { AppInputVariants } from '@/components/app/controlVariants';
 import { cn } from '@/lib/utils';
@@ -46,11 +45,14 @@ const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>();
 /*
  * `''` in the DOM, `null` in the model. An empty option is how a native select
  * says "unanswered", and null is what that means to the server — a distinction
- * this screen depends on, since "nobody has said" is a different fact from
+ * S20 depends on, since "nobody has said" is a different fact from
  * "Interested".
+ *
+ * Only one direction needs code. Vue's own `patchDOMProp` coerces a null
+ * `:value` to `''`, so binding the model straight through already selects the
+ * placeholder option; a `?? ''` here looked like the other half of the pair
+ * and was doing nothing. The mapping that is real is `choose()`.
  */
-const selected = computed(() => props.modelValue ?? '');
-
 function choose(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
 
@@ -60,7 +62,7 @@ function choose(event: Event): void {
 
 <template>
     <select
-        :value="selected"
+        :value="modelValue"
         :class="cn(appInputVariants({ size: props.size }), props.class)"
         data-slot="app-select"
         @change="choose"

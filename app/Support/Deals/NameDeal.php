@@ -36,8 +36,12 @@ use App\Models\Property;
  *
  * ## Nothing to build from leaves what was there
  *
- * `DealNameFacts::areEmpty()` distinguishes *"the name came out empty"* from
- * *"there are no facts"*, and only the first declines to write.
+ * `refresh()` declines to write in two cases, and they are the same case
+ * reached twice: `DealNameFacts::areEmpty()` is asked first, and
+ * `GenerateDealName::from()` returns null only when the facts were empty
+ * anyway. The early return is the readable one; the null check behind it is
+ * a belt that no input reaches today and would matter the moment the rule
+ * grew a case that produced no name from real facts.
  *
  * So removing a fact usually **renames**: a deal that was "1420 Pearl St ·
  * Bosart Sale" becomes "Bosart Sale" when the property comes off, because the
