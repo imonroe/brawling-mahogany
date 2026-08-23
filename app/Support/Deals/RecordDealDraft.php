@@ -102,9 +102,9 @@ final class RecordDealDraft
      */
     public function record(DealDraft $draft, array $answers, ?DealDraftStep $step = null): DealDraft
     {
-        $draft->forceFill([
-            'payload' => [...($draft->payload ?? []), ...$answers],
-        ]);
+        $payload = [...($draft->payload ?? []), ...$answers];
+
+        $draft->forceFill(['payload' => $this->invalidateDerived($draft, $answers, $payload)]);
 
         if ($step instanceof DealDraftStep) {
             /*
@@ -121,6 +121,49 @@ final class RecordDealDraft
         $draft->save();
 
         return $draft;
+    }
+
+    /**
+     * Answers that only made sense under the old deal type.
+     *
+     * Two of the four steps are *derived* from step one, and changing it left
+     * both stale in a way the screen actively lied about:
+     *
+     * - **The client's role.** `CreateDealFromDraft` prefers a chosen role
+     *   over the implied one — correct, because a rental has no implied one to
+     *   fall back on. But a role chosen under a Rental then survived a switch
+     *   to a Sale, so the screen said "they'll be added as the Seller" and the
+     *   deal got `other`, with S19 warning about a missing Seller the moment
+     *   it was created.
+     * - **The workflow template.** The picker is filtered by the deal type's
+     *   associations, so after a switch it offered "Buying a Property" while
+     *   the draft still held "Selling a Property" — and the last button
+     *   attached the one nothing on screen had named.
+     *
+     * Cleared rather than re-derived, because clearing sends somebody back to
+     * a question they can answer and guessing does not. `participant_role` is
+     * dropped entirely rather than set to null, so the step's `requiredIf`
+     * sees an unanswered question rather than a refused one.
+     *
+     * @param  array<string, mixed>  $answers
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function invalidateDerived(DealDraft $draft, array $answers, array $payload): array
+    {
+        if (! array_key_exists('deal_type_id', $answers)) {
+            return $payload;
+        }
+
+        $previous = $draft->text('deal_type_id');
+
+        if ($previous === null || $previous === $answers['deal_type_id']) {
+            return $payload;
+        }
+
+        unset($payload['participant_role'], $payload['workflow_template_id']);
+
+        return $payload;
     }
 
     /**

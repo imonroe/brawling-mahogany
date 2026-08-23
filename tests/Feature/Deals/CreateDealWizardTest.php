@@ -552,3 +552,112 @@ it('refuses the wizard to somebody with no deal permissions, and writes nothing'
 
     expect(DealDraft::withTrashed()->count())->toBe(0);
 });
+
+/*
+ * Round 3: the two refusals round 2 added, and the three answers that step one
+ * invalidates. Every one of these is a case where the screen and the draft
+ * disagreed about what the deal would be.
+ */
+
+it('clears the chosen role when the deal type changes under it', function (): void {
+    /*
+     * `clientRole()` prefers a chosen role over the implied one, which is
+     * right — a rental has no implied one to fall back on. But the choice then
+     * outlived the type it was made for: switch Rental to Sale and the screen
+     * said "they'll be added as the Seller" while the draft still held
+     * `other`, so the deal was created with a role nothing on screen had named
+     * and S19 warned about a missing Seller immediately.
+     */
+    $rental = typeOn(DealSide::Rent);
+    $sale = typeOn(DealSide::Sell);
+    $client = clientIn('Adeyemi');
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $rental->getKey()])->assertRedirect();
+    $this->patch('/deals/create', [
+        'step' => 'client',
+        'team_membership_id' => $client->getKey(),
+        'participant_role' => ParticipantRole::Other->value,
+    ])->assertRedirect();
+
+    // Back to step one, and a different type.
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $sale->getKey()])->assertRedirect();
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertRedirect();
+
+    // The Sale's implied role, not the Rental's leftover.
+    expect(Deal::query()->sole()->participants()->sole()->participant_role)
+        ->toBe(ParticipantRole::Seller);
+});
+
+it('clears the chosen template when the deal type changes under it', function (): void {
+    // The picker is filtered by the deal type's associations, so after a
+    // switch it offered one template while the draft still held another — and
+    // the last button attached the one nothing on screen had named.
+    $first = typeOn(DealSide::Sell);
+    $second = typeOn(DealSide::Buy);
+    $template = templateWithStages();
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $first->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'template', 'workflow_template_id' => $template->getKey()])
+        ->assertRedirect();
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $second->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+
+    $this->post('/deals/create')->assertSessionHasNoErrors();
+
+    // No workflow, rather than the one belonging to the abandoned type. S28
+    // attaches one to the live deal, which is the recovery.
+    expect(Deal::query()->sole()->workflows()->count())->toBe(0);
+});
+
+it('keeps a re-saved deal type from clearing answers it did not invalidate', function (): void {
+    // The invalidation is keyed on the type *changing*. Re-saving step one
+    // with the same answer — which the Back button does — must not throw away
+    // step two.
+    $type = typeOn(DealSide::Rent);
+    $client = clientIn('Nakamura');
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+    $this->patch('/deals/create', [
+        'step' => 'client',
+        'team_membership_id' => $client->getKey(),
+        'participant_role' => ParticipantRole::Other->value,
+    ])->assertRedirect();
+
+    $this->patch('/deals/create', [
+        'step' => 'type',
+        'deal_type_id' => $type->getKey(),
+        'name' => 'Renamed',
+    ])->assertRedirect();
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertSessionHasNoErrors();
+
+    expect(Deal::query()->sole()->participants()->sole()->participant_role)
+        ->toBe(ParticipantRole::Other);
+});
+
+it('does not show a revoked client as the chosen one on the recovery screen', function (): void {
+    /*
+     * The screen that has just refused the draft is the worst place to show a
+     * green "chosen" badge for the person it refused. Two of three callers
+     * filtered revoked memberships; this one did not, and it is the one that
+     * draws the page.
+     */
+    $type = typeOn(DealSide::Sell);
+    $client = clientIn('Petrova');
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'client', 'team_membership_id' => $client->getKey()])->assertRedirect();
+
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $client->forceFill(['revoked_at' => now()])->save(),
+    );
+
+    $this->get('/deals/create')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('chosen.membership', null));
+});

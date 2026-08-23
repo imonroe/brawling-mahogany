@@ -192,8 +192,20 @@ const chosenRole = computed({
          * nothing left that would ever PATCH it. Reachable without doing
          * anything odd: choose a client on a Sale, go back and switch the type
          * to Rental, and the select you are then shown writes nowhere.
+         *
+         * **The membership comes from the draft, not from `stepTwo`.** That
+         * field is a local mirror written only by the initializer and by
+         * `chooseClient()` — `saveNewClient()` posts to a different endpoint
+         * and never touches it, and `useForm` state is not re-derived from
+         * props on a visit. So the mirror is empty after an inline create (the
+         * PATCH silently did nothing) and *stale* after pick-then-inline-create
+         * (the PATCH carried the previous membership and reverted the client).
+         * `props.draft` is what the server actually holds.
          */
-        if (value !== null && stepTwo.team_membership_id !== '') {
+        const membership = props.draft.membershipId;
+
+        if (value !== null && membership) {
+            stepTwo.team_membership_id = membership;
             stepTwo.patch('/deals/create', { preserveScroll: true });
         }
     },
@@ -800,10 +812,18 @@ function abandon(): void {
                     when you’re ready.
                 </p>
 
-                <AppButton
-                    v-if="templates.length > 0"
-                    variant="ghost"
-                    @click="chooseTemplate(null)"
+                <!--
+                    Always rendered, never gated on the list having anything in
+                    it. The refusal `CreateDealFromDraft` throws when a chosen
+                    template has been withdrawn says "choose a workflow again,
+                    or skip it" — and when that template was the only one on
+                    offer, deactivating it empties `templates`, which took this
+                    button away with it. The advice was then impossible to
+                    follow and the only exit was discarding four steps of work.
+                    Skipping is legal on every deal (F4.7), so it is offered on
+                    every deal.
+                -->
+                <AppButton variant="ghost" @click="chooseTemplate(null)"
                     >Not yet — I’ll attach one later</AppButton
                 >
 

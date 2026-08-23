@@ -362,7 +362,17 @@ class DealWizardController extends Controller
             return null;
         }
 
-        $membership = TeamMembership::query()->whereKey($id)->first();
+        /*
+         * Revoked excluded, like the step's `exists` rule and
+         * `CreateDealFromDraft` both do. Without it this was the one caller of
+         * three that disagreed — and it is the one that draws the screen, so a
+         * client who had since been revoked came back as a green "chosen"
+         * badge on the very page whose job was to tell somebody to pick again.
+         */
+        $membership = TeamMembership::query()
+            ->whereKey($id)
+            ->whereNull('revoked_at')
+            ->first();
 
         return $membership instanceof TeamMembership
             ? ['id' => $membership->getKey(), 'name' => $membership->fullName(), 'email' => $membership->email]
