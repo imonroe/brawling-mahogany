@@ -267,8 +267,14 @@ class TeamMembership extends Model
      * The other side of the same question, for the Clients segment.
      *
      * `whereDoesntHave` over the *same* constraint object, not a second copy
-     * of it — so the two scopes are one condition and its negation, and cannot
-     * drift into a gap where somebody is on neither tab, or onto both.
+     * of it — so **the two scopes** are one condition and its negation, and
+     * cannot drift apart.
+     *
+     * That is a claim about the scopes and not about the screens. The People
+     * index's tabs add their own filters on top — Clients narrows to two
+     * lifecycle states, Team excludes revoked memberships — so a revoked Team
+     * Owner is on neither tab, correctly and by those filters rather than by
+     * anything here.
      *
      * @param  Builder<self>  $query
      * @return Builder<self>

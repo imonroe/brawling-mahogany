@@ -147,6 +147,32 @@ const SANCTIONED_TEAM_ROLE_KEY_USES = [
             'fails validation rather than relying on the picker. Its members *list* no '.
             'longer names keys — that was the first of the hard-coded lists #142 removed.',
     ],
+
+    'Enums/SystemRole.php' => [
+        'count' => 5,
+        'reason' => 'The enum’s own definition. Listed rather than unset unconditionally, '.
+            'so it is held to a count like every other entry — an unconditional unset '.
+            'hides a sixth role added to the enum as readily as it hides the five.',
+    ],
+];
+
+/**
+ * Asking "does this role carry **any** permission" — the shape #142 removed.
+ *
+ * The role-key scan cannot see this one, because it names no role. That is the
+ * hole the pre-#142 `activeTeams()` fell through: `whereHas('permissions')`
+ * with no constraint, which was correct only while every permission in the
+ * catalogue happened to be a team-app one.
+ *
+ * `hasPermission()` and the policy concern are not this: they ask about **one
+ * named** permission, which is the per-capability question policies are
+ * supposed to ask.
+ */
+const SANCTIONED_ANY_PERMISSION_TESTS = [
+    // Empty, and that is the finding: after #142 nothing in `app/` asks the
+    // unconstrained question. `holdsATeamSurfacePermission()` passes a closure
+    // constraining it to the team surface, which is a different query and is
+    // deliberately not matched.
 ];
 
 /**
@@ -190,6 +216,36 @@ function teamRoleKeyUsesIn(string $contents): int
     }
 
     return preg_match_all(teamRoleKeyPattern(), $code);
+}
+
+/**
+ * Asking the `permissions` relation whether there is *any* of them.
+ *
+ * `whereHas('permissions')` / `has('permissions')` with no second argument —
+ * the shape that was `activeTeams()` before #142, and the one the role-key
+ * scan is blind to because it names no role. A closure argument is a
+ * constrained ask and is not counted; the whole point is the *unconstrained*
+ * one.
+ */
+function anyPermissionTestsIn(string $contents): int
+{
+    $code = '';
+
+    foreach (token_get_all($contents) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+
+        $code .= is_array($token) ? $token[1] : $token;
+    }
+
+    // `->whereHas('permissions')` and friends, closing immediately: no
+    // constraint. Both quote styles, because Pint is a formatter and not a
+    // guard.
+    return preg_match_all(
+        '/->(?:where|or[A-Za-z]*)?[Hh]as\(\s*[\'"]permissions[\'"]\s*\)/',
+        $code,
+    );
 }
 
 /**
@@ -475,9 +531,6 @@ it('has no hard-coded role-key test outside the sanctioned call sites', function
         }
     }
 
-    // The enum's own definition is not a use of it.
-    unset($found['Enums/SystemRole.php']);
-
     $unsanctioned = array_diff_key($found, SANCTIONED_TEAM_ROLE_KEY_USES);
 
     expect($unsanctioned)->toBe(
@@ -511,3 +564,59 @@ it('finds every sanctioned file still on disk', function (): void {
         );
     }
 });
+
+it('never asks whether a role carries any permission at all', function (): void {
+    /*
+     * The hole the role-key scan cannot see. Before #142, `activeTeams()`
+     * asked `whereHas('permissions')` with no constraint — a query naming no
+     * role, and therefore invisible to every guard in this file. It was
+     * correct only while every permission in the catalogue happened to be a
+     * team-app one, which stops being true the moment #110 lands.
+     *
+     * A probe reintroducing exactly that query passed all of the tests above,
+     * which is why this one exists.
+     */
+    $found = [];
+
+    foreach ((new Finder)->files()->in([app_path()])->name('*.php') as $file) {
+        $uses = anyPermissionTestsIn((string) file_get_contents($file->getRealPath()));
+
+        if ($uses > 0) {
+            $found[str_replace('\\', '/', $file->getRelativePathname())] = $uses;
+        }
+    }
+
+    expect(array_diff_key($found, SANCTIONED_ANY_PERMISSION_TESTS))->toBe(
+        [],
+        'A query asks whether a role carries any permission at all. That is the #142 '.
+        'mistake in the spelling that names no role: it counts a client-surface '.
+        'permission as team access, so the day a Status Viewer holds one, every client '.
+        'in the directory becomes somebody with access. Constrain it to the team surface '.
+        '— TeamMembership::scopeCarryingAccess() already does.',
+    );
+});
+
+it('still recognises the query it is looking for', function (string $snippet, int $expected): void {
+    /*
+     * The positive control, and synthetic on purpose.
+     *
+     * `SANCTIONED_ANY_PERMISSION_TESTS` is empty — nothing in `app/` asks the
+     * unconstrained question any more — so a file-based control would have
+     * nothing to count, and a scan that matches nothing over a codebase
+     * containing nothing is indistinguishable from a scan whose pattern has
+     * rotted. These snippets are the shapes it must keep catching, including
+     * the one `activeTeams()` actually had before #142.
+     */
+    expect(anyPermissionTestsIn("<?php\n".$snippet))->toBe($expected);
+})->with([
+    'the pre-#142 activeTeams query' => ["\$q->whereHas('permissions');", 1],
+    'double quotes' => ['$q->whereHas("permissions");', 1],
+    'plain has()' => ["\$q->has('permissions');", 1],
+    'orWhereHas' => ["\$q->orWhereHas('permissions');", 1],
+    'whitespace inside the call' => ["\$q->whereHas( 'permissions' );", 1],
+    // Constrained: the question this file exists to encourage.
+    'a closure constraining it' => ["\$q->whereHas('permissions', fn (\$p) => \$p->whereIn('key', \$keys));", 0],
+    'a different relation' => ["\$q->whereHas('roles');", 0],
+    // A comment saying it is not a query saying it.
+    'inside a comment' => ["// \$q->whereHas('permissions');", 0],
+]);
