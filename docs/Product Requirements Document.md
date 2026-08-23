@@ -1,27 +1,31 @@
 ---
 created: 2026-08-19
-modified: 2026-08-20
-project: Brawling Mahogany
+modified: 2026-08-22
+project: Goldieflow
 type: prd
 status: draft
-version: 0.3
+version: 0.5
 tags:
   - monroe-digital
   - prd
   - real-estate
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Product Requirements Document
 
 > [!info] Document status
-> **Draft v0.3**, last revised 2026-08-20.
+> **Draft v0.5**, last revised 2026-08-22.
 >
 > Sources: [[The basic idea]] (Ian's originating brain dump), [[Rough data model.canvas]], and [[Conversation with Emily and Heather]] (2026-08-20 working session).
 >
 > **v0.2** folded in the Emily and Heather session, which answered seven of the ten open questions from v0.1 and added four material features absent from the first draft.
 >
 > **v0.3** applies the terminology set by [[Information Architecture]]. No scope changed. Every occurrence of *Project* became *Deal*, every *Milestone* became *Stage*, and *Milestone* was reassigned to a narrower meaning. Feature IDs (F1.1, F4.8, and so on) are unchanged and remain the stable references used by [[Screen Inventory]].
+>
+> **v0.4** records what slice 1 settled. Three open questions closed — shared person records (Q7), Vendor as a flag rather than a status, and whether a team's data export carries document *files* — and the `users` table became `people`, which §6.2 had described all along. No scope changed.
+>
+> **v0.5** replaces the `Brawling Mahogany` codename with the working name **Goldieflow**. Documentation only. No scope changed and no feature IDs changed. Infrastructure identifiers — containers, volumes, the test database, the staging path, the repository — still carry the old codename on purpose; see `CLAUDE.md`.
 >
 > Everything decided is listed in [[#15. Decision Log]].
 
@@ -46,7 +50,7 @@ tags:
 
 ## 1. Overview
 
-**Brawling Mahogany** (working codename, product name TBD) is a multi-tenant web application that runs the *process* side of a residential real estate practice.
+**Goldieflow** (working name) is a multi-tenant web application that runs the *process* side of a residential real estate practice.
 
 Most tools in this space are contact databases with a task list bolted on. The bet here is different. The unit of value is not the contact record, it is the **workflow**: a repeatable, gated sequence of stages that every deal of a given type must pass through, with the right communication firing automatically at each step.
 
@@ -56,7 +60,7 @@ That bet was directly validated on 2026-08-20. Heather, describing the gap in th
 
 This is a **workflow and client-communication layer**, not a system of record. That distinction is now confirmed rather than assumed. Emily's practice runs on **CTM eContracts** (a Colorado standard, now an MRI Software product) for contracts and signatures. They do not use DocuSign. Executed documents live in CTM, which carries the security obligation along with them. Emily on storing an earnest money check: "We can keep that in CTM because CTM has security. It's also not ours."
 
-Brawling Mahogany sits alongside CTM and the MLS and answers three questions better than either does:
+Goldieflow sits alongside CTM and the MLS and answers three questions better than either does:
 
 1. What has to happen next on this deal, and who owes it?
 2. Has the client been told?
@@ -179,7 +183,7 @@ Platform operator. Needs cross-tenant visibility for support, plus an audit trai
 |---|---|---|---|
 | F1.1 | Team as tenant boundary | Every business record belongs to exactly one team. Queries are team-scoped at the framework level, not per-controller. | Must |
 | F1.2 | Team control panel | Team profile, branding, sending identity, members, roles, templates. | Must |
-| F1.3 | Membership and invitations | Invite by email, assign role on invite, revoke without destroying historical attribution. | Must |
+| F1.3 | Membership and invitations | Invite by email, assign role on invite, revoke without destroying historical attribution. **The invitation is never email-only** (§8.5.1): the invitee can accept it in-app, and the inviter or a platform operator can hand the link over directly. | Must |
 | F1.4 | Multi-team users | One person, several memberships, context switching. Notes stay scoped to the recording team. | Should |
 | F1.5 | Super admin console | Cross-team lookup, impersonation with a logged reason, tenant provisioning. | Must |
 
@@ -396,7 +400,7 @@ Materially narrowed in v0.2. Executed contracts live in CTM. This product holds 
 
 Revised in v0.2 to reflect that guided onboarding is the market norm.
 
-1. Ian provisions a team and invites the owner.
+1. Ian provisions a team and invites the owner. The invitation is emailed; if it does not arrive, Ian copies the link from the team's page in the console, or Emily accepts it from inside the product if she already has an account (§8.5.1).
 2. Emily sets a password, enables 2FA, completes the team profile: name, logo, colors, signature block.
 3. She verifies a sending domain or accepts the shared default identity.
 4. She invites Heather as a Team Member.
@@ -532,12 +536,35 @@ erDiagram
 |---|---|---|
 | `deal_types` | team_id (nullable), name, side (buy/sell/rent/other) | Many deals share one type. |
 | `deals` | team_id, deal_type_id, name, generated_name, state, opened_at, closed_at, transaction_value, notes | State includes `closed` and `nurture`. |
-| `deal_participants` | deal_id, person_id, participant_role, is_primary, notes | Per deal, not global. |
-| `properties` | team_id, address fields, parcel_number, type_id, status_id, beds, baths, sqft, year_built, notes | Team-owned, reusable across deals. |
-| `deal_property` | deal_id, property_id, link_role (subject/candidate), interest_status, sort_order | |
-| `external_links` | linkable_type/id, label, url | Replaces per-site columns. |
+| `deal_participants` | deal_id, **team_membership_id**, participant_role, is_primary, notes | Per deal, not global. `team_membership_id` rather than `person_id` since #140 — see §7.2. |
+| `properties` | team_id, street, unit, city, **state_code**, postal_code, parcel_number, **type**, **status**, beds, baths, sqft, year_built, notes | Team-owned, reusable across deals. Enum columns rather than `type_id`/`status_id` since #61 — see below. |
+| `deal_properties` | team_id, deal_id, property_id, **is_subject**, (interest_status in #62) | Plural, like every other table here. `is_subject` is the `link_role` this row was drafted with, narrowed — see below. |
+| `external_links` | team_id, linkable_type/id, label, url, sort_order | Replaces per-site columns (§7.13). Carries `team_id` because a polymorphic pointer is outside the composite-key layer — ADR 0002. |
 | `offers` | deal_id, property_id, direction, amount, earnest_money, terms, contingencies JSON, status, submitted_at, expires_at | |
 | `key_dates` | deal_id, name, date, anchor_key_date_id, offset_days, offset_basis, is_derived, is_critical, **source (manual/extracted), confirmed_by, confirmed_at** | The contingency calendar. Extraction provenance is now tracked here. |
+
+**Amended by #61 (Slice 2), three ways.**
+
+*`type` and `status`, not `type_id` and `status_id`.* Both vocabularies are
+fixed by §6.3 above and held against this document by
+`tests/Unit/DocumentedVocabularyTest.php`, so a lookup table would have been a
+second, editable copy of a list this document owns. That matters most for
+status: §7.11 rules that "Undergoing improvements" and "Staged" are **workflow
+positions, not market status**, and a team-editable lookup is exactly how they
+would get added back. Deal *types* stay a table because teams genuinely add
+their own (§7.6); property types do not work that way.
+
+*`state_code`, not `state`.* Every other table in this schema uses `state` for
+a state machine, and a column meaning Colorado sitting where `HasStateMachine`
+looks would have been read wrongly by a person before it was read wrongly by
+code.
+
+*`is_subject`, not `link_role`.* The drafted `link_role (subject/candidate)`
+carries two ideas: which property names the deal (§10's generated name), and
+how interested the buyer is in each of the others. The first is a single
+boolean with a database-level "at most one per deal"; the second is a
+vocabulary #62 adds as `interest_status`. Splitting them means the name rule
+can be enforced by an index instead of by an application check on a string.
 
 #### Workflow definition layer
 
@@ -592,6 +619,7 @@ erDiagram
 
 | Lookup | Values |
 |---|---|
+| Deal side | Buy, Sell, Rent, Other |
 | Property type | Single Family, Multi Family, Condo, Townhouse, Apartment, Land, Other |
 | Property status | Pre-listing, For Sale, Under Contract, Sold, Off Market, Rented, Other |
 | Contact type | Phone call, Email, Text, Meeting, Showing, Other |
@@ -616,6 +644,8 @@ Ian asked what is wrong, missing, or over-complicated in [[Rough data model.canv
 They are relationships to a specific deal. The same person sells in March and buys in June.
 
 **Fix:** move them to `deal_participants`. The global role list shrinks to five genuine access tiers. The single biggest simplification available.
+
+**Amended by #140 (Slice 2):** the row references `team_memberships`, not `people`. When contact details moved off the shared person record, `people` stopped holding a name — so a participant pointing there could not render one — and `team_memberships` became the only side of that pair carrying a `team_id`, which is what a composite foreign key needs to make a cross-tenant participant unrepresentable. A membership already *is* "a person as this team knows them"; a participant is that, in a role, on a deal.
 
 ### 3. "New Contact (a lead)" is a status, not a role
 
@@ -737,6 +767,16 @@ Never synchronous, never trusted.
 
 Underrated, and it will bite. Required at launch: a dedicated sending subdomain, SPF, DKIM, and DMARC verified, SES production access requested early, SNS webhooks for bounces and complaints with automatic suppression, a per-team sending identity with reply-to pointing at the actual agent, and one-click unsubscribe on anything not strictly transactional.
 
+#### 8.5.1 No user flow depends on email alone (new in v0.4)
+
+**Every flow the product initiates by email carries a second way to start it or answer it that does not involve email.** See [[adr/0003-no-email-only-flows|ADR 0003]].
+
+Email is a channel this product does not control. A message can be dropped by a relay, filed as spam, sent to a shared mailbox nobody reads, or — in every local environment, and in staging by design (§8.6) — never sent at all. Slice 1 shipped exactly one email-only flow and it was the invitation in F1.3, which is also the whole of onboarding in §5.1 step 1: a fresh install could provision a team and then had no path at all to somebody who could sign in to it.
+
+The second door need not be equally convenient, and often should not be. Three shapes satisfy the rule, in order of preference: the recipient answers it **in the application**; somebody who already controls the flow **hands the artifact over**; or an operator **issues it from the console**. Each ships in every environment, on the same code path, with the same audit trail — a path that exists only in staging is a path nobody tests and nobody reviews with production eyes.
+
+`App\Support\Mail\EmailIndependence::FLOWS` catalogues each email-initiated flow with its alternative, and `tests/Unit/EmailIndependenceTest.php` fails the build when a mailable has no entry or names one that does not resolve. This binds §4.5's automation work and §4.7's status page links as much as it binds F1.3.
+
 ### 8.6 Environments
 
 Local Docker, a staging droplet mirroring production, and production. Staging runs SES in sandbox mode with all mail redirected, so no test ever reaches a real client. Staging must also use a separate AI provider key with its own budget cap.
@@ -775,7 +815,7 @@ Not legal advice, and worth a real conversation with a lawyer before taking payi
 | Area | Consideration |
 |---|---|
 | **MLS and IDX data** | The sharpest constraint. MLS listing data is licensed, and storing, displaying, or redistributing it generally requires an IDX, VOW, or broker back-office agreement per MLS. **v1 stores links only, never ingested listing content.** Emily's complaint that the competitor makes you upload an MLS sheet is a symptom of the same constraint, not a solvable product gap. |
-| **CTM eContracts as system of record** | Confirmed in the 2026-08-20 session. Executed contracts and signatures live in CTM, an MRI Software product, and the security obligation lives there with them. Brawling Mahogany must say so explicitly in its own terms rather than inviting users to treat it as an archive. A data-sharing integration with a vendor of MRI's size is not a realistic near-term path. |
+| **CTM eContracts as system of record** | Confirmed in the 2026-08-20 session. Executed contracts and signatures live in CTM, an MRI Software product, and the security obligation lives there with them. Goldieflow must say so explicitly in its own terms rather than inviting users to treat it as an archive. A data-sharing integration with a vendor of MRI's size is not a realistic near-term path. |
 | **Brokerage disclosure clause** | **New in v0.2.** Emily noted her listing agreements now carry a clause disclosing who has access to client information. Any team using this product needs that clause to cover us and, once F10 ships, the AI provider too. Ship template language teams can paste into their own agreements. |
 | **Uploaded financial instruments** | The highest-risk item in the product. An earnest money check image carries a routing and account number. Mitigations in F6.6, F6.7, and section 8.4 reduce exposure but cannot eliminate it. Describe them accurately and do not oversell. |
 | **AI processing of client documents** | **New in v0.2.** Sending a contract to a third-party model is a processing activity requiring a DPA, a no-training commitment, disclosure to the client, and a retention position. Do not ship F10 without all four. |
@@ -899,17 +939,24 @@ Subscription plans, Stripe, self-serve signup, trials, seat limits, plan and pac
 
 ### 14.1 Questions
 
-**Resolved on 2026-08-20:** commercial scope, rental scope, client upload, concurrent deal count, brokerage requirements, and partial validation of the SaaS thesis. Detail in [[#15. Decision Log]].
+**Resolved on 2026-08-20:** commercial scope, rental scope, client upload, concurrent deal count, brokerage requirements, and partial validation of the SaaS thesis.
+
+**Resolved on 2026-08-22, in slice 1:** shared versus duplicated person records (Q7), Vendor as a flag rather than a lifecycle status, and whether an export carries document files.
+
+**Resolved on 2026-08-22, entering slice 2:** Emily is the first customer rather than a business partner (Q1), and person records are separated per team rather than shared (Q7, revised — see the decision log).
+
+Detail in [[#15. Decision Log]].
 
 Still open, ordered by how much the answer changes the build.
 
-1. **Is Emily a business partner or the first customer?** Still unanswered and now more pressing. Heather asked the sharp version out loud: if you build this, you are marketing it to other people. Ian's reply was that they are building an internal tool, but the PRD describes a multi-tenant SaaS with a pricing model. **Those cannot both be true, and the answer determines equity, roadmap authority, and who decides when a feature is done.** Settle it in writing before slice 2.
+~~1. Is Emily a business partner or the first customer?~~ **Settled on 2026-08-22: first customer.** See the decision log. What follows from it is in §15 — the roadmap is Ian's, her process is input rather than specification, and the terms need writing down before her data is in a production system.
 2. **Emily's consolidated task list.** She has sent multiple partial lists, Heather has sent hers, and no buyer-side list exists yet. Emily offered to merge them into one refined list. **This is the direct input to the seeded templates in slice 2 and the highest-value outstanding item.**
 3. **Direct willingness to pay.** The competitor charging $200 with customers is real evidence, but it is evidence about them. Five agents outside Emily's circle saying they would pay is still worth gathering, and the question is now "would you pay $150 to $200," not "$40."
 4. **Which AI provider, and on what terms?** Needs a DPA, a no-training commitment, a retention position, and a cost model. Blocks slice 5 entirely.
 5. **How accurate is contract extraction actually?** Build a hand-checked corpus of 20 real Colorado contracts and measure before committing. If critical dates are missed, F10.1 is a liability rather than a feature.
 6. **Does the sensitive-content scan work well enough to be worth having?** A scan that misses half the checks may be worse than no scan, because it implies a guarantee that is not there.
-7. **Shared versus duplicated person records across teams.** This PRD assumes shared records with team-scoped notes, which is the harder path. Still worth a deliberate decision.
+
+~~7. Shared versus duplicated person records across teams.~~ **Settled in slice 1: shared.** See the decision log.
 8. **How much does Emily want to say about the competitor?** "I'm gonna steal the whole thing from them" was said in jest, and the practical answer is to build our own from Emily's and Heather's real process. Worth being deliberate rather than casual about it, particularly if any of their material was shared under a demo agreement.
 9. **Out-of-state expansion.** Almost every scope reduction in v0.2 rests on Colorado norms: CTM, no DocuSign, no client uploads. Selling into a second state reopens all of them.
 
@@ -966,6 +1013,17 @@ Still open, ordered by how much the answer changes the build.
 | 2026-08-20 | **Persistent left sidebar** as the internal navigation model, with tabs inside a deal | Ian |
 | 2026-08-20 | **Screen inventory depth:** full pages plus significant modals. Came to 91 screens | Ian |
 | 2026-08-20 | Client Portal renamed **Status Page**, Portal User renamed **Status Viewer** | Follows the v0.2 reduction to read-only |
+| 2026-08-22 | **Person records are shared across teams, not duplicated** (Q7). One `people` row per human; everything a team knows privately about them — lifecycle status, notes, vendor assessment — lives on `team_memberships` | Slice 1, issue [#18](https://github.com/imonroe/brawling-mahogany/issues/18). §7.4's stager working for two teams is the case that decides it, and §6.2 assumed it already. The isolation risk the alternative avoids is answered by the enforcement layers in ADR 0002 rather than by duplication. **Revisited, not reversed** — see the entry below |
+| 2026-08-22 | **The shared-record decision stands for v1, with one consequence unresolved and filed** as issue [#140](https://github.com/imonroe/brawling-mahogany/issues/140): adding somebody by an address that already exists attaches a membership to their existing row, so a team sees contact details *another* team supplied. The **write** side is closed at the model — an `updating` hook on `Person` reverts an identity change unless the team exclusively holds that record, and never permits one against a record carrying credentials, so paths written after this one inherit the rule rather than having to remember it | Slice 1's adversarial review. #18 anticipated exactly this trade-off (*"no risk that a global scope gap on `people` leaks a client's phone number to another team"*); what it lacked was a concrete path, and now there is one. Settle it before Slice 2's `deal_participants` screens, because changing the shape afterwards is a larger migration |
+| 2026-08-22 | **`users` became `people`** — one table, credentials optional. `App\Models\Person` is the authenticatable | Slice 1. §6.2 described this table from the beginning, and ADR 0001 already called `users` "the precursor to `people`". F2.1 is unimplementable with two tables: a human with a login would have two records |
+| 2026-08-22 | **Vendor is a flag, not a lifecycle status** (IA §13.3) | Slice 1, issue [#48](https://github.com/imonroe/brawling-mahogany/issues/48). A stager can be a past client and a vendor at once, which one status column cannot express. `team_memberships.is_vendor`, with its own directory segment |
+| 2026-08-22 | **Roles and permissions built to §6.2's schema rather than on `spatie/laravel-permission`** | Slice 1, issue [#46](https://github.com/imonroe/brawling-mahogany/issues/46). The package attaches roles to a *model*; §6.2 attaches them to a **membership** (`membership_role`), which is what makes revoking somebody from one team leave the other alone. Its `permissions` table is `name`/`guard_name`; ours is `key`/`group`/`description`. Reconciling the two costs more than the ~150 lines it replaces |
+| 2026-08-22 | **A team data export carries document metadata and a manifest, never the files** | Slice 1, issue [#56](https://github.com/imonroe/brawling-mahogany/issues/56). An archive holding every uploaded inspection report is a second copy of the riskiest data the product has, sitting behind a link. Documents land in slice 3 and attach to `manifest.documents` |
+| 2026-08-22 | **Emily is the first customer, not a business partner** (Q1) | Ian's decision, entering slice 2. It settles what the PRD could not hold both of: this is a multi-tenant product with a pricing model, and Emily is its first paying user. **What follows.** The roadmap is Ian's to set; her process is input rather than specification, and where her way and the general case diverge, the general case wins. Her material goes into the seeded packs as *a* listing workflow, not *the* one. The terms — price, expectations, and the fact that her process informs a product sold to others — need to be in writing before her real client data is in a production system, and #17's customer agreement is where that lands. Heather's question, *"if you build this, you are marketing it to other people"*, was the right one and this is the answer to it |
+| 2026-08-22 | **Person records are separated per team, revising the shared decision of the same day** (Q7) | Slice 2, issue [#140](https://github.com/imonroe/brawling-mahogany/issues/140). Contact details — name, email, phone — move from `people` onto `team_memberships`. `people` keeps only what makes a login work: the sign-in address, the password, the second factor. **Why the reversal.** Sharing was chosen so a stager working for two teams would be one record with one phone number. Once every team-visible field lives on the membership, sharing the row buys nothing — each team holds its own view regardless — and it still costs the disclosure #140 documented: adding somebody by an existing address showed one team what another had typed. A trade-off with no remaining benefit is not a trade-off. **What it changes.** A credential-less contact gets its own `people` row per team, so PRD F2.1's *"one record per human"* now means one record per human **with a login**; the directory entry is the membership. Slice 1's identity-write machinery — the `updating` hook, `identityIsEditableBy()` — is deleted, because the shared row it protected no longer holds anything worth protecting |
+| 2026-08-22 | **No user flow depends on email alone** (§8.5.1) | Slice 2, [[adr/0003-no-email-only-flows|ADR 0003]]. The invitation in F1.3 could only be started and only be answered by an emailed link, which meant §5.1 step 1 could not be completed at all on an install with no mail transport — every fresh local environment, and staging, where `MAIL_REDIRECT_TO` deliberately diverts everything. The reproducible dead end: promote yourself, provision a team, invite yourself as its owner, and sit on `/no-team` holding every privilege in the system. **Deliberately not a pre-production affordance.** A path that exists only in staging is a path nobody tests and nobody audits; every alternative ships everywhere, on one code path, with one audit trail. Held by `tests/Unit/EmailIndependenceTest.php` rather than by memory, so Slice 5's status page links and client messages inherit it |
+| 2026-08-22 | **A low-contrast team accent warns rather than being silently adjusted** (Design System §15.6) | Slice 1, issue [#55](https://github.com/imonroe/brawling-mahogany/issues/55). The status page is held to WCAG 2.1 AA (§9), and a silently altered colour is a support ticket that arrives later and angrier |
+| 2026-08-22 | **Working name set to Goldieflow**, `goldieflow.com` secured | Ian and Emily; named for Emily's Great Dane. Documentation only — the `Brawling Mahogany` codename stays on containers, volumes, the test database, the staging path, and the repository, because renaming those is an infrastructure migration |
 
 ---
 
@@ -989,7 +1047,7 @@ Still open, ordered by how much the answer changes the build.
 - [ ] Build a 20-contract test corpus and measure extraction accuracy 📅 2026-09-24
 - [ ] Draft the listing-agreement disclosure language teams can paste in 📅 2026-09-17
 - [ ] Verify web push on a real iPhone before committing to the PWA plan 📅 2026-09-03
-- [ ] Decide shared-versus-duplicated person records (Q7) 📅 2026-08-27
+- [x] Decide shared-versus-duplicated person records (Q7) ✅ 2026-08-22
 - [ ] Rebuild [[Rough data model.canvas]] as v2 reflecting section 6 and the Deal/Stage terminology 📅 2026-08-31
 - [ ] Design the app shell (S06) and review with Heather before any other screen 📅 2026-08-31
 - [ ] Buy or reject Tailwind Plus, the design estimate swings ~80 days on it 📅 2026-08-27

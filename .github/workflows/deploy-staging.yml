@@ -1,0 +1,92 @@
+name: Deploy to staging
+
+# Staging mirrors production and deploys from `dev` (issue #36).
+#
+# The workflow is inert until the droplet exists: set the repository variable
+# STAGING_ENABLED to "true" once the secrets below are in place. That way the
+# pipeline is written down and reviewable now, without failing every merge
+# until the infrastructure catches up.
+#
+# Required secrets:
+#   STAGING_SSH_HOST         the droplet's hostname
+#   STAGING_SSH_USER         the deploy user
+#   STAGING_SSH_KEY          a deploy key with no passphrase
+#   STAGING_SSH_PORT         optional, defaults to 22
+#   STAGING_PATH             the checkout on the droplet, e.g. /srv/brawling-mahogany
+#   STAGING_URL              where a browser reaches it, e.g. https://staging.example.com
+#
+# The droplet's own .env holds every application secret; nothing here does.
+# See docs/Environment and secrets.md.
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    if: vars.STAGING_ENABLED == 'true'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add the deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.STAGING_SSH_PORT || 22 }}" "${{ secrets.STAGING_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          SSH_PORT: ${{ secrets.STAGING_SSH_PORT || 22 }}
+          DEPLOY_PATH: ${{ secrets.STAGING_PATH }}
+        run: |
+          # The heredoc is quoted, so nothing in it expands on the runner and
+          # nothing in it is forwarded by ssh — the path is passed explicitly.
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_PATH='${DEPLOY_PATH:-/srv/brawling-mahogany}' bash -euo pipefail -s" <<'REMOTE'
+            cd "$DEPLOY_PATH"
+            git fetch --all
+            git reset --hard origin/dev
+
+            # The same base compose file local development uses.
+            docker compose -f compose.yaml build
+            docker compose -f compose.yaml up -d --remove-orphans
+
+            # Migrations are an explicit deploy step, not a container start-up
+            # side effect: a bad migration should fail the deploy loudly.
+            docker compose -f compose.yaml exec -T app php artisan migrate --force
+
+            # Reference data is part of the schema in everything but name: the
+            # permission catalogue, the five system roles, and the three deal
+            # types. Without it a deployed app is inert — provisioning a team
+            # looks up the `team_owner` role and finds nothing, and every
+            # policy denies because no permission exists to grant. The seeders
+            # are `updateOrCreate`, so this runs on every deploy and a changed
+            # description lands with the code that changed it.
+            docker compose -f compose.yaml exec -T app php artisan db:seed --class=ReferenceDataSeeder --force
+
+            docker compose -f compose.yaml exec -T app php artisan config:cache
+            docker compose -f compose.yaml exec -T app php artisan route:cache
+            docker compose -f compose.yaml exec -T app php artisan event:cache
+            docker compose -f compose.yaml exec -T app php artisan horizon:terminate
+          REMOTE
+
+      - name: Smoke check
+        # The deploy target and the public hostname are not always the same
+        # box, so this is its own secret rather than the SSH host with a
+        # scheme bolted on.
+        run: curl -fsS --retry 5 --retry-delay 10 "${{ secrets.STAGING_URL }}/up"

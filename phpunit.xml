@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+        <!-- Cross-tenant access must be refused. PRD §8.2: a gap is a release blocker. -->
+        <testsuite name="Isolation">
+            <directory>tests/Isolation</directory>
+        </testsuite>
+        <!-- Query-count and latency budgets. PRD §9: p95 under 400ms at 25 deals. -->
+        <testsuite name="Performance">
+            <directory>tests/Performance</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <!--
+            Tests run against a real Postgres, one transaction per test.
+            SQLite would pass tests that Postgres fails: JSONB operators,
+            enum-backed check constraints, and composite foreign keys are
+            the parts of the schema most worth testing.
+        -->
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_DATABASE" value="brawling_mahogany_test"/>
+        <env name="DB_URL" value=""/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <!--
+            The Redis integration test opens a real connection (that is its
+            job). Pinning the database keeps it off the one a developer's
+            running stack is using — `php artisan test` must never touch it.
+        -->
+        <env name="REDIS_DB" value="15"/>
+        <env name="REDIS_CACHE_DB" value="15"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+    </php>
+</phpunit>

@@ -1,18 +1,18 @@
 ---
 created: 2026-08-19
-modified: 2026-08-19
-project: Brawling Mahogany
+modified: 2026-08-22
+project: Goldieflow
 type: reference
 tags:
   - monroe-digital
   - design
   - ui-ux
-  - brawling-mahogany
+  - goldieflow
 ---
 
 # Design references
 
-Curated inspiration and reference sources for the [[Monroe Digital/brawling mahogany (real estate software)/docs/Product Requirements Document|Brawling Mahogany PRD]], organized by UI surface rather than by website, because the three surfaces have almost nothing in common.
+Curated inspiration and reference sources for the [[Monroe Digital/brawling mahogany (real estate software)/docs/Product Requirements Document|Goldieflow PRD]], organized by UI surface rather than by website, because the three surfaces have almost nothing in common.
 
 > [!tip] How to use this note
 > Do not browse for inspiration in the abstract. Pick one surface, open the sources listed under it, and capture only the specific screens named in the **What to capture** checklist. Save screenshots to a folder per surface. Vague browsing produces vague designs.
@@ -179,7 +179,7 @@ Inspiration is cheap. Implementation eats the evenings. Given a solo developer o
 
 | Resource | URL | Why |
 |---|---|---|
-| **Tailwind Plus** (formerly Tailwind UI) | https://tailwindcss.com/plus | Production-quality application shells, tables, forms, and stacked lists. All Tailwind, all copy-paste. For a one-developer build on this exact stack, probably the highest-leverage purchase available. |
+| ~~**Tailwind Plus**~~ (formerly Tailwind UI) | https://tailwindcss.com/plus | **Rejected, 2026-08-20** ([#16](https://github.com/imonroe/brawling-mahogany/issues/16)). Production-quality Tailwind markup, but not Vue components, and everything pasted from it would be rebuilt against shadcn-vue and the token layer anyway. See [[Design System#1.4 Tailwind Plus, rejected]]. |
 | **shadcn-vue** | https://www.shadcn-vue.com | Composable Vue 3 primitives with sane defaults. Own the code rather than the dependency. |
 | **Preline** | https://preline.co | More prebuilt Tailwind blocks, fewer decisions to make. |
 | **Flowbite** | https://flowbite.com | Same idea, different component coverage. |
@@ -216,4 +216,4 @@ Also treat with caution:
 - [ ] Capture the Trackxi marketing site and demo video in full 📅 2026-08-26
 - [ ] Request demos from Trackxi and Open To Close 📅 2026-09-02
 - [ ] Screenshot GitHub Actions and Vercel step states for the timeline design 📅 2026-08-26
-- [ ] Evaluate Tailwind Plus against shadcn-vue and commit to one 📅 2026-09-09
+- [x] Evaluate Tailwind Plus against shadcn-vue and commit to one ✅ 2026-08-20 — rejected; building from shadcn-vue alone

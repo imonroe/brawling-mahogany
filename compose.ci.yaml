@@ -1,0 +1,45 @@
+# What GitHub Actions runs. Same base file, same image, no host mounts and no
+# development conveniences.
+#
+# This is an override file, layered with `-f`:
+#
+#   docker compose -f compose.yaml -f compose.ci.yaml build
+#
+# It does not `include` compose.yaml the way compose.local.yaml does — that
+# would load the base twice, once through the include and once through the
+# flag, which Compose rejects as a conflicting resource.
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+    image: brawling-mahogany:ci
+    environment:
+      APP_ENV: testing
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AUTO_MIGRATE: 'true'
+    restart: 'no'
+
+  worker:
+    image: brawling-mahogany:ci
+    restart: 'no'
+
+  scheduler:
+    image: brawling-mahogany:ci
+    restart: 'no'
+
+  postgres:
+    restart: 'no'
+    # CI databases are thrown away. Dropping the named volume and running the
+    # data directory in tmpfs is faster and removes the cleanup step entirely.
+    volumes: !reset []
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  redis:
+    restart: 'no'
+    volumes: !reset []

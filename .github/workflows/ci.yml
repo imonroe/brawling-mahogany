@@ -1,0 +1,274 @@
+name: CI
+
+# CLAUDE.md branching strategy: feature branches target `dev`, and `dev` goes
+# to `main` when a release is cut.
+#
+# Every job below is *meant* to block the merge — a red pipeline is not
+# advisory (issue #24) — but that is branch protection's doing, not this
+# file's: a workflow cannot make itself required. Run
+# `scripts/protect-branches.sh` once as an admin, or these jobs report
+# without gating anything. `tests/Unit/BranchProtectionTest.php` holds that
+# script's list against the job names below.
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PHP_VERSION: '8.4'
+  NODE_VERSION: '22'
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    services:
+      # The same versions the compose stack pins, so a test never passes here
+      # against a database production does not run.
+      postgres:
+        image: postgres:16.13-alpine
+        env:
+          POSTGRES_DB: brawling_mahogany_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: pdo_pgsql, pgsql, redis, intl, zip, gd, bcmath, pcntl
+          # Coverage is reported for information, not as a gate: a coverage
+          # gate on a young codebase is theatre (issue #25).
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Build the front end
+        # Feature tests assert Inertia responses, and the Vite manifest has to
+        # exist for the root view to render.
+        run: npm run build
+
+      - name: Run the test suite
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: brawling_mahogany_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+        run: php artisan test --coverage
+
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: PHPStan
+        run: composer types:check
+
+  code-style:
+    name: Code style
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Pint
+        run: composer lint:check
+
+  frontend:
+    name: Front end
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        # Wayfinder generates the route and action modules the TypeScript
+        # imports, so the type check needs a booting application.
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prepare the environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Lint, format, typecheck, and test
+        # `npm run check` is the same command a developer runs locally, so the
+        # loop and the pipeline cannot disagree (issue #26).
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+  container:
+    name: Container build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare the environment
+        # Compose reads .env for the values it injects into the services, and
+        # injects them when a container is created — so the key has to exist
+        # before `up`, not after it. That ordering is part of what this job is
+        # here to prove.
+        run: |
+          cp .env.example .env
+          sed -i 's/^DB_PASSWORD=$/DB_PASSWORD=ci/' .env
+          sed -i "s|^APP_KEY=$|APP_KEY=base64:$(openssl rand -base64 32)|" .env
+
+      - name: Build the stack
+        # The same base file local development and production use.
+        run: docker compose -f compose.yaml -f compose.ci.yaml build
+
+      - name: Boot it and check it answers
+        # Building proves the image compiles; booting proves the entrypoint
+        # waits for Postgres, runs the migrations (AUTO_MIGRATE is set in the
+        # CI override), and serves a request. Issue #22's definition of done is
+        # "a working app", which a build alone cannot show.
+        #
+        # Both endpoints are checked on purpose. `/up` is registered outside
+        # every middleware group, so it answers even when sessions, the
+        # encrypter, or the Vite manifest are broken; `/` goes through the web
+        # stack and renders an Inertia page, which is what a person would meet.
+        run: |
+          docker compose -f compose.yaml -f compose.ci.yaml up -d app
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://localhost:${APP_PORT:-8000}/up" > /dev/null; then
+              echo "Health endpoint answered on attempt $attempt."
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "The application never answered." >&2
+              docker compose -f compose.yaml -f compose.ci.yaml logs app
+              exit 1
+            fi
+            sleep 2
+          done
+          if ! curl -fsS "http://localhost:${APP_PORT:-8000}/" | grep -q 'data-page'; then
+            echo "The web stack did not render an Inertia page." >&2
+            docker compose -f compose.yaml -f compose.ci.yaml logs app
+            exit 1
+          fi
+          echo "The web stack rendered an Inertia page."
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose -f compose.yaml -f compose.ci.yaml down -v

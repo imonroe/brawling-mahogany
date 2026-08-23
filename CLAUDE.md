@@ -4,9 +4,23 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 
 ## What this project is
 
-**Brawling Mahogany** (working codename) is a multi-tenant web application that runs the *process* side of a residential real estate practice: workflows, gated stages, tasks, and automated client communication, for small independent teams. See [README.md](README.md) for the full pitch.
+**Goldieflow** (working name) is a multi-tenant web application that runs the *process* side of a residential real estate practice: workflows, gated stages, tasks, and automated client communication, for small independent teams. See [README.md](README.md) for the full pitch.
 
-The project is currently in the **planning stage** — there is no application code yet, only the `docs/` folder. Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.3) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
+> **On the name.** `Goldieflow` replaced the `Brawling Mahogany` codename on
+> 2026-08-22, and `goldieflow.com` is secured. The rename was **documentation
+> only**. Infrastructure identifiers deliberately still carry the old codename —
+> container, volume and network names in the `compose*.yaml` files (and so the
+> `brawling-mahogany_*` Docker volumes), the `brawling_mahogany_test` database
+> in `phpunit.xml`, `/srv/brawling-mahogany` in `scripts/provision-staging.sh`,
+> the values in `.env.example`, and the `imonroe/brawling-mahogany` repository
+> itself. **Do not "fix" these.** Renaming them orphans local Docker volumes and
+> staging state, so it is a deliberate migration, not a find-and-replace.
+> Obsidian vault paths inside `[[wikilinks]]` also still read
+> `brawling mahogany` and must stay that way or the links break.
+
+**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), and properties with their polymorphic external links (S35, S36, S37). Its remaining screens — the deal views themselves, offers, and the templates UI — are still open under epic #3.
+
+Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
 ## Documentation map
 
@@ -17,6 +31,11 @@ The project is currently in the **planning stage** — there is no application c
 | [`Screen Inventory.md`](docs/Screen%20Inventory.md) | The full screen list, mapped to PRD feature IDs |
 | [`Build Plan.md`](docs/Build%20Plan.md) | The build order, the critical path, and the map to the GitHub issue backlog |
 | [`Design System.md`](docs/Design%20System.md) / [`Design references.md`](docs/Design%20references.md) | Visual/UI direction |
+| [`Frontend conventions.md`](docs/Frontend%20conventions.md) | Where things live in `resources/js`, the component governance rules, the formatters, and the content rules |
+| [`Testing.md`](docs/Testing.md) | The four test suites, the conventions every slice inherits, and the tests that hold project rules |
+| [`Environment and secrets.md`](docs/Environment%20and%20secrets.md) | Which secrets exist per environment, and how they are rotated |
+| [`Deployment.md`](docs/Deployment.md) | Staging and production, backups, and the restore drill |
+| [`adr/`](docs/adr) | Architecture decisions: persistence conventions, multi-tenancy enforcement, no email-only flows |
 | [`Rough data model.canvas`](docs/Rough%20data%20model.canvas) | First-pass data model (superseded in detail by PRD §6, but useful for visual orientation) |
 | [`The basic idea.md`](docs/The%20basic%20idea.md), [`Conversation with Emily and Heather.md`](docs/Conversation%20with%20Emily%20and%20Heather.md) | Origin material — useful for *why*, not for current spec |
 
@@ -44,10 +63,32 @@ Full three-vocabulary table (code / internal label / client-facing label) is in 
 These come from PRD §8 and should guide the eventual build:
 
 - **Template vs. instance split.** Every process entity has a definition layer (`workflow_templates`, `stage_templates`, `gate_templates`, `task_templates`) and a separate runtime layer (`workflows`, `stages`, `gates`, `tasks`). Instantiating a template snapshots it — later template edits must never rewrite an in-flight deal.
-- **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`AdvanceWorkflow` in the PRD's proposal) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly.
+- **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`App\Support\Workflow\AdvanceWorkflow`) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly. **Built in Slice 2**, and held by two tests rather than by memory: `tests/Unit/SingleMutationPathTest.php` reads the source of everything in `app/`, `routes/` and `database/`, and `HasStateMachine`'s `saving` hook refuses an illegal transition however the attribute was written — a source-reading guard alone was walked past three ways in review.
 - **Gate evaluation is data-driven.** One small evaluator per gate type (manual confirmation, required tasks complete, document present, field populated, action completed, date reached, approval), resolved by `gate_type`. Adding a gate type means adding a class, not touching advancement logic.
-- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up.
+- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
+- **A lookup is archived, never deleted.** Deal types (S76) is the first of these and sets the pattern for roles (S75), template packs, and every other lookup screen: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
+- **A link out, never a copy of what is on the other end.** PRD §10: MLS
+  listing data is licensed, and *"v1 stores links only, never ingested listing
+  content."* `external_links` is a label and a URL and deliberately has no
+  column for a title, a price, a photo, or a description — adding one for
+  convenience is a licensing decision, not a feature. **Built in Slice 2**
+  (#61), replacing the per-site `zillow_url` columns PRD §7.13 rejected. The
+  URL is held to an http/https allowlist on the way in *and* on save
+  (`App\Support\Links\SafeUrl`), because a stored `javascript:` URL is
+  stored XSS the moment it is an `href`.
+
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
+- **No user flow depends on email alone.** Every flow the product initiates by
+  email carries a second way to start or answer it that does not involve email
+  — the recipient answering in-app, somebody who already controls the flow
+  handing the artifact over, or an operator issuing it from the console. Email
+  is a channel we do not control, and Slice 1's invitation was unanswerable on
+  any install without a mail transport. Built in Slice 2 — see
+  [`docs/adr/0003`](docs/adr/0003-no-email-only-flows.md). New mailables **and
+  notifications that send mail** are catalogued in
+  `App\Support\Mail\EmailIndependence`, and
+  `tests/Unit/EmailIndependenceTest.php` fails the build when one has no second
+  door, or names one that does not resolve.
 
 ## Data handling and security
 
@@ -66,6 +107,152 @@ These come from PRD §8 and should guide the eventual build:
 - Branching strategy. The `main` branch is for tagged releases only. Feature branches should target the `dev` branch for merging. When we have accumulated enough work in the `dev` branch to cut a tagged release, we'll do a PR to merge `dev` into `main`. That will keep things clean and give us a target for deployments.
 - Try to re-use components when possible to try to keep everything DRY.  Prefer pre-built components to rolling your own when practical.
 - Keeping the documentation up to date is critical.  For every PR, make sure that any documentation which needs to be updated, gets updated.  Documentation is part of the development process here, so it's imperative that we keep it as accurate as possible.
+
+## Working in the codebase
+
+### The commands
+
+| Command | What it does |
+|---|---|
+| `make setup` | Boots the whole stack on a clean machine |
+| `make check` | Everything CI runs, in the container |
+| `composer check` | Pint, PHPStan, Pest |
+| `npm run check` | Wayfinder, ESLint, Prettier, `vue-tsc`, Vitest |
+| `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
+| `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it (`--demote-last` to skip the only-administrator warning). Audited |
+| `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
+| `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation, with no mail transport and no session (ADR 0003). `--team=<slug>` when the address is invited to more than one. Rotates the token, so it replaces any link already sent. Audited |
+| `php artisan auth:reset-link <email>` | Print a single-use password reset link for an existing account (ADR 0003). Starts a reset; only the account holder can finish one. Audited |
+
+`composer check` and `npm run check` are exactly what the pipeline runs. If one
+passes locally and fails in CI, that is a bug in the scripts, not something to
+work around.
+
+### Where things go
+
+Frontend structure, the layout resolution table, and the formatter list are in
+[`docs/Frontend conventions.md`](docs/Frontend%20conventions.md). Two rules are
+worth repeating here because they are the ones most easily broken by accident:
+
+- **Nothing formats a date, a name, an address, or an amount itself.** It calls
+  `resources/js/lib/formatters.ts`. IA §10 fixes every rule; ninety-one screens
+  formatting independently will disagree within a month.
+- **Nothing decides its own state colour or label.** It calls
+  `resources/js/lib/states.ts`, which throws on an unknown state rather than
+  rendering an unstyled badge.
+
+### Component governance (Design System §13.2)
+
+1. Need a component? **Check shadcn-vue first.** It is probably there.
+2. Not there? Can it compose from two or three shadcn parts? Then it belongs in
+   `components/app/`.
+3. Only then consider a third-party library, and only if it is maintained and
+   tree-shakeable.
+4. **Never hand-edit `components/ui/`.** Extend through a `cva` variant or a
+   wrapper in `components/app/`, so re-running the shadcn CLI stays safe.
+   `CODEOWNERS` guards the directory.
+5. **No raw colours in components.** No `bg-blue-500`, no `#3B5C8F`, ever. If a
+   colour is needed and no token expresses it, the answer is a new token.
+6. A pattern used three times gets promoted into `components/app/` with a name.
+7. New state? Add it to Design System §2.4 first, then `lib/states.ts`, then
+   build the badge.
+8. **Both light and dark values, always**, even though dark ships after v1.
+9. A tone is three properties — background, foreground, and any icon move
+   together or not at all.
+
+Rules 5, 7, and 8 are enforced by tests (`tests/js/tokenDiscipline.test.ts`,
+`tests/js/tokens.test.ts`), not by review alone.
+
+### The banned words (IA §11)
+
+One concept, one word. The left column is the only word for the thing, in code,
+in routes, and in the UI.
+
+Deal (not Project) · Stage (not Phase or Step) · Milestone, in the narrow
+sense only · Gate (Requirement is allowed **only** in the deal view) · Task
+(not To-do or Item) · Automation (not Action or Trigger) · Template (not
+Blueprint) · Pack (not Bundle) · Participant (not Contact or Party) · Vendor
+(not Service provider) · Dates & Deadlines (not Key dates, in the UI) ·
+Status Page (not Portal) · Keep in Touch (not Nurture or Drip) · Team (not
+Organization or Workspace) · Extract (not Scan, Parse, or AI).
+
+Two of these carry a distinction that the short form loses, and both are load-bearing:
+
+- **Person, not User** — *because* "User" means specifically somebody with a
+  login. The table is `people` and the model is `App\Models\Person`, which is
+  also the authenticatable. `password` is nullable, and a null password never
+  authenticates. (Slice 0 shipped an `App\Models\User` from the Laravel
+  skeleton; Slice 1 renamed it, as ADR 0001 said it would.)
+
+  **A Person is a login; a `TeamMembership` is a person as a team knows them.**
+  Slice 2 moved name, email, and phone onto the membership (issue #140), so
+  `people` holds credentials and nothing a team types. Anything you want to
+  *show* — a name, a number, an address — comes from the membership, and
+  `TeamMembership::fullName()` is how. PRD F2.1's *"one record per human"* now
+  means one record per human **with a login**; a credential-less contact gets
+  its own row per team, because there is nothing left for a shared one to
+  share.
+- **Activity, not History or Log** — *because* "Audit" means the append-only
+  security log. The two are different records with different retention and
+  different readers, and merging the words merges the concepts.
+
+**Advance** is the only verb for moving a workflow forward — never Progress,
+Move, Next, or Complete. **Override** and **Skip** are different actions with
+different audit consequences and must never be conflated in a label.
+
+`tests/Unit/CodeDisciplineTest.php` fails the build when a superseded table name
+appears in code.
+
+### Writing anything team-scoped
+
+Four things, and forgetting any of them is caught by a test rather than by
+review:
+
+1. **`use BelongsToTeam`** on the model, and `$table->productDefaults()` on the
+   migration. `tests/Isolation/ModelTenancyConventionTest.php` fails otherwise.
+2. **Never put `team_id` in `#[Fillable]`.** A request body must not choose a
+   tenant; the trait fills it from the resolved team. A factory that needs a
+   specific team uses `Database\Factories\Concerns\ForcesAttributes`.
+3. **Authorize every controller action** — `$this->authorize()`, a FormRequest
+   with `authorize()`, or `can:` middleware.
+   `tests/Feature/AuthorizationCoverageTest.php` reads the route table and
+   fails on any action that never asks.
+4. **A queued job carries its team**: `use RunsForTeam`, dispatch with
+   `->forTeam($id)`, and do the work inside `$this->withinTeam(...)`. A job
+   with no team context throws rather than running unscoped.
+
+Two services own their tables and nothing else writes to them:
+`App\Support\Activity\RecordActivity` for `activity_events`, and
+`App\Support\Audit\AuditLogger` for `audit_log`. The audit log redacts
+known-sensitive attributes before writing, and the table's own triggers refuse
+an UPDATE, a DELETE, or a TRUNCATE.
+
+**A table with no `team_id` is outside every mechanism that keys on one.** Not
+just the five enforcement layers — the retention purge discovers its tables the
+same way, so `people` was never purged, and the identity-write rule had to move
+onto the model because no scope was going to hold it.
+
+Slice 2 settled it by **moving the data rather than adding a guard**: contact
+details went onto `team_memberships`, where all five layers and the purge
+already reach. The twelve models that still carry no `team_id` hold credentials
+or reference data and no customer data at all, which is the property that makes
+them safe. Before adding a thirteenth, read
+[`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"The hole the
+layers do not cover"* — the question is not "can we guard it" but "what does
+sharing buy once the team-visible fields live somewhere else".
+
+### Testing
+
+Four suites — Unit, Feature, Isolation, Performance — described in
+[`docs/Testing.md`](docs/Testing.md). Tests run against a real Postgres, and
+nothing escapes a run: mail, notifications, and storage are faked, and a stray
+HTTP request fails the test.
+
+Some project rules are held by tests rather than by memory: the enums are
+checked against the PRD and IA tables, log calls are checked for interpolated
+values, every model is checked for a tenancy decision, and the token pairs are
+checked for contrast in both themes. When one fails, fix the code or the
+document — not the test.
 
 ## Adversarial Review
 

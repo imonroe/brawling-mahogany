@@ -1,8 +1,8 @@
-# Brawling Mahogany
+# Goldieflow
 
-*Working codename — product name TBD.*
+*Working name — after Goldie, Emily's Great Dane. `goldieflow.com` is secured, but the launch name is not final.*
 
-Brawling Mahogany is a multi-tenant web application for small, independent real estate teams that runs the **process** side of the practice, not just the contacts.
+Goldieflow is a multi-tenant web application for small, independent real estate teams that runs the **process** side of the practice, not just the contacts.
 
 Most tools in this space are contact databases with a task list bolted on. This one is built around the opposite bet: the unit of value isn't the contact record, it's the **workflow** — a repeatable, gated sequence of stages that every deal of a given type has to pass through, with client communication firing automatically at the right moments.
 
@@ -29,30 +29,140 @@ It's built alongside existing tools rather than replacing them — e.g. contract
 
 Multi-tenancy is deliberate and commercial: the goal is to sell subscriptions to other small, independent real estate teams, not just build a one-off internal tool.
 
-## Planned stack
+## The stack
 
 | Layer | Choice |
 |---|---|
-| Backend | Laravel (PHP) |
-| Frontend | Vue 3 via Inertia.js |
-| CSS | Tailwind |
+| Backend | Laravel 13 (PHP 8.4) |
+| Frontend | Vue 3 via Inertia.js, built with Vite |
+| CSS | Tailwind CSS v4, CSS-first `@theme` tokens |
+| Components | shadcn-vue over Reka UI |
 | Database | PostgreSQL |
 | Cache/Queue | Redis + Laravel Horizon |
-| Auth/Roles | Laravel Fortify + `spatie/laravel-permission` (teams mode) |
-| File storage | DigitalOcean Spaces (private, signed URLs) |
-| Email | Amazon SES |
-| Push | Web Push (VAPID), delivered via an installable PWA |
-| Hosting | Docker Compose on a DigitalOcean droplet |
+| Auth | Laravel Fortify (passwords, 2FA, passkeys) |
+| Roles | `spatie/laravel-permission` in teams mode — planned, arrives with tenancy in Slice 1 |
+| File storage | DigitalOcean Spaces (private, signed URLs) — planned, Slice 3 |
+| Email | Amazon SES — planned, Slice 3. Local mail lands in Mailpit |
+| Push | Web Push (VAPID) via an installable PWA — planned, Slice 3 |
+| Hosting | Docker Compose (FrankenPHP) on a DigitalOcean droplet |
+| Monitoring | Sentry, Horizon, structured JSON logs |
 
 ## Status
 
-This project is in the planning stage — no application code yet. The [`docs/`](docs) folder holds the working documentation:
+**Slice 0 is landing:** the application skeleton, the container stack, CI, and
+the design system foundations. The product features begin at Slice 1 — see
+[`Build Plan.md`](docs/Build%20Plan.md) for the order and why.
+
+## Running it locally
+
+Everything runs in containers: PHP, Postgres, Redis, the Horizon worker, the
+scheduler, Mailpit, and Vite. Docker and Docker Compose are the only
+prerequisites.
+
+```bash
+cp .env.example .env
+# Set DB_PASSWORD. It is the only value you have to choose.
+make setup
+```
+
+The containers run as `APP_UID`:`APP_GID` from `.env`, defaulting to
+`1000:1000` — the same mechanism in every environment, so nothing runs as root.
+Locally it matters because the working tree is bind-mounted: whatever the
+containers write appears in the repository owned by that user. If `id -u` and
+`id -g` do not say 1000, set them in `.env` and run `make build` — they are
+baked into the image.
+
+If the containers ever ran as root — anything built before this was in place —
+the working tree still holds root-owned files they generated: Wayfinder's
+output, compiled views, Inertia's devtools state. Git never cleans them up,
+because git never tracked them, and the symptom is a `Vite manifest not found`
+500 with `wayfinder:generate` failing on *Permission denied* behind it. Run
+`make fix-perms` once.
+
+That builds the images, starts the stack, generates an application key, and
+migrates the database. When it finishes:
+
+| | |
+|---|---|
+| App | http://localhost:8000 |
+| Mailpit | http://localhost:8025 — every local send lands here and nowhere else. Handy, and never required: no flow depends on it ([ADR 0003](docs/adr/0003-no-email-only-flows.md)) |
+| Horizon | http://localhost:8000/horizon — add your address to `HORIZON_AUTHORIZED_EMAILS` |
+| Design system gallery | http://localhost:8000/design-system — every component, both themes |
+
+### Getting into a team on a fresh install
+
+`migrate:fresh --seed` gives you a working demo team — sign in as
+`emily@example.test` / `password`. Setting one up by hand takes four steps, and
+the fourth is the one that used to have no answer without working mail:
+
+```bash
+php artisan platform:promote you@example.com   # after registering at /register
+# then, in /admin: provision a team, which also invites its owner
+php artisan invitation:link you@example.com    # prints the accept link
+```
+
+You will rarely need that last command — if you are signed in as the address
+you invited, the invitation shows up on `/no-team` with an **Accept** button,
+and the team's page in `/admin` has a **Get link** action next to every pending
+invitation. `php artisan auth:reset-link <email>` is the same idea for a
+forgotten password. All three are ordinary product features rather than
+development shortcuts, and they behave identically in production —
+[ADR 0003](docs/adr/0003-no-email-only-flows.md) explains why that is
+deliberate.
+
+Day to day:
+
+```bash
+make up          # start
+make down        # stop
+make logs        # follow the app and worker logs
+make shell       # a shell in the app container
+make test        # the PHP test suite
+make check       # everything CI runs
+```
+
+### Without containers
+
+The stack expects Postgres 16 and Redis 7 reachable at the host and port in
+`.env`:
+
+```bash
+composer install
+npm install
+php artisan key:generate
+php artisan migrate
+npm run dev        # and, in another terminal:
+php artisan serve
+```
+
+### Running the checks
+
+```bash
+composer check     # Pint, PHPStan, Pest
+npm run check      # Wayfinder, ESLint, Prettier, vue-tsc, Vitest
+```
+
+Both are exactly what the pipeline runs, so the local loop and CI cannot
+disagree. Tests run against a real Postgres — see
+[`docs/Testing.md`](docs/Testing.md) for why, and for the conventions every
+later slice inherits.
+
+## The documentation
+
+The [`docs/`](docs) folder is the source of truth for scope, naming, and
+design. Keeping it current is part of the development process, not an
+afterthought.
 
 - [`Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) — the PRD: goals, personas, feature scope, data model, release slices, and open questions
 - [`Information Architecture.md`](docs/Information%20Architecture.md) — the naming authority for the product's vocabulary
 - [`Screen Inventory.md`](docs/Screen%20Inventory.md) — the full screen list
 - [`Build Plan.md`](docs/Build%20Plan.md) — the build order and the map to the GitHub issue backlog
 - [`Design System.md`](docs/Design%20System.md) and [`Design references.md`](docs/Design%20references.md) — visual direction
+- [`Frontend conventions.md`](docs/Frontend%20conventions.md) — formatters, the state map, and the content rules in code
+- [`Testing.md`](docs/Testing.md) — the test suites and conventions
+- [`Environment and secrets.md`](docs/Environment%20and%20secrets.md) — what exists where, and how it is rotated
+- [`Deployment.md`](docs/Deployment.md) — staging, production, backups, and the restore drill
+- [`adr/`](docs/adr) — architecture decisions: persistence conventions, multi-tenancy enforcement, and no email-only flows
 - [`The basic idea.md`](docs/The%20basic%20idea.md) — the originating concept
 - [`Rough data model.canvas`](docs/Rough%20data%20model.canvas) — the first-pass data model
 - [`Conversation with Emily and Heather.md`](docs/Conversation%20with%20Emily%20and%20Heather.md) — the working session that shaped v0.2 of the PRD
