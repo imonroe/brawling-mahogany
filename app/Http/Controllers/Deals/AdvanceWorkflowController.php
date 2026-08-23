@@ -87,15 +87,19 @@ class AdvanceWorkflowController extends Controller
                 // somebody did on purpose, the other names something to chase.
                 'refused' => $result->wasRefused(),
                 /*
-                 * Distinct sentences. Three unmet manual-confirmation gates
-                 * produce "Nobody has confirmed this yet." three times, and a
-                 * toast that says the same thing three times tells the reader
-                 * nothing the first one did not — it reads as a bug.
+                 * Distinct sentences — which, since `reasons()` names each
+                 * gate, now means distinct *gates*.
                  *
-                 * Deduplicated here rather than in `AdvanceResult`, which is
-                 * right to carry one verdict per gate: the overview lists every
-                 * gate with its own label beside its sentence, and that is
-                 * where the count lives. This is the summary.
+                 * The dedupe used to hide them instead. Three unmet
+                 * manual-confirmation gates produced "Nobody has confirmed
+                 * this yet." three times, this line collapsed them to one, and
+                 * the reader was told about one blocker when there were three.
+                 * That is the failure issue #68 wrote `reasons()` to avoid:
+                 * clear it, click again, be told about the next.
+                 *
+                 * It stays because two gates can still legitimately produce
+                 * the same sentence — the same label asking for the same
+                 * thing — and repeating that tells the reader nothing.
                  */
                 'reasons' => array_values(array_unique($result->reasons())),
             ]);

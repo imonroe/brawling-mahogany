@@ -546,15 +546,52 @@ it('reports every reason a blocked advance refused, not the first', function ():
         ->and(array_unique($flash['advance']['reasons']))->toHaveCount(3);
 });
 
-it('says a repeated reason once', function (): void {
-    // The other half: three gates of the same type produce one sentence, and
-    // saying it three times tells the reader nothing the first did not. The
-    // overview lists every gate with its own label; this is the summary.
+/**
+ * Three gates of one type stay three, because each sentence names its gate.
+ *
+ * This test used to assert the opposite, and asserting it is how the bug got
+ * in. `ManualConfirmationEvaluator` writes one sentence for the gate *type*,
+ * so three unmet manual gates produced it verbatim three times, the endpoint
+ * deduplicated before rendering, and the reader was told about one blocker
+ * where there were three — the round trip issue #68 wrote `reasons()` to
+ * prevent. The label is what tells them apart.
+ */
+it('keeps three gates of one type distinct by naming each', function (): void {
     [$deal, $workflow, $first] = overviewDeal();
 
-    foreach (['Photos are back', 'Survey is in', 'Sellers have signed'] as $index => $label) {
+    $labels = ['Photos are back', 'Survey is in', 'Sellers have signed'];
+
+    foreach ($labels as $index => $label) {
         overviewGate($first, $label, ['sort_order' => $index]);
     }
+
+    $this->post("/deals/{$deal->getKey()}/workflows/{$workflow->getKey()}/advance", [
+        'expected_stage_id' => $first->getKey(),
+    ])->assertRedirect();
+
+    $reasons = session(SessionKey::FLASH_DATA)['advance']['reasons'];
+
+    expect($reasons)->toHaveCount(3);
+
+    foreach ($labels as $label) {
+        expect(collect($reasons)->contains(fn (string $reason): bool => str_starts_with($reason, $label.': ')))
+            ->toBeTrue("No refusal sentence named the gate \"{$label}\".");
+    }
+});
+
+/**
+ * The dedupe that remains, and the only case left for it.
+ *
+ * Nothing stops a stage carrying the same label twice — no unique index says
+ * otherwise — and two gates asking for the same thing in the same words
+ * produce the same sentence. Saying it twice tells the reader nothing the
+ * first one did not.
+ */
+it('says a genuinely identical reason once', function (): void {
+    [$deal, $workflow, $first] = overviewDeal();
+
+    overviewGate($first, 'Sellers have signed', ['sort_order' => 0]);
+    overviewGate($first, 'Sellers have signed', ['sort_order' => 1]);
 
     $this->post("/deals/{$deal->getKey()}/workflows/{$workflow->getKey()}/advance", [
         'expected_stage_id' => $first->getKey(),

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -35,6 +36,43 @@ return new class extends Migration
             // one team's recent activity: one deal's timeline.
             $table->index(['team_id', 'deal_id', 'occurred_at']);
         });
+
+        $this->backfillDealSubjects();
+    }
+
+    /**
+     * Every event already recorded *about a deal* belongs on that deal.
+     *
+     * Without this the column is only correct for events written after the
+     * deploy. `dev` has had deals since #59, so a team that migrated would
+     * open S15 and S12's deal filter on a feed that begins the day the column
+     * did — the history is still in the table, and every row of it reads as
+     * belonging to no deal. `RecordActivity` derives `deal_id` from a deal
+     * subject for new rows; this is the same derivation applied backwards.
+     *
+     * The class name is written out rather than asked of the model. A
+     * migration is history: it has to keep meaning what it meant when it ran,
+     * and `Deal::getMorphClass()` is a value a later morph map is free to
+     * change. Rows written before that change would still hold the FQCN, so
+     * the literal is the one that stays true.
+     *
+     * Joined to `deals` on the team as well as the id, rather than a bare
+     * `SET deal_id = subject_id`. The composite foreign key added above would
+     * reject a cross-team pair anyway — but it would reject it by failing the
+     * migration halfway, and a deploy that stops on one anomalous row is worse
+     * than a deploy that leaves that row alone.
+     */
+    private function backfillDealSubjects(): void
+    {
+        DB::statement(<<<'SQL'
+            update activity_events
+               set deal_id = deals.id
+              from deals
+             where deals.id = activity_events.subject_id
+               and deals.team_id = activity_events.team_id
+               and activity_events.subject_type = 'App\Models\Deal'
+               and activity_events.deal_id is null
+        SQL);
     }
 
     public function down(): void

@@ -90,6 +90,13 @@ export default defineConfigWithVueTs(
         ignores: [
             'vendor',
             'node_modules',
+            /*
+             * Agent scratch checkouts. `vendor` above is anchored at the repo
+             * root, so a nested checkout's own vendor directory is not covered
+             * by it — and linting one dies on a Vue stub inside a Composer
+             * package that no tsconfig knows about.
+             */
+            '.claude/**',
             'public',
             'bootstrap/ssr',
             'tailwind.config.js',

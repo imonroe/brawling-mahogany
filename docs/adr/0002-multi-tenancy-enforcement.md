@@ -463,6 +463,46 @@ workspace depends on that. What makes a draft different is that it is a *form
 in progress* rather than a record — and the moment it becomes a record, it
 becomes the team's like everything else.
 
+### A `teamScopedForeign` that means *context* still cascades (#81)
+
+`teamScopedForeign()` always writes `cascadeOnDelete()`, and that is the right
+default: a stage belongs to its workflow, a gate to its stage, and a parent
+that goes should take its children with it.
+
+**But the macro cannot tell ownership from context.** `activity_events.deal_id`
+is the first column here that means the second thing. An event whose subject
+*is* the deal — a stage advanced, a workflow attached — is the deal's own
+record and should go when the deal is finally purged. An event whose subject is
+a **person**, with the deal only as context, is not: PRD F2.5 logs a contact
+*"against a person and optionally a deal"*, the person is still in the
+directory, and the call still happened. Left to the cascade, a client's contact
+history quietly lost entries thirty days after an unrelated deal was purged.
+
+`nullOnDelete` cannot express it either. The key is composite over
+`(team_id, deal_id)`, so Postgres would null `team_id` along with it — and
+`team_id` is `NOT NULL` precisely so layer 1 can never be evaded.
+
+So the rule, for the next column of this shape:
+
+> **A `teamScopedForeign` that expresses context rather than ownership still
+> cascades, and the purge has to step around it.** Detach the rows that only
+> reference the parent *before* the parent is deleted, in the same command that
+> deletes it.
+
+`PurgeSoftDeletedRecords::detachActivityFromExpiringDeals()` is the
+implementation. Two properties of it are load-bearing and were both got wrong
+first:
+
+- **It runs before the delete, not after.** After is too late — the rows are
+  gone.
+- **It names the subject types it detaches, rather than the ones it spares.**
+  The first version excluded deal subjects and detached everything else, which
+  fails *open*: a subject type added later is detached by default, so a
+  workflow's own events survived their deal as orphans — and, because
+  `ActivityFeed` treats a null `deal_id` as "not deal context", surfaced to
+  readers without `deals.view`. An allowlist fails closed: a new subject type
+  cascades until somebody decides otherwise.
+
 ## Not decided here
 
 - The exact retention of `audit_log` beyond "it survives a tenant purge"

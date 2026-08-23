@@ -113,6 +113,21 @@ final readonly class AdvanceResult
     /**
      * The sentences to show, in the order a person should read them.
      *
+     * **Each one names its gate.** An evaluator writes a sentence about a
+     * *kind* of gate, not about the particular one: `ActionCompletedEvaluator`
+     * takes no configuration at all, so every instance of it produces a
+     * byte-identical string, and two document gates collide whenever they ask
+     * for the same category. A stage held by three of them refuses with the
+     * same sentence three times.
+     *
+     * A caller that shows these as a list can either repeat itself or
+     * deduplicate, and both are wrong: the repetition reads as a bug, and the
+     * deduplication silently reports one blocker where there are three. The
+     * label is what tells them apart, so it goes in the sentence rather than
+     * being left for a screen to add — the deal overview lists every gate
+     * beside its label, but the People and Properties tabs advance from the
+     * same endpoint and render nothing but this text.
+     *
      * @return list<string>
      */
     public function reasons(): array
@@ -121,10 +136,43 @@ final readonly class AdvanceResult
             return [$this->refusal];
         }
 
-        return array_values(array_map(
-            fn (GateVerdict $verdict): string => $verdict->explanation,
-            $this->blockedBy,
-        ));
+        $labels = $this->gateLabels();
+
+        // `array_keys` already produces a list, so `array_map` over it does too.
+        return array_map(
+            fn (string $gateId): string => array_key_exists($gateId, $labels)
+                ? $labels[$gateId].': '.$this->blockedBy[$gateId]->explanation
+                : $this->blockedBy[$gateId]->explanation,
+            array_keys($this->blockedBy),
+        );
+    }
+
+    /**
+     * Gate id => label, read off the stage the result already carries.
+     *
+     * No query: `AdvanceWorkflow` evaluated these gates from the stage's own
+     * loaded relation a moment ago, so the rows are in memory. The fallback in
+     * `reasons()` is for a result assembled some other way — a sentence
+     * without its label is worse than one with, and neither is worth a
+     * lazy-load on a refusal path.
+     *
+     * @return array<string, string>
+     */
+    private function gateLabels(): array
+    {
+        $stage = $this->activatedStage;
+
+        if (! $stage instanceof Stage || ! $stage->relationLoaded('gates')) {
+            return [];
+        }
+
+        $labels = [];
+
+        foreach ($stage->gates as $gate) {
+            $labels[(string) $gate->getKey()] = $gate->label;
+        }
+
+        return $labels;
     }
 
     /**

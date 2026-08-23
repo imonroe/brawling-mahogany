@@ -95,6 +95,77 @@ it('renders the feed with the actor named', function (): void {
             ));
 });
 
+/**
+ * A removed member still gets the name this team typed.
+ *
+ * The timeline outlives the membership: the event is a record of something
+ * that happened, and archiving the person does not un-happen it. Without
+ * `withTrashed()` the resolver drops to `Person::email`, which is both a
+ * worse sentence and a sign-in address on a screen that never needed one.
+ */
+it('names an actor whose membership this team has since removed', function (): void {
+    // A colleague who did something and has since left.
+    [, $departed] = $this->teamWithMember();
+
+    $membership = app(TeamContext::class)->runFor($this->team, function () use ($departed): TeamMembership {
+        return TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $departed->getKey(),
+            'first_name' => 'Priya',
+            'last_name' => 'Raman',
+        ]);
+    });
+
+    $this->actingAsPerson($departed, $this->team);
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    app(TeamContext::class)->runFor($this->team, fn () => $membership->delete());
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('events.0.actorName', 'Priya Raman'));
+});
+
+/**
+ * Removed and re-added: the live membership is the one that names them.
+ *
+ * Both rows come back through `withTrashed()`, and the resolver keys by
+ * person, so the order decides. The current record is what the team means by
+ * that person now — an old row is a fallback for when there is no current one,
+ * not a competing answer.
+ */
+it('prefers the live membership over one this team removed', function (): void {
+    [, $rejoined] = $this->teamWithMember();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($rejoined): void {
+        TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $rejoined->getKey(),
+            'first_name' => 'Priya',
+            'last_name' => 'Nayar',
+        ])->delete();
+    });
+
+    app(TeamContext::class)->runFor($this->team, fn () => TeamMembership::query()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $rejoined->getKey(),
+        'first_name' => 'Priya',
+        'last_name' => 'Raman',
+    ]));
+
+    $this->actingAsPerson($rejoined, $this->team);
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('events.0.actorName', 'Priya Raman'));
+});
+
 it('links a person subject to the record this team holds for them', function (): void {
     feedEvent($this->member, 'person.added', 'Added to the team directory');
 

@@ -130,6 +130,55 @@ it('returns every unmet blocking gate, not just the first', function (): void {
         ->and($result->reasons())->toHaveCount(3);
 });
 
+/**
+ * Every sentence names its gate, so three of a kind stay three.
+ *
+ * `ManualConfirmationEvaluator` writes one sentence for the gate *type*, and
+ * three unmet manual gates produced it verbatim three times. The advance
+ * endpoint deduplicates before it renders — so without the label the reader
+ * was told about one blocker where there were three, which is exactly the
+ * round-trip issue #68 wrote `reasons()` to prevent.
+ */
+it('names the gate in every refusal sentence', function (): void {
+    [$workflow, $first] = runningWorkflow($this->deal);
+
+    foreach (['Photos are back', 'Survey is in', 'Sellers have signed'] as $index => $label) {
+        Gate::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'stage_id' => $first->getKey(),
+            'gate_type' => 'manual_confirmation',
+            'label' => $label,
+            'sort_order' => $index,
+        ]);
+    }
+
+    $reasons = app(AdvanceWorkflow::class)->handle($workflow, $this->member)->reasons();
+
+    // Three gates of one type: identical explanations, distinct sentences.
+    expect(array_unique($reasons))->toHaveCount(3);
+
+    foreach (['Photos are back', 'Survey is in', 'Sellers have signed'] as $label) {
+        expect(collect($reasons)->contains(fn (string $reason): bool => str_starts_with($reason, $label.': ')))
+            ->toBeTrue("No refusal sentence named the gate \"{$label}\".");
+    }
+});
+
+/**
+ * A refusal is not a gate, so it is not labelled.
+ *
+ * `refused()` carries no stage at all — prefixing would have to invent
+ * something, and "on hold" is not a gate anybody can go and clear.
+ */
+it('leaves a refusal sentence unprefixed', function (): void {
+    [$workflow] = runningWorkflow($this->deal);
+
+    $workflow->forceFill(['state' => WorkflowState::OnHold])->save();
+
+    $reasons = app(AdvanceWorkflow::class)->handle($workflow->fresh(), $this->member)->reasons();
+
+    expect($reasons)->toBe([WorkflowState::OnHold->advanceRefusal()]);
+});
+
 it('lets an advisory gate be unmet without refusing', function (): void {
     [$workflow, $first, $second] = runningWorkflow($this->deal);
 

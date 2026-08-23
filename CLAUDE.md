@@ -146,6 +146,17 @@ These come from PRD §8 and should guide the eventual build:
   prop before #75 folded them into this one. Adding S16–S22 means adding the
   page to `DEAL_TAB_PAGES` in `resources/js/app.ts` and a tab in `DealHeader`.
 
+- **A cascade that means *context* has to be stepped around.**
+  `teamScopedForeign()` always cascades, which is right when the reference
+  means ownership and wrong when it means context. `activity_events.deal_id`
+  is the second kind: a contact logged against a *person* names a deal for
+  context, and letting the cascade reach it lost a client's contact history
+  thirty days after an unrelated deal was purged. The purge detaches those
+  rows before the parent goes, by an **allowlist of subject types** — an
+  exclusion list fails open, and did, in review. See
+  [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"A
+  `teamScopedForeign` that means context still cascades"*.
+
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by
   email carries a second way to start or answer it that does not involve email

@@ -10,9 +10,9 @@ use App\Models\Deal;
 use App\Models\DealParticipant;
 use App\Models\DealProperty;
 use App\Models\Stage;
-use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Queries\PropertyDirectory;
+use App\Support\Activity\ActorDirectory;
 use App\Support\Deals\DealHeader;
 use App\Support\Workflow\DescribeBlockers;
 use Inertia\Inertia;
@@ -187,13 +187,17 @@ class DealOverviewController extends Controller
      * a card asking only about the deal would never once mention an advance.
      * `ActivityEvent::forSubjects()` does it in one query.
      *
-     * **Actor names resolved in one query, not one per row.**
-     * `Person::displayNameWithin()` reads the actor's membership in the team,
-     * so calling it inside the map costs a membership lookup per event — and
-     * `$event->team` costs a team lookup on top. That is the exact shape the
-     * budget tests exist to catch, on a screen the whole product routes
-     * through. The team is the same for every row, so the memberships come
-     * back in one `whereIn`.
+     * **Actor names come from `ActorDirectory`, and this screen does not have
+     * its own copy of that.** `Person::displayNameWithin()` reads the actor's
+     * membership in the team, so calling it inside the map costs a membership
+     * lookup per event — and `$event->team` costs a team lookup on top. That
+     * is the exact shape the budget tests exist to catch, on a screen the
+     * whole product routes through.
+     *
+     * This card had its own hand-rolled `whereIn` doing the same job, and the
+     * two had already drifted: one reached past a soft-deleted membership and
+     * the other did not, so the same person was named on the feed and
+     * anonymous here. One resolver, so there is one answer.
      *
      * @return list<array<string, mixed>>
      */
@@ -204,13 +208,7 @@ class DealOverviewController extends Controller
             ->limit(self::ACTIVITY_SHOWN)
             ->get();
 
-        $names = TeamMembership::query()
-            ->withTrashed()
-            ->whereIn('person_id', $events->pluck('actor_person_id')->filter()->unique()->all())
-            ->get()
-            ->mapWithKeys(fn (TeamMembership $membership): array => [
-                $membership->person_id => $membership->fullName(),
-            ]);
+        $actors = ActorDirectory::for($events);
 
         return array_values($events
             ->map(fn (ActivityEvent $event): array => [
@@ -219,14 +217,11 @@ class DealOverviewController extends Controller
                 'summary' => $event->summary,
                 'occurredAt' => $event->occurred_at->toIso8601String(),
                 /*
-                 * Null when the actor was the system, and null when this team
-                 * no longer knows them. The screen renders the sentence
-                 * without an attribution rather than inventing "Unknown" — the
-                 * summary already says what happened.
+                 * Null when the actor was the system. The screen renders the
+                 * sentence without an attribution rather than inventing
+                 * "Unknown" — the summary already says what happened.
                  */
-                'actorName' => $event->actor_person_id === null
-                    ? null
-                    : $names->get($event->actor_person_id),
+                'actorName' => $actors->nameOf($event),
             ])->all());
     }
 }

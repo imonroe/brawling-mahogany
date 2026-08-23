@@ -23,9 +23,9 @@ use Illuminate\Support\Collection;
  *
  *  1. every membership in the resolved team for the actors on this page, which
  *     is where a name lives since #140;
- *  2. the `people` rows for whichever actors hold no membership here, so an
- *     event left behind by somebody the team has since removed still says who,
- *     the way `displayNameWithin` does.
+ *  2. the `people` rows for whichever actors hold no membership here at all,
+ *     so an event left behind by a platform administrator acting outside the
+ *     team still says who, the way `displayNameWithin` does.
  *
  * Both are skipped entirely when the page has no human actors on it — an
  * automation-only feed asks nothing.
@@ -57,10 +57,24 @@ final class ActorDirectory
          * global scope narrows it to the resolved team without being asked —
          * which is also what makes this the *team's* name for somebody rather
          * than another team's.
+         *
+         * `withTrashed()`, because the timeline outlives the membership. An
+         * event is a record of something that happened, and a team that has
+         * since removed somebody still typed their name — reaching past the
+         * soft delete says *"Priya Raman archived a deal"* where dropping to
+         * the fallback below would print their sign-in address instead. That
+         * is both worse to read and more than the row needs to disclose.
          */
         $names = TeamMembership::query()
+            ->withTrashed()
             ->whereIn('person_id', $ids->all())
-            ->get(['id', 'person_id', 'first_name', 'last_name'])
+            ->get(['id', 'person_id', 'first_name', 'last_name', 'deleted_at'])
+            /*
+             * A person can hold a removed membership and a live one — added,
+             * removed, added again. `mapWithKeys` keeps the last row for a
+             * key, so the live one is sorted last and wins.
+             */
+            ->sortByDesc(fn (TeamMembership $membership): int => $membership->deleted_at === null ? 0 : 1)
             ->mapWithKeys(fn (TeamMembership $membership): array => [
                 (string) $membership->person_id => $membership->fullName(),
             ])

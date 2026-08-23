@@ -51,10 +51,17 @@ final class RecordActivity
              * Derived from the subject when the subject *is* a deal, rather
              * than left to each caller.
              *
-             * Seven of the nine deal-context call sites pass the deal as the
-             * subject already, and asking each of them to repeat it is the
-             * shape of rule that gets written into one caller and forgotten in
-             * the next one somebody adds.
+             * Most deal-context call sites pass the deal as the subject
+             * already, and asking each of them to repeat it is the shape of
+             * rule that gets written into one caller and forgotten in the next
+             * one somebody adds. The explicit `$deal` is for the rest: S26
+             * logs a contact against a *person* with a deal as context, and
+             * `AdvanceWorkflow` records against the workflow.
+             *
+             * Deliberately no count here. An earlier draft said "seven of the
+             * nine", which was wrong by three the week it was written and
+             * would have been wrong again by the next screen — a number in a
+             * comment is a claim nothing checks.
              */
             'deal_id' => $deal?->getKey() ?? ($subject instanceof Deal ? $subject->getKey() : null),
             'actor_person_id' => $actor?->getKey() ?? $this->currentActorId(),

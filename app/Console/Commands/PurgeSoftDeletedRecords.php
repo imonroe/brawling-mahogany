@@ -132,6 +132,12 @@ class PurgeSoftDeletedRecords extends Command
      * database: the key is composite over `(team_id, deal_id)`, and Postgres
      * would null `team_id` with it — a column that is `NOT NULL` precisely so
      * ADR 0002's scope can never be evaded.
+     *
+     * The general rule this is the first instance of — *a `teamScopedForeign`
+     * that expresses context rather than ownership still cascades, and the
+     * purge has to step around it* — is written down in ADR 0002 rather than
+     * only here, because the next column of this shape will be added by
+     * somebody who never reads this method.
      */
     private function detachActivityFromExpiringDeals(Team $team, CarbonInterface $cutoff): void
     {
