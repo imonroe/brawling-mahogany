@@ -153,6 +153,54 @@ it('does not touch a row whose subject is a person', function (): void {
 });
 
 /**
+ * And the same guard on the workflow statement, which inherited the SQL.
+ *
+ * The two statements are the same shape and the second one arrived without
+ * this test — which is how the first half of this migration got written and
+ * the second half got written differently. An `activity_events` row pointing
+ * at another team's workflow would take that workflow's `deal_id`, and the
+ * composite key would then abort the migration on an FK violation partway
+ * through a deploy.
+ */
+it('will not attach an event to a workflow in another team', function (): void {
+    [$otherTeam] = $this->teamWithMember();
+
+    $theirWorkflow = app(TeamContext::class)->runFor($otherTeam, function () use ($otherTeam): Workflow {
+        $theirDeal = Deal::factory()->create(['team_id' => $otherTeam->getKey()]);
+
+        return Workflow::factory()->create([
+            'team_id' => $otherTeam->getKey(),
+            'deal_id' => $theirDeal->getKey(),
+        ]);
+    });
+
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $workflow = Workflow::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    $event = app(RecordActivity::class)->record(
+        subject: $workflow,
+        eventType: 'stage.advanced',
+        summary: 'Emily advanced the stage.',
+        source: ActivitySource::Manual,
+        deal: $deal,
+    );
+
+    // A row that points across the tenant boundary — the shape the guard is for.
+    DB::table('activity_events')->where('id', $event->getKey())->update([
+        'deal_id' => null,
+        'subject_id' => $theirWorkflow->getKey(),
+    ]);
+
+    runDealBackfill();
+
+    expect(DB::table('activity_events')->where('id', $event->getKey())->value('deal_id'))->toBeNull();
+});
+
+/**
  * The join is on the team as well as the id.
  *
  * The composite foreign key would reject a cross-team pair anyway — but it

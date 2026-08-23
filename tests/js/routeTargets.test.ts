@@ -41,6 +41,12 @@ import { describe, expect, it } from 'vitest';
  * `DealHeader` names all five, as `segment: 'tasks'` and friends — bare, with
  * no leading slash, because it draws them inert rather than linking them. The
  * slash is what separates a tab's name from a path to it.
+ *
+ * The scan does not check that the slash belongs to a *deal* URL, so a future
+ * `import … from '@/lib/dates'` would be reported as a dead deal tab. Nothing
+ * in `resources/js/lib` is named for one of these today. If you are reading
+ * this because the test failed on an import, that is the pattern being blunt
+ * rather than your code being wrong — narrow the pattern, do not delete it.
  */
 const UNBUILT_DEAL_TABS = ['tasks', 'dates', 'documents', 'offers', 'timeline'];
 
@@ -91,7 +97,62 @@ function withoutComments(source: string): string {
  */
 const EXPECTED_CODE_CHARS = 100_000;
 
+/**
+ * The scan itself, over one file's contents.
+ *
+ * The segment as a path component, however the URL was built:
+ * `/deals/${id}/tasks`, '/tasks' concatenated onto a base, or a query string
+ * hung off the end. The trailing guard keeps `/dates-and-deadlines` and
+ * `/documentsUpload` out.
+ */
+function deadLinksIn(source: string): string[] {
+    const code = withoutComments(source);
+
+    return UNBUILT_DEAL_TABS.flatMap((segment) => {
+        const match = new RegExp(`\\S*/${segment}(?![\\w-])\\S*`).exec(code);
+
+        return match === null ? [] : [match[0]];
+    });
+}
+
 describe('route targets', () => {
+    /*
+     * The positive control, and the reason it is a test rather than something
+     * checked by hand once.
+     *
+     * Two earlier drafts of this scan each matched one spelling of the dead
+     * link and missed others — a pattern whose character class ended at a
+     * quote, then a literal-tokeniser that an apostrophe in prose walked past.
+     * Both times the file stayed green, because a scan that matches nothing
+     * looks exactly like a clean codebase. These are the forms the link has
+     * actually taken, and the near-misses that must not trip it.
+     */
+    it('recognises a dead link however it was assembled', () => {
+        const dead = [
+            'return `${dealUrl.value}/tasks`;',
+            "return dealUrl.value + '/tasks';",
+            "return '/deals/' + deal.id + '/offers';",
+            'return `/deals/${deal.id}/timeline?filter=all`;',
+            'const u = dealUrl.value; return u + "/documents";',
+        ];
+
+        for (const source of dead) {
+            expect(deadLinksIn(source), source).toHaveLength(1);
+        }
+
+        const fine = [
+            "const label = 'Dates';",
+            "{ segment: 'tasks', arrivesWith: 'S17' }",
+            "router.visit('/dates-and-deadlines');",
+            "fetch('/deals/1/documentsUpload');",
+            '// the deal has no /tasks route yet',
+        ];
+
+        for (const source of fine) {
+            expect(deadLinksIn(source), source).toEqual([]);
+        }
+    });
+
     it('never builds a deal URL for a tab that has no route', () => {
         const files = sourceFiles('resources/js');
 
@@ -101,26 +162,12 @@ describe('route targets', () => {
         let codeChars = 0;
 
         for (const file of files) {
-            const code = withoutComments(
-                readFileSync(resolve(process.cwd(), file), 'utf8'),
-            );
+            const source = readFileSync(resolve(process.cwd(), file), 'utf8');
 
-            codeChars += code.length;
+            codeChars += withoutComments(source).length;
 
-            for (const segment of UNBUILT_DEAL_TABS) {
-                /*
-                 * The segment as a path component, however the URL was built:
-                 * `/deals/${id}/tasks`, '/tasks' concatenated onto a base, or
-                 * a query string hung off the end. The trailing guard keeps
-                 * `/dates-and-deadlines` and `/documentsUpload` out.
-                 */
-                const match = new RegExp(`\\S*/${segment}(?![\\w-])\\S*`).exec(
-                    code,
-                );
-
-                if (match !== null) {
-                    offenders.push(`${file}: ${match[0]}`);
-                }
+            for (const found of deadLinksIn(source)) {
+                offenders.push(`${file}: ${found}`);
             }
         }
 

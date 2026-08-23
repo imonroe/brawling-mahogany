@@ -123,6 +123,30 @@ it('refuses a contact dated in the future', function (): void {
 });
 
 /**
+ * A malformed date is a 422, not a 500.
+ *
+ * The future-date rule is a closure that parses the value, and Laravel runs
+ * every rule in an attribute's list unless told otherwise — `date` failing
+ * does not stop it. So `CarbonImmutable::parse('banana')` threw, and an
+ * unparseable string turned a validation message into a stack trace. `bail`
+ * is what stops it; these are the two inputs that reach the parse.
+ */
+it('answers an unparseable date with a validation error', function (string $submitted): void {
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'occurred_at' => $submitted,
+    ])->assertSessionHasErrors('occurred_at');
+})->with(['banana', '2026-13-45']);
+
+/** The same, for a body that sends an array where a string belongs. */
+it('answers a non-string date with a validation error', function (): void {
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'occurred_at' => ['a' => 'b'],
+    ])->assertSessionHasErrors('occurred_at');
+});
+
+/**
  * Later today is not the future, and the team's zone decides which is which.
  *
  * The rule parses the submitted string the same way `store()` does — in the

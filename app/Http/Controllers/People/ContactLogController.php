@@ -72,6 +72,17 @@ class ContactLogController extends Controller
              */
             'occurred_at' => [
                 'nullable',
+                /*
+                 * `bail`, and it is load-bearing rather than tidy.
+                 *
+                 * Laravel only skips later rules after a failure for `Unique`
+                 * and `Exists`, so without this the closure below runs on
+                 * whatever was submitted *even though `date` has already
+                 * rejected it* — and `CarbonImmutable::parse('banana')`
+                 * throws. A 422 naming the field became a 500, which is the
+                 * exact trade the `deal_id` rule below refuses to make.
+                 */
+                'bail',
                 'date',
                 function (string $attribute, mixed $value, Closure $fail): void {
                     $zone = $this->teamTimeZone();

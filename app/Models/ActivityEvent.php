@@ -99,59 +99,32 @@ class ActivityEvent extends Model
     }
 
     /**
+     * One record's timeline — everything that happened *to* this thing.
+     *
+     * There used to be a `forSubjects()` beside this that took a list, added
+     * for the deal overview so it could ask about a deal and its workflows at
+     * once. The overview reads `deal_id` now (`forDeal()` below), because
+     * *what this happened to* and *which deal it belongs on* are two different
+     * questions and the card wanted the second — so the plural scope lost its
+     * only caller, and with it the morph-class grouping and the empty-list
+     * branch, each of which had a paragraph of docblock defending it and no
+     * test anywhere.
+     *
+     * S16 may well want several subjects read as one. It can have the scope
+     * back then, with the cases that hold it. Keeping an untested, uncalled
+     * generalisation against that day is how the two branches came to be
+     * described in terms of a caller that no longer exists.
+     *
      * @param  Builder<self>  $query
      * @return Builder<self>
      */
     public function scopeForSubject(Builder $query, Model $subject): Builder
     {
-        return $query->forSubjects([$subject]);
-    }
-
-    /**
-     * The timeline of several records read as one (S15 · #75).
-     *
-     * A deal's readable history is not all recorded against the deal.
-     * `PropertyDeals` and `DealRoster` write against the deal;
-     * `InstantiateWorkflow` and `AdvanceWorkflow` write against the
-     * **workflow**, deliberately — a workflow's own timeline is a real thing
-     * and #74's timeline tab (S16) will want it on its own. So the deal
-     * overview asks for the deal *and* its workflows, and the alternative
-     * would have been an activity card that never mentioned an advance.
-     *
-     * One query whatever the subjects, and grouped by morph class rather than
-     * matched pairwise, so a deal with twelve workflows costs the same `IN`
-     * that one workflow costs.
-     *
-     * An empty list matches nothing rather than everything. A screen that asks
-     * about no subjects wants no rows, and the fail-open reading here would be
-     * every event in the team on a page that renders eight of them.
-     *
-     * @param  Builder<self>  $query
-     * @param  iterable<Model>  $subjects
-     * @return Builder<self>
-     */
-    public function scopeForSubjects(Builder $query, iterable $subjects): Builder
-    {
-        /** @var array<string, list<mixed>> $byType */
-        $byType = [];
-
-        foreach ($subjects as $subject) {
-            $byType[$subject->getMorphClass()][] = $subject->getKey();
-        }
-
-        if ($byType === []) {
-            return $query->whereRaw('1 = 0')->orderByDesc('occurred_at');
-        }
-
         return $query
-            ->where(function (Builder $scoped) use ($byType): void {
-                foreach ($byType as $type => $ids) {
-                    $scoped->orWhere(fn (Builder $pair) => $pair
-                        ->where('subject_type', $type)
-                        ->whereIn('subject_id', $ids));
-                }
-            })
-            ->orderByDesc('occurred_at');
+            ->where('subject_type', $subject->getMorphClass())
+            ->where('subject_id', $subject->getKey())
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('id');
     }
 
     /**
@@ -172,7 +145,17 @@ class ActivityEvent extends Model
     {
         return $query
             ->where('deal_id', $deal->getKey())
-            ->orderByDesc('occurred_at');
+            ->orderByDesc('occurred_at')
+            /*
+             * `occurred_at` is `timestamp(0)`, and one `AdvanceWorkflow::handle()`
+             * writes `stage.advanced`, `milestone.reached` and
+             * `workflow.completed` inside the same second. Without a tiebreak
+             * their order — and which of them survives a `limit()` at the
+             * boundary — is whatever Postgres happens to return.
+             * `ActivityFeed::paginate()` already learned this; the scopes S16
+             * will inherit had not.
+             */
+            ->orderByDesc('id');
     }
 
     /**

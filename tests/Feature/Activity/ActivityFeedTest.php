@@ -8,6 +8,7 @@ use App\Models\Deal;
 use App\Models\DealType;
 use App\Models\Permission;
 use App\Models\Person;
+use App\Models\Property;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamMembership;
@@ -51,10 +52,14 @@ function feedDeal(Team $team): Deal
 }
 
 /**
- * Give somebody the directory without the deals — a role a team could compose
+ * Give somebody the directory and nothing else — a role a team could compose
  * today (PRD F2.3) even though neither shipped role looks like it.
+ *
+ * Named for what it grants rather than for what it withholds: it started as
+ * "without deals" and is now the fixture for the properties rule too, and a
+ * name that lists the exclusions goes stale every time one is added.
  */
-function feedRoleWithoutDeals(Team $team, Person $person): void
+function feedRoleWithDirectoryOnly(Team $team, Person $person): void
 {
     app(TeamContext::class)->runFor($team, function () use ($team, $person): void {
         $membership = $person->membershipIn($team);
@@ -164,6 +169,45 @@ it('falls back to the sign-in address once the membership is really gone', funct
     $this->get('/activity')
         ->assertOk()
         ->assertInertia(fn ($page) => $page->where('events.0.actorName', $departed->email));
+});
+
+/**
+ * Two removals and no live row: the most recent spelling wins.
+ *
+ * Added, removed, added under a new surname, removed again — nothing stops it,
+ * and the partial unique index only makes the *live* row single-valued. Left
+ * to the order `whereIn` returns, the answer is whichever Postgres reaches
+ * first.
+ */
+it('names a twice-removed member by the most recent record', function (): void {
+    [, $departed] = $this->teamWithMember();
+
+    $first = app(TeamContext::class)->runFor($this->team, fn (): TeamMembership => TeamMembership::query()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $departed->getKey(),
+        'first_name' => 'Priya',
+        'last_name' => 'Nayar',
+    ]));
+
+    $this->actingAsPerson($departed, $this->team);
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    app(TeamContext::class)->runFor($this->team, function () use ($departed, $first): void {
+        $first->forceFill(['deleted_at' => now()->subYear()])->save();
+
+        TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $departed->getKey(),
+            'first_name' => 'Priya',
+            'last_name' => 'Raman',
+        ])->delete();
+    });
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('events.0.actorName', 'Priya Raman'));
 });
 
 /**
@@ -295,6 +339,38 @@ it('names the deal a logged contact was attached to', function (): void {
             ->where('events.0.contactType', 'phone_call'));
 });
 
+/**
+ * And the same for a property, which is its own permission.
+ *
+ * `properties.view` is a separate key with its own policy — `people.view`
+ * does not open a property. Without a rule of its own, a viewer holding only
+ * the directory read the address in the summary, read it again as the subject
+ * label, and was offered a link to the 403 they would get for following it.
+ */
+it('keeps property activity from somebody who cannot open a property', function (): void {
+    $property = app(TeamContext::class)->runFor($this->team, fn (): Property => Property::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'street' => '4 Confidential Way',
+    ]));
+
+    feedEvent($property, 'property.created', 'Added 4 Confidential Way');
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    // Both rows for the ordinary Team Member role, which holds
+    // `properties.view`.
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('events', 2));
+
+    feedRoleWithDirectoryOnly($this->team, $this->member);
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('events', 1)
+            ->where('events.0.summary', 'Added to the team directory'));
+});
+
 it('keeps deal activity from somebody who cannot open a deal', function (): void {
     $deal = feedDeal($this->team);
 
@@ -309,7 +385,7 @@ it('keeps deal activity from somebody who cannot open a deal', function (): void
     // A composed role (PRD F2.3) with the directory but not the deals. The
     // feed is the one screen where events about several parts of the product
     // arrive together, so the parts they cannot open have to be filtered.
-    feedRoleWithoutDeals($this->team, $this->member);
+    feedRoleWithDirectoryOnly($this->team, $this->member);
 
     $this->get('/activity')
         ->assertOk()

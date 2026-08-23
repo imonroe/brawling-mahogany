@@ -68,6 +68,18 @@ final class ActorDirectory
         $memberships = TeamMembership::query()
             ->withTrashed()
             ->whereIn('person_id', $ids->all())
+            /*
+             * Most recent removal first, because the `??=` below keeps the
+             * first row it sees for a person and the latest record is the one
+             * the team last meant.
+             *
+             * `team_memberships_team_person_unique` is partial
+             * (`WHERE deleted_at IS NULL`), so the live pass is single-valued
+             * by construction — but nothing stops two *removed* rows for one
+             * person, and added/removed/added/removed gives exactly that.
+             * Without this it is whichever Postgres hands back first.
+             */
+            ->orderByDesc('deleted_at')
             ->get(['id', 'person_id', 'first_name', 'last_name', 'deleted_at']);
 
         /*
@@ -89,6 +101,8 @@ final class ActorDirectory
             $names[(string) $membership->person_id] = $membership->fullName();
         }
 
+        // `??=`, so a live name is never overwritten, and the ordering above
+        // makes the most recent removal win among the rest.
         foreach ($memberships->whereNotNull('deleted_at') as $membership) {
             $names[(string) $membership->person_id] ??= $membership->fullName();
         }

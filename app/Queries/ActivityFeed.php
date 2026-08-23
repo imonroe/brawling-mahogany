@@ -73,25 +73,36 @@ final class ActivityFeed
          * and a feed is the one place where events about several parts of the
          * product arrive together.
          *
-         * **One rule, and it is only about deals.** A deal-context event needs
-         * `deals.view`; `deal_id` is set on every event that belongs to a deal
-         * (`RecordActivity` fills it from the subject when the subject is a
-         * deal), so the whole rule is one `whereNull`.
+         * **A rule per surface the feed can reach into, and there are two.**
          *
-         * Nothing else here is filtered, and that is deliberate rather than
-         * unfinished. Everything a feed can currently carry is either about a
-         * deal — covered — or about a person, a property or a vendor, all of
-         * which `people.view` already opens. The next event type that is
-         * neither is the one that needs a second rule; there is no general
-         * per-surface filter to fall through to, so it will have to be
-         * written.
+         * A deal-context event needs `deals.view`. `deal_id` is set on every
+         * event that belongs to a deal (`RecordActivity` fills it from the
+         * subject when the subject is a deal), so that rule is one `whereNull`.
          *
-         * The shipped roles all hold `deals.view` alongside `people.view`, so
-         * today this changes nothing; a team's own composed role (PRD F2.3)
-         * is what it exists for.
+         * A property event needs `properties.view`, which is its own
+         * permission key and its own policy — `people.view` does not open a
+         * property, and an earlier version of this comment claimed it did. A
+         * viewer without it read the address in the summary, read it again as
+         * the subject label, and was offered a link to a 403.
+         *
+         * Both shipped roles hold all three permissions, so today neither rule
+         * changes anything; a team's own composed role (PRD F2.3) is what they
+         * exist for. That is also why they are written now rather than when
+         * somebody notices — the role that needs them is one a customer
+         * composes, not one we ship and would test.
+         *
+         * **The next surface the feed reaches into needs its own rule.** There
+         * is no general per-surface filter to fall through to, and a subject
+         * type with no rule is visible to everyone who can open the feed.
          */
         if (! $this->viewerCanSeeDeals()) {
             $query->whereNull('deal_id');
+        }
+
+        if (! $this->viewerCanSee(Permissions::VIEW_PROPERTIES)) {
+            $query->where(fn (Builder $inner) => $inner
+                ->whereNull('subject_type')
+                ->orWhere('subject_type', '!=', (new Property)->getMorphClass()));
         }
 
         return $query;
@@ -256,8 +267,13 @@ final class ActivityFeed
 
     private function viewerCanSeeDeals(): bool
     {
+        return $this->viewerCanSee(Permissions::VIEW_DEALS);
+    }
+
+    private function viewerCanSee(string $permission): bool
+    {
         return in_array(
-            Permissions::VIEW_DEALS,
+            $permission,
             Permissions::grantedTo(auth()->user() instanceof Person ? auth()->user() : null),
             strict: true,
         );
