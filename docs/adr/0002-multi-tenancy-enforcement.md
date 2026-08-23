@@ -198,6 +198,37 @@ Two things the implementation added that the decision did not name:
   and the four `*_template` tables — where a null `team_id` means a system row
   every team can see. **None of the twelve holds customer data**, which is the
   property that makes them safe and the one `people` used to break.
+- **Which teams a person may resolve is one question with one answer**
+  (issue #142). Layer 3 asks `Person::activeTeams()` before it will resolve a
+  team from a session, so "is this person on the team" is a tenancy decision
+  and not only a UI one: it is what stands between somebody a team merely
+  *knows* — a client, a vendor, an opposing agent, all of whom hold a
+  `team_memberships` row by design — and the tenant itself.
+
+  Slice 1 answered it two ways. `carriesAccess()` and `activeTeams()` asked
+  whether any role carried any permission; `/settings/members`, the People
+  index's Team segment, and the console's team detail each named
+  `['team_owner', 'team_member']`. The lists agreed by coincidence, and the
+  coincidence had two expiry dates: a team composing its own role (PRD F2.3),
+  and Status Viewer gaining its first permission in #110 — which would have
+  made every client a member, and quietly turned removing one from the
+  directory into an access operation needing `team.members.manage`.
+
+  The answer now comes from the **permission**, not the role:
+  `App\Enums\PermissionSurface` says whether a permission is a capability of
+  the team app, the client status page, or the platform console, and team
+  access means holding at least one on the team surface. A role — including
+  one a customer composed — inherits its answer from what it is made of, which
+  is why there is no list of keys to keep in step.
+
+  Not a `grants_team_access` column on `roles`, for the reason this ADR gives
+  about `people`: **the layers key on the tables, and `roles` is a table a
+  customer writes.** A security-relevant flag there needs a default, and both
+  defaults are wrong. The permission catalogue is product data — flat, finite,
+  seeded in code — so classifying it is a decision the build can force.
+  `tests/Isolation/TeamAccessConventionTest.php` is that build failure: a role
+  with no recorded decision, a permission with no surface, or a new file
+  deciding team membership by naming role keys.
 - **`withoutTeamScope()` is not a list of callers, it is a rule.** This ADR
   said two callers, then three. The code had thirteen, and the commit that
   raised the count was editing a different paragraph of this file at the time.

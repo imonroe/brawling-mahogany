@@ -7,6 +7,8 @@ namespace App\Models;
 use App\Enums\PersonLifecycleState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
+use App\Support\Permissions;
+use Closure;
 use Database\Factories\TeamMembershipFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -215,13 +217,86 @@ class TeamMembership extends Model
      * table is for — and none of them can open the dashboard. A Team Owner
      * holds one too, and removing theirs is an access change.
      *
-     * The test is holding a role that carries at least one permission, the
-     * same test `Person::activeTeams()` applies, so a team's own composed
-     * roles (PRD F2.3) are covered without a list of keys to maintain.
+     * **The test is holding a role that carries at least one permission on the
+     * team surface** (`App\Enums\PermissionSurface`), which is issue #142's
+     * answer and a narrowing of Slice 1's *"at least one permission"*.
+     *
+     * Two things follow, and both were broken:
+     *
+     *  - A team's own composed role (PRD F2.3) is covered without a list of
+     *    keys to maintain, because the answer comes from what the role is made
+     *    of. Slice 1 had this property here and lost it in four queries
+     *    across three files, each of which kept its own
+     *    `['team_owner', 'team_member']`; they all call the scopes below now.
+     *  - A role that grants only the *client* surface — Status Viewer, once
+     *    #110 gives it `status_page.view` — is still not team access. Under
+     *    "any permission at all" it would have become one, and removing a
+     *    client from the directory would silently have started needing
+     *    `team.members.manage`, which the person who tidies the directory does
+     *    not have.
+     *
+     * Deliberately says nothing about revocation. A revoked Team Owner's
+     * membership still *is* an access membership, which is why
+     * `PersonController::destroy()` still routes it through
+     * `RevokeMembership` rather than deleting it out from under PRD F1.3's
+     * historical attribution.
      */
     public function carriesAccess(): bool
     {
-        return $this->permissionKeys() !== [];
+        return Permissions::grantTeamAccess($this->permissionKeys());
+    }
+
+    /**
+     * `carriesAccess()`, asked of a query rather than of a loaded row.
+     *
+     * The same question in SQL, so the members screen (S74), the People
+     * index's Team segment (S30), the console's team detail, and the team
+     * switcher all get the same answer as the model does. All but the switcher
+     * used to name role keys instead, and the answers only agreed by
+     * coincidence. The Clients segment asks the inverse, below.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeCarryingAccess(Builder $query): Builder
+    {
+        return $query->whereHas('roles', self::holdsATeamSurfacePermission());
+    }
+
+    /**
+     * The other side of the same question, for the Clients segment.
+     *
+     * `whereDoesntHave` over the *same* constraint object, not a second copy
+     * of it — so **the two scopes** are one condition and its negation, and
+     * cannot drift apart.
+     *
+     * That is a claim about the scopes and not about the screens. The People
+     * index's tabs add their own filters on top — Clients narrows to two
+     * lifecycle states, Team excludes revoked memberships — so a revoked Team
+     * Owner is on neither tab, correctly and by those filters rather than by
+     * anything here.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeNotCarryingAccess(Builder $query): Builder
+    {
+        return $query->whereDoesntHave('roles', self::holdsATeamSurfacePermission());
+    }
+
+    /**
+     * The condition both scopes are made of: a role holding at least one
+     * permission on the team surface.
+     *
+     * @return Closure(Builder<Role>): Builder<Role>
+     */
+    private static function holdsATeamSurfacePermission(): Closure
+    {
+        return fn (Builder $roles): Builder => $roles->whereHas(
+            'permissions',
+            fn (Builder $permissions): Builder => $permissions
+                ->whereIn('permissions.key', Permissions::teamSurfaceKeys()),
+        );
     }
 
     /**

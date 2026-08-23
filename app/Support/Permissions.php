@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Enums\PermissionSurface;
 use App\Enums\SystemRole;
 use App\Models\Person;
 use App\Support\Tenancy\TeamContext;
@@ -85,42 +86,111 @@ final class Permissions
     public const ADMINISTER_PLATFORM = 'platform.administer';
 
     /**
-     * Every permission, with the group and description PRD §6.2 asks for.
+     * The client's own status page (Slice 4, S61–S64, issue #110).
      *
-     * @return array<string, array{group: string, description: string}>
+     * Catalogued ahead of its screen, which is what this file's docblock says
+     * the catalogue is for. It is here now because of what it *is* rather than
+     * what it does yet: the first permission on a surface that is not the team
+     * app, and therefore the case `PermissionSurface` exists to answer.
+     *
+     * **Which role holds it is #110's decision, not this one.** Status Viewer
+     * still holds nothing, so nothing about a client changes today. What
+     * changes is that when #110 hands it to them, the answer is already
+     * decided and already tested: a Status Viewer is still not on the team,
+     * still not on `/settings/members`, and still removable from the directory
+     * by somebody without `team.members.manage`.
+     */
+    public const VIEW_STATUS_PAGE = 'status_page.view';
+
+    /**
+     * Every permission, with the group and description PRD §6.2 asks for, and
+     * the surface it is a capability of (issue #142).
+     *
+     * The surface is not decoration and not a synonym for the group: `group`
+     * is how the roles UI (#88) arranges checkboxes, and `surface` is what
+     * decides whether holding the permission makes somebody a member of the
+     * team. There is no entry without one — the array shape says so, and
+     * `tests/Isolation/TeamAccessConventionTest.php` says so at runtime — so a
+     * permission added in Slice 4 cannot quietly land on the wrong side of the
+     * question the way `status_page.view` was about to.
+     *
+     * @return array<string, array{group: string, surface: PermissionSurface, description: string}>
      */
     public static function catalogue(): array
     {
+        /**
+         * Most of the catalogue is the team app, so the exceptions are what
+         * the reader should have to notice. Spelling out `PermissionSurface::Team`
+         * twenty-one times would bury the two entries that are not it.
+         *
+         * @return array{group: string, surface: PermissionSurface, description: string}
+         */
+        $team = fn (string $group, string $description): array => [
+            'group' => $group,
+            'surface' => PermissionSurface::Team,
+            'description' => $description,
+        ];
+
         return [
-            self::VIEW_DEALS => ['group' => 'Deals', 'description' => 'See the team’s deals.'],
-            self::MANAGE_DEALS => ['group' => 'Deals', 'description' => 'Create, edit, and close deals.'],
-            self::ADVANCE_WORKFLOW => ['group' => 'Deals', 'description' => 'Advance a workflow to its next stage.'],
-            self::OVERRIDE_GATE => ['group' => 'Deals', 'description' => 'Override an unmet gate, with a reason and an audit entry.'],
-            self::SKIP_STAGE => ['group' => 'Deals', 'description' => 'Mark a stage not applicable.'],
+            self::VIEW_DEALS => $team('Deals', 'See the team’s deals.'),
+            self::MANAGE_DEALS => $team('Deals', 'Create, edit, and close deals.'),
+            self::ADVANCE_WORKFLOW => $team('Deals', 'Advance a workflow to its next stage.'),
+            self::OVERRIDE_GATE => $team('Deals', 'Override an unmet gate, with a reason and an audit entry.'),
+            self::SKIP_STAGE => $team('Deals', 'Mark a stage not applicable.'),
 
-            self::VIEW_PEOPLE => ['group' => 'People', 'description' => 'See the people directory.'],
-            self::MANAGE_PEOPLE => ['group' => 'People', 'description' => 'Add and edit people, and log contact.'],
-            self::IMPORT_PEOPLE => ['group' => 'People', 'description' => 'Import contacts from a file or Google.'],
+            self::VIEW_PEOPLE => $team('People', 'See the people directory.'),
+            self::MANAGE_PEOPLE => $team('People', 'Add and edit people, and log contact.'),
+            self::IMPORT_PEOPLE => $team('People', 'Import contacts from a file or Google.'),
 
-            self::VIEW_PROPERTIES => ['group' => 'Properties', 'description' => 'See the team’s properties.'],
-            self::MANAGE_PROPERTIES => ['group' => 'Properties', 'description' => 'Add and edit properties, and link them to deals.'],
-            self::VIEW_CALENDAR => ['group' => 'Calendar', 'description' => 'See the team calendar.'],
-            self::MANAGE_NURTURE => ['group' => 'Keep in Touch', 'description' => 'Manage post-close schedules and suggestions.'],
+            self::VIEW_PROPERTIES => $team('Properties', 'See the team’s properties.'),
+            self::MANAGE_PROPERTIES => $team('Properties', 'Add and edit properties, and link them to deals.'),
+            self::VIEW_CALENDAR => $team('Calendar', 'See the team calendar.'),
+            self::MANAGE_NURTURE => $team('Keep in Touch', 'Manage post-close schedules and suggestions.'),
 
-            self::MANAGE_TEMPLATES => ['group' => 'Templates', 'description' => 'Create and edit workflow templates and packs.'],
-            self::APPROVE_MESSAGE => ['group' => 'Automation', 'description' => 'Approve a message before it reaches a client.'],
+            self::MANAGE_TEMPLATES => $team('Templates', 'Create and edit workflow templates and packs.'),
+            self::APPROVE_MESSAGE => $team('Automation', 'Approve a message before it reaches a client.'),
 
-            self::VIEW_RESTRICTED_DOCUMENT => ['group' => 'Documents', 'description' => 'Open a document in a restricted category.'],
-            self::CONFIRM_EXTRACTION => ['group' => 'Documents', 'description' => 'Confirm an extracted date or task into the record.'],
+            self::VIEW_RESTRICTED_DOCUMENT => $team('Documents', 'Open a document in a restricted category.'),
+            self::CONFIRM_EXTRACTION => $team('Documents', 'Confirm an extracted date or task into the record.'),
 
-            self::MANAGE_SETTINGS => ['group' => 'Team', 'description' => 'Edit team profile, branding, and sending identity.'],
-            self::MANAGE_TEAM_MEMBERS => ['group' => 'Team', 'description' => 'Invite, revoke, and manage team members.'],
-            self::MANAGE_ROLES => ['group' => 'Team', 'description' => 'Compose roles from the permission set.'],
-            self::EXPORT_TEAM_DATA => ['group' => 'Team', 'description' => 'Export the team’s own data.'],
-            self::VIEW_AUDIT_LOG => ['group' => 'Team', 'description' => 'Read the team’s audit log.'],
+            self::MANAGE_SETTINGS => $team('Team', 'Edit team profile, branding, and sending identity.'),
+            self::MANAGE_TEAM_MEMBERS => $team('Team', 'Invite, revoke, and manage team members.'),
+            self::MANAGE_ROLES => $team('Team', 'Compose roles from the permission set.'),
+            self::EXPORT_TEAM_DATA => $team('Team', 'Export the team’s own data.'),
+            self::VIEW_AUDIT_LOG => $team('Team', 'Read the team’s audit log.'),
 
-            self::IMPERSONATE => ['group' => 'Platform', 'description' => 'Act as a person inside a team, with a logged reason.'],
-            self::ADMINISTER_PLATFORM => ['group' => 'Platform', 'description' => 'Reach the super admin console.'],
+            /*
+             * The client surface, and the reason `surface` exists at all.
+             *
+             * Reading your own status page is not being on the team, so this
+             * one is deliberately *not* $team(). Slice 4 (#110) will hand it
+             * to Status Viewer; the members screen, the People index's Team
+             * segment, and TeamMembership::carriesAccess() will all go on
+             * saying no, because all three ask the surface rather than
+             * counting permissions.
+             */
+            self::VIEW_STATUS_PAGE => [
+                'group' => 'Status Page',
+                'surface' => PermissionSurface::Client,
+                'description' => 'Read a deal’s status page through a magic link.',
+            ],
+
+            /*
+             * The console, above the tenant boundary (ADR 0002). Not team
+             * access either: a platform administrator reaches a team through
+             * audited impersonation, not through a seat on it, and
+             * Role::assignableWithinTeam() keeps a team from handing it out.
+             */
+            self::IMPERSONATE => [
+                'group' => 'Platform',
+                'surface' => PermissionSurface::Platform,
+                'description' => 'Act as a person inside a team, with a logged reason.',
+            ],
+            self::ADMINISTER_PLATFORM => [
+                'group' => 'Platform',
+                'surface' => PermissionSurface::Platform,
+                'description' => 'Reach the super admin console.',
+            ],
         ];
     }
 
@@ -135,6 +205,51 @@ final class Permissions
     }
 
     /**
+     * Every permission on one surface (issue #142).
+     *
+     * @return list<string>
+     */
+    public static function onSurface(PermissionSurface $surface): array
+    {
+        return array_keys(array_filter(
+            self::catalogue(),
+            fn (array $entry): bool => $entry['surface'] === $surface,
+        ));
+    }
+
+    /**
+     * The keys that mean "works here" rather than "is known here".
+     *
+     * This is the one definition of team access in the product. Everything
+     * asks it through one of two doors: `TeamMembership::carriesAccess()` for
+     * a loaded row, and `TeamMembership::scopeCarryingAccess()` in SQL — which
+     * the members screen (S74), the People index's Team and Clients segments
+     * (S30), the console's team detail, and the team switcher all go through.
+     * None of them keeps a list of role keys of its own.
+     *
+     * That is the whole point of #142: three of those queries did, and a team
+     * composing its own role (PRD F2.3) got somebody who could act in the
+     * team, appeared on none of those lists, and therefore could not be
+     * revoked from the screen that revokes people.
+     *
+     * @return list<string>
+     */
+    public static function teamSurfaceKeys(): array
+    {
+        return self::onSurface(PermissionSurface::Team);
+    }
+
+    /**
+     * Does holding these permissions put somebody on the team?
+     *
+     * @param  list<string>  $permissionKeys
+     */
+    public static function grantTeamAccess(array $permissionKeys): bool
+    {
+        return array_intersect($permissionKeys, self::teamSurfaceKeys()) !== [];
+    }
+
+    /**
      * The permissions each shipped role holds.
      *
      * PRD §9 is deny by default, so a role's list is exhaustive: anything
@@ -142,6 +257,14 @@ final class Permissions
      * a Status Viewer reads one status page through a magic link (Slice 4) and
      * has no access to the application, and a Contact has no access of any
      * kind.
+     *
+     * **A role's list here no longer decides whether it is a team role.** That
+     * used to follow from the list being empty, which is why Status Viewer
+     * gaining `status_page.view` in #110 would have turned every client into a
+     * member (#142). What decides it is the *surface* of what the list holds,
+     * so #110 may hand Status Viewer the key without touching anything else,
+     * and `tests/Isolation/TeamAccessConventionTest.php` records the decision
+     * for every role in this list.
      *
      * @return array<string, list<string>>
      */

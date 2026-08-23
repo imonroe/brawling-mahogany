@@ -38,8 +38,18 @@ class MemberController extends Controller
         $this->authorize('manageMembers', $team);
 
         return Inertia::render('Settings/Members', [
+            /*
+             * Everybody who can act in this team, by the one definition of
+             * that (#142).
+             *
+             * This used to name `['team_owner', 'team_member']` here. A team
+             * that composed its own role (PRD F2.3) got somebody who could act
+             * in the team, was on neither this screen nor the People index's
+             * Team segment, and therefore could not be revoked — from the only
+             * screen that revokes people.
+             */
             'members' => TeamMembership::query()
-                ->whereHas('roles', fn ($query) => $query->whereIn('roles.key', ['team_owner', 'team_member']))
+                ->carryingAccess()
                 ->with(['person:id,email,password', 'roles:id,key,name'])
                 ->get()
                 ->map(fn (TeamMembership $membership): array => [

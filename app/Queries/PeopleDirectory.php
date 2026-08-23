@@ -6,7 +6,6 @@ namespace App\Queries;
 
 use App\Enums\PersonLifecycleState;
 use App\Enums\PersonSegment;
-use App\Enums\SystemRole;
 use App\Models\TeamMembership;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -82,12 +81,12 @@ final class PeopleDirectory
                     PersonLifecycleState::Active->value,
                     PersonLifecycleState::PastClient->value,
                 ])
-                ->whereDoesntHave('roles', fn (Builder $roles) => $roles->whereIn('roles.key', self::accessRoleKeys())),
+                ->notCarryingAccess(),
             PersonSegment::Vendors => $query->where('team_memberships.is_vendor', true),
             PersonSegment::Leads => $query->where('team_memberships.status', PersonLifecycleState::Lead->value),
             PersonSegment::Team => $query
                 ->whereNull('team_memberships.revoked_at')
-                ->whereHas('roles', fn (Builder $roles) => $roles->whereIn('roles.key', self::accessRoleKeys())),
+                ->carryingAccess(),
         };
 
         if ($search !== '') {
@@ -150,15 +149,5 @@ final class PeopleDirectory
             'joinedAt' => $membership->joined_at?->toIso8601String(),
             'revokedAt' => $membership->revoked_at?->toIso8601String(),
         ];
-    }
-
-    /**
-     * The roles that mean "works here" rather than "is known here".
-     *
-     * @return list<string>
-     */
-    private static function accessRoleKeys(): array
-    {
-        return [SystemRole::TeamOwner->value, SystemRole::TeamMember->value];
     }
 }

@@ -189,10 +189,12 @@ class Person extends Authenticatable implements PasskeyUser
      * dashboard. Counting any membership here handed the tenant to anybody a
      * team merely knew who happened to have a password.
      *
-     * The test is holding a role that carries at least one permission. That
-     * covers the shipped roles (Team Owner and Team Member do, Status Viewer
-     * and Contact hold nothing at all) and covers a team's own composed roles
-     * (PRD F2.3) without needing a list of their keys.
+     * The test is `TeamMembership::carriesAccess()`, asked in SQL — a role
+     * carrying at least one **team-surface** permission (#142). It covers the
+     * shipped roles, covers a team's own composed roles (PRD F2.3) without
+     * needing a list of their keys, and keeps a Status Viewer out of the
+     * switcher once #110 gives that role `status_page.view`: reading a status
+     * page through a magic link is not a team you can switch into.
      *
      * @return \Illuminate\Support\Collection<int, Team>
      */
@@ -202,7 +204,7 @@ class Person extends Authenticatable implements PasskeyUser
             ->whereIn('id', TeamMembership::withoutTeamScope()
                 ->where('person_id', $this->getKey())
                 ->whereNull('revoked_at')
-                ->whereHas('roles', fn (Builder $roles) => $roles->whereHas('permissions'))
+                ->carryingAccess()
                 ->select('team_id'))
             ->whereNull('suspended_at')
             ->orderBy('name')

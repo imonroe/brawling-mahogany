@@ -37,9 +37,26 @@ class ImpersonationController extends Controller
 
             return Inertia::render('Admin/Impersonate', [
                 'team' => ['id' => $model->getKey(), 'name' => $model->name],
+                /*
+                 * The fifth list of "who is on this team", and the one that
+                 * used to answer it with "has a password" (#142).
+                 *
+                 * A password is not access. A Status Viewer who set one — and
+                 * Slice 4 gives every client a reason to — was offered here,
+                 * and impersonating them landed the operator on `/no-team`,
+                 * because `activeTeams()` correctly says they can act in
+                 * nothing. Offering somebody to impersonate and then refusing
+                 * to be them is a worse answer than not offering them.
+                 *
+                 * `carryingAccess()` is the same question the members screen,
+                 * the People index's Team tab and the console's own member
+                 * list now ask. A password is still required on top: an
+                 * account that cannot sign in cannot be signed in as.
+                 */
                 'people' => TeamMembership::withoutTeamScope()
                     ->where('team_id', $model->getKey())
                     ->whereNull('revoked_at')
+                    ->carryingAccess()
                     ->whereHas('person', fn ($query) => $query->whereNotNull('password'))
                     ->with('person:id,email,password')
                     ->get()
@@ -66,10 +83,21 @@ class ImpersonationController extends Controller
         [$model, $person] = $teams->runWithoutScope(function () use ($team, $validated): array {
             $model = Team::query()->findOrFail($team);
 
+            /*
+             * The same question the picker asks, asked again here.
+             *
+             * Narrowing only `create()` closed the *list* and left the door
+             * behind it open: a POST naming a Status Viewer who has a password
+             * still started an audited impersonation session and landed the
+             * operator on `/no-team`. A picker is a convenience; this is the
+             * check.
+             */
             $membership = TeamMembership::withoutTeamScope()
                 ->where('team_id', $model->getKey())
                 ->where('person_id', $validated['person_id'])
                 ->whereNull('revoked_at')
+                ->carryingAccess()
+                ->whereHas('person', fn ($query) => $query->whereNotNull('password'))
                 ->with('person')
                 ->firstOrFail();
 
