@@ -270,6 +270,44 @@ it('refuses to start a session for somebody who holds no team access', function 
     expect(AuditEntry::query()->where('action', 'impersonation.started')->count())->toBe(0);
 });
 
+it('refuses to start a session for somebody who cannot sign in', function (): void {
+    /*
+     * `store()`'s password check, which nothing held. Round 2 found the access
+     * rule tested on the picker and not the endpoint; this is the same gap one
+     * condition over — `store()` got both checks and only one of them got a
+     * test.
+     *
+     * A **Team Member** without a password, so `carryingAccess()` passes and
+     * only the password check can refuse.
+     */
+    [$team] = $this->teamWithMember();
+
+    $contact = Person::factory()->contactOnly()->create();
+
+    app(TeamContext::class)->runFor($team, function () use ($team, $contact): void {
+        $membership = TeamMembership::factory()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $contact->getKey(),
+        ]);
+
+        $membership->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', App\Enums\SystemRole::TeamMember->value)
+                ->sole()->getKey(),
+        );
+    });
+
+    $this->actingAs($this->admin);
+
+    $this->post("/admin/teams/{$team->getKey()}/impersonate", [
+        'person_id' => $contact->getKey(),
+        'reason' => 'Checking what they see on the dashboard this morning.',
+        'minutes' => 15,
+    ])->assertNotFound();
+
+    expect(AuditEntry::query()->where('action', 'impersonation.started')->count())->toBe(0);
+});
+
 it('refuses to impersonate somebody who cannot sign in', function (): void {
     /*
      * A **Team Member** without a password, so `carriesAccess()` says yes and

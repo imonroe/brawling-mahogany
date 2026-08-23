@@ -257,7 +257,19 @@ function anyPermissionTestsIn(string $contents): int
      * What must NOT count is a closure narrowing the relation, which is the
      * shape this whole file exists to encourage.
      */
-    $methods = 'has|whereHas|orWhereHas|whereDoesntHave|orWhereDoesntHave';
+    /*
+     * Every Eloquent spelling of the existence test, longest first so the
+     * alternation cannot match a prefix and stop.
+     *
+     * `orHas` is here because dropping it was a **regression**: the first
+     * version of this pattern guessed at prefixes (`or[A-Za-z]*[Hh]as`) and
+     * caught it by accident, and rewriting to an explicit list — which fixed
+     * three other evasions — lost it. `doesntHave` and `orDoesntHave` were
+     * named in review and simply missed. Naming them all is the only version
+     * that is checkable, which is what the control below is for.
+     */
+    $methods = 'orWhereDoesntHave|whereDoesntHave|orDoesntHave|doesntHave'
+        .'|orWhereHas|whereHas|orHas|has';
     $relation = '[\'"]permissions[\'"]';
 
     // Closes right after the relation name — no constraint. The optional
@@ -571,6 +583,22 @@ it('has no hard-coded role-key test outside the sanctioned call sites', function
         'The scan walked almost no files, so it is not reading what it thinks it is.',
     );
 
+    /*
+     * Equality, not just "no extras".
+     *
+     * A floor on the file count catches a walk that finds *nothing*; it does
+     * not catch a walk that quietly stops covering one subdirectory —
+     * `app/` has over two hundred files, so excluding all of `app/Http`
+     * still clears any floor worth setting. Asserting that every sanctioned
+     * file was actually *found* closes that: drop a directory and its entries
+     * go missing from `$found`, which is a failure rather than a silence.
+     */
+    expect(array_keys($found))->toEqualCanonicalizing(
+        array_keys(SANCTIONED_TEAM_ROLE_KEY_USES),
+        'The scan no longer reaches every file it is supposed to hold, or a new file '.
+        'names a system role key. Either way the list and the codebase disagree.',
+    );
+
     $unsanctioned = array_diff_key($found, SANCTIONED_TEAM_ROLE_KEY_USES);
 
     expect($unsanctioned)->toBe(
@@ -669,6 +697,11 @@ it('still recognises the query it is looking for', function (string $snippet, in
     // Found by review: all three of these defeated the first pattern.
     'whereDoesntHave, the Clients-segment spelling' => ["\$q->whereDoesntHave('permissions');", 1],
     'the operator form' => ["\$q->has('permissions', '>=', 1);", 1],
+    // Found by review in round 3: `orHas` was a regression, the other two were
+    // named in round 2 and missed.
+    'orHas' => ["\$q->orHas('permissions');", 1],
+    'doesntHave' => ["\$q->doesntHave('permissions');", 1],
+    'orDoesntHave' => ["\$q->orDoesntHave('permissions');", 1],
     'a trailing comma, which Pint itself writes' => ["\$q->whereHas(\n    'permissions',\n);", 1],
     'a closure constraining it' => ["\$q->whereHas('permissions', fn (\$p) => \$p->whereIn('key', \$keys));", 0],
     'a closure over several lines' => ["\$q->whereHas(\n    'permissions',\n    fn (\$p) => \$p->whereIn('key', \$keys),\n);", 0],
