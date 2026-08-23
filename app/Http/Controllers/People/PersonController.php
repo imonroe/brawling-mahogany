@@ -13,7 +13,9 @@ use App\Http\Requests\People\StorePersonRequest;
 use App\Http\Requests\People\UpdatePersonRequest;
 use App\Models\ActivityEvent;
 use App\Models\TeamMembership;
+use App\Queries\ActivityFeed;
 use App\Queries\PeopleDirectory;
+use App\Queries\PersonDeals;
 use App\Support\Audit\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -52,28 +54,34 @@ class PersonController extends Controller
         ]);
     }
 
-    public function show(TeamMembership $membership): Response
+    public function show(TeamMembership $membership, ActivityFeed $feed): Response
     {
         $this->authorize('view', $membership);
 
         $membership->load(['person', 'roles']);
 
+        /*
+         * Shaped by `ActivityFeed`, not here.
+         *
+         * Two things came of that. The rows now carry the deal a logged
+         * contact was attached to, which S26 made possible and this screen
+         * would otherwise have been the one place not to show. And the actor
+         * name is resolved once for the page rather than once per row — this
+         * was `$event->actor?->displayNameWithin($event->team)` inside a
+         * `map()`, which is a `teams` lookup *and* a `team_memberships` lookup
+         * per row, so up to a hundred queries on a fifty-event timeline.
+         */
+        $activity = ActivityEvent::query()
+            ->forSubject($membership->person)
+            ->limit(50)
+            ->get();
+
         return Inertia::render('People/Show', [
             'membership' => PeopleDirectory::detail($membership),
-            'activity' => ActivityEvent::query()
-                ->forSubject($membership->person)
-                ->with('actor:id,email')
-                ->limit(50)
-                ->get()
-                ->map(fn (ActivityEvent $event): array => [
-                    'id' => $event->getKey(),
-                    'eventType' => $event->event_type,
-                    'summary' => $event->summary,
-                    'source' => $event->source,
-                    'occurredAt' => $event->occurred_at->toIso8601String(),
-                    'payload' => $event->payload,
-                    'actorName' => $event->actor?->displayNameWithin($event->team),
-                ])->all(),
+            'activity' => $feed->rows($activity),
+            // S26's optional deal attachment (F2.5). The modal on this screen
+            // offers the deals this person is on, and nothing else.
+            'deals' => PersonDeals::forMembership((string) $membership->getKey()),
             'lifecycleStates' => PersonLifecycleState::options(),
         ]);
     }
@@ -146,6 +154,50 @@ class PersonController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Person removed from this team.')]);
 
         return to_route('people.index');
+    }
+
+    /**
+     * Who this team knows, for the shell's log-contact modal (S26).
+     *
+     * S26 is reachable from the person record, from a deal, and from the
+     * global shell. The first two already know who the contact was with; the
+     * third does not, so it needs a search — and it needs each candidate's
+     * deals with them, because the deal attachment is optional and offering it
+     * must not cost a second round trip once somebody is picked.
+     *
+     * `viewAny`, not `create`: this reads the directory, and reading the
+     * directory is what `people.view` is for. The write it feeds is authorized
+     * separately by `ContactLogController`.
+     */
+    public function candidates(Request $request, PeopleDirectory $directory): JsonResponse
+    {
+        $this->authorize('viewAny', TeamMembership::class);
+
+        /*
+         * The directory's own search, not a second one — the same reason
+         * `ParticipantController::candidates()` reaches for it. A
+         * re-implementation here would drift on the null-surname `coalesce`
+         * within a month, and this one is a phone-in-the-car surface where a
+         * dropped row is a contact that never gets logged.
+         */
+        $memberships = $directory
+            ->query(PersonSegment::All, trim((string) $request->query('q', '')))
+            ->whereNull('team_memberships.revoked_at')
+            ->orderBy('last_name')
+            ->orderBy('first_name')
+            ->limit(20)
+            ->get();
+
+        $deals = PersonDeals::forMemberships($memberships->modelKeys());
+
+        return response()->json([
+            'candidates' => $memberships->map(fn (TeamMembership $membership): array => [
+                'id' => $membership->getKey(),
+                'name' => $membership->fullName(),
+                'email' => $membership->email,
+                'deals' => $deals[(string) $membership->getKey()] ?? [],
+            ])->values()->all(),
+        ]);
     }
 
     /**

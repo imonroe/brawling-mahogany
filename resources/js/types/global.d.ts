@@ -20,6 +20,14 @@ declare module '@inertiajs/core' {
             auth: Auth;
             /** ADR 0003 — see `PendingInvitation`. */
             invitations: PendingInvitation[];
+            /**
+             * PRD §6.3 lookups the **shell** itself renders, and only those.
+             *
+             * Contact types are here because S26's Log contact button lives in
+             * the top bar, which no page controller supplies props to. Null
+             * with no resolved team, which is every auth screen.
+             */
+            lookups: { contactTypes: Record<string, string> } | null;
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

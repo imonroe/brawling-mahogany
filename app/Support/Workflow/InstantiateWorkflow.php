@@ -155,6 +155,7 @@ final class InstantiateWorkflow
             subject: $workflow,
             eventType: 'workflow.started',
             summary: "Started {$workflow->name}",
+            deal: $deal,
         );
 
         return $workflow;

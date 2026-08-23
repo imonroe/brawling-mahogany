@@ -25,6 +25,21 @@ tags:
 > [!success] Built in slice 1
 > S01–S06 and S09, S30–S33, S72, S74, S77, S79, and S81–S85. Two of them differ from the row below, and the rows say so: S31's route parameter is the **membership**, and S84 is a page rather than a modal.
 
+> [!success] Built in slice 2 so far
+> S76 (deal types), S35–S37 (properties), S19 and S25 (deal people), S20 (deal
+> properties), S14 and S28 (create deal and attach workflow), **S15 (the deal
+> overview)**, and **S12** and **S26** (the team activity feed and the two-click
+> contact log).
+>
+> S15 brought the deal chrome with it — the §8.4 `DealHeader` and the tab row are
+> now shared by every deal tab, and S19 and S20 were retrofitted onto them in the
+> same change. Three departures from the S15 row below are recorded in the notes at
+> the end of this document.
+>
+> S12 took a sidebar row that [[Information Architecture]] §5.1 did not have — a
+> screen at a route with nothing pointing at it is a screen nobody opens — and that
+> document now carries it.
+
 ---
 
 ## How to read this
@@ -76,6 +91,13 @@ tags:
 | S11 | My Work queue | `/work` | TC | Empty, overdue grouping, nothing assigned, 50+ tasks | F9.2 | 2 | M |
 | S12 | Team activity feed | `/activity` | Team | Empty, filtered, loading more | F9.4 | 2 | S |
 
+> [!note] S12's three states, and where each one lives
+> **Empty** and **filtered** share one `EmptyState`, but not one sentence: the copy is `ActivityCategory::emptyMessage()`, so a filtered-to-nothing Properties tab says something different from a brand new team, and the filtered variant offers "Show everything" rather than leaving somebody to work out which chip did it.
+>
+> **Loading more** appends rather than replaces. `events` is an Inertia merge prop keyed on `id`, so Load more is a partial reload carrying the next cursor — and changing the filter, which is an ordinary visit rather than a partial one, resets the list instead. The pagination is a **cursor**, not a page number: the feed is the one list in the product whose first row changes while you read it, and offset pagination under an insert shows one row twice and drops another.
+>
+> A row's icon and tint come from `resources/js/lib/activity.ts`, held against the event types `app/` actually writes by `tests/js/activityEventTypes.test.ts`.
+
 ## D. Deals
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
@@ -97,6 +119,15 @@ tags:
 | S27 | Add and edit task | modal | TC | New, edit, assign, due date, required flag | F4.10 | 2 | S |
 | S28 | Attach workflow | modal | Team | Template picker, pack filter, preview stages, already attached | F4.1 | 2 | M |
 | S29 | Close deal | modal | Agent | Outcome select, transition to Keep in Touch, fell through | F3.8 | 6 | S |
+
+> [!note] S26's two clicks are the specification, and they are measured
+> Once the modal is open and the person is known, a saved entry is **pick the type, then Log it**. `tests/js/logContactDialog.test.ts` mounts it and counts, because a requirement stated in prose is a requirement that erodes one field at a time.
+>
+> What that constrains: the type is six 44px tiles rather than a `<select>` (a native picker on a phone is two taps and a scroll wheel); nothing but the type is required, so an empty time means *now* and an absent note means nothing was worth typing; and the person is preselected wherever the entry point knows them.
+>
+> **Three entry points, and only one of them asks who.** The person record (S31) and each participant row on S19 hand the modal a person — and S19 hands it the deal as well, so the optional attachment costs no click at all. The shell's top-bar button has to ask, and asks *before* the two rather than between them.
+>
+> A logged contact is subjected to the **person** (F2.5: "against a person and optionally a deal") and carries the deal in `activity_events.deal_id`, which is what puts one entry on the person, the deal, and the feed without writing it twice.
 
 ## E. People
 
@@ -279,8 +310,8 @@ Everything else assembles. These do not.
 | S06 | App shell | Every other screen inherits its decisions |
 | S10 | Team dashboard | 25 deals legible at once, with late and blocked obvious |
 | S13 | Deals index | Density at 25 rows without becoming a spreadsheet |
-| S15 | Deal overview | Six kinds of information competing for one screen |
-| S16 | Deal timeline | The novel interaction in the product |
+| S15 | Deal overview | Six kinds of information competing for one screen. **Built.** Three departures, each forced by something the design documents do not cover: the current-stage card and the progress strip repeat **per running workflow**, because PRD §7.5 gives a deal concurrent ones and §9.2's recipe describes a single card; §8.4's one primary **Advance Stage** button appears only when exactly one workflow is running, since a primary action that silently picks one of two is worse than none; and §8.4's `owner` meta pair is absent because `deals` carries no owning-agent column. Dates and Documents are laid out as first-class cards naming the slice that fills them (4 and 3). Offers is hidden entirely, which is IA §5.2 read literally — there is no `offers` table yet, so every deal is empty of them |
+| S16 | Deal timeline | The novel interaction in the product. Its tab is already in the `DealHeader`, rendered and disabled, so the shape of a deal is honest before the screen exists |
 | S23 | Advance stage | Must explain refusal clearly enough to act on |
 | S33 | Contact import | Field mapping and duplicate resolution are always harder than they look |
 | S31 | Person detail | Built against `{membership}` rather than `{person}`. A person is shared across teams (PRD decision log, 2026-08-22) and the membership is the team-scoped half, so binding to it means the global scope does the isolation — there is no route that could reach somebody this team has never met |

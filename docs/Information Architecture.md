@@ -163,12 +163,18 @@ Team
 | **Properties** | `/properties` | Property directory |
 | **Calendar** | `/calendar` | Events and deadlines |
 | **Keep in Touch** | `/keep-in-touch` | Past clients and suggestions |
+| **Activity** | `/activity` | Everything the team has done, filterable (S12) |
 | **Templates** | `/templates` | Packs, workflow templates, email templates |
 | **Settings** | `/settings` | Team, members, roles, integrations, profile |
 
 Sidebar order is deliberate: the two screens Heather opens every morning sit at the top, and configuration sits at the bottom where it is found once and rarely revisited.
 
 **Permission scoping:** Templates and Settings are visible only to holders of the relevant permission. A section the user cannot use is hidden, never shown disabled.
+
+> [!note] Activity is in the sidebar, and it is not the Audit Log
+> Added with S12 (#81). [[Screen Inventory]] always routed it at `/activity`, and a screen at a route with nothing pointing at it is a screen nobody opens — so it takes a sidebar row, second-to-last in its group, because "what has everyone been doing" is a question asked at the end of a day rather than the start of one.
+>
+> It reads `activity_events` and it is called **Activity** (§11: never Feed, History, or Log). The **Audit Log** is a different table with different retention, a different permission (`team.audit.view`), and a different reader; it stays in Settings. Two records, two screens, two words.
 
 ### 5.2 Inside a deal: horizontal tabs
 

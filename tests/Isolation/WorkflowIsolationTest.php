@@ -339,3 +339,47 @@ it('throws rather than advancing when no team is resolved', function (): void {
     expect(fn () => app(AdvanceWorkflow::class)->handle($workflow))
         ->toThrow(MissingTeamContextException::class);
 });
+
+/**
+ * The two routes S15 added (#75), through the boundary rather than around it.
+ *
+ * `/deals/{deal}` is the first two-segment deal route in the product, and the
+ * advance endpoint is the first HTTP caller `AdvanceWorkflow` has ever had. A
+ * 404 rather than a 403 on the overview, because ADR 0002 layer 3 is explicit:
+ * *"a 403 confirms the record exists, which is itself a disclosure."*
+ */
+it('answers 404 on another team’s deal overview, and refuses to advance its workflow', function (): void {
+    [$deal, $workflow, $stage] = app(TeamContext::class)->runFor($this->teamB, function (): array {
+        $deal = Deal::factory()->create(['team_id' => $this->teamB->getKey()]);
+
+        $workflow = Workflow::factory()->create([
+            'team_id' => $this->teamB->getKey(),
+            'deal_id' => $deal->getKey(),
+            'state' => App\Enums\WorkflowState::Active,
+        ]);
+
+        $stage = Stage::factory()->active()->create([
+            'team_id' => $this->teamB->getKey(),
+            'workflow_id' => $workflow->getKey(),
+            'sort_order' => 0,
+        ]);
+
+        Stage::factory()->create([
+            'team_id' => $this->teamB->getKey(),
+            'workflow_id' => $workflow->getKey(),
+            'sort_order' => 1,
+        ]);
+
+        return [$deal, $workflow, $stage];
+    });
+
+    $this->actingAsPerson($this->memberA, $this->teamA);
+
+    $this->get("/deals/{$deal->getKey()}")->assertNotFound();
+
+    $this->post("/deals/{$deal->getKey()}/workflows/{$workflow->getKey()}/advance")
+        ->assertNotFound();
+
+    // And nothing moved.
+    expect($stage->fresh()->state)->toBe(App\Enums\StageState::Active);
+});

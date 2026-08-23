@@ -17,6 +17,12 @@
  *    prop is narrowed to the text-like set rather than left to a comment. A
  *    textarea is `rounded-md border p-[11px]` at 13–14px (§10) and gets its
  *    own component when the first form needs one.
+ *
+ *    `datetime-local` is in that set for the same reason the rest of it is:
+ *    it binds `value` and emits a string. What it does *not* carry is a
+ *    timezone — a browser puts wall-clock time in one — so whatever reads it
+ *    has to say which zone that is (PRD §9 stores UTC and displays the
+ *    team's). `ContactLogController` is the worked example.
  */
 import { cn } from '@/lib/utils';
 import { appInputVariants } from './controlVariants';
@@ -26,7 +32,14 @@ const props = withDefaults(
     defineProps<{
         modelValue?: string | number | null;
         size?: AppInputVariants['size'];
-        type?: 'text' | 'email' | 'password' | 'search' | 'tel' | 'url';
+        type?:
+            | 'text'
+            | 'email'
+            | 'password'
+            | 'search'
+            | 'tel'
+            | 'url'
+            | 'datetime-local';
         class?: string;
     }>(),
     { size: 'default', type: 'text' },

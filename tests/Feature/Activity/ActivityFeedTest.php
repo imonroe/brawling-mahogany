@@ -1,0 +1,245 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Enums\ActivitySource;
+use App\Models\ActivityEvent;
+use App\Models\Deal;
+use App\Models\DealType;
+use App\Models\Permission;
+use App\Models\Person;
+use App\Models\Role;
+use App\Models\Team;
+use App\Models\TeamMembership;
+use App\Queries\ActivityFeed;
+use App\Support\Activity\RecordActivity;
+use App\Support\Permissions;
+use App\Support\Tenancy\TeamContext;
+use Illuminate\Database\Eloquent\Model;
+
+/**
+ * S12 — the team activity feed (PRD §4.9 F9.4 · issue #81).
+ */
+beforeEach(function (): void {
+    [$this->team, $this->member] = $this->teamWithMember();
+
+    $this->actingAsPerson($this->member, $this->team);
+});
+
+/**
+ * One event, written the only way anything writes one — through the service
+ * that owns the table, so `deal_id` and the client-visibility default are the
+ * ones the product actually produces.
+ */
+function feedEvent(Model $subject, string $eventType, string $summary): ActivityEvent
+{
+    return app(RecordActivity::class)->record(
+        subject: $subject,
+        eventType: $eventType,
+        summary: $summary,
+        source: ActivitySource::System,
+    );
+}
+
+/** A deal in a team, built inside that team's context. */
+function feedDeal(Team $team): Deal
+{
+    return app(TeamContext::class)->runFor($team, fn (): Deal => Deal::factory()->create([
+        'team_id' => $team->getKey(),
+        'deal_type_id' => DealType::query()->whereNull('team_id')->firstOrFail()->getKey(),
+    ]));
+}
+
+/**
+ * Give somebody the directory without the deals — a role a team could compose
+ * today (PRD F2.3) even though neither shipped role looks like it.
+ */
+function feedRoleWithoutDeals(Team $team, Person $person): void
+{
+    app(TeamContext::class)->runFor($team, function () use ($team, $person): void {
+        $membership = $person->membershipIn($team);
+
+        expect($membership)->toBeInstanceOf(TeamMembership::class);
+
+        $role = Role::query()->create([
+            'team_id' => $team->getKey(),
+            'key' => 'directory_only',
+            'name' => 'Directory Only',
+        ]);
+
+        $role->permissions()->attach(
+            Permission::query()
+                ->whereIn('key', [Permissions::VIEW_PEOPLE, Permissions::MANAGE_PEOPLE])
+                ->pluck('id')
+                ->all(),
+        );
+
+        $membership?->roles()->sync([$role->getKey()]);
+    });
+}
+
+it('renders the feed with the actor named', function (): void {
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Activity/Index')
+            ->has('events', 1)
+            ->where('events.0.summary', 'Added to the team directory')
+            // The name this team knows them by, not their sign-in address:
+            // since #140 that is what a membership carries.
+            ->where(
+                'events.0.actorName',
+                $this->member->membershipIn($this->team)?->fullName(),
+            ));
+});
+
+it('links a person subject to the record this team holds for them', function (): void {
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    $membership = $this->member->membershipIn($this->team);
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('events.0.subject.label', $membership?->fullName())
+            ->where('events.0.subject.url', route('people.show', $membership)));
+});
+
+it('filters to one category and leaves the others out', function (): void {
+    feedEvent($this->member, 'contact.logged', 'Phone call');
+    feedEvent($this->member, 'property.added', '14 Elm St');
+
+    $this->get('/activity?category=contact_log')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('events', 1)
+            ->where('events.0.summary', 'Phone call'));
+
+    // The other half is still there under its own category, so the filter is
+    // filtering rather than the fixture being empty.
+    $this->get('/activity?category=properties')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('events', 1)
+            ->where('events.0.summary', '14 Elm St'));
+});
+
+it('carries the next page on a partial reload rather than the first page again', function (): void {
+    $total = ActivityFeed::PER_PAGE + 5;
+
+    foreach (range(1, $total) as $index) {
+        ActivityEvent::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'subject_type' => (new Person)->getMorphClass(),
+            'subject_id' => $this->member->getKey(),
+            'summary' => 'Event '.$index,
+            // A cursor keyed on `occurred_at` needs the fixture to have an
+            // order for "the next page" to mean anything.
+            'occurred_at' => now()->subMinutes($total - $index),
+        ]);
+    }
+
+    $first = $this->get('/activity')->assertOk();
+
+    $cursor = $first->viewData('page')['props']['nextCursor'] ?? null;
+
+    expect($cursor)->toBeString();
+
+    /*
+     * The partial reload the Load more button issues. `X-Inertia-Partial-Data`
+     * is what makes Inertia merge the rows rather than replace them, and it is
+     * also what keeps this from being a whole page render.
+     */
+    $second = $this->withHeaders([
+        'X-Inertia' => 'true',
+        'X-Inertia-Version' => $first->viewData('page')['version'],
+        'X-Inertia-Partial-Component' => 'Activity/Index',
+        'X-Inertia-Partial-Data' => 'events,nextCursor',
+    ])->getJson('/activity?cursor='.$cursor);
+
+    $body = $second->assertOk()->json();
+
+    expect($body['props']['events'])->toHaveCount(5)
+        // The remainder, newest of what is left first — not page one again,
+        // which is what a paginator handed no cursor would have returned.
+        ->and($body['props']['events'][0]['summary'])->toBe('Event 5')
+        ->and($body['props']['nextCursor'])->toBeNull()
+        // Only the two props asked for came back.
+        ->and($body['props'])->not->toHaveKey('categories');
+});
+
+it('names the deal a logged contact was attached to', function (): void {
+    $deal = feedDeal($this->team);
+    $membership = $this->member->membershipIn($this->team);
+
+    $this->post("/people/{$membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'deal_id' => $deal->getKey(),
+    ])->assertRedirect();
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('events.0.summary', 'Phone call')
+            ->where('events.0.deal.label', $deal->displayName())
+            ->where('events.0.contactType', 'phone_call'));
+});
+
+it('keeps deal activity from somebody who cannot open a deal', function (): void {
+    $deal = feedDeal($this->team);
+
+    feedEvent($deal, 'stage.advanced', 'Advanced past Inspection');
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    // Both rows for the ordinary Team Member role, which holds `deals.view`.
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('events', 2));
+
+    // A composed role (PRD F2.3) with the directory but not the deals. The
+    // feed is the one screen where events about several parts of the product
+    // arrive together, so the parts they cannot open have to be filtered.
+    feedRoleWithoutDeals($this->team, $this->member);
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('events', 1)
+            ->where('events.0.summary', 'Added to the team directory'));
+});
+
+it('refuses somebody who cannot read the directory at all', function (): void {
+    [$team, $person] = $this->teamWithMember();
+
+    app(TeamContext::class)->runFor(
+        $team,
+        fn () => $person->membershipIn($team)?->roles()->detach(),
+    );
+
+    $this->actingAsPerson($person, $team);
+
+    $this->get('/activity')->assertForbidden();
+});
+
+it('says what belongs here rather than “no results”', function (): void {
+    // A team with activity, filtered to a category that has none — which is
+    // the empty state somebody actually meets. An empty table would make the
+    // count below pass whether or not the filter worked.
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    $this->get('/activity?category=contact_log')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('events', 0)
+            // IA §10: an empty state says what goes here, and the category's
+            // own copy rather than one shared sentence.
+            ->where('emptyMessage', fn (string $message): bool => str_contains($message, 'Log a call')));
+
+    // The other tab is not empty, so "nothing here" is this filter's answer
+    // rather than the screen's.
+    $this->get('/activity?category=people')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('events', 1));
+});

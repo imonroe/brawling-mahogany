@@ -52,6 +52,13 @@ const iconClass = computed(() => TONE_TEXT[props.tone]);
                 class="tabular text-xs whitespace-nowrap text-muted-foreground"
                 >{{ time }}</span
             >
+            <!--
+                Optional supporting lines — a logged note, who did it, which
+                deal it was on. They sit inside the text column so they align
+                under the text rather than under the icon, which is the one
+                thing a caller would get wrong doing this itself.
+            -->
+            <slot />
         </div>
     </div>
 </template>

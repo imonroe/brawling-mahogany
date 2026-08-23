@@ -48,7 +48,19 @@ chrome by accident:
 | `Admin/*` | `AdminLayout` — visually distinct, so the two are never confused |
 | `Status/*` | none; the page composes `ClientLayout` itself with the team's branding |
 | `System/*` | none; system pages carry their own frame and render for signed-out people |
+| `Deals/Overview`, `Deals/People`, `Deals/Properties` | `AppLayout` + `DealLayout` |
 | everything else | `AppLayout` |
+
+The deal row is a **list of page names, not a prefix**: `Deals/Index` is the
+list of deals and `Deals/Create` is the wizard, and neither is *inside* a deal.
+The list lives in `DEAL_TAB_PAGES` in `app.ts`; adding S16–S22 means adding a
+name there and a tab in `components/app/DealHeader.vue`.
+
+`DealLayout` owns the Design System §8.4 header, the tab row, and the answer to
+an Advance pressed from any of them. It reads a `dealHeader` prop, which every
+deal-tab controller supplies from `App\Support\Deals\DealHeader::for()` —
+one payload, so two tabs cannot disagree about the client's name or the counts.
+Per §9.2 the header is full-bleed and **each page owns its own `p-6`**.
 
 ---
 
@@ -182,6 +194,7 @@ ninety-one screens disagree within a month — so nothing in `components/` or
 | `formatTime` | 12-hour, lowercase meridiem, **team timezone** | 2:30pm |
 | `formatCurrency` | Whole dollars above $1,000, cents below | $485,000 · $250.50 |
 | `formatCount` | Numeral plus noun, pluralised | 3 deals · 1 task |
+| `formatDateTime` | Date and time together, for a timeline row | Thu, Aug 20 at 2:30pm |
 
 **Timezone.** Storage is UTC; display is the team's timezone (PRD §9). Call
 `setTeamTimeZone()` once at boot. `calendarDaysBetween()` compares wall-calendar
@@ -231,6 +244,26 @@ belong to a stage. A property status that grew a workflow position would be
 this table quietly becoming a second, worse stage vocabulary — and the same
 line keeps "Viewing scheduled" and "Offer made" out of `propertyInterest`,
 where both are facts the product already holds somewhere better.
+
+### `lib/activity.ts`
+
+Design System §7.3's tint-by-event-type table, plus the icon each event type
+carries — for `ActivityItem`, which three screens render already (S12, S31, and
+the deal timeline that follows).
+
+- `activityDescriptor({ eventType, contactType })` returns `{ icon, tone }`. On
+  a `contact.logged` row the icon comes from PRD §6.3's contact type instead: a
+  phone and an envelope are legible at a glance in a way "Phone call" and
+  "Email" at 14px are not.
+- **It does not throw the way `resolveState` does**, and the difference is not
+  an oversight. §7.3 *specifies* the fallback — "everything else
+  `state-neutral`" — so an unmapped event type renders correctly rather than
+  wrongly, and a throw would take a whole feed down over one row a later slice
+  added.
+- What that costs is silence, and `tests/js/activityEventTypes.test.ts` pays
+  it: it reads every `eventType:` literal out of `app/` and fails when one has
+  no entry here. `tests/Unit/ActivityCategoryTest.php` does the same for the
+  feed's filter, which groups by the prefix before the dot.
 
 ### `lib/navigation.ts`
 

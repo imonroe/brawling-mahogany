@@ -12,6 +12,7 @@ import { usePage } from '@inertiajs/vue3';
 import { computed, ref, watch, watchEffect } from 'vue';
 import AppSidebar from '@/components/app/AppSidebar.vue';
 import ImpersonationBanner from '@/components/app/ImpersonationBanner.vue';
+import LogContactDialog from '@/components/app/LogContactDialog.vue';
 import MobileTabBar from '@/components/app/MobileTabBar.vue';
 import PendingInvitationBanner from '@/components/app/PendingInvitationBanner.vue';
 import TopBar from '@/components/app/TopBar.vue';
@@ -63,6 +64,16 @@ const invitations = computed<PendingInvitation[]>(() =>
         : ((page.props.invitations as PendingInvitation[] | undefined) ?? []),
 );
 
+/*
+ * S26 is reachable from the global shell (issue #81), so the modal is mounted
+ * here — once, beside the top bar that opens it, rather than on every page
+ * that might want it.
+ *
+ * With no person preselected it asks who first, which is the one entry point
+ * that has to. The other two hand it a person and keep the two-click target.
+ */
+const logging = ref(false);
+
 const collapsed = ref(page.props.sidebarOpen === false);
 
 watch(collapsed, (value) => {
@@ -96,6 +107,7 @@ watch(collapsed, (value) => {
                 <TopBar
                     :breadcrumbs="breadcrumbs"
                     @toggle-sidebar="collapsed = !collapsed"
+                    @log-contact="logging = true"
                 />
                 <main class="min-h-0 flex-1 overflow-y-auto">
                     <slot />
@@ -104,6 +116,7 @@ watch(collapsed, (value) => {
         </div>
 
         <MobileTabBar />
+        <LogContactDialog v-model:open="logging" />
         <Toaster />
     </div>
 </template>

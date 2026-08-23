@@ -26,6 +26,7 @@ import AppButton from '@/components/app/AppButton.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
 import AttachWorkflowDialog from '@/components/app/AttachWorkflowDialog.vue';
 import Card from '@/components/app/Card.vue';
+import type { DealHeaderProps } from '@/components/app/DealHeader.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import Heading from '@/components/app/Heading.vue';
 import LinkPropertyDialog from '@/components/app/LinkPropertyDialog.vue';
@@ -35,10 +36,13 @@ import { formatAddress, formatPropertyFacts } from '@/lib/formatters';
 import type { DealPropertyLink } from '@/types';
 
 const props = defineProps<{
+    /*
+     * The deal's identity comes from the header payload every deal tab shares
+     * (`App\Support\Deals\DealHeader`); `deal` carries only what this tab
+     * alone needs.
+     */
+    dealHeader: DealHeaderProps;
     deal: {
-        id: string;
-        name: string;
-        sideLabel: string;
         isBuySide: boolean;
         hasManualName: boolean;
     };
@@ -72,7 +76,7 @@ function titleOf(link: DealPropertyLink): string {
 function setInterest(link: DealPropertyLink, value: string | null): void {
     interest.interest_status = value;
 
-    interest.patch(`/deals/${props.deal.id}/properties/${link.id}`, {
+    interest.patch(`/deals/${props.dealHeader.id}/properties/${link.id}`, {
         preserveScroll: true,
     });
 }
@@ -100,7 +104,7 @@ function move(index: number, direction: -1 | 1): void {
     [order[index], order[target]] = [order[target], order[index]];
 
     router.put(
-        `/deals/${props.deal.id}/properties/order`,
+        `/deals/${props.dealHeader.id}/properties/order`,
         { order },
         { preserveScroll: true },
     );
@@ -122,7 +126,7 @@ function promote(link: DealPropertyLink): void {
     }
 
     router.post(
-        `/deals/${props.deal.id}/properties/${link.id}/subject`,
+        `/deals/${props.dealHeader.id}/properties/${link.id}/subject`,
         {},
         { preserveScroll: true },
     );
@@ -138,31 +142,39 @@ function remove(link: DealPropertyLink): void {
         return;
     }
 
-    router.delete(`/deals/${props.deal.id}/properties/${link.id}`, {
+    router.delete(`/deals/${props.dealHeader.id}/properties/${link.id}`, {
         preserveScroll: true,
     });
 }
 </script>
 
 <template>
-    <Head :title="`Properties — ${deal.name}`" />
+    <Head :title="`Properties — ${dealHeader.name}`" />
 
-    <div class="flex flex-col gap-4">
+    <!--
+        §9.2: the DealHeader above is full-bleed and the tab body owns its
+        `p-6`. This screen used to render its own `Heading` and no padding at
+        all, because there was no deal chrome for it to sit under.
+    -->
+    <div class="flex flex-col gap-4 p-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
             <Heading
+                variant="small"
                 title="Properties"
                 :description="
                     deal.isBuySide
-                        ? `Every house ${deal.name} is looking at, and where the buyer stands on each.`
-                        : `The house ${deal.name} is about.`
+                        ? `Every house ${dealHeader.name} is looking at, and where the buyer stands on each.`
+                        : `The house ${dealHeader.name} is about.`
                 "
             />
             <div class="flex flex-wrap gap-2">
                 <!--
-                    S28 lives here until S15 (the deal overview, #75) exists.
-                    A deal with no workflow is a deal nothing will move, and
-                    this is the only deal screen with somewhere to put the
-                    control today.
+                    S28 also lives on the overview's "no workflow" empty state
+                    now that #75 has built it. It stays here as well: a deal
+                    with a workflow already running still acquires a second one
+                    weeks later — the Under Contract one, when the offer is
+                    accepted (F4.7) — and the overview offers it only when
+                    there are none.
                 -->
                 <AppButton variant="ghost" @click="attaching = true">
                     <Workflow class="size-4" aria-hidden="true" />
@@ -354,6 +366,6 @@ function remove(link: DealPropertyLink): void {
         </template>
     </div>
 
-    <LinkPropertyDialog v-model:open="linking" :deal-id="deal.id" />
-    <AttachWorkflowDialog v-model:open="attaching" :deal-id="deal.id" />
+    <LinkPropertyDialog v-model:open="linking" :deal-id="dealHeader.id" />
+    <AttachWorkflowDialog v-model:open="attaching" :deal-id="dealHeader.id" />
 </template>

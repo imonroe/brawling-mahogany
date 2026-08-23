@@ -9,10 +9,12 @@ import {
     Bell,
     ChevronRight,
     CircleQuestionMark,
+    MessageSquarePlus,
     PanelLeft,
     Search,
 } from '@lucide/vue';
 import IconButton from '@/components/app/IconButton.vue';
+import { usePermissions } from '@/composables/usePermissions';
 import { toUrl } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
 
@@ -24,7 +26,9 @@ withDefaults(
     { breadcrumbs: () => [], unreadNotifications: false },
 );
 
-defineEmits<{ 'toggle-sidebar': [] }>();
+defineEmits<{ 'toggle-sidebar': []; 'log-contact': [] }>();
+
+const { can } = usePermissions();
 </script>
 
 <template>
@@ -78,6 +82,23 @@ defineEmits<{ 'toggle-sidebar': [] }>();
                 >⌘K</kbd
             >
         </button>
+
+        <!--
+            S26's third entry point (issue #81). The other two already know
+            who the contact was with; this one is here because the call
+            Heather needs to log happens while she is looking at something
+            else entirely.
+
+            An icon button rather than a labelled one: §8.3 gives the top bar
+            no primary action, because one primary button per screen belongs
+            to the page header.
+        -->
+        <IconButton
+            v-if="can('people.manage')"
+            :icon="MessageSquarePlus"
+            label="Log contact"
+            @click="$emit('log-contact')"
+        />
 
         <IconButton
             :icon="Bell"

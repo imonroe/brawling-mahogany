@@ -147,11 +147,33 @@ class Workflow extends Model
      * because nothing could find the stage to advance. Blocked is a display
      * state for a stage somebody is standing in and cannot leave, not a state
      * they have left.
+     *
+     * ## An already-loaded stage list is read rather than re-queried
+     *
+     * S15 renders a card per running workflow, so a query here is a query per
+     * workflow on the one screen the whole product routes through — the shape
+     * `DealOverviewBudgetTest` refuses. When the relation is loaded the answer
+     * comes out of it; when it is not, the query runs as before. Both branches
+     * ask `StageState::inProgress()`, so there is one definition of "current"
+     * rather than two, and `stages()` and the relation share an ordering.
+     *
+     * The advance path is unaffected and must stay that way:
+     * `AdvanceWorkflow::handle()` re-reads the workflow under a lock, so it
+     * holds a fresh model with nothing loaded and always takes the query. A
+     * caller that hands this service a stale in-memory graph would be asking
+     * it to advance a stage it read minutes ago, which is exactly what
+     * `expectedStageId` refuses.
      */
     public function activeStage(): ?Stage
     {
+        if ($this->relationLoaded('stages')) {
+            return $this->stages->first(
+                fn (Stage $stage): bool => $stage->isInProgress(),
+            );
+        }
+
         return $this->stages()
-            ->whereIn('state', [StageState::Active->value, StageState::Blocked->value])
+            ->whereIn('state', StageState::inProgress())
             ->first();
     }
 
