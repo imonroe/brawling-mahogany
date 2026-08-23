@@ -273,10 +273,9 @@ class DealWizardController extends Controller
     /**
      * The last button: turn the draft into the deal.
      *
-     * Redirects to the deal's people tab rather than to the deal itself,
-     * because S15 — the overview — is #75 and does not exist. The client is
-     * what the wizard just added, so it is the least wrong landing; swap this
-     * for `deals.show` the day that screen lands.
+     * Redirects to the deal itself. IA §5.2 makes the overview the deal's
+     * default landing, and #75 built it — this used to land on the people tab
+     * because S15 did not exist, and said so.
      */
     public function store(Request $request, RecordDealDraft $drafts, CreateDealFromDraft $create): RedirectResponse
     {
@@ -302,7 +301,7 @@ class DealWizardController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Deal created.')]);
 
-        return to_route('deals.people.index', $deal);
+        return to_route('deals.show', $deal);
     }
 
     /** Give up on it. */

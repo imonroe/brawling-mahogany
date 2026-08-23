@@ -16,19 +16,24 @@
  * is actionable, "1 role missing" sends somebody looking for which.
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { UserPlus } from '@lucide/vue';
+import { MessageSquarePlus, UserPlus } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AddParticipantDialog from '@/components/app/AddParticipantDialog.vue';
 import AppButton from '@/components/app/AppButton.vue';
 import Card from '@/components/app/Card.vue';
+import type { DealHeaderProps } from '@/components/app/DealHeader.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import Heading from '@/components/app/Heading.vue';
+import LogContactDialog from '@/components/app/LogContactDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import TextLink from '@/components/app/TextLink.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { usePermissions } from '@/composables/usePermissions';
 
 type Participant = {
     id: string;
+    /** The person behind the participation — what S26 logs against. */
+    membershipId: string;
     name: string;
     email: string | null;
     phone: string | null;
@@ -38,13 +43,49 @@ type Participant = {
 };
 
 const props = defineProps<{
-    deal: { id: string; name: string; sideLabel: string };
+    /*
+     * The deal identity comes from the header payload every deal tab shares
+     * (`App\Support\Deals\DealHeader`), rather than from a second `deal`
+     * prop shaped slightly differently on each tab. `DealLayout` renders the
+     * header from the same object.
+     */
+    dealHeader: DealHeaderProps;
     roles: { role: string; label: string; people: Participant[] }[];
     missingRoles: { value: string; label: string }[];
     participantRoles: Record<string, string>;
 }>();
 
+const { can } = usePermissions();
+
 const adding = ref(false);
+
+/*
+ * S26's third entry point (issue #81), and the one where the deal is already
+ * known — so the modal opens with both the person and the deal filled in, and
+ * the two clicks that remain are the type and the save.
+ */
+const logging = ref(false);
+const loggingAgainst = ref<{ id: string; name: string } | null>(null);
+
+/**
+ * The one deal this screen is about, offered to the modal as the only
+ * attachment. `PersonDeals` would return every deal the participant is on,
+ * which on this screen is a list somebody has to read to find the deal they
+ * are already looking at.
+ */
+const dealsForModal = computed(() => [
+    // From the shared header payload, not a per-tab `deal` prop — S15 removed
+    // that one so the tabs cannot disagree about what the deal is called.
+    { id: props.dealHeader.id, name: props.dealHeader.name },
+]);
+
+function logContact(participant: Participant): void {
+    loggingAgainst.value = {
+        id: participant.membershipId,
+        name: participant.name,
+    };
+    logging.value = true;
+}
 /** Preselects the role when the prompt to add came from a named gap. */
 const suggestedRole = ref<string | null>(null);
 
@@ -73,7 +114,7 @@ function makePrimary(role: string, participant: Participant): void {
     promote.is_primary = true;
     promote.notes = participant.notes ?? '';
 
-    promote.patch(`/deals/${props.deal.id}/people/${participant.id}`, {
+    promote.patch(`/deals/${props.dealHeader.id}/people/${participant.id}`, {
         preserveScroll: true,
     });
 }
@@ -92,20 +133,30 @@ function remove(participant: Participant): void {
         return;
     }
 
-    router.delete(`/deals/${props.deal.id}/people/${participant.id}`, {
+    router.delete(`/deals/${props.dealHeader.id}/people/${participant.id}`, {
         preserveScroll: true,
     });
 }
 </script>
 
 <template>
-    <Head :title="`People — ${deal.name}`" />
+    <Head :title="`People — ${dealHeader.name}`" />
 
-    <div class="flex flex-col gap-4">
+    <!--
+        §9.2: the DealHeader above is full-bleed and the tab body owns its
+        `p-6`. This screen used to render its own `Heading` and no padding at
+        all, because there was no deal chrome for it to sit under.
+    -->
+    <div class="flex flex-col gap-4 p-6">
+        <!--
+            An `h2` under the DealHeader's `h1`. The deal is what the page is
+            about; People is the section of it somebody is reading.
+        -->
         <div class="flex flex-wrap items-start justify-between gap-3">
             <Heading
+                variant="small"
                 title="People"
-                :description="`Who is involved in ${deal.name}, and as what.`"
+                :description="`Who is involved in this ${dealHeader.sideLabel.toLowerCase()} deal, and as what.`"
             />
             <AppButton @click="openFor(null)">
                 <UserPlus class="size-4" aria-hidden="true" />
@@ -124,7 +175,7 @@ function remove(participant: Participant): void {
         <Alert v-if="missingRoles.length > 0">
             <AlertDescription class="flex flex-wrap items-center gap-2">
                 <span
-                    >This {{ deal.sideLabel.toLowerCase() }} deal has no
+                    >This {{ dealHeader.sideLabel.toLowerCase() }} deal has no
                     <template
                         v-for="(role, index) in missingRoles"
                         :key="role.value"
@@ -192,6 +243,16 @@ function remove(participant: Participant): void {
                     >
 
                     <AppButton
+                        v-if="can('people.manage')"
+                        variant="ghost"
+                        size="compact"
+                        @click="logContact(participant)"
+                    >
+                        <MessageSquarePlus class="size-4" aria-hidden="true" />
+                        Log contact
+                    </AppButton>
+
+                    <AppButton
                         variant="ghost"
                         size="compact"
                         @click="remove(participant)"
@@ -203,9 +264,16 @@ function remove(participant: Participant): void {
 
         <AddParticipantDialog
             v-model:open="adding"
-            :deal-id="deal.id"
+            :deal-id="dealHeader.id"
             :participant-roles="participantRoles"
             :suggested-role="suggestedRole"
+        />
+
+        <LogContactDialog
+            v-model:open="logging"
+            :membership="loggingAgainst"
+            :deals="dealsForModal"
+            :deal-id="dealHeader.id"
         />
     </div>
 </template>

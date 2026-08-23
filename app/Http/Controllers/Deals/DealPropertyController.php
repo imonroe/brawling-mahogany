@@ -13,6 +13,7 @@ use App\Models\Deal;
 use App\Models\DealProperty;
 use App\Models\Property;
 use App\Queries\PropertyDirectory;
+use App\Support\Deals\DealHeader;
 use App\Support\Properties\PropertyDeals;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -75,10 +76,16 @@ class DealPropertyController extends Controller
             ->values();
 
         return Inertia::render('Deals/Properties', [
+            // The §8.4 header, shared by all eight deal tabs — see
+            // `App\Support\Deals\DealHeader`.
+            'dealHeader' => DealHeader::for($deal),
+            /*
+             * What is left once the header carries the deal's identity: the
+             * two facts only this tab cares about. `id`, `name` and
+             * `sideLabel` used to be repeated here and now come from
+             * `dealHeader`, so the two cannot drift.
+             */
             'deal' => [
-                'id' => $deal->getKey(),
-                'name' => $deal->displayName(),
-                'sideLabel' => $deal->dealType->side->label(),
                 'isBuySide' => $isBuySide,
                 // #62: promoting renames the deal — unless somebody typed one,
                 // in which case the screen should say so rather than implying

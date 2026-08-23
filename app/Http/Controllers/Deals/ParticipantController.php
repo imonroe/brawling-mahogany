@@ -15,6 +15,7 @@ use App\Models\Deal;
 use App\Models\DealParticipant;
 use App\Models\TeamMembership;
 use App\Queries\PeopleDirectory;
+use App\Support\Deals\DealHeader;
 use App\Support\Deals\DealRoster;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -52,11 +53,14 @@ class ParticipantController extends Controller
         $rolePositions = array_flip(array_column(ParticipantRole::cases(), 'value'));
 
         return Inertia::render('Deals/People', [
-            'deal' => [
-                'id' => $deal->getKey(),
-                'name' => $deal->displayName(),
-                'sideLabel' => $deal->dealType->side->label(),
-            ],
+            /*
+             * The §8.4 header, shared by all eight deal tabs and rendered by
+             * `DealLayout` rather than by this page. Built once in
+             * `App\Support\Deals\DealHeader` so the client name and the
+             * counts cannot read differently depending on which tab somebody
+             * is standing on.
+             */
+            'dealHeader' => DealHeader::for($deal),
             /*
              * Grouped here rather than in the component. The grouping is the
              * screen's whole shape (issue #60: "groups by role"), and a
@@ -86,6 +90,10 @@ class ParticipantController extends Controller
                     'label' => ParticipantRole::from($role)->label(),
                     'people' => $group->map(fn (DealParticipant $participant): array => [
                         'id' => $participant->getKey(),
+                        // The membership, as well as the participation. S26
+                        // logs a contact against a *person*, and this screen
+                        // is one of its three entry points (issue #81).
+                        'membershipId' => $participant->team_membership_id,
                         'name' => $participant->fullName(),
                         'email' => $participant->membership->email,
                         'phone' => $participant->membership->phone,

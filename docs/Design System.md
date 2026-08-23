@@ -598,7 +598,7 @@ Everything in this section is measured from the built designs. Tailwind classes 
 | `StatusBadge` | `components/app/` | **Built in design** |
 | `DealRow` | `components/app/` | **Built in design** |
 | `TaskItem` | `components/app/` | **Built in design** |
-| `ActivityItem` | `components/app/` | **Built in design** |
+| `ActivityItem` | `components/app/` | **Built in code** (S12, S31), with a default slot for a row's supporting lines |
 | `DateChip` | `components/app/` | **Built in design** |
 | `NavItem` | `layouts/` | **Built in design** |
 | `Tab` | `components/app/` | **Built in design** |
@@ -732,6 +732,8 @@ py-2.5  gap-2.5  items-start
 ```
 
 The icon circle is `size-6 rounded-full bg-muted` holding a 14px icon tinted by event type: completion `state-success`, message sent `state-info`, override `state-warning`, everything else `state-neutral`. The text must be allowed to wrap; the timestamp must not.
+
+The event-type mapping lives in `resources/js/lib/activity.ts`, never at a call site — S12, S31 and the deal timeline all render this row, and three copies of a colour rule disagree within a month. A default slot sits under the timestamp for the supporting lines a feed carries (a logged note, the deal, who did it); it is inside the text column deliberately, so those lines align under the text rather than under the icon.
 
 #### NavItem
 
@@ -927,6 +929,28 @@ Shared by all eight deal tabs (S15–S22).
 
 Tabs, in order: Overview · Timeline · Tasks · Dates · People · Properties · Documents · Offers. Counts appear on Tasks, Dates, People, Documents, Offers. Offers is hidden when the deal type has none.
 
+> [!warning] Three things this table does not settle, found while building S15 (#75)
+> Each is answered in code for now, and each is really a design decision:
+>
+> 1. **One Advance button, several workflows.** PRD §7.5 gives a deal
+>    concurrent workflows on purpose — pre-listing improvements and the sale
+>    run at once — and this row specifies a single primary `Advance Stage`.
+>    Built as: the header offers it only when exactly one workflow is running
+>    with a stage to leave; with two, the header has no primary action and the
+>    Overview's per-workflow cards carry one each. A primary action that
+>    silently picks one of two workflows is worse than none, and there is no
+>    honest label for *"advance one of these"*.
+> 2. **`Log Contact` and `Add Task` are not built.** Contact logging is on the
+>    person (S32) and tasks are S17; neither has a deal-level write path yet.
+>    The overflow icon button has nothing to put in it either.
+> 3. **There is no `owner`.** The meta row asks for one and `deals` has no
+>    owning-agent column. Nothing is rendered rather than the person who
+>    happens to be looking.
+>
+> The header is built as `resources/js/components/app/DealHeader.vue` and drawn
+> by `layouts/DealLayout.vue`; its payload is
+> `App\Support\Deals\DealHeader::for()`.
+
 ### 8.5 PageHeader
 
 `flex items-center gap-3`, roughly 44px tall.
@@ -1039,6 +1063,21 @@ p-6, gap-5
 ```
 
 The right rail is fixed-width and its cards are `fit-content`; the left column's last card takes `flex-1`. **Budget the rail carefully** — it overflowed twice during design before the photo was cut to 116px.
+
+> [!note] As built (#75)
+> The progress strip and the current stage card **repeat per running
+> workflow**, for the reason §8.4's warning above gives. The current stage
+> card's two panes are *the stage* on the left and *what is stopping it* on the
+> right — every unmet gate, with the sentence its evaluator wrote and, where
+> the evaluator knows one, a link to the thing that clears it. That pane is the
+> screen: issue #75's standard is that nobody should have to scroll or click to
+> learn what is blocking the deal.
+>
+> The rail carries **no photo**. PRD §10 stores links to listing data and never
+> the data itself, so there is no photo to render and the card is the address,
+> its market status, and a count of the other properties on the deal. The rail
+> also carries a Dates & Deadlines card and a Documents card, both stating the
+> slice that fills them (4 and 3) rather than being wedged in later.
 
 ### 9.3 P4 Dashboard
 

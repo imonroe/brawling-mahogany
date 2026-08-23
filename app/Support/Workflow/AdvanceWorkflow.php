@@ -236,11 +236,21 @@ final class AdvanceWorkflow
          */
         $announcement = $stage->clientAnnouncement();
 
+        /*
+         * The subject is the workflow and the deal is where a team looks for
+         * it. One deal runs several workflows at once (F4.7), so an advance
+         * subjected to the workflow but with no `deal_id` is an event the
+         * deal's own timeline (S16) and the team feed's deal filter cannot
+         * find.
+         */
+        $deal = $workflow->deal;
+
         $this->activity->record(
             subject: $workflow,
             eventType: 'stage.advanced',
             summary: "Advanced past {$stage->name}",
             actor: $actor,
+            deal: $deal,
         );
 
         if ($announcement !== null) {
@@ -249,6 +259,7 @@ final class AdvanceWorkflow
                 eventType: 'milestone.reached',
                 summary: $announcement,
                 actor: $actor,
+                deal: $deal,
             );
         }
 
@@ -258,6 +269,7 @@ final class AdvanceWorkflow
                 eventType: 'workflow.completed',
                 summary: "Completed {$workflow->name}",
                 actor: $actor,
+                deal: $deal,
             );
         }
 

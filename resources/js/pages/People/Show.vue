@@ -8,30 +8,34 @@
  * exception, and a screen that implies an account exists sends somebody
  * looking for a password reset that will never arrive.
  */
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { MessageSquarePlus, Pencil } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import ActivityItem from '@/components/app/ActivityItem.vue';
 import AppButton from '@/components/app/AppButton.vue';
-import AppInput from '@/components/app/AppInput.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
+import LogContactDialog from '@/components/app/LogContactDialog.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import PersonAvatar from '@/components/app/PersonAvatar.vue';
 import PersonFormDialog from '@/components/app/PersonFormDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
-import { Label } from '@/components/ui/label';
+import TextLink from '@/components/app/TextLink.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { activityDescriptor } from '@/lib/activity';
 import {
     formatCurrency,
     formatDate,
+    formatDateTime,
     formatPersonName,
-    formatTime,
 } from '@/lib/formatters';
-import type { ActivityEntry, PersonDetail } from '@/types';
+import type { ActivityFeedRow, LoggableDeal, PersonDetail } from '@/types';
 
 const props = defineProps<{
     membership: PersonDetail;
-    activity: ActivityEntry[];
+    activity: ActivityFeedRow[];
+    /** Deals this person is on, for the modal's optional attachment (F2.5). */
+    deals: LoggableDeal[];
     lifecycleStates: Record<string, string>;
 }>();
 
@@ -42,29 +46,23 @@ const logging = ref(false);
 
 const name = computed(() => formatPersonName(props.membership));
 
-const contactLog = useForm({
-    contact_type: 'phone_call',
-    note: '',
-});
+/**
+ * The same decoration the feed does, from the same table.
+ *
+ * This screen used to render its own list of contact types and its own row
+ * layout, which meant a phone call looked like one thing here and another on
+ * S12. Both now go through `lib/activity.ts` and `ActivityItem`.
+ */
+const entries = computed(() =>
+    props.activity.map((event) => ({
+        event,
+        ...activityDescriptor(event),
+        time: formatDateTime(event.occurredAt),
+    })),
+);
 
-const CONTACT_TYPES: Record<string, string> = {
-    phone_call: 'Phone call',
-    email: 'Email',
-    text: 'Text',
-    meeting: 'Meeting',
-    showing: 'Showing',
-    other: 'Other',
-};
-
-function logContact(): void {
-    contactLog.post(`/people/${props.membership.id}/contact-log`, {
-        preserveScroll: true,
-        onSuccess: () => {
-            contactLog.reset();
-            logging.value = false;
-        },
-    });
-}
+/** The person this screen is about — the modal never has to ask. */
+const subject = computed(() => ({ id: props.membership.id, name: name.value }));
 
 function remove(): void {
     // IA §10: name the object and the consequence.
@@ -92,7 +90,7 @@ function remove(): void {
                 <AppButton
                     v-if="can('people.manage')"
                     variant="ghost"
-                    @click="logging = !logging"
+                    @click="logging = true"
                 >
                     <MessageSquarePlus class="size-4" aria-hidden="true" />
                     Log contact
@@ -224,84 +222,58 @@ function remove(): void {
             </div>
 
             <Card title="Contact Log">
-                <form
-                    v-if="logging"
-                    class="flex flex-col gap-3 border-b px-4 py-3"
-                    @submit.prevent="logContact"
-                >
-                    <div class="flex flex-col gap-1.5">
-                        <Label for="contact_type">What happened</Label>
-                        <select
-                            id="contact_type"
-                            v-model="contactLog.contact_type"
-                            class="h-11 rounded-md border bg-background px-3 text-base md:h-10 md:text-sm"
-                        >
-                            <option
-                                v-for="(label, value) in CONTACT_TYPES"
-                                :key="value"
-                                :value="value"
-                            >
-                                {{ label }}
-                            </option>
-                        </select>
-                    </div>
-                    <div class="flex flex-col gap-1.5">
-                        <Label for="note">Note</Label>
-                        <AppInput
-                            id="note"
-                            v-model="contactLog.note"
-                            placeholder="Walked through the listing timeline."
-                        />
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <AppButton
-                            variant="ghost"
-                            type="button"
-                            @click="logging = false"
-                            >Cancel</AppButton
-                        >
-                        <AppButton
-                            type="submit"
-                            :disabled="contactLog.processing"
-                            >Log it</AppButton
-                        >
-                    </div>
-                </form>
-
                 <EmptyState
-                    v-if="activity.length === 0"
+                    v-if="entries.length === 0"
                     title="Nothing logged yet"
                     description="Every call, email, and showing you log shows up here, newest first."
-                />
+                >
+                    <template v-if="can('people.manage')" #action>
+                        <AppButton @click="logging = true"
+                            >Log contact</AppButton
+                        >
+                    </template>
+                </EmptyState>
 
-                <ol v-else class="flex flex-col">
+                <ol v-else class="flex flex-col divide-y">
                     <li
-                        v-for="entry in activity"
-                        :key="entry.id"
-                        class="flex flex-col gap-0.5 border-b px-4 py-2.5 last:border-b-0"
+                        v-for="entry in entries"
+                        :key="entry.event.id"
+                        class="px-4"
                     >
-                        <div class="flex items-baseline gap-2">
-                            <span class="text-13 font-medium text-foreground">{{
-                                entry.summary
-                            }}</span>
-                            <span
-                                class="tabular text-[11px] text-muted-foreground"
-                                >{{ formatDate(entry.occurredAt) }},
-                                {{ formatTime(entry.occurredAt) }}</span
+                        <ActivityItem
+                            :icon="entry.icon"
+                            :tone="entry.tone"
+                            :text="entry.event.summary"
+                            :time="entry.time"
+                        >
+                            <p
+                                v-if="entry.event.note"
+                                class="mt-0.5 text-13 text-muted-foreground"
                             >
-                        </div>
-                        <p
-                            v-if="entry.payload?.note"
-                            class="text-13 text-muted-foreground"
-                        >
-                            {{ entry.payload.note }}
-                        </p>
-                        <p
-                            v-if="entry.actorName"
-                            class="text-[11px] text-muted-foreground"
-                        >
-                            {{ entry.actorName }}
-                        </p>
+                                {{ entry.event.note }}
+                            </p>
+                            <p
+                                v-if="entry.event.deal || entry.event.actorName"
+                                class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground"
+                            >
+                                <!--
+                                    The deal a contact was attached to (F2.5),
+                                    linked now that S15 (#75) exists. This was
+                                    the third of three callers saying it was
+                                    not; the other two were fixed and this one
+                                    kept the sentence, wrong issue number and
+                                    all.
+                                -->
+                                <TextLink
+                                    v-if="entry.event.deal"
+                                    :href="entry.event.deal.url"
+                                    >{{ entry.event.deal.label }}</TextLink
+                                >
+                                <span v-if="entry.event.actorName">{{
+                                    entry.event.actorName
+                                }}</span>
+                            </p>
+                        </ActivityItem>
                     </li>
                 </ol>
             </Card>
@@ -312,5 +284,15 @@ function remove(): void {
         v-model:open="editing"
         :membership="membership"
         :lifecycle-states="lifecycleStates"
+    />
+
+    <!--
+        S26, with the person already known — which is what makes it the
+        two-click target the inventory asks for.
+    -->
+    <LogContactDialog
+        v-model:open="logging"
+        :membership="subject"
+        :deals="deals"
     />
 </template>

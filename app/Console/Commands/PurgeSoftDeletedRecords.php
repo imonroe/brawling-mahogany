@@ -8,9 +8,11 @@ use App\Enums\DataExportState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\ContactImport;
 use App\Models\DataExport;
+use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\Person;
 use App\Models\Team;
+use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonInterface;
@@ -97,6 +99,8 @@ class PurgeSoftDeletedRecords extends Command
     {
         $purged = 0;
 
+        $this->detachActivityFromExpiringDeals($team, $cutoff);
+
         foreach ($this->purgeableTables() as $table) {
             $purged += DB::table($table)
                 ->where('team_id', $team->getKey())
@@ -106,6 +110,92 @@ class PurgeSoftDeletedRecords extends Command
         }
 
         return $purged;
+    }
+
+    /**
+     * A purged deal must not take somebody's contact log with it.
+     *
+     * `activity_events.deal_id` is a `teamScopedForeign`, so it cascades — and
+     * cascade is right for an event *about* the deal: a stage advanced, a
+     * workflow attached, a property linked. Those are the deal's own record and
+     * they go when it does.
+     *
+     * It is wrong for an event whose **subject is somebody else**. F2.5 logs a
+     * contact against a person and *optionally* a deal, so the deal is context
+     * rather than ownership — and letting the cascade reach those meant a
+     * client's contact history silently lost entries thirty days after an
+     * unrelated deal was purged. The person is still in the directory; the call
+     * still happened.
+     *
+     * The reference is dropped rather than the row, which is also what
+     * `deal_id` being nullable is for. It cannot be `nullOnDelete` at the
+     * database: the key is composite over `(team_id, deal_id)`, and Postgres
+     * would null `team_id` with it — a column that is `NOT NULL` precisely so
+     * ADR 0002's scope can never be evaded.
+     *
+     * The general rule this is the first instance of — *a `teamScopedForeign`
+     * that expresses context rather than ownership still cascades, and the
+     * purge has to step around it* — is written down in ADR 0002 rather than
+     * only here, because the next column of this shape will be added by
+     * somebody who never reads this method.
+     */
+    private function detachActivityFromExpiringDeals(Team $team, CarbonInterface $cutoff): void
+    {
+        $expiring = DB::table('deals')
+            ->where('team_id', $team->getKey())
+            ->whereNotNull('deleted_at')
+            ->where('deleted_at', '<', $cutoff)
+            ->pluck('id');
+
+        if ($expiring->isEmpty()) {
+            return;
+        }
+
+        DB::table('activity_events')
+            ->where('team_id', $team->getKey())
+            ->whereIn('deal_id', $expiring)
+            /*
+             * **Named subjects only, and it fails closed.**
+             *
+             * The first version kept everything whose subject was *not* the
+             * deal, which is the opposite of what the paragraph above says: a
+             * stage advanced and a workflow attached are the deal's own record
+             * and go with it. Keeping them left orphans — a `stage.advanced`
+             * event pointing at a `workflows` row that no longer exists, which
+             * `ActivityFeed::subject()` has no branch for and renders forever
+             * with neither a subject nor a deal.
+             *
+             * Worse, it leaked. `ActivityFeed::query()` hides deal-context rows
+             * from a viewer without `deals.view` by asking for
+             * `whereNull('deal_id')` — so nulling the column moved those rows
+             * *into* their feed. A directory-only viewer saw nothing before the
+             * purge and a workflow event after it.
+             *
+             * So the list is what may survive, not what may not: a contact
+             * logged against somebody the team knows, which is the case F2.5
+             * describes and the only one where the deal is context rather than
+             * ownership. Anything else — including a subject type Slice 3 has
+             * not added yet — cascades, which is the safe direction.
+             */
+            /*
+             * The allowlist. An exclusion list fails open — a subject type
+             * added later would be detached by default — so this names the
+             * types that keep their history, and anything new cascades until
+             * somebody decides otherwise.
+             *
+             * `TeamMembership` is here ahead of a caller: everything subjects
+             * a `Person` today, but #140 moved every team-visible field onto
+             * the membership, so an event about what a team knows about
+             * somebody is the membership's to hold. Deciding it now rather
+             * than when it appears, because the alternative is a person's
+             * contact history vanishing with an unrelated deal — which is the
+             * bug this whole method exists for.
+             */
+            ->whereIn('subject_type', [
+                (new TeamMembership)->getMorphClass(),
+                (new Person)->getMorphClass(),
+            ])
+            ->update(['deal_id' => null]);
     }
 
     /**

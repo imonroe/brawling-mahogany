@@ -18,7 +18,7 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 > Obsidian vault paths inside `[[wikilinks]]` also still read
 > `brawling mahogany` and must stay that way or the links break.
 
-**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), and the create-deal wizard with attach-workflow (S14, S28). Its remaining screens — the deal views themselves, offers, and the templates UI — are still open under epic #3.
+**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), the create-deal wizard with attach-workflow (S14, S28), **the deal overview (S15)** — which brought with it the deal chrome every tab now wears and the first HTTP route in front of `AdvanceWorkflow` — and the team activity feed with the two-click contact log (S12, S26). Its remaining screens — the deals index, the timeline, tasks, offers, the advance and override modals, and the templates UI — are still open under epic #3.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -97,6 +97,20 @@ These come from PRD §8 and should guide the eventual build:
   Seven call sites, then: `link`, `unlink`, `promote`, `SaveProperty::update`,
   `add`, `replace`, `remove`. Adding an eighth fact means adding an eighth.
 
+- **An event's subject is not the same question as which deal it belongs on.**
+  `activity_events` carries both: `subject_type`/`subject_id` is *what this
+  happened to*, and `deal_id` is *where a team looks for it*. S26 is where they
+  come apart — PRD F2.5 logs a contact **against a person and optionally a
+  deal**, so the subject is the person and the deal is context — and a stage
+  advance is the mirror image, subjected to the workflow while belonging to the
+  deal.
+
+  `RecordActivity` fills `deal_id` from the subject when the subject **is** a
+  deal, so the seven call sites that already pass one need no change and the
+  eighth cannot be written without one. The four that subject an event to a
+  workflow pass `deal:` explicitly. Adding an event type with a deal behind it
+  means answering which of those two it is.
+
 - **A staging table needs its own sweep.** `records:purge` finds a row by its
   `deleted_at`, so everything somebody *deleted* is covered — and a table whose
   rows end by **neglect** rather than by an action is reached by nothing.
@@ -109,6 +123,39 @@ These come from PRD §8 and should guide the eventual build:
   `created_at` would delete work in progress. #61 shipped this hole for
   `external_links` and had it found in review; the rule is the generalisation,
   and choosing the column deliberately is half of it.
+
+- **Reading is not advancing, and the read path writes nothing.** `AdvanceWorkflow`
+  answers *"what is blocking this stage"* by **attempting the advance**, which
+  writes `stages.state = blocked` and refreshes the `gates.is_met` cache. A hub
+  screen must not mutate the record it is describing merely by being looked at,
+  so S15 reads through `App\Support\Workflow\DescribeBlockers`, which
+  composes the same evaluators and writes nothing. That is possible only
+  because all seven evaluators are **pure**; an evaluator that saved anything
+  would turn every render of every deal overview into a write, and
+  `SingleMutationPathTest` would not catch it, because that test guards writes
+  to workflow *state*. `DealOverviewTest`'s *"changes nothing"* case pins it,
+  and pins it against a fixture an advance attempt really would mark blocked —
+  otherwise the assertion passes for the wrong reason. Built in Slice 2 (#75).
+
+- **One header for a deal, built once.** Every deal tab renders the same
+  Design System §8.4 header, from the same payload:
+  `App\Support\Deals\DealHeader::for($deal)` under a `dealHeader` prop, and
+  `resources/js/layouts/DealLayout.vue` draws it. A tab that builds its own
+  would disagree with its neighbours about the client's name or the counts
+  within a month — S19 and S20 each carried their own slightly different `deal`
+  prop before #75 folded them into this one. Adding S16–S22 means adding the
+  page to `DEAL_TAB_PAGES` in `resources/js/app.ts` and a tab in `DealHeader`.
+
+- **A cascade that means *context* has to be stepped around.**
+  `teamScopedForeign()` always cascades, which is right when the reference
+  means ownership and wrong when it means context. `activity_events.deal_id`
+  is the second kind: a contact logged against a *person* names a deal for
+  context, and letting the cascade reach it lost a client's contact history
+  thirty days after an unrelated deal was purged. The purge detaches those
+  rows before the parent goes, by an **allowlist of subject types** — an
+  exclusion list fails open, and did, in review. See
+  [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"A
+  `teamScopedForeign` that means context still cascades"*.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by
@@ -172,7 +219,11 @@ worth repeating here because they are the ones most easily broken by accident:
   formatting independently will disagree within a month.
 - **Nothing decides its own state colour or label.** It calls
   `resources/js/lib/states.ts`, which throws on an unknown state rather than
-  rendering an unstyled badge.
+  rendering an unstyled badge. Its sibling `lib/activity.ts` does the same job
+  for timeline event types — and *does not* throw, because Design System §7.3
+  specifies the fallback ("everything else `state-neutral`"). What replaces the
+  throw is `tests/js/activityEventTypes.test.ts`, which reads every
+  `eventType:` literal out of `app/` and fails when one has no icon.
 
 ### Component governance (Design System §13.2)
 

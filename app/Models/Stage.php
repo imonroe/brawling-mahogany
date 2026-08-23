@@ -78,11 +78,17 @@ class Stage extends Model
      * `blocked` sits beside `active` rather than after it: a stage becomes
      * blocked when a blocking gate refuses an advance. It is a *display* state
      * for a stage somebody is standing in and cannot leave, not a stage of its
-     * own — which is why `blocked → complete` is legal. Gates are only
-     * evaluated inside `AdvanceWorkflow::handle()`, so clearing one does not
-     * clear the badge until the next advance is attempted; a screen that wants
-     * a live badge needs a re-evaluation path, and that arrives in Slice 3
-     * with the routes that mark a gate met.
+     * own — which is why `blocked → complete` is legal.
+     *
+     * **The cached badge and the live answer are two different things, and S15
+     * reads the live one.** `stages.state` is still only *written* by an
+     * advance attempt, so a gate cleared this morning leaves the badge saying
+     * blocked until somebody presses Advance. `App\Support\Workflow\
+     * DescribeBlockers` (#75) closes the gap for a screen by re-running the
+     * evaluators read-only — it writes nothing, so the badge can be stale
+     * while the list of blockers beside it is not. Marking a gate met from a
+     * route is still Slice 3's work; what arrived early is the *reading*, not
+     * the writing.
      *
      * `complete` returns to `active` for #70's reopen. Emily's reason is
      * concrete — an inspection stage closes, the report comes back with a
@@ -172,5 +178,16 @@ class Stage extends Model
     public function isFinished(): bool
     {
         return in_array($this->state, [StageState::Complete, StageState::Skipped], true);
+    }
+
+    /**
+     * Somebody is standing in this stage and has not left it.
+     *
+     * The predicate behind `Workflow::activeStage()`, in the one place both
+     * its branches can read it — see `StageState::inProgress()`.
+     */
+    public function isInProgress(): bool
+    {
+        return in_array($this->state->value, StageState::inProgress(), true);
     }
 }

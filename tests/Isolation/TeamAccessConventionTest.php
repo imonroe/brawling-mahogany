@@ -148,6 +148,17 @@ const SANCTIONED_TEAM_ROLE_KEY_USES = [
             'longer names keys — that was the first of the hard-coded lists #142 removed.',
     ],
 
+    'Enums/ActivityCategory.php' => [
+        'count' => 1,
+        'reason' => 'A false positive, and worth keeping listed rather than pattern-matched '.
+            'away: `contact` is both a system role key and the `contact.*` event-type '.
+            'prefix the contact log writes (#81). This file groups activity by that '.
+            'prefix and decides nothing about who is on the team. The word is generic '.
+            'enough that narrowing the scan to exclude it would blind the guard to a real '.
+            'use of the Contact role, so the list absorbs it instead — which is what a '.
+            'list of sanctioned uses is for.',
+    ],
+
     'Enums/SystemRole.php' => [
         'count' => 5,
         'reason' => 'The enum’s own definition. Listed rather than unset unconditionally, '.
