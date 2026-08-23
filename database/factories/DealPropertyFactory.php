@@ -30,9 +30,4 @@ class DealPropertyFactory extends Factory
             'is_subject' => false,
         ];
     }
-
-    public function subject(): static
-    {
-        return $this->state(fn (): array => ['is_subject' => true]);
-    }
 }

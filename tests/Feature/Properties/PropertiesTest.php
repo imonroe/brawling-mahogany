@@ -314,6 +314,199 @@ it('deletes a property softly, so the 30-day window applies', function (): void 
     expect($property->fresh()->trashed())->toBeTrue();
 });
 
+it('takes a deleted property off its deals and frees the subject slot', function (): void {
+    /*
+     * A soft delete does not fire `teamScopedForeign()`'s cascade — that is a
+     * hard-delete cascade. Without the unlink, the link row survived holding
+     * `is_subject`, `deal_properties_one_subject` stayed satisfied, and the
+     * deal could not acquire a replacement subject: IA §10's generated name
+     * was pinned to a property nobody could see for thirty days.
+     */
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+    $first = Property::factory()->create(['team_id' => $this->team->getKey()]);
+    $second = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->post("/properties/{$first->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    expect(DealProperty::query()->sole()->is_subject)->toBeTrue();
+
+    $this->delete("/properties/{$first->getKey()}")->assertRedirect('/properties');
+
+    expect(DealProperty::query()->count())->toBe(0);
+
+    // The replacement becomes the subject, which is the whole consequence.
+    $this->post("/properties/{$second->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    expect(DealProperty::query()->sole()->is_subject)->toBeTrue();
+});
+
+it('refuses a links payload that is not a list', function (): void {
+    // `array` alone let a JSON body choose the keys, and the loop's index is
+    // `sort_order` — so `"zz"` reached an `unsignedSmallInteger` as a 500.
+    $this->postJson('/properties', [
+        'type' => PropertyType::SingleFamily->value,
+        'status' => PropertyStatus::PreListing->value,
+        'links' => ['zz' => ['label' => 'One', 'url' => 'https://zillow.test/1']],
+    ])->assertStatus(422)->assertJsonValidationErrors('links');
+
+    expect(Property::query()->count())->toBe(0);
+});
+
+it('refuses the same parcel number in another case', function (): void {
+    // The index is `lower(parcel_number)`; a rule comparing the column
+    // directly is case-sensitive in Postgres and let this through to the
+    // constraint.
+    Property::factory()->create(['team_id' => $this->team->getKey(), 'parcel_number' => '12-345-67a']);
+
+    $response = $this->post('/properties', [
+        'parcel_number' => '12-345-67A',
+        'type' => PropertyType::SingleFamily->value,
+        'status' => PropertyStatus::PreListing->value,
+    ])->assertSessionHasErrors('parcel_number');
+
+    /*
+     * The message is the assertion, not the field.
+     *
+     * Before the rule folded case this still produced an error on
+     * `parcel_number` — the constraint caught it and `SaveProperty`'s
+     * `try/catch` turned it into one, so a test asserting only the field
+     * passed either way. The two layers now say different things: the rule
+     * answers the ordinary duplicate, and the handler only speaks for the
+     * race window. Which one answered is the whole question.
+     */
+    $errors = session('errors')->getBag('default')->get('parcel_number');
+
+    expect($errors[0])->toBe('Another property already has this parcel number.');
+});
+
+it('lets a property keep its own parcel number when it is edited', function (): void {
+    $property = Property::factory()->create(['team_id' => $this->team->getKey(), 'parcel_number' => '12-345-67']);
+
+    $this->patch("/properties/{$property->getKey()}", [
+        'parcel_number' => '12-345-67',
+        'type' => $property->type->value,
+        'status' => PropertyStatus::ForSale->value,
+    ])->assertSessionHasNoErrors();
+});
+
+it('upper-cases the state code on the way in', function (): void {
+    // IA §10 renders "City, ST ZIP". Normalised once here rather than in every
+    // screen that shows an address.
+    $this->post('/properties', [
+        'street' => '1420 Pearl St',
+        'city' => 'Boulder',
+        'state_code' => 'co',
+        'type' => PropertyType::SingleFamily->value,
+        'status' => PropertyStatus::PreListing->value,
+    ])->assertSessionHasNoErrors();
+
+    expect(Property::query()->sole()->state_code)->toBe('CO');
+});
+
+it('lets a link be replaced by one carrying the same address', function (): void {
+    /*
+     * The UI's only way to edit a link is to drop the row and add it back, and
+     * `external_links_unique_url` is partial on `deleted_at IS NULL` — so
+     * saving before deleting refused the resubmission against the row it was
+     * replacing.
+     */
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+    ExternalLink::factory()->attachedTo($property)->create(['label' => 'Zillow', 'url' => 'https://zillow.test/1']);
+
+    $this->patch("/properties/{$property->getKey()}", [
+        'type' => $property->type->value,
+        'status' => $property->status->value,
+        'links' => [['label' => 'Zillow listing', 'url' => 'https://zillow.test/1']],
+    ])->assertSessionHasNoErrors();
+
+    expect($property->externalLinks()->pluck('label')->all())->toBe(['Zillow listing']);
+});
+
+it('names a duplicate URL in the payload rather than reaching the constraint', function (): void {
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->patch("/properties/{$property->getKey()}", [
+        'type' => $property->type->value,
+        'status' => $property->status->value,
+        'links' => [
+            ['label' => 'One', 'url' => 'https://zillow.test/1'],
+            // The index folds case, so the rule has to as well.
+            ['label' => 'Two', 'url' => 'https://ZILLOW.test/1'],
+        ],
+    ])->assertSessionHasErrors('links.1.url');
+
+    // Same reasoning as the parcel number: the constraint would have produced
+    // an error on this field too. The message says which layer answered, and
+    // only the rule's is acceptable here.
+    $errors = session('errors')->getBag('default')->get('links.1.url');
+
+    expect($errors[0])->not->toContain('Somebody just added');
+});
+
+it('refuses a payload that claims one link id twice', function (): void {
+    // The same instance came back for a repeated id, so the second row
+    // overwrote the first: two links in, one link out, and no error.
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+    $link = ExternalLink::factory()->attachedTo($property)->create();
+
+    $this->patch("/properties/{$property->getKey()}", [
+        'type' => $property->type->value,
+        'status' => $property->status->value,
+        'links' => [
+            ['id' => $link->getKey(), 'label' => 'A', 'url' => 'https://a.test/1'],
+            ['id' => $link->getKey(), 'label' => 'B', 'url' => 'https://b.test/1'],
+        ],
+    ])->assertSessionHasErrors('links.1.id');
+
+    expect($property->externalLinks()->count())->toBe(1);
+});
+
+it('trims a link before it stores it', function (): void {
+    // `SafeUrl` trims before it judges, so the stored value should be the one
+    // that was judged. `TrimStrings` covers HTTP and nothing else.
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    app(App\Actions\Properties\SaveProperty::class)->update($property, [], [
+        ['label' => 'Zillow', 'url' => '  https://zillow.test/1  '],
+    ]);
+
+    expect($property->externalLinks()->value('url'))->toBe('https://zillow.test/1');
+});
+
+it('does not fall over when a linked deal has been deleted', function (): void {
+    // `DealProperty::deal()` is a plain `belongsTo`, so a trashed deal reads
+    // as null and the screen's mapping would throw. #74 brings a deal destroy
+    // route; this screen should not break the day it lands.
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->post("/properties/{$property->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    $deal->delete();
+
+    $this->get("/properties/{$property->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('deals', 0));
+});
+
+it('paginates in a stable order when nothing has an address', function (): void {
+    // A property created from a parcel number has no city and no street, and
+    // Postgres gives no stable order among ties — so a row could appear on
+    // two pages, or on none.
+    Property::factory()->count(30)->withoutAddress()->create(['team_id' => $this->team->getKey()]);
+
+    $firstPage = $this->get('/properties')->viewData('page')['props']['properties']['data'];
+    $secondPage = $this->get('/properties?page=2')->viewData('page')['props']['properties']['data'];
+
+    $ids = [
+        ...array_column($firstPage, 'id'),
+        ...array_column($secondPage, 'id'),
+    ];
+
+    expect($ids)->toHaveCount(30)
+        ->and(array_unique($ids))->toHaveCount(30);
+});
+
 it('refuses somebody with no permissions, on read and on write', function (): void {
     $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
 

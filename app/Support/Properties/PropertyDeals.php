@@ -126,10 +126,25 @@ final class PropertyDeals
 
             $link->delete();
 
+            /*
+             * Null-guarded on both sides, because both can be gone.
+             *
+             * `property()` and `deal()` are plain `belongsTo` relations, so a
+             * soft-deleted row on either end reads as null — and deleting a
+             * property is precisely when this method is called in a loop
+             * (`PropertyController::destroy()`). An unlink that threw while
+             * tidying up after a delete would leave the delete half done.
+             */
+            $deal = $link->deal;
+
+            if ($deal === null) {
+                return;
+            }
+
             $this->activity->record(
-                subject: $link->deal,
+                subject: $deal,
                 eventType: 'property.unlinked',
-                summary: 'Removed '.$link->property->displayName().' from this deal',
+                summary: 'Removed '.($link->property?->displayName() ?? 'a property').' from this deal',
             );
         });
     }

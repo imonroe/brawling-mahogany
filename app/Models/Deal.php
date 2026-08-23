@@ -17,7 +17,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -232,16 +231,6 @@ class Deal extends Model
     public function propertyLinks(): HasMany
     {
         return $this->hasMany(DealProperty::class)->orderByDesc('is_subject')->orderBy('created_at');
-    }
-
-    /**
-     * The one property that names this deal, if it has one yet.
-     *
-     * @return HasOne<DealProperty, $this>
-     */
-    public function subjectPropertyLink(): HasOne
-    {
-        return $this->hasOne(DealProperty::class)->where('is_subject', true);
     }
 
     /**

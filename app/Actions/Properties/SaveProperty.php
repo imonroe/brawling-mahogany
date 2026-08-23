@@ -7,6 +7,7 @@ namespace App\Actions\Properties;
 use App\Models\ExternalLink;
 use App\Models\Property;
 use App\Support\Activity\RecordActivity;
+use App\Support\Links\SafeUrl;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -25,7 +26,7 @@ final class SaveProperty
 
     /**
      * @param  array<string, mixed>  $attributes
-     * @param  list<array<string, mixed>>|null  $links
+     * @param  array<array-key, array<string, mixed>>|null  $links
      */
     public function create(array $attributes, ?array $links = null): Property
     {
@@ -54,7 +55,7 @@ final class SaveProperty
 
     /**
      * @param  array<string, mixed>  $attributes
-     * @param  list<array<string, mixed>>|null  $links  null leaves them alone
+     * @param  array<array-key, array<string, mixed>>|null  $links  null leaves them alone
      */
     public function update(Property $property, array $attributes, ?array $links = null): Property
     {
@@ -79,10 +80,13 @@ final class SaveProperty
             }
 
             if ($statusChanged) {
+                // Named, like `property.added` above. A mixed timeline
+                // reading "Sold" next to "Added 123 Main St" does not say
+                // what was sold.
                 $this->activity->record(
                     subject: $property,
                     eventType: 'property.status_changed',
-                    summary: $property->status->label(),
+                    summary: $property->displayName().' → '.$property->status->label(),
                     payload: ['from' => $previousStatus, 'to' => $property->status->value],
                 );
             }
@@ -100,20 +104,61 @@ final class SaveProperty
      * rows, so editing a property's notes twice a week would have quietly
      * filled the table with tombstones.
      *
-     * @param  list<array<string, mixed>>  $links
+     * @param  array<array-key, array<string, mixed>>  $links
      */
     private function syncLinks(Property $property, array $links): void
     {
         $existing = $property->externalLinks()->get()
             ->keyBy(fn (ExternalLink $link): string => (string) $link->getKey());
 
-        $kept = [];
+        /*
+         * `array_values`, because the loop's index becomes `sort_order`.
+         *
+         * `links` validates as an *array*, and a JSON body may key one however
+         * it likes: `{"links": {"zz": {…}}}` passed every rule and then put
+         * `"zz"` into an `unsignedSmallInteger`. `PropertyRules` now also
+         * requires a `list`, so an HTTP caller is refused with a sentence —
+         * this is the same guarantee for the seeder and for #62's screen,
+         * which do not go through that request.
+         */
+        $links = array_values($links);
+
+        /*
+         * Deletions first, insertions second.
+         *
+         * The obvious order is the wrong one. `external_links_unique_url` is
+         * partial on `deleted_at IS NULL`, so a row still live at insert time
+         * blocks a resubmission of its own URL — and the UI's only way to edit
+         * a link is to remove the row and add it back, which is exactly that
+         * shape. Saving first refused "fix the label on this listing link"
+         * with "this link is already on this property", about the row it was
+         * replacing.
+         */
+        $kept = array_values(array_filter(array_map(
+            fn (array $link): string => isset($link['id']) ? (string) $link['id'] : '',
+            $links,
+        )));
+
+        $existing->reject(fn (ExternalLink $link): bool => in_array((string) $link->getKey(), $kept, true))
+            ->each(fn (ExternalLink $link) => $link->delete());
+
+        /*
+         * An id may be claimed once. `$existing->get($id)` hands back the same
+         * instance every time, so a payload repeating one silently wrote the
+         * second row over the first and stored one link where two were sent.
+         * `links.*.id` is `distinct` on the way in; this is the same rule for
+         * the callers that are not that request.
+         */
+        $claimed = [];
 
         foreach ($links as $position => $link) {
             $id = isset($link['id']) ? (string) $link['id'] : '';
-            $model = $existing->get($id) ?? new ExternalLink;
+            $model = isset($claimed[$id]) ? null : $existing->get($id);
+            $model ??= new ExternalLink;
 
-            if (! $model->exists) {
+            if ($model->exists) {
+                $claimed[$id] = true;
+            } else {
                 /*
                  * `forceFill` for the pointer, `fill` for the content.
                  * `linkable_*` is not fillable for the same reason `team_id`
@@ -128,22 +173,16 @@ final class SaveProperty
             }
 
             $model->fill([
-                'label' => (string) $link['label'],
-                'url' => (string) $link['url'],
+                'label' => trim((string) $link['label']),
+                // Trimmed here rather than only by `TrimStrings`, because
+                // `SafeUrl` trims before it judges and the stored value should
+                // be the one that was judged.
+                'url' => SafeUrl::normalise($link['url']),
                 'sort_order' => $position,
             ]);
 
             $this->saveLinkOrExplainTheCollision($model, $position);
-
-            $kept[] = $model->getKey();
         }
-
-        /*
-         * Everything the form did not send back is gone. Soft, so the 30-day
-         * window (PRD §9) applies here like everywhere else.
-         */
-        $property->externalLinks()->whereKeyNot($kept)->get()
-            ->each(fn (ExternalLink $link) => $link->delete());
     }
 
     /**
@@ -159,8 +198,18 @@ final class SaveProperty
         try {
             $property->save();
         } catch (UniqueConstraintViolationException) {
+            /*
+             * A different sentence from the rule's, deliberately.
+             *
+             * The rule answers the ordinary case; this only fires in the
+             * window between its `select` and this `insert`, which means
+             * somebody else got there in the last moment. Saying so is more
+             * useful than repeating the rule — and it is what lets a test
+             * tell which layer answered, without which a rule gap hides
+             * behind this handler indefinitely.
+             */
             throw ValidationException::withMessages([
-                'parcel_number' => 'Another property already has this parcel number.',
+                'parcel_number' => 'Somebody just added a property with this parcel number.',
             ]);
         }
     }
@@ -170,8 +219,10 @@ final class SaveProperty
         try {
             $link->save();
         } catch (UniqueConstraintViolationException) {
+            // The rule names the ordinary duplicate; this is the race, and
+            // the same argument for a distinct sentence applies.
             throw ValidationException::withMessages([
-                "links.{$position}.url" => 'This link is already on this property.',
+                "links.{$position}.url" => 'Somebody just added this link to this property.',
             ]);
         }
     }

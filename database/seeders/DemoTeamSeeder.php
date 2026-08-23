@@ -10,6 +10,8 @@ use App\Enums\PersonLifecycleState;
 use App\Enums\PropertyStatus;
 use App\Enums\PropertyType;
 use App\Enums\SystemRole;
+use App\Models\Deal;
+use App\Models\DealType;
 use App\Models\ExternalLink;
 use App\Models\Person;
 use App\Models\Property;
@@ -17,6 +19,7 @@ use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Activity\RecordActivity;
+use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -152,6 +155,29 @@ class DemoTeamSeeder extends Seeder
                 'year_built' => 1998,
             ],
         );
+
+        /*
+         * And one deal, so S36's "linked deals" is not an empty state.
+         *
+         * That panel is what the definition of done is written about, and a
+         * seed that left it empty would have shown the one case nobody needed
+         * help imagining. The deal type is a seeded system row — every install
+         * has the three (PRD §2.2).
+         */
+        if (Deal::query()->exists()) {
+            return;
+        }
+
+        $deal = Deal::query()->create([
+            'deal_type_id' => DealType::query()->whereNull('team_id')
+                ->where('name', 'Seller Representation')->sole()->getKey(),
+            'name' => null,
+            'opened_at' => now()->subWeeks(3),
+        ]);
+
+        $deal->forceFill(['generated_name' => $listed->displayName()])->save();
+
+        app(PropertyDeals::class)->link($listed, $deal);
     }
 
     /**

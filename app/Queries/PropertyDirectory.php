@@ -33,6 +33,16 @@ final class PropertyDirectory
             ->withCount('dealLinks')
             ->orderBy('city')
             ->orderBy('street')
+            /*
+             * A tiebreaker, because ties are the normal case here.
+             *
+             * A property created from a parcel number has no city and no
+             * street — the form allows it and the model has a fallback name
+             * for exactly that. Postgres gives no stable order among equal
+             * keys, so without this a row could appear on page one and page
+             * two, or on neither.
+             */
+            ->orderBy('id')
             ->paginate(self::PER_PAGE)
             ->withQueryString()
             ->through(fn (Property $property): array => self::row($property));
@@ -41,7 +51,7 @@ final class PropertyDirectory
     /**
      * How many properties sit behind each status filter.
      *
-     * One grouped query rather than one per status: eight statuses is eight
+     * One grouped query rather than one per status: seven statuses is seven
      * round trips for a filter bar nobody clicks most of the time.
      *
      * @return list<array{value: string, label: string, count: int}>

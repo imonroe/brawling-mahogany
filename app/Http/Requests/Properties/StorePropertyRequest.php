@@ -30,11 +30,11 @@ class StorePropertyRequest extends FormRequest
      * A create has nothing to leave alone, so the two meanings `null` and
      * `[]` carry on the update path collapse into one here.
      *
-     * @return list<array<string, mixed>>
+     * @return array<array-key, array<string, mixed>>
      */
     public function links(): array
     {
-        /** @var list<array<string, mixed>> $links */
+        /** @var array<array-key, array<string, mixed>> $links */
         $links = $this->validated('links', []);
 
         return $links;

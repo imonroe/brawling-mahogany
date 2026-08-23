@@ -29,7 +29,6 @@ export type PropertyDetail = PropertyRow & {
     yearBuilt: number | null;
     notes: string | null;
     statusLabel: string;
-    hasAddress: boolean;
 };
 
 /**

@@ -37,7 +37,7 @@ class UpdatePropertyRequest extends FormRequest
      * instructions that a nullable value cannot tell apart. #148 shipped the
      * same confusion with `notes` and made it unclearable.
      *
-     * @return list<array<string, mixed>>|null
+     * @return array<array-key, array<string, mixed>>|null
      */
     public function links(): ?array
     {
@@ -45,7 +45,7 @@ class UpdatePropertyRequest extends FormRequest
             return null;
         }
 
-        /** @var list<array<string, mixed>> $links */
+        /** @var array<array-key, array<string, mixed>> $links */
         $links = $this->validated('links', []);
 
         return $links;

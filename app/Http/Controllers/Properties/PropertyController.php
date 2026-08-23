@@ -15,8 +15,11 @@ use App\Models\DealProperty;
 use App\Models\ExternalLink;
 use App\Models\Property;
 use App\Queries\PropertyDirectory;
+use App\Support\Properties\PropertyDeals;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -61,8 +64,18 @@ class PropertyController extends Controller
     {
         $this->authorize('view', $property);
 
+        /*
+         * `whereHas('deal')` is not decoration.
+         *
+         * `DealProperty::deal()` is a plain `belongsTo`, so a soft-deleted
+         * deal makes the relation null and this screen's mapping — which asks
+         * every link for its deal's name and side — throws. There is no deal
+         * destroy route yet; #74 brings one, and a screen that 500s the day a
+         * neighbouring feature lands is a screen written to be broken later.
+         */
         $property->load([
             'externalLinks',
+            'dealLinks' => fn (HasMany $links) => $links->whereHas('deal'),
             'dealLinks.deal.dealType',
         ]);
 
@@ -78,7 +91,6 @@ class PropertyController extends Controller
                 'yearBuilt' => $property->year_built,
                 'notes' => $property->notes,
                 'statusLabel' => $property->status->label(),
-                'hasAddress' => $property->hasAddress(),
             ],
             'links' => $property->externalLinks->map(fn (ExternalLink $link): array => [
                 'id' => $link->getKey(),
@@ -128,20 +140,36 @@ class PropertyController extends Controller
     }
 
     /**
-     * Soft, and that is the whole retention story (PRD §9).
+     * Soft, and the links have to go with it by hand (PRD §9).
      *
      * A property is a business record rather than a lookup, so unlike deal
-     * types (S76) it *does* get a destroy — nothing points at it that would be
-     * orphaned by its absence, because `deal_properties` cascades and a deal
-     * that no longer lists a house it never bought is correct. The 30-day
-     * window is `records:purge`'s, and it discovers this table through
-     * `team_id` like every other.
+     * types (S76) it *does* get a destroy. What it does not get is a cascade:
+     * `teamScopedForeign()`'s `cascadeOnDelete()` is a **hard**-delete
+     * cascade, and a soft delete never fires it. The first version of this
+     * method said otherwise, and the consequence was worse than a dangling
+     * row — `deal_properties_one_subject` is partial on
+     * `is_subject AND deleted_at IS NULL`, so the surviving link kept the
+     * subject slot and the deal could not acquire a replacement. IA §10's
+     * generated name stayed pinned to a property nobody could see, for the
+     * thirty days until `records:purge` force-deleted it and the cascade
+     * finally ran.
+     *
+     * So the links are removed first, through `PropertyDeals` — the same path
+     * the screen uses, so the timeline says what happened and #62's deal side
+     * inherits the behaviour rather than reimplementing it. One transaction,
+     * because a property deleted with half its links still attached is a
+     * record somebody repairs by hand.
      */
-    public function destroy(Property $property): RedirectResponse
+    public function destroy(Property $property, PropertyDeals $deals): RedirectResponse
     {
         $this->authorize('delete', $property);
 
-        $property->delete();
+        DB::transaction(function () use ($property, $deals): void {
+            $property->dealLinks()->with('deal', 'property')->get()
+                ->each(fn (DealProperty $link) => $deals->unlink($link));
+
+            $property->delete();
+        });
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Property deleted.')]);
 

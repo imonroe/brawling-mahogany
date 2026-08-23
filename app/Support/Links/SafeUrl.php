@@ -64,6 +64,20 @@ final class SafeUrl
         return in_array(mb_strtolower($scheme), self::SCHEMES, true);
     }
 
+    /**
+     * The value to store, which is the value that was judged.
+     *
+     * `permits()` trims before it looks, so storing the untrimmed string means
+     * the guard and the column disagree about what the URL is. Harmless over
+     * HTTP, where `TrimStrings` has already run — and `TrimStrings` is exactly
+     * the mechanism the seeder, an import, and #62's screen do not go through,
+     * which is the whole reason this class is not only a request rule.
+     */
+    public static function normalise(mixed $url): string
+    {
+        return trim((string) (is_scalar($url) ? $url : ''));
+    }
+
     /** The sentence somebody gets when it does not. */
     public static function message(): string
     {

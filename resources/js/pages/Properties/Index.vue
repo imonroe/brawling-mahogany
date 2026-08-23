@@ -22,7 +22,11 @@ import PageHeader from '@/components/app/PageHeader.vue';
 import PropertyFormDialog from '@/components/app/PropertyFormDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { formatAddress, formatCount, formatNumber } from '@/lib/formatters';
+import {
+    formatAddress,
+    formatCount,
+    formatPropertyFacts,
+} from '@/lib/formatters';
 import type { Paginated, PropertyRow } from '@/types';
 
 const props = defineProps<{
@@ -88,17 +92,6 @@ const subtitle = computed(() =>
 const isFiltered = computed(
     () => search.value.trim().length > 0 || props.status !== 'all',
 );
-
-/** "3 bd · 2 ba · 1,840 sqft", with whichever parts are known. */
-function facts(property: PropertyRow): string {
-    return [
-        property.beds === null ? null : `${property.beds} bd`,
-        property.baths === null ? null : `${Number(property.baths)} ba`,
-        property.sqft === null ? null : `${formatNumber(property.sqft)} sqft`,
-    ]
-        .filter(Boolean)
-        .join(' · ');
-}
 </script>
 
 <template>
@@ -240,10 +233,10 @@ function facts(property: PropertyRow): string {
                         />
                     </div>
                     <p
-                        v-if="facts(property)"
+                        v-if="formatPropertyFacts(property)"
                         class="text-[11px] text-muted-foreground"
                     >
-                        {{ facts(property) }}
+                        {{ formatPropertyFacts(property) }}
                     </p>
                     <div class="flex-1"></div>
                     <p class="text-[11px] text-muted-foreground">
@@ -280,7 +273,7 @@ function facts(property: PropertyRow): string {
                                 >{{
                                     [
                                         formatAddress(property.address).line2,
-                                        facts(property),
+                                        formatPropertyFacts(property),
                                     ]
                                         .filter(Boolean)
                                         .join(' · ') || property.typeLabel

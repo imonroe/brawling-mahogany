@@ -14,7 +14,6 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -86,20 +85,13 @@ class Property extends Model
      */
     public function dealLinks(): HasMany
     {
-        return $this->hasMany(DealProperty::class);
-    }
-
-    /**
-     * The deals this property is on — S36's "linked deals".
-     *
-     * @return BelongsToMany<Deal, $this>
-     */
-    public function deals(): BelongsToMany
-    {
-        return $this->belongsToMany(Deal::class, 'deal_properties')
-            ->withPivot(['id', 'is_subject'])
-            ->wherePivotNull('deleted_at')
-            ->withTimestamps();
+        // Ordered like `Deal::propertyLinks()`, so a property's list of deals
+        // is stable rather than whatever Postgres returns. S36 renders these
+        // straight through, and a positional assertion against an unordered
+        // relation is a test that passes by luck.
+        return $this->hasMany(DealProperty::class)
+            ->orderByDesc('is_subject')
+            ->orderBy('created_at');
     }
 
     /**
@@ -124,12 +116,6 @@ class Property extends Model
         $parcel = trim((string) $this->parcel_number);
 
         return $parcel === '' ? 'Untitled property' : 'Parcel '.$parcel;
-    }
-
-    /** Whether this property has enough of an address to render two lines. */
-    public function hasAddress(): bool
-    {
-        return trim((string) $this->street) !== '' || trim((string) $this->city) !== '';
     }
 
     /**

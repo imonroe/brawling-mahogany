@@ -151,9 +151,10 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('properties.deals.store');
         /*
          * `{dealLink}`, because scoped binding resolves the child through a
-         * relation named for the parameter — `dealLinks()` on `Property`. A
-         * shorter `{link}` would have looked for `links()`, which does not
-         * exist, and the scoping would have silently done nothing.
+         * relation named for the parameter — `Str::plural(Str::camel(...))`,
+         * so `dealLinks()` on `Property`. A shorter `{link}` would have looked
+         * for `links()`, fallen through `__call` to the query builder, and
+         * thrown `BadMethodCallException` on every request to this route.
          */
         Route::delete('properties/{property}/deals/{dealLink}', [PropertyDealController::class, 'remove'])
             ->name('properties.deals.remove');

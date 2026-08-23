@@ -29,7 +29,11 @@ import LinkDealDialog from '@/components/app/LinkDealDialog.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import PropertyFormDialog from '@/components/app/PropertyFormDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
-import { formatAddress, formatCount, formatNumber } from '@/lib/formatters';
+import {
+    formatAddress,
+    formatCount,
+    formatPropertyFacts,
+} from '@/lib/formatters';
 import type { ExternalLinkRow, LinkedDeal, PropertyDetail } from '@/types';
 
 const props = defineProps<{
@@ -46,20 +50,7 @@ const linking = ref(false);
 
 const address = computed(() => formatAddress(props.property.address));
 
-const facts = computed(() =>
-    [
-        props.property.beds === null ? null : `${props.property.beds} bd`,
-        props.property.baths === null
-            ? null
-            : `${Number(props.property.baths)} ba`,
-        props.property.sqft === null
-            ? null
-            : `${formatNumber(props.property.sqft)} sqft`,
-        props.property.yearBuilt === null
-            ? null
-            : `built ${props.property.yearBuilt}`,
-    ].filter(Boolean),
-);
+const facts = computed(() => formatPropertyFacts(props.property));
 
 function unlink(deal: LinkedDeal): void {
     router.delete(`/properties/${props.property.id}/deals/${deal.id}`, {
@@ -115,8 +106,8 @@ function destroy(): void {
         <div class="flex flex-wrap items-center gap-2">
             <StatusBadge domain="property" :state="property.status" />
             <StatusBadge tone="neutral" :label="property.typeLabel" dotless />
-            <p v-if="facts.length" class="text-xs text-muted-foreground">
-                {{ facts.join(' · ') }}
+            <p v-if="facts" class="text-xs text-muted-foreground">
+                {{ facts }}
             </p>
         </div>
 
