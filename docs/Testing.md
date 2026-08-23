@@ -133,6 +133,7 @@ remembering them:
 | `tests/Isolation/CrossTenantAccessTest.php` | **The release blocker.** Cross-tenant access is refused, by every vector: direct route, nested route, index, foreign id in a form, signed URL, and a queued job | PRD §8.2, §9, issue #42 |
 | `tests/Feature/AuthorizationCoverageTest.php` | Every controller action asks a policy. Reads the route table, so a controller added later is covered the day it lands | PRD §9, issue #46 |
 | `tests/js/tokenDiscipline.test.ts` | No raw hex and no Tailwind palette class in a component | Design System §2.1 |
+| `tests/js/boundControls.test.ts` | Every `AppSelect` in `resources/js` has a `v-model` or an `@update:model-value`. It is props-and-emit, not `defineModel`, so `:model-value` alone is a control that displays state and can never change it — no type error, no runtime warning, and S28's pack filter shipped exactly that | issue #74 |
 | `tests/js/tokens.test.ts` | Every state pair meets 4.5:1 in both themes; every colour token exists in both | Design System §11, §13.2 rule 8 |
 | `tests/js/controlSizes.test.ts` | Every button and input size matches the measured control table | Design System §4.2, §7.2, §11 |
 | `tests/js/cssDependencies.test.ts` | Every package `app.css` imports is declared *and* installed — run inside the container by `make check`, so a stale dependency volume fails loudly instead of as a blank page | issue #22 |

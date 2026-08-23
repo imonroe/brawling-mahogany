@@ -146,6 +146,7 @@ function attach(): void {
                 "
                 placeholder="Every pack"
                 aria-label="Filter by pack"
+                @update:model-value="(value) => (pack = value)"
             />
 
             <p

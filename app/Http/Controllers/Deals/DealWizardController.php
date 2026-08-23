@@ -16,7 +16,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Deals\CreateDraftClientRequest;
 use App\Http\Requests\Deals\CreateDraftPropertyRequest;
 use App\Http\Requests\Deals\SaveDealDraftStepRequest;
-use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\DealType;
 use App\Models\Person;
@@ -156,16 +155,24 @@ class DealWizardController extends Controller
         /** @var Person $person */
         $person = $request->user();
 
-        $membership = $people->create([
-            ...$request->validated(),
-            'status' => PersonLifecycleState::Lead->value,
-        ]);
-
+        // Authorized before anything is written. The other way round, a
+        // refused request still left a person in the directory — the create
+        // had already happened by the time the policy was asked.
         $draft = $drafts->open($person);
 
         $this->authorize('update', $draft);
 
-        $drafts->record($draft, ['team_membership_id' => $membership->getKey()], DealDraftStep::Property);
+        // `participant_role` belongs to the draft, not to the directory entry
+        // — `SavePerson` would have nowhere to put it.
+        $membership = $people->create([
+            ...$request->safe()->except('participant_role'),
+            'status' => PersonLifecycleState::Lead->value,
+        ]);
+
+        $drafts->record($draft, [
+            'team_membership_id' => $membership->getKey(),
+            'participant_role' => $request->validated('participant_role'),
+        ], DealDraftStep::Property);
 
         return back();
     }
@@ -179,11 +186,12 @@ class DealWizardController extends Controller
         /** @var Person $person */
         $person = $request->user();
 
-        $property = $properties->create($request->safe()->except('links'), $request->links());
-
+        // Authorized first, for the same reason as `storeClient()`.
         $draft = $drafts->open($person);
 
         $this->authorize('update', $draft);
+
+        $property = $properties->create($request->safe()->except('links'), $request->links());
 
         $drafts->record($draft, ['property_id' => $property->getKey()], DealDraftStep::Template);
 
@@ -261,11 +269,16 @@ class DealWizardController extends Controller
         /** @var Person $person */
         $person = $request->user();
 
-        $draft = $drafts->open($person);
+        // `existing()`, not `open()`: giving up on a wizard you never started
+        // should not create the row it then deletes, and a refusal should
+        // leave nothing behind at all.
+        $draft = $drafts->existing($person);
 
-        $this->authorize('delete', $draft);
+        if ($draft instanceof DealDraft) {
+            $this->authorize('delete', $draft);
 
-        $drafts->abandon($draft);
+            $drafts->abandon($draft);
+        }
 
         return to_route('deals.index');
     }
@@ -273,16 +286,7 @@ class DealWizardController extends Controller
     /** @return array{value: string, label: string}|null */
     private function impliedRole(?DealType $type): ?array
     {
-        if (! $type instanceof DealType) {
-            return null;
-        }
-
-        // A throwaway deal, unsaved, so `expectedRoles()` can read the side
-        // without this controller restating the match it already carries.
-        $deal = new Deal;
-        $deal->setRelation('dealType', $type);
-
-        $role = DealRoster::expectedRoles($deal)[0] ?? null;
+        $role = DealRoster::impliedRole($type);
 
         return $role instanceof ParticipantRole
             ? ['value' => $role->value, 'label' => $role->label()]

@@ -54,7 +54,7 @@ class PurgeSoftDeletedRecords extends Command
         $cutoff = now()->subDays($days);
 
         $purgedRows = 0;
-        $purgedFiles = 0;
+        $purgedStaging = 0;
 
         // The scheduler iterates teams explicitly (ADR 0002). There is no
         // ambient team, and a purge would be the single worst place to
@@ -72,7 +72,7 @@ class PurgeSoftDeletedRecords extends Command
              * nothing anywhere pointing at it. Round 2 fixed this shape for
              * an expired export and left it reachable through a purged one.
              */
-            $purgedFiles += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
+            $purgedStaging += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
                 + $this->purgeAbandonedImports($cutoff)
                 + $this->purgeAbandonedDrafts($cutoff));
             $purgedRows += $this->purgeRowsFor($team, $cutoff);
@@ -86,7 +86,7 @@ class PurgeSoftDeletedRecords extends Command
 
         $this->info(
             "Purged {$purgedRows} records, {$purgedPeople} people, ".
-            "{$purgedFiles} expired export files, ".
+            "{$purgedStaging} expired exports, abandoned uploads and drafts, ".
             "and {$purgedTeams} teams past the {$days}-day window.",
         );
 

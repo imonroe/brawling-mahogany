@@ -60,8 +60,6 @@ class WorkflowAttachmentController extends Controller
     {
         $this->authorize('create', [Workflow::class, $deal]);
 
-        $deal->loadMissing('dealType');
-
         $pack = trim((string) $request->query('pack', ''));
 
         $query = WorkflowTemplate::query()
@@ -86,6 +84,24 @@ class WorkflowAttachmentController extends Controller
             ->pluck('workflow_template_id')
             ->all();
 
+        /*
+         * Only the packs this team can actually filter by. The whole catalogue
+         * offered choices that select nothing — a pack another team installed
+         * has no template visible here, so choosing it emptied the list and
+         * read as a bug.
+         *
+         * Derived from the templates rather than asked of the packs, because
+         * `visibleTo()` is a scope on `WorkflowTemplate` and reaching it
+         * through `whereHas()` loses the model type.
+         */
+        $packIds = WorkflowTemplate::query()
+            ->visibleTo($teams->requireId(WorkflowTemplate::class))
+            ->where('is_active', true)
+            ->whereNotNull('template_pack_id')
+            ->distinct()
+            ->pluck('template_pack_id')
+            ->all();
+
         return response()->json([
             'templates' => $query->orderBy('name')->get()->map(fn (WorkflowTemplate $template): array => [
                 'id' => $template->getKey(),
@@ -101,6 +117,7 @@ class WorkflowAttachmentController extends Controller
                 ])->values()->all(),
             ])->values()->all(),
             'packs' => TemplatePack::query()
+                ->whereKey($packIds)
                 ->orderBy('sort_order')
                 ->orderBy('name')
                 ->get(['id', 'name', 'slug'])

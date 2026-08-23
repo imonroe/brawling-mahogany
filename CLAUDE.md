@@ -101,10 +101,14 @@ These come from PRD §8 and should guide the eventual build:
   `deleted_at`, so everything somebody *deleted* is covered — and a table whose
   rows end by **neglect** rather than by an action is reached by nothing.
   `contact_imports` (S33) and `deal_drafts` (S14) both carry their own sweep in
-  `PurgeSoftDeletedRecords` for that reason, keyed on `updated_at` rather than
-  `created_at` so a long-running one is not mistaken for a forgotten one. #61
-  shipped this hole for `external_links` and had it found in review; the rule
-  is the generalisation.
+  `PurgeSoftDeletedRecords` for that reason. **What "abandoned" means differs
+  per table, so each sweep picks its own column.** An import is swept on
+  `created_at`: the CSV is the risk, an import is a single sitting, and an
+  upload that old is over however the row was touched. A draft is swept on
+  `updated_at`, because a wizard genuinely is resumed days later and
+  `created_at` would delete work in progress. #61 shipped this hole for
+  `external_links` and had it found in review; the rule is the generalisation,
+  and choosing the column deliberately is half of it.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by

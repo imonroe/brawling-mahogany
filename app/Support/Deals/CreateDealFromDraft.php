@@ -108,20 +108,46 @@ final class CreateDealFromDraft
      * because it describes a relationship rather than a part in a
      * transaction. So the wizard asks on those deal types, and the payload's
      * answer wins wherever it has one.
+     *
+     * ## A chosen client is never quietly dropped
+     *
+     * Both client endpoints now require the role where nothing implies one, so
+     * a draft carrying a membership and no role should not exist. This refuses
+     * rather than returning, because the version that returned is exactly how
+     * the bug read from the outside: a Rental deal, created successfully, with
+     * the client the person had picked simply absent and nothing said. A
+     * refusal sends them back to a step they can answer; silence does not.
      */
     private function addClient(DealDraft $draft, Deal $deal): void
     {
         $id = $draft->text('team_membership_id');
-        $role = $this->clientRole($draft, $deal);
 
-        if ($id === null || ! $role instanceof ParticipantRole) {
+        if ($id === null) {
             return;
         }
 
-        $membership = TeamMembership::query()->whereKey($id)->first();
+        $role = $this->clientRole($draft, $deal);
+
+        if (! $role instanceof ParticipantRole) {
+            throw ValidationException::withMessages([
+                'participant_role' => "Choose their part in this deal — this deal type doesn't imply one.",
+            ]);
+        }
+
+        $membership = TeamMembership::query()
+            ->whereKey($id)
+            /*
+             * Revoked since the draft was started. Both the step's `exists`
+             * rule and S25's own picker refuse a revoked membership; this is
+             * the third place that has to, because a draft can sit between
+             * them for a month. Without it the wizard was the one way to put
+             * somebody back on a deal after their access was taken away.
+             */
+            ->whereNull('revoked_at')
+            ->first();
 
         if (! $membership instanceof TeamMembership) {
-            // Deleted since the draft was started. The deal is still worth
+            // Gone since the draft was started. The deal is still worth
             // making; S19 will say the role is missing, which is exactly what
             // that warning is for.
             return;
@@ -178,7 +204,18 @@ final class CreateDealFromDraft
             return;
         }
 
-        $template = WorkflowTemplate::query()->whereKey($id)->first();
+        /*
+         * Active, like both other callers check. A template deactivated
+         * between step four and the last button is one the team has said to
+         * stop starting work from, and instantiating snapshots the whole tree
+         * — so attaching it here is the expensive half of the mistake. The
+         * step's own `exists` rule checks `is_active`; the draft outlives the
+         * step.
+         */
+        $template = WorkflowTemplate::query()
+            ->whereKey($id)
+            ->where('is_active', true)
+            ->first();
 
         if ($template instanceof WorkflowTemplate) {
             // Refuses another team's private template itself (#66), so the

@@ -117,20 +117,6 @@ class DealDraft extends Model
         return $type instanceof DealType && $type->isSelectableBy($this->team_id) ? $type : null;
     }
 
-    /** Whether every step has an answer, so the deal can be created. */
-    public function isComplete(): bool
-    {
-        // The template is deliberately absent from this list: F4.7 lets a
-        // workflow be attached later (S28), and a deal opened before a pack is
-        // installed still has to be creatable.
-        return $this->dealType() instanceof DealType;
-    }
-
-    public function isFinished(): bool
-    {
-        return $this->completed_at !== null;
-    }
-
     /**
      * @param  Builder<self>  $query
      * @return Builder<self>

@@ -24,6 +24,7 @@ use Illuminate\Foundation\Http\FormRequest;
 class CreateDraftClientRequest extends FormRequest
 {
     use PersonRules;
+    use ResolvesDraftRole;
 
     public function authorize(): bool
     {
@@ -40,6 +41,15 @@ class CreateDraftClientRequest extends FormRequest
             'last_name' => ['nullable', 'string', 'max:255'],
             'email' => ['nullable', 'string', 'email', 'max:255', $this->uniqueWithinTeam(null)],
             'phone' => ['nullable', 'string', 'max:50'],
+
+            /*
+             * The same question the picker endpoint asks, through the same
+             * trait. Creating the client inline is a different way to answer
+             * step two, not a different step two — and this endpoint used to
+             * accept no role at all, which on a Rental or Other deal type made
+             * a participant impossible and dropped the client without a word.
+             */
+            'participant_role' => $this->participantRoleRules(),
         ];
     }
 }

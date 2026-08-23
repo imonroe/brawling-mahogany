@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Requests\Deals;
 
 use App\Enums\DealDraftStep;
-use App\Enums\ParticipantRole;
 use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\Property;
@@ -43,6 +42,8 @@ use Illuminate\Validation\Rule;
  */
 class SaveDealDraftStepRequest extends FormRequest
 {
+    use ResolvesDraftRole;
+
     public function authorize(): bool
     {
         return $this->user()?->can('create', DealDraft::class) ?? false;
@@ -98,10 +99,17 @@ class SaveDealDraftStepRequest extends FormRequest
 
                 /*
                  * The role, because a rental expects neither Seller nor Buyer
-                 * and `DealRoster` invents nothing. Optional where the deal
-                 * type implies one, which is why this is not `required`.
+                 * and `DealRoster` invents nothing.
+                 *
+                 * **Required exactly where nothing implies one.** Nullable
+                 * throughout was a silent data-loss bug: on a Rental or Other
+                 * type `expectedRoles()` is empty, so a draft saved with no
+                 * role reached the last button, `addClient()` found nothing to
+                 * add, and the deal was created with the client quietly
+                 * dropped and no error anywhere. The screen already asks on
+                 * those types; this is the half that makes the answer count.
                  */
-                'participant_role' => ['nullable', Rule::enum(ParticipantRole::class)],
+                'participant_role' => $this->participantRoleRules(),
             ],
 
             DealDraftStep::Property => [

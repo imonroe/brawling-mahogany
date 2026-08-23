@@ -20,7 +20,7 @@
  * rename would be a lie.
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { ArrowDown, ArrowUp, Home, Plus, Star } from '@lucide/vue';
+import { ArrowDown, ArrowUp, Home, Plus, Star, Workflow } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppSelect from '@/components/app/AppSelect.vue';

@@ -7,7 +7,7 @@
  * screen with no way into the thing it is about would make S14 unreachable
  * except by typing the URL.
  */
-import { Head, Link } from '@inertiajs/vue3';
+import { Head } from '@inertiajs/vue3';
 import { Plus } from '@lucide/vue';
 import AppButton from '@/components/app/AppButton.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
@@ -22,7 +22,7 @@ defineProps<{ screen: string; slice: number }>();
     <div class="flex flex-col gap-4 p-4 md:p-6">
         <PageHeader title="Deals">
             <template #actions>
-                <AppButton :href="'/deals/create'">
+                <AppButton href="/deals/create">
                     <Plus class="size-4" aria-hidden="true" />
                     New deal
                 </AppButton>
@@ -35,9 +35,7 @@ defineProps<{ screen: string; slice: number }>();
             class="rounded-lg border bg-card"
         >
             <template #action>
-                <Link href="/deals/create">
-                    <AppButton>New deal</AppButton>
-                </Link>
+                <AppButton href="/deals/create">New deal</AppButton>
             </template>
         </EmptyState>
     </div>

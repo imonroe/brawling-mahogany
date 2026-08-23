@@ -95,6 +95,13 @@ const newClient = useForm({
     last_name: '',
     email: '',
     phone: '',
+    /*
+     * Carried on this form too. Creating the client inline is another way to
+     * answer step two, not a different step two — and when the deal type
+     * implies no role, the server requires this on both endpoints. The version
+     * that omitted it could not produce a participant on a rental at all.
+     */
+    participant_role: props.draft.participantRole ?? null,
 });
 
 const stepThree = useForm({
@@ -117,6 +124,24 @@ const stepFour = useForm({
 });
 
 const finish = useForm({});
+
+/**
+ * What the last button can refuse.
+ *
+ * `CreateDealFromDraft` throws on a deal type archived while the draft sat in
+ * a pocket, and on a client with no resolvable role. Both are answerable — but
+ * only by somebody who is told, and this form had nowhere to render either.
+ */
+const finishError = computed<string | null>(() => {
+    /*
+     * Cast because `useForm` types its error bag from its *data* keys, and the
+     * last button posts no fields — the whole answer is already in the draft.
+     * The server can still refuse it, on either of these two.
+     */
+    const errors = finish.errors as Record<string, string | undefined>;
+
+    return errors.deal_type_id ?? errors.participant_role ?? null;
+});
 
 const creatingClient = ref(false);
 const creatingProperty = ref(false);
@@ -144,6 +169,29 @@ const dealTypeOptions = computed(() =>
  * `DealRoster`'s own stance, surfaced.
  */
 const mustChooseRole = computed(() => props.impliedRole === null);
+
+/** Which form the visible role select writes to depends on which half is open. */
+const chosenRole = computed({
+    get: () =>
+        creatingClient.value
+            ? newClient.participant_role
+            : stepTwo.participant_role,
+    set: (value: string | null) => {
+        stepTwo.participant_role = value;
+        newClient.participant_role = value;
+    },
+});
+
+/**
+ * Nothing on step two can be saved until the role is answered, where one has
+ * to be. The server refuses it either way; disabling says so before the round
+ * trip rather than after it.
+ */
+const roleMissing = computed(() => mustChooseRole.value && !chosenRole.value);
+
+const roleError = computed(
+    () => stepTwo.errors.participant_role ?? newClient.errors.participant_role,
+);
 
 async function search(
     url: string,
@@ -363,15 +411,16 @@ function abandon(): void {
                     >
                     <AppSelect
                         id="participant_role"
-                        :model-value="stepTwo.participant_role"
+                        :model-value="chosenRole"
                         :options="participantRoles"
                         placeholder="Choose one"
                         size="default"
-                        @update:model-value="
-                            (value) => (stepTwo.participant_role = value)
-                        "
+                        @update:model-value="(value) => (chosenRole = value)"
                     />
-                    <p class="text-[11px] text-muted-foreground">
+                    <p v-if="roleError" class="text-[11px] text-state-danger">
+                        {{ roleError }}
+                    </p>
+                    <p v-else class="text-[11px] text-muted-foreground">
                         This deal type doesn’t imply one, so pick it.
                     </p>
                 </div>
@@ -406,7 +455,8 @@ function abandon(): void {
                         >
                             <button
                                 type="button"
-                                class="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/60"
+                                class="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/60 disabled:opacity-50"
+                                :disabled="roleMissing"
                                 @click="chooseClient(person)"
                             >
                                 <span class="flex min-w-0 flex-1 flex-col">
@@ -502,7 +552,7 @@ function abandon(): void {
                         >
                         <AppButton
                             type="submit"
-                            :disabled="newClient.processing"
+                            :disabled="newClient.processing || roleMissing"
                             >Add and continue</AppButton
                         >
                     </div>
@@ -735,6 +785,10 @@ function abandon(): void {
                     @click="chooseTemplate(null)"
                     >Not yet — I’ll attach one later</AppButton
                 >
+
+                <p v-if="finishError" class="text-[11px] text-state-danger">
+                    {{ finishError }}
+                </p>
 
                 <div class="flex justify-end">
                     <AppButton :disabled="finish.processing" @click="create"

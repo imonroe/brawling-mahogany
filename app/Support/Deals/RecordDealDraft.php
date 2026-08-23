@@ -24,6 +24,23 @@ final class RecordDealDraft
     public function __construct(private readonly TeamContext $teams) {}
 
     /**
+     * The draft this person already has open, if any, without starting one.
+     *
+     * `open()` creates when it finds nothing, which is right for the wizard's
+     * own screens and wrong for anything that only wants to act on an existing
+     * draft — abandoning is the case, and creating a row in order to delete it
+     * is a strange thing for a 403 to leave behind.
+     */
+    public function existing(Person $person): ?DealDraft
+    {
+        return DealDraft::query()
+            ->open()
+            ->where('created_by_person_id', $person->getKey())
+            ->latest('updated_at')
+            ->first();
+    }
+
+    /**
      * The draft this person left, or a new one.
      *
      * **Per person, not per team.** Two agents starting deals at the same time
@@ -32,11 +49,7 @@ final class RecordDealDraft
      */
     public function open(Person $person): DealDraft
     {
-        $existing = DealDraft::query()
-            ->open()
-            ->where('created_by_person_id', $person->getKey())
-            ->latest('updated_at')
-            ->first();
+        $existing = $this->existing($person);
 
         if ($existing instanceof DealDraft) {
             return $existing;

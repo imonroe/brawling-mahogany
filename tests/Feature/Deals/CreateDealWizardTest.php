@@ -324,3 +324,136 @@ it('abandons a draft without touching what it already created', function (): voi
     $this->get('/deals/create')
         ->assertInertia(fn ($page) => $page->where('draft.resumed', false));
 });
+
+/*
+ * The four ways a client or a workflow was lost between the step that chose it
+ * and the button that committed it. Each of these failed before the fix, and
+ * each failed *silently* — a deal was created, so nothing looked wrong.
+ */
+
+it('refuses step two on a rental until the client’s role is chosen', function (): void {
+    /*
+     * `expectedRoles()` is empty on Rent and Other, so there is nothing to
+     * fall back on. Nullable throughout meant the draft saved, the last button
+     * succeeded, and the client was simply absent from the deal.
+     */
+    $type = typeOn(DealSide::Rent);
+    $client = clientIn('Marsh');
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+
+    $this->patch('/deals/create', ['step' => 'client', 'team_membership_id' => $client->getKey()])
+        ->assertSessionHasErrors('participant_role');
+
+    /*
+     * And accepted with one, which is what makes the refusal above about the
+     * missing role rather than about rentals.
+     *
+     * `Other`, because PRD §6.3's role list has no Tenant or Landlord and
+     * `DocumentedVocabularyTest` binds the enum to that table. Whether a
+     * rental needs its own roles is a product question for the PRD, not
+     * something a wizard should settle by inventing a case.
+     */
+    $this->patch('/deals/create', [
+        'step' => 'client',
+        'team_membership_id' => $client->getKey(),
+        'participant_role' => ParticipantRole::Other->value,
+    ])->assertSessionHasNoErrors();
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertRedirect();
+
+    expect(Deal::query()->sole()->participants()->sole()->participant_role)
+        ->toBe(ParticipantRole::Other);
+});
+
+it('carries the role through the inline-create client endpoint too', function (): void {
+    /*
+     * The second caller, written without the rule. This endpoint accepted no
+     * `participant_role` at all, so on a rental it could not produce a
+     * participant however the screen was used.
+     */
+    $type = typeOn(DealSide::Rent);
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+
+    $this->post('/deals/create/clients', ['first_name' => 'Dana', 'last_name' => 'Okafor'])
+        ->assertSessionHasErrors('participant_role');
+
+    expect(TeamMembership::query()->where('first_name', 'Dana')->exists())
+        // Authorization and validation both happen before anything is written,
+        // so a refused request leaves no directory entry behind.
+        ->toBeFalse();
+
+    $this->post('/deals/create/clients', [
+        'first_name' => 'Dana',
+        'last_name' => 'Okafor',
+        'participant_role' => ParticipantRole::Other->value,
+    ])->assertSessionHasNoErrors();
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertRedirect();
+
+    $participant = Deal::query()->sole()->participants()->sole();
+
+    expect($participant->participant_role)->toBe(ParticipantRole::Other)
+        ->and($participant->membership->fullName())->toBe('Dana Okafor');
+});
+
+it('does not add a client whose membership was revoked while the draft sat', function (): void {
+    /*
+     * The step's `exists` rule refuses a revoked membership and so does S25's
+     * picker. The draft outlives both — it can sit for a month — so the commit
+     * is the third place that has to ask.
+     */
+    $type = typeOn(DealSide::Sell);
+    $client = clientIn('Vance');
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'client', 'team_membership_id' => $client->getKey()])->assertRedirect();
+
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $client->forceFill(['revoked_at' => now()])->save(),
+    );
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertRedirect();
+
+    // The deal is still worth making — S19 will say the Seller is missing,
+    // which is exactly what that warning is for.
+    expect(Deal::query()->sole()->participants()->count())->toBe(0);
+});
+
+it('does not attach a template deactivated while the draft sat', function (): void {
+    /*
+     * Instantiating snapshots the whole tree and activates the first stage, so
+     * attaching a template the team has withdrawn is the expensive half of the
+     * mistake. Both other callers check `is_active`; this one did not.
+     */
+    $type = typeOn(DealSide::Sell);
+    $template = templateWithStages();
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'template', 'workflow_template_id' => $template->getKey()])
+        ->assertRedirect();
+
+    $template->forceFill(['is_active' => false])->save();
+
+    $this->post('/deals/create')->assertRedirect();
+
+    $deal = Deal::query()->sole();
+
+    // The deal is made; S28 attaches a workflow to a live deal, which is the
+    // recovery. A snapshot of a withdrawn process is not.
+    expect($deal->workflows()->count())->toBe(0);
+});
+
+it('does not create a draft in order to abandon one', function (): void {
+    // `open()` creates when it finds nothing. Giving up on a wizard you never
+    // started should leave the table exactly as it was.
+    $this->delete('/deals/create')->assertRedirect('/deals');
+
+    expect(DealDraft::withTrashed()->count())->toBe(0);
+});
