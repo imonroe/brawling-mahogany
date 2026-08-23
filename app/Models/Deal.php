@@ -168,8 +168,9 @@ class Deal extends Model
 
         $type = DealType::query()->whereKey($this->deal_type_id)->first();
 
-        // Ours, or the shared kind. Never another team's.
-        if (! $type instanceof DealType || (! $type->isSystem() && $type->team_id !== $this->team_id)) {
+        // Ours, or the shared kind. Never another team's — asked through
+        // `DealType` so this and `DealDraft::dealType()` cannot drift.
+        if (! $type instanceof DealType || ! $type->belongsToTeamOrEverybody($this->team_id)) {
             throw ForeignReferenceException::for('deal_types', (string) $this->deal_type_id, $this->team_id);
         }
 

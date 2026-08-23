@@ -184,6 +184,35 @@ class DealType extends Model
         return ! $this->isSystem() && ! $this->isArchived();
     }
 
+    /**
+     * Ours, or the shared kind — the one spelling of that question.
+     *
+     * `Deal::guardDealType()` asks it to decide whether to throw
+     * `ForeignReferenceException`, and `DealDraft::dealType()` asks it to
+     * decide whether a resumed wizard still has an answer to step one. Written
+     * once so the two cannot drift: a system type has `team_id = null` and
+     * belongs to everybody, which is the whole reason no composite foreign key
+     * can express this and something in PHP has to.
+     */
+    public function belongsToTeamOrEverybody(?string $teamId): bool
+    {
+        return $this->isSystem() || $this->team_id === $teamId;
+    }
+
+    /**
+     * Whether a **new** deal may be opened on this type.
+     *
+     * Both halves, because S76's archive dialog promises *"no new deal will be
+     * able to use it"* and a foreign type was never offered in the first
+     * place. `Deal::guardDealType()` refuses the same two cases with two
+     * different exceptions, because it has to say which; a picker only has to
+     * know whether to show the row.
+     */
+    public function isSelectableBy(?string $teamId): bool
+    {
+        return $this->belongsToTeamOrEverybody($teamId) && ! $this->isArchived();
+    }
+
     /** The mirror image, and the only thing an archived row still allows. */
     public function isRestorable(): bool
     {
