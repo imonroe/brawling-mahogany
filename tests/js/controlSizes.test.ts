@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 
 /**
  * Design System §4.2 measures every control in the built designs, and shadcn's
@@ -97,6 +98,60 @@ describe('control sizes', () => {
         expect(input.classes()).toContain('text-base');
         // §11's minimum has no exceptions, filters included.
         expect(input.classes()).toContain('min-h-11');
+    });
+
+    it('gives AppSelect the same measured sizes as AppInput', () => {
+        /*
+         * The third sanctioned control, and the reason it exists at all: a
+         * hand-written 32px `<select>` had been transcribed into four screens
+         * and every one of them was under §11's 44px floor on a phone. Pinning
+         * it here is what stops the variant drifting away from `AppInput`,
+         * which is the failure the filter-size case above records.
+         */
+        const select = mount(AppSelect, {
+            props: { modelValue: null, options: { a: 'A' } },
+        });
+
+        expect(select.classes()).toContain('min-h-11');
+        expect(select.classes()).toContain('md:h-8');
+        expect(select.classes()).toContain('md:text-xs');
+    });
+
+    it('maps AppSelect’s empty option to null, and back', () => {
+        /*
+         * The only behaviour this component has that is not a class string,
+         * and the one its docblock argues for at length: `''` in the DOM is
+         * how a native select says *unanswered*, and null is what that means
+         * to the server. S20 depends on the distinction — "nobody has said" is
+         * a different fact from "Interested".
+         */
+        const select = mount(AppSelect, {
+            props: {
+                modelValue: null,
+                options: { interested: 'Interested' },
+                placeholder: 'Not said',
+            },
+        });
+
+        // A null model selects the placeholder rather than the first option.
+        expect((select.element as HTMLSelectElement).value).toBe('');
+
+        /*
+         * `find('select')`, not the component wrapper.
+         * `VueWrapper.setValue()` emits `update:modelValue` itself and never
+         * reaches the DOM handler — so it would report back whatever it was
+         * handed and pass no matter what the component does. Going through the
+         * element fires the real `change`.
+         */
+        const element = select.find('select');
+
+        element.setValue('interested');
+        expect(select.emitted('update:modelValue')?.[0]).toEqual([
+            'interested',
+        ]);
+
+        element.setValue('');
+        expect(select.emitted('update:modelValue')?.[1]).toEqual([null]);
     });
 
     it('keeps a disabled ghost’s hover tone whole, not half', () => {

@@ -372,10 +372,12 @@ final class PropertyDeals
              * an outcome — and deleting a property unlinks every one of its
              * deals in a loop.
              *
-             * When it *was* the subject, the deal keeps the name it had:
-             * `NameDeal` rewrites only when there is something to build from,
-             * so a stale name survives rather than a row reading "Untitled
-             * deal" in every list a moment after somebody tidied up a
+             * When it *was* the subject, the name is recomputed from what is
+             * left — which on a deal with a client is the surname fallback,
+             * so "1420 Pearl St · Bosart Sale" becomes "Bosart Sale". Only a
+             * deal with **no** facts at all keeps what it had; `NameDeal`
+             * declines to write rather than blanking the column, so a row
+             * never reads "Untitled deal" a moment after somebody tidied up a
              * property.
              */
             if ($link->is_subject) {

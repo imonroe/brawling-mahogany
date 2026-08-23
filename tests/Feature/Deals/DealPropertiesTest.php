@@ -527,9 +527,60 @@ it('sends a real linked-deal count with every property it renders', function ():
     $this->get("/deals/{$deal->getKey()}/properties")
         ->assertInertia(fn ($page) => $page->where('links.0.property.dealCount', 2));
 
-    $free = Property::factory()->create(['team_id' => $this->team->getKey()]);
+    /*
+     * A **non-zero** count on the picker, because zero is the `?? 0` fallback
+     * `PropertyDirectory::row()` returns when nothing supplied the count — so
+     * asserting 0 passed whether or not `withCount` was on the query. A
+     * property already on another deal is still a candidate for this one,
+     * which is what makes a real number reachable here.
+     */
+    $elsewhere = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->post("/deals/{$other->getKey()}/properties", ['property_id' => $elsewhere->getKey()])
+        ->assertRedirect();
 
     $this->getJson("/deals/{$deal->getKey()}/properties/candidates")
-        ->assertJsonPath('properties.0.id', $free->getKey())
-        ->assertJsonPath('properties.0.dealCount', 0);
+        ->assertJsonPath('properties.0.id', $elsewhere->getKey())
+        ->assertJsonPath('properties.0.dealCount', 1);
+});
+
+it('renames the deal when a participant moves into or out of the client role', function (): void {
+    /*
+     * `DealRoster::replace()` refreshes unconditionally, and nothing held
+     * either half of that.
+     *
+     * Two triggers, and the second is the one a reader misses: on a buy-side
+     * deal only the **Buyer** names it, so a role change moves the surname in
+     * or out — and primacy moves it too, because a role holding two people is
+     * named after the main contact.
+     */
+    $deal = dealOn(DealSide::Buy, ['name' => null, 'generated_name' => null]);
+    $roster = app(DealRoster::class);
+
+    $lender = $roster->add(
+        deal: $deal,
+        membership: memberOfThisTeam('Alvarez'),
+        role: ParticipantRole::Lender,
+        isPrimary: true,
+    );
+
+    // A lender does not name a deal.
+    expect($deal->fresh()->generated_name)->toBeNull();
+
+    $roster->replace($lender, ParticipantRole::Buyer);
+
+    expect($deal->fresh()->generated_name)->toBe('Alvarez Purchase');
+
+    // And primacy, on a role two people hold.
+    $second = $roster->add(
+        deal: $deal,
+        membership: memberOfThisTeam('Zhang'),
+        role: ParticipantRole::Buyer,
+    );
+
+    expect($deal->fresh()->generated_name)->toBe('Alvarez Purchase');
+
+    $roster->replace($second, ParticipantRole::Buyer, ['is_primary' => true]);
+
+    expect($deal->fresh()->generated_name)->toBe('Zhang Purchase');
 });

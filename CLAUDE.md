@@ -92,8 +92,10 @@ These come from PRD §8 and should guide the eventual build:
   missing for a round, and it did not matter until #62 stopped making a
   buyer's first house the subject — at which point a buy-side deal had nothing
   *but* the surname to be named from, and rendered "Untitled deal" with a
-  named Buyer sitting on it. Adding a seventh fact means adding a seventh
-  trigger.
+  named Buyer sitting on it.
+
+  Seven call sites, then: `link`, `unlink`, `promote`, `SaveProperty::update`,
+  `add`, `replace`, `remove`. Adding an eighth fact means adding an eighth.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by

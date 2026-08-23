@@ -301,9 +301,11 @@ final class DealRoster
                 summary: "Removed {$name} as {$role}",
             );
 
-            // The deal keeps the name it had when the last fact goes:
-            // `NameDeal` rewrites only when there is something to build from,
-            // which is the same rule `PropertyDeals::unlink()` relies on.
+            // Recomputed from what is left, which after removing the client
+            // is the subject property's address alone. Only a deal with **no**
+            // facts keeps what it had — `NameDeal` declines to write rather
+            // than blanking the column, which is the same rule
+            // `PropertyDeals::unlink()` relies on.
             if ($participant->deal instanceof Deal) {
                 $this->names->refresh($participant->deal);
             }

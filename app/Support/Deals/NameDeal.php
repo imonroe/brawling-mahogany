@@ -37,10 +37,13 @@ use App\Models\Property;
  * ## Nothing to build from leaves what was there
  *
  * `DealNameFacts::areEmpty()` distinguishes *"the name came out empty"* from
- * *"there are no facts"*, and only the first clears the column. A deal whose
- * subject property was just removed keeps the name it had until a new one
- * arrives — a stale name is worse than a correct one and far better than a
- * blank row in a list.
+ * *"there are no facts"*, and only the first declines to write.
+ *
+ * So removing a fact usually **renames**: a deal that was "1420 Pearl St ·
+ * Bosart Sale" becomes "Bosart Sale" when the property comes off, because the
+ * surname is still a fact. It keeps what it had only when the *last* fact
+ * goes — and then the old name survives rather than the column being blanked,
+ * because a stale name is far better than a list of "Untitled deal".
  */
 final class NameDeal
 {

@@ -7,11 +7,18 @@
  * This is the plain element, sharing `appInputVariants` with `AppInput` so the
  * two never drift.
  *
- * §13.2 rule 6, applied: a hand-written `h-8 rounded-md border bg-background
- * px-2.5 text-xs` had appeared in three screens — the properties directory,
- * the contact import, and deal properties — and every one of them was 32px on
- * a phone, under §11's 44px floor, *"without exception"*. Sharing the variant
- * fixes all three at once and stops a fourth being written.
+ * §13.2 rule 6, applied: a hand-written 32px filter select had been written
+ * out four times — the properties directory, the contact import, the audit
+ * log, and deal properties — and every one of them was under §11's 44px floor
+ * on a phone, *"without exception"*. All four now share the variant.
+ *
+ * **Four, not three**, and the correction is the point: the docblock claimed
+ * three and that "a fourth" would be stopped, while the fourth was already
+ * written in `Admin/Audit.vue`. The larger job is not done either — several
+ * screens still transcribe `appInputVariants({ size: 'default' })` by hand for
+ * a `<select>`, and nothing scans for it. `tests/js/controlSizes.test.ts` pins
+ * this component's sizes; a scanner over `resources/js/pages` is the thing
+ * that would stop the next one, and it is a follow-up rather than this PR.
  *
  * A native select is also the accessible default on a phone: it opens the
  * platform picker, which is a better control than anything rebuilt in a div.
