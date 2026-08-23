@@ -41,6 +41,23 @@ final class Permissions
 
     public const VIEW_PROPERTIES = 'properties.view';
 
+    /**
+     * Added in Slice 2 with S35–S37 (issue #61).
+     *
+     * The catalogue had `properties.view` and nothing else, which described a
+     * product where properties appeared from somewhere and nobody could type
+     * one in. Editing a property is not editing a deal — a house outlives the
+     * transactions it appears in, and the Read Only role PRD §4.2 F2.2 exists
+     * for should be able to open the directory without being able to change
+     * what is in it. So it is its own key, the way People has view/manage and
+     * Deals has view/manage.
+     *
+     * `PermissionSeeder` and `SystemRoleSeeder` are idempotent against this
+     * file, so an install that already exists picks the key up on its next
+     * deploy rather than needing a migration.
+     */
+    public const MANAGE_PROPERTIES = 'properties.manage';
+
     public const VIEW_CALENDAR = 'calendar.view';
 
     public const MANAGE_NURTURE = 'nurture.manage';
@@ -86,6 +103,7 @@ final class Permissions
             self::IMPORT_PEOPLE => ['group' => 'People', 'description' => 'Import contacts from a file or Google.'],
 
             self::VIEW_PROPERTIES => ['group' => 'Properties', 'description' => 'See the team’s properties.'],
+            self::MANAGE_PROPERTIES => ['group' => 'Properties', 'description' => 'Add and edit properties, and link them to deals.'],
             self::VIEW_CALENDAR => ['group' => 'Calendar', 'description' => 'See the team calendar.'],
             self::MANAGE_NURTURE => ['group' => 'Keep in Touch', 'description' => 'Manage post-close schedules and suggestions.'],
 
@@ -137,6 +155,7 @@ final class Permissions
             self::MANAGE_PEOPLE,
             self::IMPORT_PEOPLE,
             self::VIEW_PROPERTIES,
+            self::MANAGE_PROPERTIES,
             self::VIEW_CALENDAR,
             self::MANAGE_NURTURE,
         ];

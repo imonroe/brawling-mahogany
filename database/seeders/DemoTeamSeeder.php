@@ -7,12 +7,19 @@ namespace Database\Seeders;
 use App\Actions\Teams\ProvisionTeam;
 use App\Enums\ActivitySource;
 use App\Enums\PersonLifecycleState;
+use App\Enums\PropertyStatus;
+use App\Enums\PropertyType;
 use App\Enums\SystemRole;
+use App\Models\Deal;
+use App\Models\DealType;
+use App\Models\ExternalLink;
 use App\Models\Person;
+use App\Models\Property;
 use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Activity\RecordActivity;
+use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -77,11 +84,100 @@ class DemoTeamSeeder extends Seeder
                 source: ActivitySource::Manual,
                 payload: ['contact_type' => 'phone_call', 'note' => 'Walked through the listing timeline.'],
             );
+
+            $this->properties();
         });
 
         $this->command->info("Demo team seeded. Sign in as emily@example.test / password (super admin: {$superAdmin->email}).");
 
         unset($superAdminDetails);
+    }
+
+    /**
+     * Two houses, so S35 and S36 have something to render (#61).
+     *
+     * One on the market with links out, one pre-listing with none — the two
+     * shapes the detail screen has to handle, and the empty links panel is the
+     * one somebody would otherwise only see by deleting a row.
+     *
+     * The links go to `.test` addresses on purpose. A seed that pointed at a
+     * real listing site would put a request to somebody else's servers in
+     * every developer's `migrate:fresh --seed`, and PRD §10 is emphatic that
+     * this product links out and never fetches.
+     */
+    private function properties(): void
+    {
+        // `whereParcel()` rather than a raw `where`: a lookup by value has to
+        // fold and trim the way the index does, or a second run inserts a
+        // duplicate it cannot see.
+        $listed = Property::query()->whereParcel('0512-14-002-0031')->first() ?? Property::query()->create([
+            'parcel_number' => '0512-14-002-0031',
+            'street' => '1420 Pearl St',
+            'city' => 'Boulder',
+            'state_code' => 'CO',
+            'postal_code' => '80302',
+            'type' => PropertyType::SingleFamily,
+            'status' => PropertyStatus::ForSale,
+            'beds' => 3,
+            'baths' => '2.5',
+            'sqft' => 1840,
+            'year_built' => 1962,
+            'notes' => 'Seller wants a Thursday listing date.',
+        ]);
+
+        foreach ([
+            ['Listing', 'https://listings.example.test/1420-pearl-st'],
+            ['County assessor', 'https://assessor.example.test/parcel/0512-14-002-0031'],
+        ] as $position => [$label, $url]) {
+            $link = new ExternalLink;
+            $link->forceFill([
+                'linkable_type' => $listed->getMorphClass(),
+                'linkable_id' => $listed->getKey(),
+            ]);
+            $link->fill(['label' => $label, 'url' => $url, 'sort_order' => $position]);
+
+            if (! $listed->externalLinks()->where('url', $url)->exists()) {
+                $link->save();
+            }
+        }
+
+        Property::query()->whereParcel('0512-14-002-0044')->first() ?? Property::query()->create([
+            'parcel_number' => '0512-14-002-0044',
+            'street' => '88 Mapleton Ave',
+            'city' => 'Boulder',
+            'state_code' => 'CO',
+            'postal_code' => '80304',
+            'type' => PropertyType::Condo,
+            'status' => PropertyStatus::PreListing,
+            'beds' => 2,
+            'baths' => '1.0',
+            'sqft' => 960,
+            'year_built' => 1998,
+        ]);
+
+        /*
+         * And one deal, so S36's "linked deals" is not an empty state.
+         *
+         * That panel is what the definition of done is written about, and a
+         * seed that left it empty would have shown the one case nobody needed
+         * help imagining. The deal type is a seeded system row — every install
+         * has the three (PRD §2.2).
+         */
+        if (Deal::query()->exists()) {
+            return;
+        }
+
+        $deal = Deal::query()->create([
+            'deal_type_id' => DealType::query()->whereNull('team_id')
+                ->where('name', 'Seller Representation')->sole()->getKey(),
+            'name' => null,
+            'opened_at' => now()->subWeeks(3),
+        ]);
+
+        // No hand-written `generated_name` here: `PropertyDeals::link()` names
+        // the deal through `NameDeal`, which is the product behaviour rather
+        // than a seeder making the screenshot look right.
+        app(PropertyDeals::class)->link($listed, $deal);
     }
 
     /**

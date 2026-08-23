@@ -225,6 +225,16 @@ One table, and it is the single source of truth for every badge in the product. 
 | | Edited | `info` | |
 | | Rejected | `neutral` | |
 | **Document** | Refused by scan | `danger` | |
+| **Property** | Pre-listing | `neutral` | Not on the market yet |
+| | For Sale | `info` | On the market |
+| | Under Contract | `info` | On the market, spoken for |
+| | Sold | `success` | |
+| | Off Market | `neutral` | Withdrawn, not failed |
+| | Rented | `success` | |
+| | Other | `neutral` | |
+
+> [!note] Property status spends no amber and no red
+> Every other row here describes something that can go wrong. A property's status describes a market position, and none of them is a problem: a house that is Off Market was withdrawn, not failed. Under Contract shares `info` with For Sale on purpose — the label already distinguishes them, and spending amber on an ordinary state is how amber stops meaning anything.
 
 > [!warning] Blocked is amber, not red
 > A blocked stage usually means a checkbox is unticked, not that something has gone wrong. Red is reserved for things that are actually broken: a failed send, an overdue deadline, a refused upload, a deal that fell through. Spending red on the ordinary case means it stops working when something genuinely burns.

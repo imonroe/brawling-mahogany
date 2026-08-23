@@ -326,6 +326,42 @@ export function formatCount(
     return `${new Intl.NumberFormat('en-US').format(count)} ${noun}`;
 }
 
+export interface PropertyFacts {
+    beds?: number | null;
+    /** A decimal string from the server — 2.5 baths is real, and money-safe. */
+    baths?: string | null;
+    sqft?: number | null;
+    yearBuilt?: number | null;
+}
+
+/**
+ * "3 bd · 2.5 ba · 1,840 sqft · built 1962", with whichever parts are known.
+ *
+ * Here rather than in each screen. Three of them want this line already (S35's
+ * grid, S35's list, S36's header), and the two that had it inline disagreed
+ * within one file — `sqft` went through `formatNumber` and `baths` did not,
+ * which made "drop the trailing zero on 2.50" a decision taken in a component.
+ * Frontend conventions §3: nothing formats a number itself.
+ */
+export function formatPropertyFacts(property: PropertyFacts): string {
+    return [
+        property.beds === null || property.beds === undefined
+            ? null
+            : `${formatNumber(property.beds)} bd`,
+        property.baths === null || property.baths === undefined
+            ? null
+            : `${formatNumber(Number(property.baths))} ba`,
+        property.sqft === null || property.sqft === undefined
+            ? null
+            : `${formatNumber(property.sqft)} sqft`,
+        property.yearBuilt === null || property.yearBuilt === undefined
+            ? null
+            : `built ${property.yearBuilt}`,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+}
+
 /** Plain integer with thousands separators: "2,431". */
 export function formatNumber(value: number): string {
     return new Intl.NumberFormat('en-US').format(value);

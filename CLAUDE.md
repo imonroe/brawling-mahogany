@@ -18,7 +18,7 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 > Obsidian vault paths inside `[[wikilinks]]` also still read
 > `brawling mahogany` and must stay that way or the links break.
 
-**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76) and deal participants (S19, S25). Its remaining screens, properties, and the templates UI are still open under epic #3.
+**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), and properties with their polymorphic external links (S35, S36, S37). Its remaining screens — the deal views themselves, offers, and the templates UI — are still open under epic #3.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -67,6 +67,16 @@ These come from PRD §8 and should guide the eventual build:
 - **Gate evaluation is data-driven.** One small evaluator per gate type (manual confirmation, required tasks complete, document present, field populated, action completed, date reached, approval), resolved by `gate_type`. Adding a gate type means adding a class, not touching advancement logic.
 - **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
 - **A lookup is archived, never deleted.** Deal types (S76) is the first of these and sets the pattern for roles (S75), template packs, and every other lookup screen: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
+- **A link out, never a copy of what is on the other end.** PRD §10: MLS
+  listing data is licensed, and *"v1 stores links only, never ingested listing
+  content."* `external_links` is a label and a URL and deliberately has no
+  column for a title, a price, a photo, or a description — adding one for
+  convenience is a licensing decision, not a feature. **Built in Slice 2**
+  (#61), replacing the per-site `zillow_url` columns PRD §7.13 rejected. The
+  URL is held to an http/https allowlist on the way in *and* on save
+  (`App\Support\Links\SafeUrl`), because a stored `javascript:` URL is
+  stored XSS the moment it is an `href`.
+
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by
   email carries a second way to start or answer it that does not involve email

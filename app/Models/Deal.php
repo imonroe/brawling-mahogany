@@ -219,6 +219,21 @@ class Deal extends Model
     }
 
     /**
+     * The properties this deal is about (F3.4 · issue #61).
+     *
+     * A buyer-side deal tours nine houses before it makes an offer on one, so
+     * this is a collection rather than a column. `is_subject` on the link row
+     * says which one names the deal (IA §10); #62 builds the screen that moves
+     * it.
+     *
+     * @return HasMany<DealProperty, $this>
+     */
+    public function propertyLinks(): HasMany
+    {
+        return $this->hasMany(DealProperty::class)->orderByDesc('is_subject')->orderBy('created_at');
+    }
+
+    /**
      * Many, deliberately (F4.7).
      *
      * PRD §7.5: the rough data model gave a deal one workflow and contradicted

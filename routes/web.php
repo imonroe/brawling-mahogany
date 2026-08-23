@@ -6,6 +6,8 @@ use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
+use App\Http\Controllers\Properties\PropertyController;
+use App\Http\Controllers\Properties\PropertyDealController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
 use Illuminate\Support\Facades\Cache;
@@ -127,6 +129,38 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     });
 
     /*
+     * S35, S36, S37 — properties.
+     *
+     * `scopeBindings()` on the nested pair so `{link}` is resolved *through*
+     * `{property}` rather than beside it. Without it, a link row from another
+     * property would bind happily — both rows are in the team, so the global
+     * scope has no objection, and the policy is asked about the property. The
+     * tenancy layers answer "whose team"; only the nesting answers "whose
+     * property".
+     */
+    Route::get('properties', [PropertyController::class, 'index'])->name('properties.index');
+    Route::post('properties', [PropertyController::class, 'store'])->name('properties.store');
+    Route::get('properties/{property}', [PropertyController::class, 'show'])->name('properties.show');
+    Route::patch('properties/{property}', [PropertyController::class, 'update'])->name('properties.update');
+    Route::delete('properties/{property}', [PropertyController::class, 'destroy'])->name('properties.destroy');
+
+    Route::scopeBindings()->group(function (): void {
+        Route::get('properties/{property}/deals/candidates', [PropertyDealController::class, 'candidates'])
+            ->name('properties.deals.candidates');
+        Route::post('properties/{property}/deals', [PropertyDealController::class, 'store'])
+            ->name('properties.deals.store');
+        /*
+         * `{dealLink}`, because scoped binding resolves the child through a
+         * relation named for the parameter — `Str::plural(Str::camel(...))`,
+         * so `dealLinks()` on `Property`. A shorter `{link}` would have looked
+         * for `links()`, fallen through `__call` to the query builder, and
+         * thrown `BadMethodCallException` on every request to this route.
+         */
+        Route::delete('properties/{property}/deals/{dealLink}', [PropertyDealController::class, 'remove'])
+            ->name('properties.deals.remove');
+    });
+
+    /*
      * The sidebar's remaining destinations (IA §5.1). Each renders a
      * placeholder naming the slice that replaces it, so the shell can be
      * navigated and reviewed — a nav item pointing at a 404 cannot be.
@@ -134,7 +168,6 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     $placeholders = [
         'work' => ['My Work', 'S11', 2],
         'deals' => ['Deals', 'S13', 2],
-        'properties' => ['Properties', 'S35', 2],
         'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
         'templates' => ['Templates', 'S40', 2],
