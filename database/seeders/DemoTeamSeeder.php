@@ -175,8 +175,9 @@ class DemoTeamSeeder extends Seeder
             'opened_at' => now()->subWeeks(3),
         ]);
 
-        $deal->forceFill(['generated_name' => $listed->displayName()])->save();
-
+        // No hand-written `generated_name` here: `PropertyDeals::link()` names
+        // the deal through `NameDeal`, which is the product behaviour rather
+        // than a seeder making the screenshot look right.
         app(PropertyDeals::class)->link($listed, $deal);
     }
 

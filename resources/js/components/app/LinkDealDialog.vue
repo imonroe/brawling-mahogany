@@ -39,20 +39,52 @@ const form = useForm({ deal_id: '' });
 
 let debounce: ReturnType<typeof setTimeout> | undefined;
 
+const failed = ref(false);
+
+/**
+ * Two guards, and both are about what a 250ms debounce makes ordinary.
+ *
+ * **The parse can throw.** A session that expired answers with a 419 or a
+ * redirect to the sign-in page, and `response.json()` rejects on the HTML that
+ * comes back. Without a `catch`, that rejection escapes a `void load()` and
+ * the dialog sits on stale candidates saying nothing at all.
+ *
+ * **Responses can land out of order.** Type "12", then "123": the first
+ * request can answer second and overwrite the newer list with the older one.
+ * Each response is checked against the term current when it arrives, and a
+ * stale one is dropped rather than rendered.
+ */
 async function load(): Promise<void> {
+    const term = search.value;
+
     loading.value = true;
+    failed.value = false;
 
     try {
         const response = await fetch(
-            `/properties/${props.propertyId}/deals/candidates?q=${encodeURIComponent(search.value)}`,
+            `/properties/${props.propertyId}/deals/candidates?q=${encodeURIComponent(term)}`,
             { headers: { Accept: 'application/json' } },
         );
 
-        candidates.value = response.ok
+        const deals = response.ok
             ? ((await response.json()).deals as Candidate[])
-            : [];
+            : null;
+
+        if (term !== search.value) {
+            return;
+        }
+
+        candidates.value = deals ?? [];
+        failed.value = deals === null;
+    } catch {
+        if (term === search.value) {
+            candidates.value = [];
+            failed.value = true;
+        }
     } finally {
-        loading.value = false;
+        if (term === search.value) {
+            loading.value = false;
+        }
     }
 }
 
@@ -113,6 +145,12 @@ function choose(deal: Candidate): void {
                     class="px-3 py-2.5 text-xs text-muted-foreground"
                 >
                     Looking…
+                </li>
+                <li
+                    v-else-if="failed"
+                    class="px-3 py-2.5 text-xs text-state-danger"
+                >
+                    Couldn’t load your deals. Refresh the page and try again.
                 </li>
                 <li
                     v-else-if="candidates.length === 0"

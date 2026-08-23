@@ -89,7 +89,15 @@ trait PropertyRules
             // Bounded because the columns are. `unsignedSmallInteger` tops out
             // at 65535, and a database-level range error is a 500.
             'beds' => ['nullable', 'integer', 'min:0', 'max:99'],
-            'baths' => ['nullable', 'numeric', 'min:0', 'max:99'],
+            /*
+             * `decimal:0,1`, because the column is `decimal(3, 1)`.
+             *
+             * `numeric` accepted `2.55` and Postgres stored `2.6` — a value
+             * quietly becoming a different value, which is the surprise the
+             * migration's argument for a decimal column says it is avoiding.
+             * `max:99` keeps it inside `decimal(3, 1)`'s 99.9.
+             */
+            'baths' => ['nullable', 'numeric', 'decimal:0,1', 'min:0', 'max:99'],
             'sqft' => ['nullable', 'integer', 'min:0', 'max:1000000'],
             'year_built' => ['nullable', 'integer', 'min:1600', 'max:'.(date('Y') + 5)],
 
@@ -123,15 +131,28 @@ trait PropertyRules
                 return;
             }
 
-            if (self::parcelIsTaken(trim($value), $property)) {
+            if (self::parcelIsTaken($value, $property)) {
                 $fail('Another property already has this parcel number.');
             }
         };
     }
 
-    /** The index's question, asked in the index's terms. */
-    public static function parcelIsTaken(string $parcel, ?Property $ignoring = null): bool
+    /**
+     * The index's question, asked in the index's terms.
+     *
+     * Normalised through `Property::normaliseParcel()`, which is the same
+     * function the column's mutator uses — so what is asked about and what is
+     * written cannot drift. They did: this trimmed and the write did not, and
+     * a trailing space was invisible to the rule *and* to `lower()`.
+     */
+    public static function parcelIsTaken(mixed $parcel, ?Property $ignoring = null): bool
     {
+        $parcel = Property::normaliseParcel($parcel);
+
+        if ($parcel === null) {
+            return false;
+        }
+
         $query = DB::table('properties')
             ->whereNull('deleted_at')
             ->where('team_id', app(TeamContext::class)->requireId(Property::class))
@@ -147,10 +168,10 @@ trait PropertyRules
     /**
      * The external links S37 edits inline (PRD §7.13).
      *
-     * `present` rather than `required` on the array: an empty list is a
-     * meaningful instruction — remove them all — and `required` would refuse
-     * exactly that. A request that omits `links` entirely leaves them alone,
-     * which `UpdatePropertyRequest` reads by presence.
+     * `sometimes` rather than `required`, and the difference carries meaning:
+     * an empty list is an instruction — remove them all — which `required`
+     * would refuse, while a request that omits `links` entirely leaves them
+     * alone. `UpdatePropertyRequest` reads that second case by presence.
      *
      * @return array<string, mixed>
      */

@@ -12,6 +12,7 @@ use App\Models\Concerns\HasProductDefaults;
 use Database\Factories\PropertyFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -76,6 +77,36 @@ class Property extends Model
             'sqft' => 'integer',
             'year_built' => 'integer',
         ];
+    }
+
+    /**
+     * A parcel number is stored the way it is compared.
+     *
+     * `properties_team_parcel_unique` folds case and nothing else, and the
+     * rule that guards it trims before it asks — so `"12-345 "` was invisible
+     * to both and two live properties could sit on one parcel number. Over
+     * HTTP `TrimStrings` hid it; the seeder, an import, and #62's screen do
+     * not go through `TrimStrings`, which is the same argument
+     * `SafeUrl::normalise()` answers for a URL and that this field was left
+     * out of.
+     *
+     * On the model rather than in the action, so every writer inherits it —
+     * including the factory, which is what makes a test able to reproduce the
+     * shape a screen produces.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    protected function parcelNumber(): Attribute
+    {
+        return Attribute::set(fn (mixed $value): ?string => self::normaliseParcel($value));
+    }
+
+    /** The one spelling of "the same parcel number", shared with the rule. */
+    public static function normaliseParcel(mixed $value): ?string
+    {
+        $parcel = trim((string) (is_scalar($value) ? $value : ''));
+
+        return $parcel === '' ? null : $parcel;
     }
 
     /**

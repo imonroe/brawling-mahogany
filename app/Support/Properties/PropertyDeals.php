@@ -8,6 +8,7 @@ use App\Models\Deal;
 use App\Models\DealProperty;
 use App\Models\Property;
 use App\Support\Activity\RecordActivity;
+use App\Support\Deals\NameDeal;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -25,7 +26,10 @@ use Illuminate\Validation\ValidationException;
  */
 final class PropertyDeals
 {
-    public function __construct(private readonly RecordActivity $activity) {}
+    public function __construct(
+        private readonly RecordActivity $activity,
+        private readonly NameDeal $names,
+    ) {}
 
     /**
      * Put a property on a deal.
@@ -97,6 +101,19 @@ final class PropertyDeals
              * onto it" — and a property's own history is the sum of the deals
              * it appeared on.
              */
+            /*
+             * And the flag has to do something, or it is a column with an
+             * argument attached.
+             *
+             * `is_subject` exists because IA §10 names a deal after its
+             * subject property's street. Setting it and stopping left S36's
+             * own "linked deals" panel rendering *Untitled deal* beside the
+             * house that had just been linked to it — `GenerateDealName`
+             * shipped with #59 and had no caller anywhere, because until this
+             * issue there was no property to be named after.
+             */
+            $this->names->refresh($deal);
+
             $this->activity->record(
                 subject: $deal,
                 eventType: 'property.linked',
@@ -140,6 +157,16 @@ final class PropertyDeals
             if ($deal === null) {
                 return;
             }
+
+            /*
+             * The deal keeps the name it had until a new fact arrives.
+             *
+             * `NameDeal` only rewrites when there is something to build from,
+             * so removing the subject does not blank the column — a stale
+             * name is far better than a row that reads "Untitled deal" in
+             * every list a moment after somebody tidied up a property.
+             */
+            $this->names->refresh($deal);
 
             $this->activity->record(
                 subject: $deal,

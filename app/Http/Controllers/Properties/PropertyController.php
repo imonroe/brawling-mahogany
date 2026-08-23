@@ -15,6 +15,7 @@ use App\Models\DealProperty;
 use App\Models\ExternalLink;
 use App\Models\Property;
 use App\Queries\PropertyDirectory;
+use App\Support\Activity\RecordActivity;
 use App\Support\Properties\PropertyDeals;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
@@ -79,10 +80,15 @@ class PropertyController extends Controller
             'dealLinks.deal.dealType',
         ]);
 
-        // `PropertyDirectory::row()` reports the count the index computes with
-        // `withCount`; on this screen the links are loaded anyway, so it comes
-        // from the collection rather than from a second query.
-        $property->setAttribute('deal_links_count', $property->dealLinks->count());
+        /*
+         * Counted, not taken from the loaded collection.
+         *
+         * `dealLinks` above is filtered to links whose deal still exists, and
+         * `destroy()` removes **every** link — so a count read off that
+         * collection would understate what the delete confirmation is about to
+         * do whenever a trashed deal is in the mix.
+         */
+        $property->loadCount('dealLinks');
 
         return Inertia::render('Properties/Show', [
             'property' => [
@@ -160,13 +166,34 @@ class PropertyController extends Controller
      * because a property deleted with half its links still attached is a
      * record somebody repairs by hand.
      */
-    public function destroy(Property $property, PropertyDeals $deals): RedirectResponse
+    public function destroy(Property $property, PropertyDeals $deals, RecordActivity $activity): RedirectResponse
     {
         $this->authorize('delete', $property);
 
-        DB::transaction(function () use ($property, $deals): void {
+        DB::transaction(function () use ($property, $deals, $activity): void {
             $property->dealLinks()->with('deal', 'property')->get()
                 ->each(fn (DealProperty $link) => $deals->unlink($link));
+
+            /*
+             * Recorded before the delete, and on the property's own timeline.
+             *
+             * Adding one writes `property.added` and changing its status
+             * writes `property.status_changed`; removing it wrote only the
+             * unlink entries, which live on the *deals*. So a property with no
+             * deals left the directory with no trace anywhere of who removed
+             * it or when — the one event in its life that somebody comes
+             * looking for.
+             *
+             * The external links go with it too, through
+             * `HasExternalLinks`' own `deleting` hook: polymorphic, so no
+             * foreign key reaches them and `records:purge` finds a row by its
+             * `deleted_at` or not at all.
+             */
+            $activity->record(
+                subject: $property,
+                eventType: 'property.deleted',
+                summary: 'Deleted '.$property->displayName(),
+            );
 
             $property->delete();
         });

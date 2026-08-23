@@ -342,8 +342,24 @@ unknowable at schema time.
 What stands there instead, and in this order:
 
 1. **`team_id` is still NOT NULL on the child.** Layers 1, 3, 4 and 5 all key
-   on it, and so does `records:purge`. A table without one is outside every
-   mechanism the product has, which is the lesson `people` taught.
+   on it, and so does `records:purge`'s table discovery. A table without one
+   is outside every mechanism the product has, which is the lesson `people`
+   taught.
+
+   **But `team_id` is only half of what the purge needs, and the other half is
+   the parent's job.** `PurgeSoftDeletedRecords` finds a row by its
+   `deleted_at`, and relies on `ON DELETE CASCADE` to reach children that have
+   none — which is exactly the mechanism a polymorphic pointer does not have.
+   So a link left live when its property was soft-deleted was swept by
+   nothing: the property was hard-deleted at day thirty, no cascade reached
+   the link, and the row stayed forever, pointing at an id that no longer
+   existed. Past PRD §9's *"then hard delete"*, and invisible.
+
+   The fix is a `deleting` hook on `HasExternalLinks`, not on the controller
+   that happened to notice — the same sentence this section makes about the
+   tenancy guard, for the same reason. **The rule: a polymorphic child is
+   deleted by its parent's model, in the parent's own transaction, matching
+   the parent's softness.** Nothing else will.
 2. **An allowlist of what may be pointed at.** `ExternalLink::LINKABLE` is a
    list of class names, and every entry must itself be team-scoped — because
    the guard below reads the target's `team_id`, and a target without one has

@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Actions\Properties\SaveProperty;
 use App\Enums\PropertyStatus;
 use App\Enums\PropertyType;
 use App\Enums\SystemRole;
+use App\Models\ActivityEvent;
 use App\Models\Deal;
 use App\Models\DealProperty;
 use App\Models\ExternalLink;
@@ -12,7 +14,9 @@ use App\Models\Person;
 use App\Models\Property;
 use App\Models\Role;
 use App\Models\TeamMembership;
+use App\Queries\PropertyDirectory;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\DB;
 
 /**
  * S35, S36, S37 — properties (issue #61 · PRD §4.3 F3.4, §7.11, §7.13, §10).
@@ -466,7 +470,7 @@ it('trims a link before it stores it', function (): void {
     // that was judged. `TrimStrings` covers HTTP and nothing else.
     $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
 
-    app(App\Actions\Properties\SaveProperty::class)->update($property, [], [
+    app(SaveProperty::class)->update($property, [], [
         ['label' => 'Zillow', 'url' => '  https://zillow.test/1  '],
     ]);
 
@@ -489,22 +493,177 @@ it('does not fall over when a linked deal has been deleted', function (): void {
         ->assertInertia(fn ($page) => $page->has('deals', 0));
 });
 
-it('paginates in a stable order when nothing has an address', function (): void {
-    // A property created from a parcel number has no city and no street, and
-    // Postgres gives no stable order among ties — so a row could appear on
-    // two pages, or on none.
-    Property::factory()->count(30)->withoutAddress()->create(['team_id' => $this->team->getKey()]);
+it('renders a property that has only a parcel number', function (): void {
+    // The form allows it and `displayName()` falls back for it, so the
+    // directory has to survive it — every sort key is null on this row.
+    Property::factory()->withoutAddress()->create([
+        'team_id' => $this->team->getKey(),
+        'parcel_number' => '0512-14-002-0031',
+    ]);
 
-    $firstPage = $this->get('/properties')->viewData('page')['props']['properties']['data'];
-    $secondPage = $this->get('/properties?page=2')->viewData('page')['props']['properties']['data'];
+    $this->get('/properties')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('properties.data.0.name', 'Parcel 0512-14-002-0031')
+            ->where('properties.data.0.address.street', null));
+});
 
-    $ids = [
-        ...array_column($firstPage, 'id'),
-        ...array_column($secondPage, 'id'),
-    ];
+it('orders the directory by something unique, so a page cannot repeat a row', function (): void {
+    /*
+     * Asserted against the source rather than against two pages of results,
+     * and the reason is worth writing down because two behavioural versions of
+     * this test passed against the bug.
+     *
+     * `city` and `street` are both null for a parcel-number-only property, so
+     * every row ties — and a tie under `LIMIT`/`OFFSET` is where a row appears
+     * on two pages or on none. But `properties` carries
+     * `unique(['team_id', 'id'])` and Postgres answers this query through that
+     * index, which returns id order whether or not anything asked for it.
+     * Rewriting half the tuples to disturb the heap did not change it either.
+     * The outcome is stable here by accident of the plan, and no assertion
+     * about results can fail while that accident holds.
+     *
+     * What can fail is the query. A plan is not a guarantee — a different
+     * Postgres, a dropped index, an added filter — and the tiebreaker is what
+     * makes the order the product's decision rather than the planner's. Some
+     * rules are only checkable where they are written, which is the argument
+     * `SingleMutationPathTest` and `UnscopedQueryConventionTest` already make.
+     */
+    $method = new ReflectionMethod(PropertyDirectory::class, 'paginate');
 
-    expect($ids)->toHaveCount(30)
-        ->and(array_unique($ids))->toHaveCount(30);
+    $source = implode('', array_slice(
+        (array) file((string) $method->getFileName()),
+        $method->getStartLine() - 1,
+        $method->getEndLine() - $method->getStartLine() + 1,
+    ));
+
+    expect($source)->toMatch("/->orderBy\('id'\)\s*\n\s*->paginate\(/");
+});
+
+it('takes a deleted property’s links with it, so the purge can reach them', function (): void {
+    /*
+     * `external_links` is polymorphic, so no foreign key cascades to it, and
+     * `records:purge` finds a row by its `deleted_at` or not at all. A link
+     * left live when its property was soft-deleted survived the purge that
+     * hard-deleted the property — orphaned permanently, and past PRD §9's
+     * "then hard delete".
+     */
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+    ExternalLink::factory()->attachedTo($property)->create();
+
+    $this->delete("/properties/{$property->getKey()}")->assertRedirect('/properties');
+
+    expect(ExternalLink::withTrashed()->count())->toBe(1)
+        ->and(ExternalLink::query()->count())->toBe(0);
+
+    // And the sweep reaches it once the window closes.
+    DB::table('external_links')->update(['deleted_at' => now()->subDays(60)]);
+    DB::table('properties')->update(['deleted_at' => now()->subDays(60)]);
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(DB::table('external_links')->count())->toBe(0)
+        ->and(DB::table('properties')->count())->toBe(0);
+});
+
+it('records the deletion on the property’s own timeline', function (): void {
+    // Adding one writes `property.added`; removing it wrote only the unlink
+    // entries, which live on the deals — so a property with no deals left the
+    // directory with no trace anywhere.
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->delete("/properties/{$property->getKey()}")->assertRedirect('/properties');
+
+    expect(ActivityEvent::query()->where('event_type', 'property.deleted')->count())->toBe(1);
+});
+
+it('normalises a parcel number however it is written', function (): void {
+    /*
+     * The rule trimmed before it asked and the write did not, so a value with
+     * surrounding whitespace was invisible to the rule *and* to
+     * `lower(parcel_number)` — two live properties on one parcel number in one
+     * team. Over HTTP `TrimStrings` hid it; the seeder and #62 do not go
+     * through `TrimStrings`, which is the whole reason the normalisation lives
+     * on the model.
+     */
+    app(SaveProperty::class)->create([
+        'type' => PropertyType::SingleFamily->value,
+        'status' => PropertyStatus::PreListing->value,
+        'parcel_number' => '  12-345  ',
+    ]);
+
+    expect(Property::query()->sole()->parcel_number)->toBe('12-345');
+
+    $this->post('/properties', [
+        'parcel_number' => '12-345',
+        'type' => PropertyType::SingleFamily->value,
+        'status' => PropertyStatus::PreListing->value,
+    ])->assertSessionHasErrors('parcel_number');
+
+    expect(Property::query()->count())->toBe(1);
+});
+
+it('refuses a bath count the column cannot hold without rounding', function (): void {
+    // `decimal(3, 1)` stored `2.55` as `2.6` — a value quietly becoming a
+    // different value.
+    $this->post('/properties', [
+        'baths' => '2.55',
+        'type' => PropertyType::SingleFamily->value,
+        'status' => PropertyStatus::PreListing->value,
+    ])->assertSessionHasErrors('baths');
+});
+
+it('names a deal after the property that is linked to it', function (): void {
+    /*
+     * The whole argument for `is_subject` is that IA §10 names a deal after
+     * its subject property's street. Setting the flag and stopping left S36's
+     * own panel rendering "Untitled deal" beside the house that had just been
+     * linked to it.
+     */
+    $property = Property::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'street' => '1420 Pearl St',
+    ]);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => null, 'generated_name' => null]);
+
+    $this->post("/properties/{$property->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    expect($deal->fresh()->generated_name)->toBe('1420 Pearl St')
+        ->and($deal->fresh()->displayName())->toBe('1420 Pearl St');
+});
+
+it('leaves a typed deal name alone when a property is linked', function (): void {
+    // Issue #59: "editing the name does not stop `generated_name` from
+    // updating when the property changes." Two columns, and the typed one
+    // wins on every screen.
+    $property = Property::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'street' => '1420 Pearl St',
+    ]);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'The Pearl job']);
+
+    $this->post("/properties/{$property->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    expect($deal->fresh()->generated_name)->toBe('1420 Pearl St')
+        ->and($deal->fresh()->displayName())->toBe('The Pearl job');
+});
+
+it('keeps the name a deal had when its subject property is removed', function (): void {
+    // A stale name beats a list of "Untitled deal" a moment after somebody
+    // tidied up a property.
+    $property = Property::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'street' => '1420 Pearl St',
+    ]);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => null, 'generated_name' => null]);
+
+    $this->post("/properties/{$property->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    $link = DealProperty::query()->sole();
+
+    $this->delete("/properties/{$property->getKey()}/deals/{$link->getKey()}")->assertRedirect();
+
+    expect($deal->fresh()->generated_name)->toBe('1420 Pearl St');
 });
 
 it('refuses somebody with no permissions, on read and on write', function (): void {

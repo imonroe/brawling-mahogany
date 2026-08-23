@@ -44,12 +44,21 @@ it('keeps the allowlist and the trait in step', function (): void {
     expect(modelsUsingExternalLinks())->toBe($allowlist);
 });
 
-it('lists only team-scoped models', function (): void {
-    // The guard reads the target's `team_id`. A model without one has no
-    // answer to give, and the check would pass every foreign row.
+it('lists only team-scoped models that soft-delete', function (): void {
     foreach (ExternalLink::LINKABLE as $class) {
-        expect(in_array(App\Models\Concerns\BelongsToTeam::class, class_uses_recursive($class), true))
+        $traits = class_uses_recursive($class);
+
+        // The guard reads the target's `team_id`. A model without one has no
+        // answer to give, and the check would pass every foreign row.
+        expect(in_array(App\Models\Concerns\BelongsToTeam::class, $traits, true))
             ->toBeTrue("[{$class}] carries no team.");
+
+        // And `HasExternalLinks`' own `deleting` hook calls
+        // `isForceDeleting()`. Without soft deletes that is a fatal, and the
+        // links would outlive their record with nothing to purge them:
+        // polymorphic, so no foreign key reaches them.
+        expect(in_array(Illuminate\Database\Eloquent\SoftDeletes::class, $traits, true))
+            ->toBeTrue("[{$class}] does not soft-delete.");
     }
 });
 

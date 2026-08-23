@@ -58,10 +58,23 @@ function unlink(deal: LinkedDeal): void {
     });
 }
 
+/**
+ * IA §10: name the object and the consequence — and only consequences that
+ * are true.
+ *
+ * The first version promised the property "can be restored for 30 days".
+ * Nothing restores a property: no route, no console command, no admin path.
+ * Thirty days is how long `records:purge` leaves the row before hard-deleting
+ * it, which is a retention window rather than an affordance anybody has.
+ *
+ * The count comes from `property.dealCount`, not from `deals.length`: this
+ * screen only lists links whose deal still exists, and the delete removes
+ * every link.
+ */
 function destroy(): void {
     if (
         !window.confirm(
-            `Delete ${props.property.name}? It comes off ${formatCount(props.deals.length, 'deal')} and can be restored for 30 days.`,
+            `Delete ${props.property.name}? It comes off ${formatCount(props.property.dealCount, 'deal')}, along with its links, and is purged after 30 days.`,
         )
     ) {
         return;
