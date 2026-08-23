@@ -661,3 +661,85 @@ it('does not show a revoked client as the chosen one on the recovery screen', fu
         ->assertOk()
         ->assertInertia(fn ($page) => $page->where('chosen.membership', null));
 });
+
+it('clears a role answered before any deal type was chosen', function (): void {
+    /*
+     * The half of the type-change rule that `$previous === null` left open.
+     * "No type chosen yet" is only "nothing to invalidate" if a later answer
+     * cannot exist yet — and it can: the step nav is unguarded and the role
+     * select shows whenever nothing implies a role, which includes a draft
+     * with no type at all.
+     */
+    $sale = typeOn(DealSide::Sell);
+    $client = clientIn('Okonkwo');
+
+    $this->patch('/deals/create', [
+        'step' => 'client',
+        'team_membership_id' => $client->getKey(),
+        'participant_role' => ParticipantRole::Other->value,
+    ])->assertSessionHasNoErrors();
+
+    // Step one, for the first time.
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $sale->getKey()])
+        ->assertSessionHasNoErrors();
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertSessionHasNoErrors();
+
+    // The Sale's implied Seller, not the role answered before there was a
+    // deal type to imply anything.
+    expect(Deal::query()->sole()->participants()->sole()->participant_role)
+        ->toBe(ParticipantRole::Seller);
+});
+
+it('reports a cleared template to the screen, not just to the payload', function (): void {
+    /*
+     * The server forgetting an answer is only half a fix — the screen has to
+     * be told, or it keeps drawing the template as chosen over a draft that no
+     * longer holds it, and Create produces a deal with no workflow and a
+     * success toast.
+     *
+     * Asserted on the prop the component mirrors, because that is the channel
+     * that was silent.
+     */
+    $first = typeOn(DealSide::Sell);
+    $second = typeOn(DealSide::Buy);
+    $template = templateWithStages();
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $first->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'template', 'workflow_template_id' => $template->getKey()])
+        ->assertRedirect();
+
+    $this->get('/deals/create')
+        ->assertInertia(fn ($page) => $page->where('draft.workflowTemplateId', $template->getKey()));
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $second->getKey()])->assertRedirect();
+
+    $this->get('/deals/create')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('draft.workflowTemplateId', null)
+            ->where('draft.participantRole', null));
+});
+
+it('does not report a revoked client through the id the screen posts back', function (): void {
+    // `draft.membershipId` is the fourth reader of this field and the role
+    // setter PATCHes it, so an unfiltered one would post an id the step's own
+    // `exists` rule refuses — a validation error on a field nobody touched.
+    $type = typeOn(DealSide::Sell);
+    $client = clientIn('Sandoval');
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'client', 'team_membership_id' => $client->getKey()])->assertRedirect();
+
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $client->forceFill(['revoked_at' => now()])->save(),
+    );
+
+    $this->get('/deals/create')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('draft.membershipId', null)
+            ->where('chosen.membership', null));
+});

@@ -144,7 +144,7 @@ Written after the fact, so the ADR describes the code rather than the plan.
 |---|---|
 | 1. Global scope | `App\Models\Concerns\BelongsToTeam` and `TeamScope`. `App\Support\Tenancy\TeamContext` holds the one resolved team |
 | 2. Database | `productDefaults()`'s foreign key and `(team_id, id)` unique index; `teamScopedForeign()` for composite child keys |
-| 3. Middleware | `ResolveCurrentTeam` (session first, route second) and `EnsureTeamContext` |
+| 3. Middleware | `ResolveCurrentTeam` (session first, route second) and `EnsureTeamContext`, both ordered ahead of `SubstituteBindings` in `bootstrap/app.php` |
 | 4. Policies | `App\Policies\*`, all using `ChecksTeamPermissions`, all denying by default |
 | 5. Tests | `tests/Isolation/` — `CrossTenantAccessTest` for the vectors, `ModelTenancyConventionTest` for the models |
 
@@ -159,6 +159,29 @@ Two things the implementation added that the decision did not name:
   said "every controller action is gated"; this is what holds it.
 
 ## Decided since
+
+- **Layer 3 has to run before route model binding** (issue #156). Appending
+  the tenancy middleware to the web group is not enough to place them:
+  `SubstituteBindings` is in Laravel's middleware priority list and the
+  appended middleware were not, so the binding ran first. It queried a
+  team-scoped table with no team established, layer 1 threw
+  `MissingTeamContextException` exactly as designed, and every screen that
+  binds a team-scoped model answered 500 — `/people/{membership}`,
+  `/properties/{property}`, and the redirect a store lands on — while the
+  index beside it, binding nothing, was fine.
+
+  So the order is declared rather than assumed:
+  `prependToPriorityList()` puts `HandleImpersonation`, `ResolveCurrentTeam`
+  and `EnsureTeamContext` ahead of `SubstituteBindings`, in that order — who
+  the person is, which team they are standing in, and a refusal when the
+  answer is none, all settled before a binding may touch a scoped table.
+
+  **The suite could not see it, and that is the part worth remembering.**
+  `TestCase::withTeam()` sets the context in the container before the request
+  is made, so a feature test has a team whatever order the middleware are in.
+  Only a session-backed request asks `ResolveCurrentTeam` for the answer.
+  `tests/Feature/Tenancy/TeamResolutionTest.php` now holds three that do,
+  giving the request nothing but a session — which is all a browser has.
 
 - **`people` is the login, and nothing else** (issues #18 and #140, PRD
   decision log 2026-08-22). Slice 1 shared one row per human across teams with

@@ -69,12 +69,26 @@ class DealWizardController extends Controller
         $draft = $drafts->open($person);
         $type = $draft->dealType();
 
+        /*
+         * Resolved once, and both places that report the client read it.
+         *
+         * `membershipId` used to come straight off the payload while
+         * `chosen.membership` was filtered — so a revoked client vanished from
+         * the badge and stayed in the id the screen posts back. That became
+         * load-bearing when the role setter started PATCHing
+         * `draft.membershipId`: it would have sent an id the step's own
+         * `exists` rule refuses, turning a stale draft into a validation error
+         * on a field nobody had touched. Four readers of this field now, and
+         * they agree.
+         */
+        $chosenMembership = $this->chosenMembership($draft);
+
         return Inertia::render('Deals/Create', [
             'draft' => [
                 'step' => $draft->step->value,
                 'dealTypeId' => $type?->getKey(),
                 'name' => $draft->text('name'),
-                'membershipId' => $draft->text('team_membership_id'),
+                'membershipId' => $chosenMembership['id'] ?? null,
                 'participantRole' => $draft->text('participant_role'),
                 'propertyId' => $draft->text('property_id'),
                 'workflowTemplateId' => $draft->text('workflow_template_id'),
@@ -118,7 +132,7 @@ class DealWizardController extends Controller
             // What is already picked, so a resumed draft can render its
             // choices without a second round trip.
             'chosen' => [
-                'membership' => $this->chosenMembership($draft),
+                'membership' => $chosenMembership,
                 'property' => $this->chosenProperty($draft),
             ],
         ]);

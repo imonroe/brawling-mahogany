@@ -21,6 +21,87 @@ it('sends a person with no membership to the no-team screen', function (): void 
     $this->get('/no-team')->assertOk();
 });
 
+/**
+ * Issue #156: the team must be resolved *before* route model binding.
+ *
+ * `SubstituteBindings` sits in Laravel's middleware priority list; the
+ * tenancy middleware, appended to the web group, did not — so the binding ran
+ * first, queried a team-scoped table with nothing established, and the global
+ * scope threw `MissingTeamContextException`. Every screen that binds a
+ * team-scoped model answered 500, while the index beside it, binding nothing,
+ * was fine.
+ *
+ * These three tests deliberately do **not** use `actingAsPerson()`: that
+ * helper sets the context in the container before the request is made, which
+ * is what hid the fault from the whole suite. A browser arrives carrying a
+ * session and nothing else, so that is all these give it.
+ */
+it('resolves the team before a route binds a team-scoped model', function (): void {
+    [$team, $member] = $this->teamWithMember();
+
+    $membership = app(TeamContext::class)->runFor(
+        $team,
+        fn (): TeamMembership => TeamMembership::query()
+            ->where('person_id', $member->getKey())
+            ->sole(),
+    );
+
+    $this->actingAs($member);
+    $this->withSession([ResolveCurrentTeam::SESSION_KEY => $team->getKey()]);
+
+    // The state a real request starts in: the session knows the team, the
+    // container does not, and the middleware is the only thing that can say.
+    app(TeamContext::class)->set(null);
+
+    $this->get("/people/{$membership->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('membership.id', $membership->getKey()));
+});
+
+it('binds the record a redirect lands on, straight after creating it', function (): void {
+    // The reporter's second symptom, and the same fault underneath: adding a
+    // property redirects to `properties.show`, which binds `{property}`.
+    [$team, $member] = $this->teamWithMember();
+
+    $this->actingAs($member);
+    $this->withSession([ResolveCurrentTeam::SESSION_KEY => $team->getKey()]);
+    app(TeamContext::class)->set(null);
+
+    $created = $this->post('/properties', [
+        'street' => '12 Alder Way',
+        'city' => 'Denver',
+        'state_code' => 'CO',
+        'postal_code' => '80202',
+        'type' => 'single_family',
+        'status' => 'pre_listing',
+    ]);
+
+    $created->assertRedirect();
+
+    app(TeamContext::class)->set(null);
+
+    $this->get((string) $created->headers->get('Location'))->assertOk();
+});
+
+it('refuses rather than throws when a bound route is reached with no team', function (): void {
+    // The other half of the ordering: `EnsureTeamContext` has to run ahead of
+    // the binding as well, or somebody with no live membership meets a 500
+    // from the global scope instead of the "no team" screen (S09).
+    [$team, $member] = $this->teamWithMember();
+
+    $membership = app(TeamContext::class)->runFor(
+        $team,
+        fn (): TeamMembership => TeamMembership::query()
+            ->where('person_id', $member->getKey())
+            ->sole(),
+    );
+
+    $this->actingAs(Person::factory()->create());
+    app(TeamContext::class)->set(null);
+
+    $this->get("/people/{$membership->getKey()}")->assertRedirect(route('teams.none'));
+});
+
 it('remembers the team across requests', function (): void {
     [$team, $member] = $this->teamWithMember();
 

@@ -157,7 +157,19 @@ final class RecordDealDraft
 
         $previous = $draft->text('deal_type_id');
 
-        if ($previous === null || $previous === $answers['deal_type_id']) {
+        /*
+         * `$previous === null` is deliberately **not** a reason to keep them.
+         *
+         * The first version treated "no type chosen yet" as "nothing to
+         * invalidate", which is only true if a later answer cannot exist yet —
+         * and it can. The step nav is unguarded, the role select shows
+         * whenever no type implies one, and `impliedRole()` is null on a
+         * draft with no type at all. So a role could be answered *before*
+         * step one, survive the first type choice, and produce round 3's
+         * exact printout: a Sale deal whose client holds `other`, S19 warning
+         * about a missing Seller from the moment it was created.
+         */
+        if ($previous === $answers['deal_type_id']) {
             return $payload;
         }
 

@@ -238,6 +238,39 @@ async function search(
     }
 }
 
+/*
+ * The server can forget an answer without the screen asking it to.
+ *
+ * `RecordDealDraft::invalidateDerived()` clears the role and the template when
+ * step one's answer changes, because both are derived from it. Nothing told
+ * this component: `router.patch` preserves state, so `useForm` initializers
+ * never re-run, and `stepTwo.participant_role` and
+ * `stepFour.workflow_template_id` are mirrors of exactly the two keys that get
+ * deleted.
+ *
+ * The visible failure was a template row still drawn as selected — tick,
+ * `aria-pressed="true"` — over a draft that no longer held it, so Create
+ * produced a deal with no workflow, no error, and a success toast. That is the
+ * outcome `CreateDealFromDraft`'s own docblock calls *worse* than a half-made
+ * record, because it looks finished.
+ *
+ * So the mirrors follow the draft. This fires only when the server's answer
+ * actually changes, which is the one moment it is authoritative.
+ */
+watch(
+    () => [
+        props.draft.participantRole,
+        props.draft.workflowTemplateId,
+        props.draft.membershipId,
+    ],
+    ([role, template, membership]) => {
+        stepTwo.participant_role = role ?? null;
+        newClient.participant_role = role ?? null;
+        stepFour.workflow_template_id = template ?? '';
+        stepTwo.team_membership_id = membership ?? '';
+    },
+);
+
 watch(clientSearch, (term) => {
     clearTimeout(clientTimer);
     clientTimer = setTimeout(() => {
