@@ -538,6 +538,21 @@ it('orders the directory by something unique, so a page cannot repeat a row', fu
     ));
 
     /*
+     * Comments stripped through the tokeniser, the way
+     * `UnscopedQueryConventionTest` does it.
+     *
+     * Without this the guard passes on a method that only *mentions*
+     * `->orderBy('id')` in a comment — which is precisely how a rule like this
+     * gets quietly disabled, since deleting the call and leaving the note
+     * behind is what a hurried edit looks like.
+     */
+    $source = implode('', array_map(
+        fn (array|string $token): string => is_array($token)
+            && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($token) ? $token[1] : $token),
+        token_get_all('<?php '.$source),
+    ));
+
+    /*
      * Offsets, not a regex over the whitespace between them.
      *
      * The first version required a literal newline, so joining the two calls
@@ -642,6 +657,86 @@ it('names a deal after the property that is linked to it', function (): void {
 
     expect($deal->fresh()->generated_name)->toBe('1420 Pearl St')
         ->and($deal->fresh()->displayName())->toBe('1420 Pearl St');
+});
+
+it('renames the deal when its subject property is removed from it', function (): void {
+    /*
+     * `unlink()` refreshes the name, and nothing held that: the call could be
+     * deleted outright and the whole suite stayed green. The behaviour is
+     * real — a deal named "1420 Pearl St · Bosart Sale" falls back to
+     * "Bosart Sale" when the house comes off it — and #62 is about to touch
+     * these rules, so the guard has to exist before it does.
+     *
+     * Distinct from "keeps the name a deal had when its subject property is
+     * removed", which pins the case where nothing else is left to build from.
+     * Here a participant remains, so a *different* name is correct.
+     */
+    $property = Property::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'street' => '1420 Pearl St',
+    ]);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => null, 'generated_name' => null]);
+
+    $membership = TeamMembership::query()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => Person::factory()->create()->getKey(),
+        'first_name' => 'Emily',
+        'last_name' => 'Bosart',
+        'status' => App\Enums\PersonLifecycleState::Active,
+        'joined_at' => now(),
+    ]);
+
+    app(App\Support\Deals\DealRoster::class)->add(
+        deal: $deal,
+        membership: $membership,
+        role: App\Enums\ParticipantRole::Seller,
+        isPrimary: true,
+    );
+
+    $this->post("/properties/{$property->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    expect($deal->fresh()->generated_name)->toBe('1420 Pearl St · Bosart Sale');
+
+    $link = DealProperty::query()->sole();
+
+    $this->delete("/properties/{$property->getKey()}/deals/{$link->getKey()}")->assertRedirect();
+
+    // The street is gone; the surname is not.
+    expect($deal->fresh()->generated_name)->toBe('Bosart Sale');
+});
+
+it('does not go looking for a name when the link removed was not the subject', function (): void {
+    /*
+     * `unlink()` skips the refresh for a link that was never the subject,
+     * because the recomputed name is identical by construction — and deleting
+     * a property unlinks every one of its deals in a loop.
+     *
+     * Held by the query count rather than by the outcome, because the outcome
+     * is the same either way. That is the whole reason the filter needed a
+     * test written for it deliberately: removing it left every assertion in
+     * the suite green.
+     */
+    $subject = Property::factory()->create(['team_id' => $this->team->getKey(), 'street' => '1420 Pearl St']);
+    $other = Property::factory()->create(['team_id' => $this->team->getKey(), 'street' => '88 Mapleton Ave']);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->post("/properties/{$subject->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+    $this->post("/properties/{$other->getKey()}/deals", ['deal_id' => $deal->getKey()])->assertRedirect();
+
+    $link = DealProperty::query()->where('property_id', $other->getKey())->sole();
+
+    $naming = 0;
+
+    DB::listen(function ($query) use (&$naming): void {
+        // The two selects `NameDeal` makes that nothing else on this path does.
+        if (str_contains($query->sql, 'from "deal_participants"')) {
+            $naming++;
+        }
+    });
+
+    $this->delete("/properties/{$other->getKey()}/deals/{$link->getKey()}")->assertRedirect();
+
+    expect($naming)->toBe(0);
 });
 
 it('renames the deal when the subject property’s street is corrected', function (): void {

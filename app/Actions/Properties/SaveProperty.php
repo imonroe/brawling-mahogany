@@ -134,7 +134,10 @@ final class SaveProperty
         DealProperty::query()
             ->where('property_id', $property->getKey())
             ->where('is_subject', true)
-            ->with('deal')
+            // `deal.dealType`, not `deal`: `NameDeal` asks the deal for its
+            // side, so the shallow load is one `deal_types` select per deal —
+            // the same N+1 this commit removed from `destroy()`.
+            ->with('deal.dealType')
             ->get()
             ->each(function (DealProperty $link): void {
                 if ($link->deal instanceof Deal) {
@@ -144,7 +147,6 @@ final class SaveProperty
     }
 
     /**
-     * Make the stored links match what the form sent.    /**
      * Make the stored links match what the form sent.
      *
      * Matched by id rather than replaced wholesale. Soft-deleting every link
