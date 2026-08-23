@@ -144,7 +144,7 @@ Written after the fact, so the ADR describes the code rather than the plan.
 |---|---|
 | 1. Global scope | `App\Models\Concerns\BelongsToTeam` and `TeamScope`. `App\Support\Tenancy\TeamContext` holds the one resolved team |
 | 2. Database | `productDefaults()`'s foreign key and `(team_id, id)` unique index; `teamScopedForeign()` for composite child keys |
-| 3. Middleware | `ResolveCurrentTeam` (session first, route second) and `EnsureTeamContext` |
+| 3. Middleware | `ResolveCurrentTeam` (session first, route second) and `EnsureTeamContext`, both ordered ahead of `SubstituteBindings` in `bootstrap/app.php` |
 | 4. Policies | `App\Policies\*`, all using `ChecksTeamPermissions`, all denying by default |
 | 5. Tests | `tests/Isolation/` — `CrossTenantAccessTest` for the vectors, `ModelTenancyConventionTest` for the models |
 
@@ -159,6 +159,29 @@ Two things the implementation added that the decision did not name:
   said "every controller action is gated"; this is what holds it.
 
 ## Decided since
+
+- **Layer 3 has to run before route model binding** (issue #156). Appending
+  the tenancy middleware to the web group is not enough to place them:
+  `SubstituteBindings` is in Laravel's middleware priority list and the
+  appended middleware were not, so the binding ran first. It queried a
+  team-scoped table with no team established, layer 1 threw
+  `MissingTeamContextException` exactly as designed, and every screen that
+  binds a team-scoped model answered 500 — `/people/{membership}`,
+  `/properties/{property}`, and the redirect a store lands on — while the
+  index beside it, binding nothing, was fine.
+
+  So the order is declared rather than assumed:
+  `prependToPriorityList()` puts `HandleImpersonation`, `ResolveCurrentTeam`
+  and `EnsureTeamContext` ahead of `SubstituteBindings`, in that order — who
+  the person is, which team they are standing in, and a refusal when the
+  answer is none, all settled before a binding may touch a scoped table.
+
+  **The suite could not see it, and that is the part worth remembering.**
+  `TestCase::withTeam()` sets the context in the container before the request
+  is made, so a feature test has a team whatever order the middleware are in.
+  Only a session-backed request asks `ResolveCurrentTeam` for the answer.
+  `tests/Feature/Tenancy/TeamResolutionTest.php` now holds three that do,
+  giving the request nothing but a session — which is all a browser has.
 
 - **`people` is the login, and nothing else** (issues #18 and #140, PRD
   decision log 2026-08-22). Slice 1 shared one row per human across teams with
@@ -388,6 +411,26 @@ types, guard on the model with the scope *on*, and write the isolation test
 for the update path as well as the insert. If any of those four feels like
 too much for what the table is worth, the table probably wants a plain
 `teamScopedForeign()` and a second column instead.
+
+### A record that is one person's, inside a team (#74)
+
+`deal_drafts` is the one table here whose rows are **not** shared by the team
+that owns them. Every other `team_id` in this schema means "everybody in this
+team may see this"; a wizard draft adds "and only the person who started it".
+
+The reason is not privacy, it is loss. Two agents creating deals at the same
+time are doing two different things, and a resume that landed in a colleague's
+half-typed address would destroy their work rather than share it. So
+`DealDraftPolicy` asks `created_by_person_id === $person->getKey()` on top of
+the usual team check, and the wizard resolves the draft **from the actor** —
+there is no draft id in any URL, which is what makes the policy a second line
+rather than the only one.
+
+**This is not a precedent for narrowing other tables.** A note, a document, a
+deal is the team's by design, and PRD §4.2's whole argument for a shared
+workspace depends on that. What makes a draft different is that it is a *form
+in progress* rather than a record — and the moment it becomes a record, it
+becomes the team's like everything else.
 
 ## Not decided here
 

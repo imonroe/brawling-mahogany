@@ -20,10 +20,11 @@
  * rename would be a lie.
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { ArrowDown, ArrowUp, Home, Plus, Star } from '@lucide/vue';
+import { ArrowDown, ArrowUp, Home, Plus, Star, Workflow } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
+import AttachWorkflowDialog from '@/components/app/AttachWorkflowDialog.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import Heading from '@/components/app/Heading.vue';
@@ -46,6 +47,7 @@ const props = defineProps<{
 }>();
 
 const linking = ref(false);
+const attaching = ref(false);
 
 const subject = computed(() => props.links.find((link) => link.isSubject));
 const candidates = computed(() =>
@@ -155,10 +157,22 @@ function remove(link: DealPropertyLink): void {
                         : `The house ${deal.name} is about.`
                 "
             />
-            <AppButton @click="linking = true">
-                <Plus class="size-4" aria-hidden="true" />
-                Link a property
-            </AppButton>
+            <div class="flex flex-wrap gap-2">
+                <!--
+                    S28 lives here until S15 (the deal overview, #75) exists.
+                    A deal with no workflow is a deal nothing will move, and
+                    this is the only deal screen with somewhere to put the
+                    control today.
+                -->
+                <AppButton variant="ghost" @click="attaching = true">
+                    <Workflow class="size-4" aria-hidden="true" />
+                    Attach a workflow
+                </AppButton>
+                <AppButton @click="linking = true">
+                    <Plus class="size-4" aria-hidden="true" />
+                    Link a property
+                </AppButton>
+            </div>
         </div>
 
         <EmptyState
@@ -341,4 +355,5 @@ function remove(link: DealPropertyLink): void {
     </div>
 
     <LinkPropertyDialog v-model:open="linking" :deal-id="deal.id" />
+    <AttachWorkflowDialog v-model:open="attaching" :deal-id="deal.id" />
 </template>

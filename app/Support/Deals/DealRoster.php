@@ -8,6 +8,7 @@ use App\Enums\DealSide;
 use App\Enums\ParticipantRole;
 use App\Models\Deal;
 use App\Models\DealParticipant;
+use App\Models\DealType;
 use App\Models\TeamMembership;
 use App\Support\Activity\RecordActivity;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -376,6 +377,31 @@ final class DealRoster
             // Nothing invented. See the note on missingExpectedRoles().
             DealSide::Rent, DealSide::Other => [],
         };
+    }
+
+    /**
+     * The role a deal type implies for its client, or null where it implies
+     * none.
+     *
+     * Four things need this answer and must not disagree about it: the wizard's
+     * screen (to decide whether to ask), both of its client endpoints (to
+     * decide whether the answer is required), and `CreateDealFromDraft` (to
+     * decide what to add). The controller used to build the throwaway deal
+     * itself, which made it the only caller that knew how — and the inline
+     * client endpoint, written second, did not ask at all.
+     */
+    public static function impliedRole(?DealType $type): ?ParticipantRole
+    {
+        if (! $type instanceof DealType) {
+            return null;
+        }
+
+        // Unsaved and never saved: `expectedRoles()` reads the side off the
+        // relation, so setting it is the whole of what it needs.
+        $deal = new Deal;
+        $deal->setRelation('dealType', $type);
+
+        return self::expectedRoles($deal)[0] ?? null;
     }
 
     /**

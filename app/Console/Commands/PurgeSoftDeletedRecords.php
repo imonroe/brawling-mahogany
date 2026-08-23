@@ -8,6 +8,7 @@ use App\Enums\DataExportState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\ContactImport;
 use App\Models\DataExport;
+use App\Models\DealDraft;
 use App\Models\Person;
 use App\Models\Team;
 use App\Support\Audit\AuditLogger;
@@ -53,7 +54,7 @@ class PurgeSoftDeletedRecords extends Command
         $cutoff = now()->subDays($days);
 
         $purgedRows = 0;
-        $purgedFiles = 0;
+        $purgedStaging = 0;
 
         // The scheduler iterates teams explicitly (ADR 0002). There is no
         // ambient team, and a purge would be the single worst place to
@@ -71,8 +72,9 @@ class PurgeSoftDeletedRecords extends Command
              * nothing anywhere pointing at it. Round 2 fixed this shape for
              * an expired export and left it reachable through a purged one.
              */
-            $purgedFiles += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
-                + $this->purgeAbandonedImports($cutoff));
+            $purgedStaging += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
+                + $this->purgeAbandonedImports($cutoff)
+                + $this->purgeAbandonedDrafts($cutoff));
             $purgedRows += $this->purgeRowsFor($team, $cutoff);
         }
 
@@ -84,7 +86,7 @@ class PurgeSoftDeletedRecords extends Command
 
         $this->info(
             "Purged {$purgedRows} records, {$purgedPeople} people, ".
-            "{$purgedFiles} expired export files, ".
+            "{$purgedStaging} expired exports, abandoned uploads and drafts, ".
             "and {$purgedTeams} teams past the {$days}-day window.",
         );
 
@@ -184,6 +186,45 @@ class PurgeSoftDeletedRecords extends Command
                 'disk_path' => null,
                 'preview' => null,
             ])->save();
+
+            $purged++;
+        }
+
+        return $purged;
+    }
+
+    /**
+     * Half-finished deals nobody came back to (S14 · issue #74).
+     *
+     * `purgeRowsFor()` sweeps by `deleted_at`, which is the right rule for
+     * everything somebody deleted — and reaches nothing here, because a draft
+     * abandoned by *walking away* was never deleted at all. Pressing Discard
+     * soft-deletes it and the ordinary pass takes it thirty days later; not
+     * pressing anything leaves an open row forever.
+     *
+     * That is the same shape #61 shipped and round 2 found: a table the purge
+     * discovers but never has a reason to act on. The rule that falls out and
+     * is worth carrying: **a staging table needs its own sweep, because the
+     * thing that ends its life is neglect rather than an action.**
+     *
+     * Force-deleted rather than soft-deleted, so this does not become a
+     * sixty-day window. What is lost is a form somebody stopped filling in a
+     * month ago; what they created along the way — a person, a property — is
+     * a record in its own right and is untouched.
+     */
+    private function purgeAbandonedDrafts(CarbonInterface $cutoff): int
+    {
+        $purged = 0;
+
+        $abandoned = DealDraft::query()
+            ->open()
+            // `updated_at`, not `created_at`: a draft touched last week is
+            // being worked on, however long ago it was started.
+            ->where('updated_at', '<', $cutoff)
+            ->get();
+
+        foreach ($abandoned as $draft) {
+            $draft->forceDelete();
 
             $purged++;
         }

@@ -15,6 +15,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -51,6 +52,39 @@ return Application::configure(basePath: dirname(__DIR__))
             'two-factor' => RequireTwoFactorAuthentication::class,
             'super-admin' => EnsureSuperAdministrator::class,
         ]);
+
+        /*
+         * The team has to be resolved before route model binding, not after.
+         *
+         * `web(append:)` puts these at the end of the group, and Laravel's
+         * middleware priority list then pulls `SubstituteBindings` forward —
+         * so the binding ran *first*, resolved a team-scoped model with no
+         * team established, and the global scope did exactly what ADR 0002
+         * says it must: it threw. Every route that binds a team-scoped model
+         * 500'd on `MissingTeamContextException` — `/people/{membership}`,
+         * `/properties/{property}`, and the redirect a store lands on —
+         * while the index screens beside them, which bind nothing, worked
+         * (issue #156).
+         *
+         * The test suite could not see it. `TestCase::withTeam()` sets the
+         * context in the container before the request is made, so by the time
+         * the pipeline runs there is a team already, whatever order the
+         * middleware are in. Only a real session-backed request goes through
+         * `ResolveCurrentTeam` for the answer — which is what the three
+         * ordering tests in `tests/Feature/Tenancy/TeamResolutionTest.php`
+         * now do.
+         *
+         * Naming them in the priority list is what fixes the order, and it
+         * fixes the whole chain rather than one link: impersonation decides
+         * *who* the person is, `ResolveCurrentTeam` decides *which team* they
+         * are standing in, `EnsureTeamContext` refuses when the answer is
+         * none — and only then may a binding query a scoped table. Listed
+         * from the binding backwards, so each entry is inserted ahead of the
+         * one it must precede.
+         */
+        $middleware->prependToPriorityList(SubstituteBindings::class, EnsureTeamContext::class);
+        $middleware->prependToPriorityList(EnsureTeamContext::class, ResolveCurrentTeam::class);
+        $middleware->prependToPriorityList(ResolveCurrentTeam::class, HandleImpersonation::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

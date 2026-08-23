@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Models\Deal;
 use App\Models\Person;
 use App\Models\Workflow;
 use App\Policies\Concerns\ChecksTeamPermissions;
@@ -34,9 +35,20 @@ class WorkflowPolicy
             && $this->allows($person, Permissions::VIEW_DEALS);
     }
 
-    public function create(Person $person): bool
+    /**
+     * Attaching a workflow to a deal (S28 · issue #74).
+     *
+     * Takes the **deal**, because that is what is being changed: a workflow
+     * has no existence apart from one, and `belongsToCurrentTeam()` on it is
+     * the belt to the global scope's braces that every other policy here
+     * carries. The signature was `create(Person)` until #74 became its first
+     * caller — an ability nothing asked yet, which is the moment to get it
+     * right rather than pass an argument it ignores.
+     */
+    public function create(Person $person, Deal $deal): bool
     {
-        return $this->allows($person, Permissions::MANAGE_DEALS);
+        return $this->belongsToCurrentTeam($deal)
+            && $this->allows($person, Permissions::MANAGE_DEALS);
     }
 
     public function update(Person $person, Workflow $workflow): bool
