@@ -27,7 +27,10 @@ use PDOException;
  */
 final class DealRoster
 {
-    public function __construct(private readonly RecordActivity $activity) {}
+    public function __construct(
+        private readonly RecordActivity $activity,
+        private readonly NameDeal $names,
+    ) {}
 
     /**
      * Add somebody to a deal in a role.
@@ -97,6 +100,25 @@ final class DealRoster
                 eventType: 'participant.added',
                 summary: "Added {$membership->fullName()} as {$role->label()}",
             );
+
+            /*
+             * The client's surname is half of a deal's derived name (IA §10),
+             * and the roster is the only thing that can produce it.
+             *
+             * `PropertyDeals` refreshes the name whenever the *property* half
+             * changes, and until #62 that was enough by accident: a deal's
+             * first property always became its subject, so every deal acquired
+             * a name the moment a house was attached. #62 stopped doing that
+             * on the buy side — correctly, since the first house a buyer tours
+             * is not the one they are buying — and left the buy-side deal
+             * relying entirely on the surname, which nothing recomputed. The
+             * result was "Untitled deal" on a deal with a named Buyer on it.
+             *
+             * Which is the recurring shape in this codebase, once more: a rule
+             * written into one caller, and the second caller written without
+             * it. `NameDeal` never touches `name`, so a typed one survives.
+             */
+            $this->names->refresh($deal);
 
             return $participant;
         });
@@ -186,6 +208,18 @@ final class DealRoster
                 );
             }
 
+            /*
+             * A role change moves the surname in or out of the name: on a
+             * buy-side deal only the **Buyer** names it, so promoting the
+             * lender to Buyer, or demoting the Buyer to Co-Agent, changes what
+             * the deal is called. Unconditional rather than gated on
+             * `$roleChanged`, because primacy moves it too — the deal is named
+             * after the main contact when a role holds two people.
+             */
+            if ($participant->deal instanceof Deal) {
+                $this->names->refresh($participant->deal);
+            }
+
             return $participant;
         });
     }
@@ -266,6 +300,15 @@ final class DealRoster
                 eventType: 'participant.removed',
                 summary: "Removed {$name} as {$role}",
             );
+
+            // Recomputed from what is left, which after removing the client
+            // is the subject property's address alone. Only a deal with **no**
+            // facts keeps what it had — `NameDeal` declines to write rather
+            // than blanking the column, which is the same rule
+            // `PropertyDeals::unlink()` relies on.
+            if ($participant->deal instanceof Deal) {
+                $this->names->refresh($participant->deal);
+            }
         });
     }
 
@@ -289,7 +332,7 @@ final class DealRoster
      */
     public function missingExpectedRoles(Deal $deal): array
     {
-        $expected = $this->expectedRoles($deal);
+        $expected = self::expectedRoles($deal);
 
         if ($expected === []) {
             return [];
@@ -315,9 +358,17 @@ final class DealRoster
     }
 
     /**
+     * Static, because it is a pure function of the deal type's side and
+     * because `NameDeal` needs the same answer.
+     *
+     * Resolving `DealRoster` from the container to ask it would have been a
+     * cycle — the roster now depends on `NameDeal` — and duplicating the
+     * `match` would have put "who is the client on a deal of this side" in two
+     * places, which is how the two drift.
+     *
      * @return list<ParticipantRole>
      */
-    public function expectedRoles(Deal $deal): array
+    public static function expectedRoles(Deal $deal): array
     {
         return match ($deal->dealType->side) {
             DealSide::Sell => [ParticipantRole::Seller],

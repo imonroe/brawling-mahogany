@@ -36,11 +36,18 @@ use App\Models\Property;
  *
  * ## Nothing to build from leaves what was there
  *
- * `DealNameFacts::areEmpty()` distinguishes *"the name came out empty"* from
- * *"there are no facts"*, and only the first clears the column. A deal whose
- * subject property was just removed keeps the name it had until a new one
- * arrives — a stale name is worse than a correct one and far better than a
- * blank row in a list.
+ * `refresh()` declines to write in two cases, and they are the same case
+ * reached twice: `DealNameFacts::areEmpty()` is asked first, and
+ * `GenerateDealName::from()` returns null only when the facts were empty
+ * anyway. The early return is the readable one; the null check behind it is
+ * a belt that no input reaches today and would matter the moment the rule
+ * grew a case that produced no name from real facts.
+ *
+ * So removing a fact usually **renames**: a deal that was "1420 Pearl St ·
+ * Bosart Sale" becomes "Bosart Sale" when the property comes off, because the
+ * surname is still a fact. It keeps what it had only when the *last* fact
+ * goes — and then the old name survives rather than the column being blanked,
+ * because a stale name is far better than a list of "Untitled deal".
  */
 final class NameDeal
 {
@@ -118,7 +125,7 @@ final class NameDeal
      */
     private function clientSurname(Deal $deal): ?string
     {
-        $roles = array_column(app(DealRoster::class)->expectedRoles($deal), 'value');
+        $roles = array_column(DealRoster::expectedRoles($deal), 'value');
 
         if ($roles === []) {
             return null;

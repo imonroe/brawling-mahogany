@@ -105,8 +105,9 @@ though the existing ones are tolerated.
 
 `components/app/controlVariants.ts` carries the §4.2 and §7.2 measurements as
 a `cva` set — the sanctioned way to differ from generated source (rule 4) —
-and `AppButton` and `AppInput` apply them. **Use those, not `ui/button` and
-`ui/input` directly**, on anything designed against the Design System.
+and `AppButton`, `AppInput` and `AppSelect` apply them. **Use those, not
+`ui/button` and `ui/input` directly**, on anything designed against the Design
+System.
 
 | | Design System | shadcn's default |
 |---|---|---|
@@ -128,6 +129,20 @@ how the filter silently became 14px on the one breakpoint it is used at.
 Every size — buttons *and* inputs — is `min-h-11` below `md`, because §11's
 44px minimum has no exceptions and §4.3 is explicit that the compact desktop
 density is a power-user affordance rather than a house style.
+
+**`AppSelect` is the third of these, and it exists because the rule was broken
+four times.** A native `<select>` styled by hand — `h-8 rounded-md border
+bg-background px-2.5 text-xs` — had been transcribed into the properties
+directory, the contact import, the audit log and deal properties, and every
+copy was 32px on a phone. It shares `appInputVariants` with `AppInput` so the
+two cannot drift, and it maps the empty option to `null`, because `''` is how
+a native select says *unanswered* and `null` is what that means to the server.
+Prefer it to `ui/select` for a short list of words; the shadcn listbox is for
+a picker with search or rich rows. Both behaviours are pinned in
+`tests/js/controlSizes.test.ts`.
+
+Several screens still hand-roll a `<select>` at the **form-control** size, and
+nothing scans for it — a follow-up, not a claim that the pattern is finished.
 
 Two behaviours worth knowing rather than discovering: `variant="ghost"` sizes
 itself as a ghost button (32px) without being told twice, and a disabled
@@ -204,14 +219,18 @@ PHP enums against IA §8 and PRD §6.3.
 Changing a state means changing the document and the code together. That is
 rule 7 made mechanical.
 
-**One domain is not a state machine, and reads from a different document.**
-`property` carries PRD §6.3's *market status* lookup, not an IA §8 vocabulary,
-because a property does not transition — a team sets what is true. So the test
-reads its labels out of PRD §6.3 and only its tones out of Design System §2.4.
+**Two domains are not state machines, and read from a different document.**
+`property` and `propertyInterest` carry PRD §6.3 lookups rather than IA §8
+vocabularies,
+because neither transitions — a team sets what is true about a house, and a
+buyer changes their mind about one. So the test reads their labels out of PRD
+§6.3 and only their tones out of Design System §2.4.
 The distinction is load-bearing rather than pedantic: PRD §7.11 rules that
 "Undergoing improvements" and "Staged" are **workflow positions**, and they
 belong to a stage. A property status that grew a workflow position would be
-this table quietly becoming a second, worse stage vocabulary.
+this table quietly becoming a second, worse stage vocabulary — and the same
+line keeps "Viewing scheduled" and "Offer made" out of `propertyInterest`,
+where both are facts the product already holds somewhere better.
 
 ### `lib/navigation.ts`
 

@@ -538,7 +538,7 @@ erDiagram
 | `deals` | team_id, deal_type_id, name, generated_name, state, opened_at, closed_at, transaction_value, notes | State includes `closed` and `nurture`. |
 | `deal_participants` | deal_id, **team_membership_id**, participant_role, is_primary, notes | Per deal, not global. `team_membership_id` rather than `person_id` since #140 — see §7.2. |
 | `properties` | team_id, street, unit, city, **state_code**, postal_code, parcel_number, **type**, **status**, beds, baths, sqft, year_built, notes | Team-owned, reusable across deals. Enum columns rather than `type_id`/`status_id` since #61 — see below. |
-| `deal_properties` | team_id, deal_id, property_id, **is_subject**, (interest_status in #62) | Plural, like every other table here. `is_subject` is the `link_role` this row was drafted with, narrowed — see below. |
+| `deal_properties` | team_id, deal_id, property_id, **is_subject**, **interest_status**, **sort_order** | Plural, like every other table here. `is_subject` is the `link_role` this row was drafted with, narrowed — see below. |
 | `external_links` | team_id, linkable_type/id, label, url, sort_order | Replaces per-site columns (§7.13). Carries `team_id` because a polymorphic pointer is outside the composite-key layer — ADR 0002. |
 | `offers` | deal_id, property_id, direction, amount, earnest_money, terms, contingencies JSON, status, submitted_at, expires_at | |
 | `key_dates` | deal_id, name, date, anchor_key_date_id, offset_days, offset_basis, is_derived, is_critical, **source (manual/extracted), confirmed_by, confirmed_at** | The contingency calendar. Extraction provenance is now tracked here. |
@@ -622,6 +622,7 @@ can be enforced by an index instead of by an application check on a string.
 | Deal side | Buy, Sell, Rent, Other |
 | Property type | Single Family, Multi Family, Condo, Townhouse, Apartment, Land, Other |
 | Property status | Pre-listing, For Sale, Under Contract, Sold, Off Market, Rented, Other |
+| Property interest | Interested, Shortlisted, Passed, Other |
 | Contact type | Phone call, Email, Text, Meeting, Showing, Other |
 | Participant role | Seller, Buyer, Co-Agent, Opposing Agent, Lender, Title/Escrow, Inspector, Appraiser, Stager, Photographer, Contractor, Attorney, Other |
 | Document category | Inspection report, Disclosure, Marketing, Photo, Receipt, Correspondence, Other |

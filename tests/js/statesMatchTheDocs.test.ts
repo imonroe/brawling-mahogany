@@ -226,6 +226,30 @@ describe('the state table matches the documents', () => {
         ).toEqual(prdLookupValues('Property status'));
     });
 
+    it('has PRD §6.3’s property interest values, in order', () => {
+        expect(
+            Object.values(STATES.propertyInterest).map(
+                (descriptor) => descriptor.label,
+            ),
+        ).toEqual(prdLookupValues('Property interest'));
+    });
+
+    it('has Design System §2.4’s tone for every property interest', () => {
+        const documented = designSystemTones('Property interest');
+
+        expect(
+            Object.keys(documented).length,
+            'no §2.4 rows for Property interest',
+        ).toBeGreaterThan(0);
+
+        for (const descriptor of Object.values(STATES.propertyInterest)) {
+            expect(
+                documented[descriptor.label],
+                `Property interest · ${descriptor.label}`,
+            ).toBe(descriptor.tone);
+        }
+    });
+
     it('has Design System §2.4’s tone for every property status', () => {
         const documented = designSystemTones('Property');
 

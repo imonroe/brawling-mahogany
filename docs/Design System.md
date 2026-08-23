@@ -232,6 +232,10 @@ One table, and it is the single source of truth for every badge in the product. 
 | | Off Market | `neutral` | Withdrawn, not failed |
 | | Rented | `success` | |
 | | Other | `neutral` | |
+| **Property interest** | Interested | `info` | The buyer wants a look |
+| | Shortlisted | `success` | Top of their list |
+| | Passed | `neutral` | Ruled out, which is a normal outcome |
+| | Other | `neutral` | |
 
 > [!note] Property status spends no amber and no red
 > Every other row here describes something that can go wrong. A property's status describes a market position, and none of them is a problem: a house that is Off Market was withdrawn, not failed. Under Contract shares `info` with For Sale on purpose — the label already distinguishes them, and spending amber on an ordinary state is how amber stops meaning anything.
