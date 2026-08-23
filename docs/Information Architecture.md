@@ -58,6 +58,9 @@ Every concept has up to three names: what the code calls it, what the team sees,
 | Work someone owes | `tasks` | Task | (not shown) |
 | A person | `people` | Person | (not shown) |
 | Team access record | `team_memberships` | Team Access | (not shown) |
+| An access role | `roles` | Role | (not shown) |
+| A capability | `permissions` | Permission | (not shown) |
+| Which app a permission belongs to | `PermissionSurface` | Surface | (not shown) |
 | Someone's part in a deal | `deal_participants` | Participant | (not shown) |
 | A building | `properties` | Property | Property |
 | A deadline | `key_dates` | Dates & Deadlines | Important Dates |
@@ -74,6 +77,9 @@ Every concept has up to three names: what the code calls it, what the team sees,
 | A proposed value | `extracted_fields` | Suggested Date / Suggested Task | (not shown) |
 | A vendor | `people` + vendor fields | Vendor | (not shown) |
 | The client's page | (route `/s/{token}`) | Status Page | Your [Sale / Purchase] |
+
+> [!note] "On the team" is a property of the Permission, not of the Role
+> A **Role** is a named bundle of Permissions; a Team Access record is a person holding roles in one team. Whether that makes them *on the team* — someone the Team segment lists, `/settings/members` can revoke, and the switcher offers a team to — is decided by the **Surface** of the permissions those roles carry: the team app, the client Status Page, or the platform console. So a Status Viewer with a Status-Page permission is still a Contact everywhere the team app asks, and a role a team composes itself needs no entry on any list to be recognised. Never write a rule about team membership as a list of role keys; the code has one definition of it (`TeamMembership::carriesAccess()`), and `tests/Isolation/TeamAccessConventionTest.php` fails the build on a second one. See PRD §4.2 F2.2 and issue #142.
 
 > [!note] Why "Requirement" appears alongside "Gate"
 > `gates` is the right word in code and in the template editor, where you are configuring conditions. In the deal view, where Heather is looking at what is blocking her, "2 requirements not met" reads better than "2 gates not met." Both are permitted, but only in their own context, and never in the same screen.
@@ -108,7 +114,7 @@ This costs one boolean and one string, and it buys a vocabulary that describes w
 
 ```
 Team
-├── Team Access (people with roles)
+├── Team Access (people whose roles carry team-app permissions)
 ├── People
 │   ├── Clients (lead → active → past client)
 │   ├── Vendors
