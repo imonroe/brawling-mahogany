@@ -83,20 +83,28 @@ it('keeps the gallery behind authentication', function (): void {
 it('renders a placeholder for every sidebar destination', function (): void {
     // The shell has to be walkable end to end for the review to mean anything.
     // People is no longer a placeholder — Slice 1 built it (S30) — and neither
-    // is Properties, which Slice 2 built (S35, issue #61).
+    // are Properties (S35, #61) or Deals (S13's shell, #74).
     [$team, $member] = $this->teamWithMember();
 
     $this->actingAsPerson($member, $team);
 
-    foreach (['work', 'deals', 'calendar', 'keep-in-touch', 'templates'] as $path) {
+    foreach (['work', 'calendar', 'keep-in-touch', 'templates'] as $path) {
         $this->get("/{$path}")
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Placeholder'));
     }
 
+    /*
+     * `/deals` is a placeholder with one working control rather than the
+     * generic one: PRD §5.2 step 1 is "Heather clicks New Deal", and the
+     * wizard behind it is real (#74). A nav item pointing at a screen with no
+     * way into the thing it is about would make S14 unreachable except by
+     * typing the URL.
+     */
     $built = [
         '/people' => 'People/Index',
         '/properties' => 'Properties/Index',
+        '/deals' => 'Deals/Index',
     ];
 
     foreach ($built as $path => $component) {

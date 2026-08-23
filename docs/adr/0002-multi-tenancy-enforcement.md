@@ -389,6 +389,26 @@ for the update path as well as the insert. If any of those four feels like
 too much for what the table is worth, the table probably wants a plain
 `teamScopedForeign()` and a second column instead.
 
+### A record that is one person's, inside a team (#74)
+
+`deal_drafts` is the one table here whose rows are **not** shared by the team
+that owns them. Every other `team_id` in this schema means "everybody in this
+team may see this"; a wizard draft adds "and only the person who started it".
+
+The reason is not privacy, it is loss. Two agents creating deals at the same
+time are doing two different things, and a resume that landed in a colleague's
+half-typed address would destroy their work rather than share it. So
+`DealDraftPolicy` asks `created_by_person_id === $person->getKey()` on top of
+the usual team check, and the wizard resolves the draft **from the actor** —
+there is no draft id in any URL, which is what makes the policy a second line
+rather than the only one.
+
+**This is not a precedent for narrowing other tables.** A note, a document, a
+deal is the team's by design, and PRD §4.2's whole argument for a shared
+workspace depends on that. What makes a draft different is that it is a *form
+in progress* rather than a record — and the moment it becomes a record, it
+becomes the team's like everything else.
+
 ## Not decided here
 
 - The exact retention of `audit_log` beyond "it survives a tenant purge"

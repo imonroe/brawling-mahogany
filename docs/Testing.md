@@ -145,6 +145,7 @@ remembering them:
 | `tests/Unit/ExternalLinkConventionTest.php` | The models that use `HasExternalLinks` and the class names in `ExternalLink::LINKABLE` are the same set, and every one of them carries a team. A polymorphic pointer has no composite key to refuse a foreign target, so the allowlist *is* the constraint | ADR 0002, issue #61 |
 | `tests/Unit/SafeUrlTest.php` | Only `http` and `https` may be stored and rendered as a link. `javascript:` and `data:text/html` parse cleanly and are script execution in the reader's session — Laravel's `url` rule accepts both | PRD §4.3 F3.4, issue #61 |
 | `tests/Isolation/DealPropertyIsolationTest.php` | A link row is reachable only through the deal it is on. The tenancy layers answer "whose team"; only `Route::scopeBindings()` answers "whose deal", and the ranking route — which writes by a list of ids — is held with two deals in **one** team, because a cross-tenant version of that test would pass whether or not the deal filter existed | ADR 0002, issue #62 |
+| `tests/Isolation/DealDraftIsolationTest.php` | A wizard draft is the actor's and its team's, and a foreign id sent inside a *step* is refused — there is no draft id in a URL to send, so the steps are the vector. Also holds both halves of the abandonment sweep: a draft nobody came back to is purged, and one touched yesterday is not | ADR 0002, PRD §9, issue #74 |
 
 When one of these fails, the fix is the code or the document — not the test.
 

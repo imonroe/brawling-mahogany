@@ -131,6 +131,13 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * here can be read as a deal id; it is registered first anyway, because
      * the day somebody adds `deals/{deal}` that stops being true.
      */
+    /*
+     * S13 is #78 and still a placeholder — but it is where "New Deal" lives
+     * (PRD §5.2 step 1), so it is rendered here rather than left pointing at
+     * a route that does not exist.
+     */
+    Route::inertia('deals', 'Deals/Index', ['screen' => 'S13', 'slice' => 2])->name('deals.index');
+
     Route::get('deals/create', [DealWizardController::class, 'create'])->name('deals.create');
     Route::patch('deals/create', [DealWizardController::class, 'update'])->name('deals.draft.update');
     Route::post('deals/create', [DealWizardController::class, 'store'])->name('deals.draft.store');
@@ -235,7 +242,6 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      */
     $placeholders = [
         'work' => ['My Work', 'S11', 2],
-        'deals' => ['Deals', 'S13', 2],
         'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
         'templates' => ['Templates', 'S40', 2],

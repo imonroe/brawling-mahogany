@@ -53,6 +53,8 @@ class DealDraft extends Model
     {
         return [
             'step' => DealDraftStep::class,
+            // JSONB, like every other `config()` column in this schema.
+            'payload' => 'array',
             'completed_at' => 'datetime',
         ];
     }
