@@ -510,6 +510,46 @@ it('advances the stage the screen was looking at', function (): void {
  * object exists to prevent.
  */
 it('reports every reason a blocked advance refused, not the first', function (): void {
+    /*
+     * Three gates of three **different types**, so the three sentences differ.
+     *
+     * The first version used three manual-confirmation gates, which all
+     * produce "Nobody has confirmed this yet." — so it asserted a count of
+     * three over three copies of one string, and would have passed on an
+     * implementation that carried one reason and repeated it. It also made the
+     * screen flash the same sentence three times, which reads as a bug.
+     */
+    [$deal, $workflow, $first] = overviewDeal();
+
+    overviewGate($first, 'Photos are back', ['sort_order' => 0]);
+    overviewGate($first, 'The MLS link is filled in', [
+        'sort_order' => 1,
+        'gate_type' => 'field_populated',
+        'config' => ['field' => 'notes'],
+    ]);
+    overviewGate($first, 'The title commitment is attached', [
+        'sort_order' => 2,
+        'gate_type' => 'document_present',
+        'config' => ['category' => 'title_commitment'],
+    ]);
+
+    $this->post("/deals/{$deal->getKey()}/workflows/{$workflow->getKey()}/advance", [
+        'expected_stage_id' => $first->getKey(),
+    ])->assertRedirect();
+
+    $flash = session(SessionKey::FLASH_DATA);
+
+    expect($flash['advance']['refused'])->toBeFalse()
+        ->and($flash['advance']['reasons'])->toHaveCount(3)
+        // Three *distinct* sentences, which is the claim. A count alone passes
+        // on one sentence repeated.
+        ->and(array_unique($flash['advance']['reasons']))->toHaveCount(3);
+});
+
+it('says a repeated reason once', function (): void {
+    // The other half: three gates of the same type produce one sentence, and
+    // saying it three times tells the reader nothing the first did not. The
+    // overview lists every gate with its own label; this is the summary.
     [$deal, $workflow, $first] = overviewDeal();
 
     foreach (['Photos are back', 'Survey is in', 'Sellers have signed'] as $index => $label) {
@@ -520,10 +560,7 @@ it('reports every reason a blocked advance refused, not the first', function ():
         'expected_stage_id' => $first->getKey(),
     ])->assertRedirect();
 
-    $flash = session(SessionKey::FLASH_DATA);
-
-    expect($flash['advance']['refused'])->toBeFalse()
-        ->and($flash['advance']['reasons'])->toHaveCount(3);
+    expect(session(SessionKey::FLASH_DATA)['advance']['reasons'])->toHaveCount(1);
 });
 
 /**
@@ -682,4 +719,52 @@ it('offers no advance target when two workflows are running', function (): void 
             ->where('workflows.1.canAdvance', true));
 
     unset($stage);
+});
+
+it('treats an overridden gate as an advisory rather than a blocker', function (): void {
+    /*
+     * `Gate::blocksAdvance()` is `is_blocking && ! overridden`, and
+     * `DescribeBlockers` must ask exactly that — its own docblock names
+     * "two places deciding *does this stop the advance* differently" as the
+     * defect it exists to avoid, and nothing held it.
+     *
+     * Changing `blocksAdvance()` to a bare `is_blocking` in `DescribeBlockers`
+     * passed the whole suite before this test existed.
+     */
+    [$deal, $workflow, $stage] = overviewDeal();
+
+    $blocking = overviewGate($stage, 'Photos are back');
+    $waived = overviewGate($stage, 'Survey has landed', [
+        'overridden' => true,
+        'override_reason' => 'Survey received by email, uploading tomorrow.',
+    ]);
+
+    $this->get("/deals/{$deal->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            // Both are unmet and both are shown — an overridden gate does not
+            // vanish, or nobody can see what was waived.
+            ->has('workflows.0.gates', 2)
+            ->where('workflows.0.gates.0.id', $blocking->getKey())
+            ->where('workflows.0.gates.0.isBlocking', true)
+            // IA §8: Overridden is its own state, not a kind of Met.
+            ->where('workflows.0.gates.1.id', $waived->getKey())
+            ->where('workflows.0.gates.1.isBlocking', false)
+            ->where('workflows.0.gates.1.gateState', 'overridden'));
+});
+
+it('lets an advance through once its only blocker is overridden', function (): void {
+    // The control for the test above: the split is not cosmetic, it decides
+    // whether the button works. Without a second, un-overridden gate this
+    // would pass on any implementation that ignored `overridden` entirely.
+    [$deal, $workflow, $stage] = overviewDeal();
+
+    overviewGate($stage, 'Survey has landed', [
+        'overridden' => true,
+        'override_reason' => 'Survey received by email, uploading tomorrow.',
+    ]);
+
+    $this->get("/deals/{$deal->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('workflows.0.canAdvance', true));
 });

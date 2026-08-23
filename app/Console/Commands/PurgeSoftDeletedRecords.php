@@ -8,6 +8,7 @@ use App\Enums\DataExportState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\ContactImport;
 use App\Models\DataExport;
+use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\Person;
 use App\Models\Team;
@@ -97,6 +98,8 @@ class PurgeSoftDeletedRecords extends Command
     {
         $purged = 0;
 
+        $this->detachActivityFromExpiringDeals($team, $cutoff);
+
         foreach ($this->purgeableTables() as $table) {
             $purged += DB::table($table)
                 ->where('team_id', $team->getKey())
@@ -106,6 +109,49 @@ class PurgeSoftDeletedRecords extends Command
         }
 
         return $purged;
+    }
+
+    /**
+     * A purged deal must not take somebody's contact log with it.
+     *
+     * `activity_events.deal_id` is a `teamScopedForeign`, so it cascades — and
+     * cascade is right for an event *about* the deal: a stage advanced, a
+     * workflow attached, a property linked. Those are the deal's own record and
+     * they go when it does.
+     *
+     * It is wrong for an event whose **subject is somebody else**. F2.5 logs a
+     * contact against a person and *optionally* a deal, so the deal is context
+     * rather than ownership — and letting the cascade reach those meant a
+     * client's contact history silently lost entries thirty days after an
+     * unrelated deal was purged. The person is still in the directory; the call
+     * still happened.
+     *
+     * The reference is dropped rather than the row, which is also what
+     * `deal_id` being nullable is for. It cannot be `nullOnDelete` at the
+     * database: the key is composite over `(team_id, deal_id)`, and Postgres
+     * would null `team_id` with it — a column that is `NOT NULL` precisely so
+     * ADR 0002's scope can never be evaded.
+     */
+    private function detachActivityFromExpiringDeals(Team $team, CarbonInterface $cutoff): void
+    {
+        $expiring = DB::table('deals')
+            ->where('team_id', $team->getKey())
+            ->whereNotNull('deleted_at')
+            ->where('deleted_at', '<', $cutoff)
+            ->pluck('id');
+
+        if ($expiring->isEmpty()) {
+            return;
+        }
+
+        DB::table('activity_events')
+            ->where('team_id', $team->getKey())
+            ->whereIn('deal_id', $expiring)
+            // Everything except the deal's own record of itself.
+            ->where(fn ($query) => $query
+                ->whereNull('subject_type')
+                ->orWhere('subject_type', '!=', (new Deal)->getMorphClass()))
+            ->update(['deal_id' => null]);
     }
 
     /**

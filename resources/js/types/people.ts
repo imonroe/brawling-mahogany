@@ -68,7 +68,7 @@ export type ActivityFeedRow = {
     /** The thing it happened to, linked when a screen for it exists. */
     subject: { label: string; url: string | null } | null;
     /** The deal it belongs on, when it belongs on one (PRD F2.5). */
-    deal: { label: string } | null;
+    deal: { label: string; url: string } | null;
     note: string | null;
     /** PRD §6.3 contact type, on a logged contact only. */
     contactType: string | null;

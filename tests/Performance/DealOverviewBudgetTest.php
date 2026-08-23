@@ -54,6 +54,19 @@ function dealOverviewFixture(int $size): array
 {
     [$team, $member] = test()->teamWithMember();
 
+    /*
+     * Authenticated **while the fixture is built**, so the activity these
+     * writes record carries an actor.
+     *
+     * Without this the whole activity half of the budget was untestable: every
+     * event had a null `actor_person_id`, so `$event->actor?->…` short-circuits
+     * and a per-row name lookup costs nothing to measure. Reintroducing the
+     * exact N+1 this file names in its own docblock left it green — the
+     * vacuity this PR adds a rule to `docs/Testing.md` about, in the test that
+     * rule was written from.
+     */
+    test()->actingAsPerson($member, $team);
+
     $deal = app(TeamContext::class)->runFor($team, function () use ($team, $size): Deal {
         $type = DealType::factory()->create(['team_id' => $team->getKey()]);
 

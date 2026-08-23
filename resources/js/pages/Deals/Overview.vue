@@ -172,15 +172,21 @@ function railClass(stage: StageDot): string {
  *
  * The evaluator writes `linkTarget`; PRD §5.4 wants *"each unmet gate links
  * directly to the thing that clears it"*, and only the evaluator knows what
- * that thing is. The three shapes that resolve to a screen in Slice 2 are
- * below; `gate`, `gate_config` and `awaiting_slice` deliberately resolve to
- * nothing, because the screens that would clear those are S23 and S43 and do
- * not exist yet. A dead link is worse than a sentence.
+ * that thing is.
+ *
+ * **Only routes that exist.** `deal_field` resolves to the properties tab,
+ * which is built. `tasks` does not resolve to anything: S17 is unbuilt, there
+ * is no `deals/{deal}/tasks` route, and `DealHeader` already draws that tab as
+ * inert for exactly that reason — so linking to it here rendered "Go and clear
+ * it" over a 404, on the one screen whose whole promise is telling somebody
+ * what to do next. `gate`, `gate_config` and `awaiting_slice` resolve to
+ * nothing for the same reason, their screens being S23 and S43.
+ *
+ * A dead link is worse than a sentence, and this function said so while
+ * emitting one.
  */
 function linkFor(gate: GateRow): string | null {
     switch (gate.linkTarget.type) {
-        case 'tasks':
-            return `${dealUrl.value}/tasks`;
         case 'deal_field':
             return `${dealUrl.value}/properties`;
         default:
@@ -348,8 +354,30 @@ function advance(workflow: WorkflowCard): void {
                                                 class="text-13 font-medium text-foreground"
                                                 >{{ gate.label }}</span
                                             >
+                                            <!--
+                                                Overridden first. IA §8 makes
+                                                Overridden a state of its own,
+                                                distinct from Met — the gate
+                                                "should have been met and was
+                                                not, and you proceeded anyway".
+                                                Testing `isBlocking` first hid
+                                                that entirely: `blocksAdvance()`
+                                                is `is_blocking && ! overridden`,
+                                                so an overridden gate is not
+                                                blocking and took the Advisory
+                                                branch, which says the opposite
+                                                of what happened.
+                                            -->
                                             <StatusBadge
-                                                v-if="!gate.isBlocking"
+                                                v-if="
+                                                    gate.gateState ===
+                                                    'overridden'
+                                                "
+                                                domain="gate"
+                                                :state="gate.gateState"
+                                            />
+                                            <StatusBadge
+                                                v-else-if="!gate.isBlocking"
                                                 tone="neutral"
                                                 label="Advisory"
                                                 dotless

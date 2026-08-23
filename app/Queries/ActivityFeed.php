@@ -125,8 +125,10 @@ final class ActivityFeed
                 'source' => $event->source,
                 'occurredAt' => $event->occurred_at->toIso8601String(),
                 'actorName' => $actors->nameOf($event),
-                'subject' => $this->subject($event, $people, $properties),
-                'deal' => $deal === null ? null : ['label' => $deal->displayName()],
+                'subject' => $this->subject($event, $people, $properties, $deals),
+                'deal' => $deal === null
+                    ? null
+                    : ['label' => $deal->displayName(), 'url' => route('deals.show', $deal)],
                 /*
                  * Only the note, not the whole payload. The payload is an open
                  * bag that later slices will put internal values in, and a
@@ -150,15 +152,17 @@ final class ActivityFeed
      * The thing an event happened to, named and — where a screen exists for it
      * — linked.
      *
-     * A deal has no detail route yet (S15 is #78), so a deal subject is named
-     * and not linked. A link to a route that does not exist is a 404 somebody
-     * finds later.
+     * A deal subject is linked now that S15 (#75) exists — that comment was
+     * written when it did not, and landing the two changes together falsified
+     * it without touching the line. A clean textual merge is not a correct
+     * merge, which is the second instance of that this PR carries.
      *
      * @param  array<string, TeamMembership>  $people
      * @param  array<string, Property>  $properties
+     * @param  array<string, Deal>  $deals
      * @return array{label: string, url: string|null}|null
      */
-    private function subject(ActivityEvent $event, array $people, array $properties): ?array
+    private function subject(ActivityEvent $event, array $people, array $properties, array $deals): ?array
     {
         if ($event->subject_type === (new Person)->getMorphClass()) {
             $membership = $people[$event->subject_id] ?? null;
@@ -174,6 +178,14 @@ final class ActivityFeed
             return $property === null
                 ? null
                 : ['label' => $property->displayName(), 'url' => route('properties.show', $property)];
+        }
+
+        if ($event->subject_type === (new Deal)->getMorphClass()) {
+            $deal = $deals[$event->subject_id] ?? null;
+
+            return $deal === null
+                ? null
+                : ['label' => $deal->displayName(), 'url' => route('deals.show', $deal)];
         }
 
         return null;

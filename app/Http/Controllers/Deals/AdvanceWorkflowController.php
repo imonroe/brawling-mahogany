@@ -86,7 +86,18 @@ class AdvanceWorkflowController extends Controller
                 // They need different affordances: one names something
                 // somebody did on purpose, the other names something to chase.
                 'refused' => $result->wasRefused(),
-                'reasons' => $result->reasons(),
+                /*
+                 * Distinct sentences. Three unmet manual-confirmation gates
+                 * produce "Nobody has confirmed this yet." three times, and a
+                 * toast that says the same thing three times tells the reader
+                 * nothing the first one did not — it reads as a bug.
+                 *
+                 * Deduplicated here rather than in `AdvanceResult`, which is
+                 * right to carry one verdict per gate: the overview lists every
+                 * gate with its own label beside its sentence, and that is
+                 * where the count lives. This is the summary.
+                 */
+                'reasons' => array_values(array_unique($result->reasons())),
             ]);
 
             return $this->backToDeal($deal);

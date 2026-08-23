@@ -7,9 +7,12 @@ use App\Enums\DataExportState;
 use App\Models\ActivityEvent;
 use App\Models\AuditEntry;
 use App\Models\DataExport;
+use App\Models\Deal;
+use App\Models\DealType;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
+use App\Support\Activity\RecordActivity;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -398,4 +401,60 @@ it('sweeps an abandoned import’s upload once the window closes', function (): 
         ->and($import->preview)->toBeNull();
 
     unset($owner);
+});
+
+it('does not take a person’s contact log with a purged deal', function (): void {
+    /*
+     * `activity_events.deal_id` is a `teamScopedForeign`, so it cascades — and
+     * that is right for an event *about* the deal. It is wrong for a contact
+     * logged against a **person**, where F2.5 makes the deal context rather
+     * than ownership: the client is still in the directory and the call still
+     * happened, but thirty days after an unrelated deal was purged their
+     * history silently lost entries.
+     */
+    [$team, $member] = $this->teamWithMember();
+
+    $this->actingAsPerson($member, $team);
+
+    [$contactLog, $dealsOwn] = app(TeamContext::class)->runFor($team, function () use ($team, $member): array {
+        $type = DealType::factory()->create(['team_id' => $team->getKey()]);
+        $deal = Deal::factory()->create([
+            'team_id' => $team->getKey(),
+            'deal_type_id' => $type->getKey(),
+        ]);
+
+        $membership = TeamMembership::query()->where('person_id', $member->getKey())->sole();
+
+        // Subject is the person; the deal is context.
+        $contactLog = app(RecordActivity::class)->record(
+            subject: $membership,
+            eventType: 'contact.logged',
+            summary: 'Called about the inspection.',
+            deal: $deal,
+        );
+
+        // Subject is the deal; this is the deal's own record of itself.
+        $dealsOwn = app(RecordActivity::class)->record(
+            subject: $deal,
+            eventType: 'deal.created',
+            summary: 'Created the deal.',
+        );
+
+        $deal->delete();
+
+        return [$contactLog, $dealsOwn];
+    });
+
+    $this->travel(31)->days();
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    // The contact survives, with the deal reference dropped rather than the row.
+    $survivor = ActivityEvent::withoutTeamScope()->find($contactLog->getKey());
+
+    expect($survivor)->not->toBeNull()
+        ->and($survivor->deal_id)->toBeNull()
+        // The control: the deal's own event does go, so this is not passing on
+        // a purge that deleted nothing.
+        ->and(ActivityEvent::withoutTeamScope()->find($dealsOwn->getKey()))->toBeNull();
 });

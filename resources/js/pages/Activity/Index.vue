@@ -28,6 +28,7 @@ import AppButton from '@/components/app/AppButton.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import SegmentedControl from '@/components/app/SegmentedControl.vue';
+import TextLink from '@/components/app/TextLink.vue';
 import { activityDescriptor } from '@/lib/activity';
 import { formatDateTime } from '@/lib/formatters';
 import type { ActivityFeedRow } from '@/types';
@@ -65,9 +66,7 @@ const rows = computed(() =>
         event,
         ...activityDescriptor(event),
         time: formatDateTime(event.occurredAt),
-        meta: [event.deal?.label, event.actorName].filter(
-            (part): part is string => Boolean(part),
-        ),
+        meta: [event.actorName].filter((part): part is string => Boolean(part)),
     })),
 );
 
@@ -178,11 +177,16 @@ function loadMore(): void {
                                 row.event.subject.label
                             }}</span>
                             <!--
-                                The deal is named, not linked: it has no detail
-                                screen yet (S15 is #78), and a link to a route
-                                that does not exist is a 404 somebody finds
-                                later.
+                                The deal is linked now that S15 (#75) exists.
+                                This said it was not, and landing S15 and the
+                                feed together falsified the comment without
+                                touching the line beneath it.
                             -->
+                            <TextLink
+                                v-if="row.event.deal"
+                                :href="row.event.deal.url"
+                                >{{ row.event.deal.label }}</TextLink
+                            >
                             <span v-for="part in row.meta" :key="part">{{
                                 part
                             }}</span>
