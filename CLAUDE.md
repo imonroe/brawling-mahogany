@@ -18,7 +18,7 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 > Obsidian vault paths inside `[[wikilinks]]` also still read
 > `brawling mahogany` and must stay that way or the links break.
 
-**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), and properties with their polymorphic external links (S35, S36, S37). Its remaining screens — the deal views themselves, offers, and the templates UI — are still open under epic #3.
+**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), and the deal's own properties tab with subject promotion and buyer interest (S20). Its remaining screens — the deal views themselves, offers, and the templates UI — are still open under epic #3.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -76,6 +76,16 @@ These come from PRD §8 and should guide the eventual build:
   URL is held to an http/https allowlist on the way in *and* on save
   (`App\Support\Links\SafeUrl`), because a stored `javascript:` URL is
   stored XSS the moment it is an `href`.
+
+- **A derived name is derived, and a typed one wins.** `deals` carries both
+  `name` and `generated_name` for one reason: the derived half goes on tracking
+  the facts — the subject property's street, the client's surname, the deal
+  type's side (IA §10) — and the typed half survives every one of those passes.
+  `App\Support\Deals\NameDeal` is the only thing that writes
+  `generated_name`, and it never touches `name`; `Deal::displayName()` decides
+  which a screen sees. Built across #61 and #62: linking a property, removing
+  one, editing a subject's street, and promoting a candidate all refresh the
+  derived name, and none of them can overwrite what somebody typed.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by

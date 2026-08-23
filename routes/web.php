@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Deals\DealPropertyController;
 use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
@@ -126,6 +127,34 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.people.update');
         Route::delete('deals/{deal}/people/{participant}', [ParticipantController::class, 'remove'])
             ->name('deals.people.remove');
+
+        /*
+         * S20 — deal properties.
+         *
+         * `{propertyLink}`, because scoped binding resolves the child through
+         * a relation named for the parameter (`Str::plural(Str::camel(...))`),
+         * and `Deal::propertyLinks()` is that relation. The nesting is what
+         * answers "whose deal" — the tenancy layers only answer "whose team",
+         * and a link row from another deal in the same team would bind
+         * happily without it.
+         *
+         * `candidates` and `order` are registered before the wildcard so
+         * neither is ever read as a link id.
+         */
+        Route::get('deals/{deal}/properties', [DealPropertyController::class, 'index'])
+            ->name('deals.properties.index');
+        Route::get('deals/{deal}/properties/candidates', [DealPropertyController::class, 'candidates'])
+            ->name('deals.properties.candidates');
+        Route::put('deals/{deal}/properties/order', [DealPropertyController::class, 'rank'])
+            ->name('deals.properties.rank');
+        Route::post('deals/{deal}/properties', [DealPropertyController::class, 'store'])
+            ->name('deals.properties.store');
+        Route::patch('deals/{deal}/properties/{propertyLink}', [DealPropertyController::class, 'update'])
+            ->name('deals.properties.update');
+        Route::post('deals/{deal}/properties/{propertyLink}/subject', [DealPropertyController::class, 'promote'])
+            ->name('deals.properties.promote');
+        Route::delete('deals/{deal}/properties/{propertyLink}', [DealPropertyController::class, 'remove'])
+            ->name('deals.properties.remove');
     });
 
     /*

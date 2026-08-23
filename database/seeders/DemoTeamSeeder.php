@@ -6,7 +6,9 @@ namespace Database\Seeders;
 
 use App\Actions\Teams\ProvisionTeam;
 use App\Enums\ActivitySource;
+use App\Enums\ParticipantRole;
 use App\Enums\PersonLifecycleState;
+use App\Enums\PropertyInterest;
 use App\Enums\PropertyStatus;
 use App\Enums\PropertyType;
 use App\Enums\SystemRole;
@@ -19,6 +21,7 @@ use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Activity\RecordActivity;
+use App\Support\Deals\DealRoster;
 use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Database\Seeder;
@@ -85,7 +88,9 @@ class DemoTeamSeeder extends Seeder
                 payload: ['contact_type' => 'phone_call', 'note' => 'Walked through the listing timeline.'],
             );
 
-            $this->properties();
+            $this->properties(
+                $team->memberships()->where('person_id', $client->getKey())->sole(),
+            );
         });
 
         $this->command->info("Demo team seeded. Sign in as emily@example.test / password (super admin: {$superAdmin->email}).");
@@ -105,7 +110,7 @@ class DemoTeamSeeder extends Seeder
      * every developer's `migrate:fresh --seed`, and PRD §10 is emphatic that
      * this product links out and never fetches.
      */
-    private function properties(): void
+    private function properties(TeamMembership $client): void
     {
         // `whereParcel()` rather than a raw `where`: a lookup by value has to
         // fold and trim the way the index does, or a second run inserts a
@@ -178,6 +183,51 @@ class DemoTeamSeeder extends Seeder
         // the deal through `NameDeal`, which is the product behaviour rather
         // than a seeder making the screenshot look right.
         app(PropertyDeals::class)->link($listed, $deal);
+
+        /*
+         * And a buyer's deal with two candidates, so S20's other half — the
+         * one #62 is actually about — has demo data.
+         *
+         * No subject on it, deliberately: a buyer-side deal does not have one
+         * until an offer is accepted, and that empty state is the case the
+         * definition of done names. The deal is named after the client until
+         * then, which is IA §10's fallback doing its job rather than a gap.
+         */
+        $buyerDeal = Deal::query()->create([
+            'deal_type_id' => DealType::query()->whereNull('team_id')
+                ->where('name', 'Buyer Representation')->sole()->getKey(),
+            'opened_at' => now()->subWeek(),
+        ]);
+
+        $mapleton = Property::query()->whereParcel('0512-14-002-0044')->first();
+
+        /*
+         * The client, so IA §10's fallback has something to fall back *to*.
+         * A buyer's deal with no subject is named after them — "Nakamura
+         * Purchase" — and a seed that left the participant off would have
+         * shown "Untitled deal", which is the one thing that rule exists to
+         * prevent.
+         */
+        app(DealRoster::class)->add(
+            deal: $buyerDeal,
+            membership: $client,
+            role: ParticipantRole::Buyer,
+            isPrimary: true,
+        );
+
+        if ($mapleton instanceof Property) {
+            $links = app(PropertyDeals::class);
+
+            $links->describe(
+                $links->link($mapleton, $buyerDeal),
+                ['interest_status' => PropertyInterest::Shortlisted],
+            );
+
+            $links->describe(
+                $links->link($listed, $buyerDeal),
+                ['interest_status' => PropertyInterest::Passed],
+            );
+        }
     }
 
     /**

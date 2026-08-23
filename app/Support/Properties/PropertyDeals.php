@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Properties;
 
+use App\Enums\DealSide;
 use App\Models\Deal;
 use App\Models\DealProperty;
 use App\Models\Property;
@@ -34,18 +35,27 @@ final class PropertyDeals
     /**
      * Put a property on a deal.
      *
-     * ## Why the first one becomes the subject
+     * ## Which links become the subject, and which do not
      *
      * A deal's generated name is *"subject property street address"* (IA §10),
-     * and `GenerateDealName` has no other way to be given one. A deal with
-     * exactly one property and no subject is a deal that cannot be named, and
-     * nobody linking their only property means "and this is not the one the
-     * deal is about."
+     * and `GenerateDealName` has no other way to be given one. So on a
+     * **sell-side** deal the first property becomes the subject: there is
+     * exactly one house, nobody linking it means "and this is not the one the
+     * deal is about", and without the flag the deal cannot be named at all.
+     *
+     * On a **buy-side** deal it does not, and issue #62 is explicit about
+     * why: *"a buyer-side deal may have twelve candidates and no subject
+     * until an offer is accepted."* The first house somebody tours is not the
+     * house they are buying, and naming the deal after it would put a wrong
+     * address on every screen for weeks. Nothing is lost by waiting —
+     * IA §10's fallback names a buyer's deal after the client
+     * ("Bosart Purchase"), which is the correct name until an offer is
+     * accepted and `promote()` is called.
      *
      * A deal that already has a subject keeps it. Choosing between two is a
-     * decision with an interaction attached, and that interaction is #62 —
-     * silently re-pointing the name at whichever property was linked most
-     * recently would be the wrong default in both directions.
+     * decision with an interaction attached, and that interaction is
+     * `promote()`; silently re-pointing the name at whichever property was
+     * linked most recently would be the wrong default in both directions.
      */
     public function link(Property $property, Deal $deal): DealProperty
     {
@@ -73,12 +83,18 @@ final class PropertyDeals
                 ->where('is_subject', true)
                 ->exists();
 
+            $deal->loadMissing('dealType');
+
             $link = new DealProperty;
             $link->forceFill([
                 'team_id' => $deal->team_id,
                 'deal_id' => $deal->getKey(),
                 'property_id' => $property->getKey(),
-                'is_subject' => ! $hasSubject,
+                'is_subject' => ! $hasSubject && $deal->dealType->side !== DealSide::Buy,
+                // After everything already on the deal. S20 lets an agent
+                // reorder from there; arriving at the end is the only default
+                // that does not disturb a ranking somebody made.
+                'sort_order' => $this->nextRank($deal),
             ]);
 
             /*
@@ -122,6 +138,124 @@ final class PropertyDeals
             );
 
             return $link;
+        });
+    }
+
+    /**
+     * Make this candidate the property the deal is about (F3.4 · S20 · #62).
+     *
+     * The interaction #61 deliberately left out, and the reason it needed one
+     * rather than a default: **the deal's name follows**. IA §10 derives it
+     * from the subject property's street, so promoting is a rename, and a
+     * rename that happened silently whenever somebody linked a house would put
+     * a wrong address on every screen a buyer's deal appears on.
+     *
+     * The incumbent is demoted in the **same transaction** as the promotion,
+     * because `deal_properties_one_subject` is a partial unique index and
+     * would otherwise refuse the second subject. That is the same shape
+     * `DealRoster::add()` uses for a primary participant, and for the same
+     * reason: there is only ever one, so setting a new one plainly means
+     * replacing the old one.
+     *
+     * **A typed name survives this.** `NameDeal` writes `generated_name` and
+     * never `name`, and `Deal::displayName()` prefers the typed one — which is
+     * issue #62's own requirement: *"must not overwrite a name the user has
+     * manually edited."*
+     */
+    public function promote(DealProperty $link): DealProperty
+    {
+        return DB::transaction(function () use ($link): DealProperty {
+            $link->loadMissing('deal.dealType', 'property');
+
+            $deal = $link->deal;
+
+            if (! $deal instanceof Deal) {
+                // The deal is gone. Nothing to name, and nothing to promote
+                // on — the same guard `unlink()` carries, for the same reason.
+                return $link;
+            }
+
+            if ($link->is_subject) {
+                return $link;
+            }
+
+            /*
+             * Locked, then read, then written — the pattern `link()` explains
+             * in full. A promotion racing a first link would otherwise have
+             * both rows claiming the subject slot, and a constraint violation
+             * aborts the whole transaction in Postgres, so the loser cannot be
+             * retried after the fact.
+             */
+            Deal::query()->whereKey($deal->getKey())->lockForUpdate()->first();
+
+            DealProperty::query()
+                ->where('deal_id', $deal->getKey())
+                ->where('is_subject', true)
+                ->update(['is_subject' => false]);
+
+            $link->forceFill(['is_subject' => true])->save();
+
+            $this->names->refresh($deal);
+
+            $this->activity->record(
+                subject: $deal,
+                eventType: 'property.promoted',
+                summary: ($link->property?->displayName() ?? 'A property').' is now the subject property',
+            );
+
+            return $link;
+        });
+    }
+
+    /**
+     * What the buyer thinks, and where it sits in their ranking (F3.5 · #62).
+     *
+     * Keyed on presence rather than on value, the way
+     * `DealRoster::replace()` is: `interest_status: null` is an instruction —
+     * clear it, nobody has said — and an absent key means leave it alone.
+     * `ConvertEmptyStringsToNull` erases the difference between "sent empty"
+     * and "not sent" for every scalar in a request body, so the caller is what
+     * has to keep it.
+     *
+     * @param  array<string, mixed>  $changes  only the keys the request sent
+     */
+    public function describe(DealProperty $link, array $changes): DealProperty
+    {
+        if ($changes === []) {
+            return $link;
+        }
+
+        $link->fill($changes)->save();
+
+        return $link;
+    }
+
+    /**
+     * The agent's ranking of the candidates (#62: *"`sort_order` exists so an
+     * agent can rank candidates"*).
+     *
+     * Ids that are not on this deal are ignored rather than refused. The list
+     * comes from a drag on a screen somebody may have had open while a
+     * colleague removed a row, and rejecting the whole reorder for one stale
+     * id would lose the work rather than the row.
+     *
+     * `array_values`, because the position in the list *is* the rank and a
+     * request body may key its array however it likes — the same trap `links`
+     * fell into in #61, where a JSON object's key reached an integer column.
+     *
+     * @param  array<array-key, string>  $orderedLinkIds
+     */
+    public function rank(Deal $deal, array $orderedLinkIds): void
+    {
+        DB::transaction(function () use ($deal, $orderedLinkIds): void {
+            $links = DealProperty::query()
+                ->where('deal_id', $deal->getKey())
+                ->get()
+                ->keyBy(fn (DealProperty $link): string => (string) $link->getKey());
+
+            foreach (array_values($orderedLinkIds) as $position => $id) {
+                $links->get((string) $id)?->forceFill(['sort_order' => $position])->save();
+            }
         });
     }
 
@@ -182,5 +316,21 @@ final class PropertyDeals
                 summary: 'Removed '.($link->property?->displayName() ?? 'a property').' from this deal',
             );
         });
+    }
+
+    /**
+     * After everything already on the deal.
+     *
+     * `max + 1` rather than a count, so removing a property does not make the
+     * next one collide with a rank already in use. Nothing is unique on
+     * `sort_order` — two concurrent links landing on the same number is a tie
+     * in a list, not a constraint violation — so this does not need the lock
+     * `link()` takes for the subject slot.
+     */
+    private function nextRank(Deal $deal): int
+    {
+        $highest = DealProperty::query()->where('deal_id', $deal->getKey())->max('sort_order');
+
+        return (int) ($highest ?? -1) + 1;
     }
 }

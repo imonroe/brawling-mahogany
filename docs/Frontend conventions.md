@@ -204,14 +204,18 @@ PHP enums against IA §8 and PRD §6.3.
 Changing a state means changing the document and the code together. That is
 rule 7 made mechanical.
 
-**One domain is not a state machine, and reads from a different document.**
-`property` carries PRD §6.3's *market status* lookup, not an IA §8 vocabulary,
-because a property does not transition — a team sets what is true. So the test
-reads its labels out of PRD §6.3 and only its tones out of Design System §2.4.
+**Two domains are not state machines, and read from a different document.**
+`property` and `propertyInterest` carry PRD §6.3 lookups rather than IA §8
+vocabularies,
+because neither transitions — a team sets what is true about a house, and a
+buyer changes their mind about one. So the test reads their labels out of PRD
+§6.3 and only their tones out of Design System §2.4.
 The distinction is load-bearing rather than pedantic: PRD §7.11 rules that
 "Undergoing improvements" and "Staged" are **workflow positions**, and they
 belong to a stage. A property status that grew a workflow position would be
-this table quietly becoming a second, worse stage vocabulary.
+this table quietly becoming a second, worse stage vocabulary — and the same
+line keeps "Viewing scheduled" and "Offer made" out of `propertyInterest`,
+where both are facts the product already holds somewhere better.
 
 ### `lib/navigation.ts`
 

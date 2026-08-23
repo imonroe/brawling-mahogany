@@ -14,6 +14,7 @@ export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 export type StateDomain =
     | 'deal'
     | 'property'
+    | 'propertyInterest'
     | 'workflow'
     | 'stage'
     | 'task'
@@ -111,6 +112,24 @@ const property: StateTable = {
     other: { label: 'Other', tone: 'neutral', clientLabel: null },
 };
 
+/**
+ * What a buyer thinks of a candidate (PRD §6.3, §4.3 F3.5).
+ *
+ * The second lookup in this table rather than a state vocabulary, for the same
+ * reason `property` is: PRD §6.3 owns the values, and a buyer does not
+ * transition between them so much as change their mind.
+ *
+ * `passed` is neutral, not danger. A buyer ruling a house out is the ordinary
+ * outcome of a showing — most candidates end here — and Design System §2.4
+ * reserves red for things that are actually broken.
+ */
+const propertyInterest: StateTable = {
+    interested: { label: 'Interested', tone: 'info', clientLabel: null },
+    shortlisted: { label: 'Shortlisted', tone: 'success', clientLabel: null },
+    passed: { label: 'Passed', tone: 'neutral', clientLabel: null },
+    other: { label: 'Other', tone: 'neutral', clientLabel: null },
+};
+
 const automation: StateTable = {
     pending: { label: 'Scheduled', tone: 'neutral', clientLabel: null },
     awaiting_approval: {
@@ -139,6 +158,7 @@ const document: StateTable = {
 export const STATES: Record<StateDomain, StateTable> = {
     deal,
     property,
+    propertyInterest,
     workflow,
     stage,
     task,
