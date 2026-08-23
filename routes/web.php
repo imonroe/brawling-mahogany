@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Deals\DealPropertyController;
+use App\Http\Controllers\Deals\DealWizardController;
 use App\Http\Controllers\Deals\ParticipantController;
+use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
@@ -116,6 +118,43 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * would agree. The tenancy layers answer "whose team", and only the
      * nesting answers "whose deal".
      */
+    /*
+     * S14 — create a deal.
+     *
+     * Every step posts, because the draft is the point: issue #74 requires a
+     * half-finished deal to survive a dropped connection, so nothing lives in
+     * component state. The draft is resolved from the **actor**, never from an
+     * id in the URL — which is why none of these carries one, and why a draft
+     * cannot be reached by guessing.
+     *
+     * `deals/create` is two segments and `deals/{deal}/…` is three, so nothing
+     * here can be read as a deal id; it is registered first anyway, because
+     * the day somebody adds `deals/{deal}` that stops being true.
+     */
+    Route::get('deals/create', [DealWizardController::class, 'create'])->name('deals.create');
+    Route::patch('deals/create', [DealWizardController::class, 'update'])->name('deals.draft.update');
+    Route::post('deals/create', [DealWizardController::class, 'store'])->name('deals.draft.store');
+    Route::delete('deals/create', [DealWizardController::class, 'destroy'])->name('deals.draft.destroy');
+    Route::get('deals/create/clients', [DealWizardController::class, 'clients'])->name('deals.draft.clients');
+    Route::post('deals/create/clients', [DealWizardController::class, 'storeClient'])
+        ->name('deals.draft.clients.store');
+    Route::get('deals/create/properties', [DealWizardController::class, 'properties'])
+        ->name('deals.draft.properties');
+    Route::post('deals/create/properties', [DealWizardController::class, 'storeProperty'])
+        ->name('deals.draft.properties.store');
+
+    /*
+     * S28 — attach a workflow to a live deal (F4.7).
+     *
+     * Separate from the wizard because workflows arrive at different times:
+     * the *Under Contract* one attaches when the offer is accepted, weeks
+     * after the deal was created.
+     */
+    Route::get('deals/{deal}/workflows/available', [WorkflowAttachmentController::class, 'index'])
+        ->name('deals.workflows.available');
+    Route::post('deals/{deal}/workflows', [WorkflowAttachmentController::class, 'store'])
+        ->name('deals.workflows.store');
+
     Route::scopeBindings()->group(function (): void {
         Route::get('deals/{deal}/people', [ParticipantController::class, 'index'])
             ->name('deals.people.index');
