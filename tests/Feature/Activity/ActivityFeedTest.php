@@ -353,7 +353,7 @@ it('keeps property activity from somebody who cannot open a property', function 
         'street' => '4 Confidential Way',
     ]));
 
-    feedEvent($property, 'property.created', 'Added 4 Confidential Way');
+    feedEvent($property, 'property.added', 'Added 4 Confidential Way');
     feedEvent($this->member, 'person.added', 'Added to the team directory');
 
     // Both rows for the ordinary Team Member role, which holds

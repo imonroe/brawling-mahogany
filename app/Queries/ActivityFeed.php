@@ -79,11 +79,19 @@ final class ActivityFeed
          * event that belongs to a deal (`RecordActivity` fills it from the
          * subject when the subject is a deal), so that rule is one `whereNull`.
          *
-         * A property event needs `properties.view`, which is its own
-         * permission key and its own policy — `people.view` does not open a
-         * property, and an earlier version of this comment claimed it did. A
-         * viewer without it read the address in the summary, read it again as
-         * the subject label, and was offered a link to a 403.
+         * An event **subjected to a property** needs `properties.view`, which
+         * is its own permission key and its own policy — `people.view` does
+         * not open a property, and an earlier version of this comment claimed
+         * it did. A viewer without it read the address in the summary, read it
+         * again as the subject label, and was offered a link to a 403.
+         *
+         * Subjected to, not named after. `property.linked`, `property.promoted`,
+         * `property.unlinked` and `property.interest_recorded` are all
+         * subjected to the **deal** — they are things that happened to a deal,
+         * involving a property — and the rule above already covers them, which
+         * is right: `DealPropertyPolicy::viewAny` asks for `deals.view` and
+         * nothing else. Only `property.added` and `property.status_changed`
+         * reach the property itself.
          *
          * Both shipped roles hold all three permissions, so today neither rule
          * changes anything; a team's own composed role (PRD F2.3) is what they
@@ -100,9 +108,10 @@ final class ActivityFeed
         }
 
         if (! $this->viewerCanSee(Permissions::VIEW_PROPERTIES)) {
-            $query->where(fn (Builder $inner) => $inner
-                ->whereNull('subject_type')
-                ->orWhere('subject_type', '!=', (new Property)->getMorphClass()));
+            // No `whereNull('subject_type')` beside it: the column is
+            // `NOT NULL`, so the branch would never be taken and would read as
+            // a case somebody had considered.
+            $query->where('subject_type', '!=', (new Property)->getMorphClass());
         }
 
         return $query;

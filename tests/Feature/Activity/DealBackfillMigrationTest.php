@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\ActivitySource;
+use App\Models\ActivityEvent;
 use App\Models\Deal;
 use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
@@ -74,6 +75,49 @@ it('gives a pre-existing deal-subject event its deal back', function (): void {
 
     expect(DB::table('activity_events')->where('id', $event->getKey())->value('deal_id'))
         ->toBe($deal->getKey());
+});
+
+/**
+ * Three events in one second come back newest-first, every time.
+ *
+ * `occurred_at` is `timestamp(0)`, and one `AdvanceWorkflow::handle()` writes
+ * `stage.advanced`, `milestone.reached` and `workflow.completed` inside the
+ * same second. Ordering by `occurred_at` alone leaves their order — and which
+ * of them survives a `limit()` at the boundary — to whatever Postgres returns.
+ * ULIDs are time-ordered, so `id` descending is the tiebreak, and it is the
+ * one `ActivityFeed::paginate()` already had.
+ */
+it('breaks a tie on the id, so events in one second keep their order', function (): void {
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $moment = now()->startOfSecond();
+
+    foreach (['first', 'second', 'third'] as $summary) {
+        app(RecordActivity::class)->record(
+            subject: $deal,
+            eventType: 'deal.updated',
+            summary: $summary,
+            source: ActivitySource::Manual,
+            occurredAt: $moment,
+        );
+    }
+
+    foreach (['forDeal', 'forSubject'] as $scope) {
+        $query = ActivityEvent::query()->{$scope}($deal);
+
+        expect($query->pluck('summary')->all())->toBe(['third', 'second', 'first']);
+
+        /*
+         * And the clause itself, because the assertion above passes without
+         * it: a three-row table comes back in insertion order whether or not
+         * anything asked it to. Deleting the tiebreak leaves the behavioural
+         * half green, which is the shape of test this review has been finding
+         * all week — so the ordering guarantee is checked where it lives.
+         */
+        expect(collect($query->getQuery()->orders)->contains(
+            fn (array $order): bool => $order['column'] === 'id' && $order['direction'] === 'desc',
+        ))->toBeTrue("{$scope}() has no id tiebreak, so its order is Postgres's to choose.");
+    }
 });
 
 /**

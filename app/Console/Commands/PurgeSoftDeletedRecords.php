@@ -177,6 +177,20 @@ class PurgeSoftDeletedRecords extends Command
              * ownership. Anything else — including a subject type Slice 3 has
              * not added yet — cascades, which is the safe direction.
              */
+            /*
+             * The allowlist. An exclusion list fails open — a subject type
+             * added later would be detached by default — so this names the
+             * types that keep their history, and anything new cascades until
+             * somebody decides otherwise.
+             *
+             * `TeamMembership` is here ahead of a caller: everything subjects
+             * a `Person` today, but #140 moved every team-visible field onto
+             * the membership, so an event about what a team knows about
+             * somebody is the membership's to hold. Deciding it now rather
+             * than when it appears, because the alternative is a person's
+             * contact history vanishing with an unrelated deal — which is the
+             * bug this whole method exists for.
+             */
             ->whereIn('subject_type', [
                 (new TeamMembership)->getMorphClass(),
                 (new Person)->getMorphClass(),
