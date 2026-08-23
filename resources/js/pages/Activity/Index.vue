@@ -47,6 +47,17 @@ defineOptions({
     },
 });
 
+/**
+ * Whether the deal chip adds anything to this row.
+ *
+ * On a deal-subject event the subject and the deal resolve to the same record,
+ * so rendering both printed the deal's name twice on one line. The subject
+ * already links to it.
+ */
+function showsDeal(event: ActivityFeedRow): boolean {
+    return event.deal !== null && event.subject?.url !== event.deal.url;
+}
+
 const loadingMore = ref(false);
 
 const segments = computed(() =>
@@ -164,7 +175,11 @@ function loadMore(): void {
                             {{ row.event.note }}
                         </p>
                         <p
-                            v-if="row.meta.length > 0 || row.event.subject"
+                            v-if="
+                                row.meta.length > 0 ||
+                                row.event.subject ||
+                                showsDeal(row.event)
+                            "
                             class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground"
                         >
                             <Link
@@ -183,9 +198,9 @@ function loadMore(): void {
                                 touching the line beneath it.
                             -->
                             <TextLink
-                                v-if="row.event.deal"
-                                :href="row.event.deal.url"
-                                >{{ row.event.deal.label }}</TextLink
+                                v-if="showsDeal(row.event)"
+                                :href="row.event.deal!.url"
+                                >{{ row.event.deal!.label }}</TextLink
                             >
                             <span v-for="part in row.meta" :key="part">{{
                                 part

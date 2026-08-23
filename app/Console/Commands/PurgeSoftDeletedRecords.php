@@ -12,6 +12,7 @@ use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\Person;
 use App\Models\Team;
+use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonInterface;
@@ -147,10 +148,33 @@ class PurgeSoftDeletedRecords extends Command
         DB::table('activity_events')
             ->where('team_id', $team->getKey())
             ->whereIn('deal_id', $expiring)
-            // Everything except the deal's own record of itself.
-            ->where(fn ($query) => $query
-                ->whereNull('subject_type')
-                ->orWhere('subject_type', '!=', (new Deal)->getMorphClass()))
+            /*
+             * **Named subjects only, and it fails closed.**
+             *
+             * The first version kept everything whose subject was *not* the
+             * deal, which is the opposite of what the paragraph above says: a
+             * stage advanced and a workflow attached are the deal's own record
+             * and go with it. Keeping them left orphans — a `stage.advanced`
+             * event pointing at a `workflows` row that no longer exists, which
+             * `ActivityFeed::subject()` has no branch for and renders forever
+             * with neither a subject nor a deal.
+             *
+             * Worse, it leaked. `ActivityFeed::query()` hides deal-context rows
+             * from a viewer without `deals.view` by asking for
+             * `whereNull('deal_id')` — so nulling the column moved those rows
+             * *into* their feed. A directory-only viewer saw nothing before the
+             * purge and a workflow event after it.
+             *
+             * So the list is what may survive, not what may not: a contact
+             * logged against somebody the team knows, which is the case F2.5
+             * describes and the only one where the deal is context rather than
+             * ownership. Anything else — including a subject type Slice 3 has
+             * not added yet — cascades, which is the safe direction.
+             */
+            ->whereIn('subject_type', [
+                (new TeamMembership)->getMorphClass(),
+                (new Person)->getMorphClass(),
+            ])
             ->update(['deal_id' => null]);
     }
 

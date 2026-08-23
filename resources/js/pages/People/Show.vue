@@ -20,6 +20,7 @@ import PageHeader from '@/components/app/PageHeader.vue';
 import PersonAvatar from '@/components/app/PersonAvatar.vue';
 import PersonFormDialog from '@/components/app/PersonFormDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
+import TextLink from '@/components/app/TextLink.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { activityDescriptor } from '@/lib/activity';
 import {
@@ -256,13 +257,18 @@ function remove(): void {
                                 class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground"
                             >
                                 <!--
-                                    The deal a contact was attached to (F2.5).
-                                    Named, not linked: a deal has no detail
-                                    screen yet (S15 is #78).
+                                    The deal a contact was attached to (F2.5),
+                                    linked now that S15 (#75) exists. This was
+                                    the third of three callers saying it was
+                                    not; the other two were fixed and this one
+                                    kept the sentence, wrong issue number and
+                                    all.
                                 -->
-                                <span v-if="entry.event.deal">{{
-                                    entry.event.deal.label
-                                }}</span>
+                                <TextLink
+                                    v-if="entry.event.deal"
+                                    :href="entry.event.deal.url"
+                                    >{{ entry.event.deal.label }}</TextLink
+                                >
                                 <span v-if="entry.event.actorName">{{
                                     entry.event.actorName
                                 }}</span>

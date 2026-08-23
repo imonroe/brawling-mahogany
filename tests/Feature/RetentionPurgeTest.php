@@ -12,6 +12,7 @@ use App\Models\DealType;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
+use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
@@ -416,7 +417,7 @@ it('does not take a person’s contact log with a purged deal', function (): voi
 
     $this->actingAsPerson($member, $team);
 
-    [$contactLog, $dealsOwn] = app(TeamContext::class)->runFor($team, function () use ($team, $member): array {
+    [$contactLog, $dealsOwn, $workflowsOwn] = app(TeamContext::class)->runFor($team, function () use ($team, $member): array {
         $type = DealType::factory()->create(['team_id' => $team->getKey()]);
         $deal = Deal::factory()->create([
             'team_id' => $team->getKey(),
@@ -440,9 +441,28 @@ it('does not take a person’s contact log with a purged deal', function (): voi
             summary: 'Created the deal.',
         );
 
+        /*
+         * Subject is a **workflow** on the deal. The first version of the
+         * detach kept everything whose subject was not the deal itself, so
+         * this survived pointing at a `workflows` row that no longer existed —
+         * an orphan `ActivityFeed::subject()` has no branch for. Worse, the
+         * feed hides deal-context rows from a viewer without `deals.view` with
+         * `whereNull('deal_id')`, so nulling the column moved it *into* their
+         * feed.
+         */
+        $workflowsOwn = app(RecordActivity::class)->record(
+            subject: Workflow::factory()->create([
+                'team_id' => $team->getKey(),
+                'deal_id' => $deal->getKey(),
+            ]),
+            eventType: 'stage.advanced',
+            summary: 'Advanced to Under Contract.',
+            deal: $deal,
+        );
+
         $deal->delete();
 
-        return [$contactLog, $dealsOwn];
+        return [$contactLog, $dealsOwn, $workflowsOwn];
     });
 
     $this->travel(31)->days();
@@ -456,5 +476,9 @@ it('does not take a person’s contact log with a purged deal', function (): voi
         ->and($survivor->deal_id)->toBeNull()
         // The control: the deal's own event does go, so this is not passing on
         // a purge that deleted nothing.
-        ->and(ActivityEvent::withoutTeamScope()->find($dealsOwn->getKey()))->toBeNull();
+        ->and(ActivityEvent::withoutTeamScope()->find($dealsOwn->getKey()))->toBeNull()
+        // And so does the workflow's. Only a subject the team still holds — a
+        // person — keeps its row, because only there is the deal context
+        // rather than ownership.
+        ->and(ActivityEvent::withoutTeamScope()->find($workflowsOwn->getKey()))->toBeNull();
 });
