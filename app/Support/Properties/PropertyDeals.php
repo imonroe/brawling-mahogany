@@ -13,6 +13,7 @@ use App\Support\Deals\NameDeal;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 /**
  * The link between a property and a deal (S36 · issue #61).
@@ -56,6 +57,13 @@ final class PropertyDeals
      * decision with an interaction attached, and that interaction is
      * `promote()`; silently re-pointing the name at whichever property was
      * linked most recently would be the wrong default in both directions.
+     *
+     * **A rental follows the sell-side rule, and that is a choice rather than
+     * an oversight.** A tenant tours several units exactly as a buyer tours
+     * several houses, so the buy-side argument arguably fits — but PRD F3.5
+     * says *"Buyer-side"* in as many words, and a rental placement is usually
+     * one unit being let rather than a search. Worth revisiting with Heather
+     * if tenant placements turn out to look like buyer searches in practice.
      */
     public function link(Property $property, Deal $deal): DealProperty
     {
@@ -225,7 +233,65 @@ final class PropertyDeals
             return $link;
         }
 
-        $link->fill($changes)->save();
+        $before = $link->interest_status;
+
+        $link->fill($changes);
+
+        /*
+         * Checked **before** the write, not after it.
+         *
+         * The first version of this filled, saved, and then threw — which
+         * left the refused value in the database, since nothing here runs in
+         * a transaction. A guard that fires after the thing it guards is not
+         * a guard.
+         *
+         * The buy-side rule lives here, not only in the form request.
+         *
+         * PRD F3.5 is one line — *"Buyer-side: per-property interest status"*
+         * — and the first version of this enforced it in
+         * `UpdateDealPropertyRequest` alone, where `DemoTeamSeeder` was
+         * already the second caller and buy-side only by luck. That is the
+         * shape this service exists to avoid: `LinkPropertyRequest`'s own
+         * docblock says the rule about what becomes the subject lives in
+         * `PropertyDeals` *"rather than in whichever screen was written
+         * first"*, and interest was the one rule that did not get the same
+         * treatment.
+         *
+         * The request still turns it into a named 422; this is what holds for
+         * the seeder, an import, and whatever calls it next.
+         */
+        if ($link->interest_status !== null) {
+            $link->loadMissing('deal.dealType');
+
+            if ($link->deal?->dealType->side !== DealSide::Buy) {
+                throw new InvalidArgumentException(
+                    'Interest is something a buyer has; ['.$link->getKey().'] is not on a buy-side deal.',
+                );
+            }
+        }
+
+        $link->save();
+
+        if ($link->interest_status !== $before) {
+            /*
+             * Timelined. "The buyer passed on 1420 Pearl" is half of what F3.5
+             * is for, and a deal's timeline is where somebody reads back how
+             * an opinion moved across showings.
+             *
+             * `rank()` deliberately writes nothing: a ranking is adjusted
+             * repeatedly in one sitting, and an entry per drag would bury the
+             * events somebody is actually looking for.
+             */
+            $link->loadMissing('property');
+
+            $this->activity->record(
+                subject: $link->deal,
+                eventType: 'property.interest_recorded',
+                summary: ($link->property?->displayName() ?? 'A property').': '
+                    .($link->interest_status?->label() ?? 'no opinion recorded'),
+                payload: ['from' => $before?->value, 'to' => $link->interest_status?->value],
+            );
+        }
 
         return $link;
     }
@@ -253,7 +319,13 @@ final class PropertyDeals
                 ->get()
                 ->keyBy(fn (DealProperty $link): string => (string) $link->getKey());
 
-            foreach (array_values($orderedLinkIds) as $position => $id) {
+            /*
+             * Deduplicated as well as re-indexed. `distinct` on the way in
+             * names a repeat for an HTTP caller; this is the same guarantee
+             * for the ones that are not that request, and without it
+             * `[B, B, A]` put nothing at rank 0.
+             */
+            foreach (array_values(array_unique(array_values($orderedLinkIds))) as $position => $id) {
                 $links->get((string) $id)?->forceFill(['sort_order' => $position])->save();
             }
         });

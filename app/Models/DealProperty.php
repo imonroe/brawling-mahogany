@@ -33,9 +33,11 @@ use Illuminate\Support\Carbon;
  * opinion to record — null means nobody has said, which is a different fact
  * from "Interested".
  *
- * **`is_subject` is not fillable.** Which property names the deal is decided
- * by `PropertyDeals`, in a transaction that demotes the incumbent; a request
- * body choosing it would meet the partial unique index instead.
+ * **Neither `is_subject` nor `sort_order` is fillable.** Which property names
+ * the deal is decided by `PropertyDeals` in a transaction that demotes the
+ * incumbent — a request body choosing it would meet the partial unique index
+ * instead — and a rank is a position in a list, which the reorder route sets
+ * for the whole set at once rather than one row at a time.
  *
  * @property string $id
  * @property string $team_id
@@ -48,7 +50,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  */
-#[Fillable(['interest_status', 'sort_order'])]
+#[Fillable(['interest_status'])]
 class DealProperty extends Model
 {
     /** @use HasFactory<DealPropertyFactory> */
@@ -64,15 +66,6 @@ class DealProperty extends Model
             'interest_status' => PropertyInterest::class,
             'sort_order' => 'integer',
         ];
-    }
-
-    /**
-     * A candidate is any link that is not the subject (PRD §6.2's
-     * `link_role`, read the way #61 narrowed it).
-     */
-    public function isCandidate(): bool
-    {
-        return ! $this->is_subject;
     }
 
     /**

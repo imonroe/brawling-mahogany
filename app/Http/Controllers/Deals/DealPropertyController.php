@@ -47,7 +47,17 @@ class DealPropertyController extends Controller
     {
         $this->authorize('viewAny', [DealProperty::class, $deal]);
 
-        $deal->load(['dealType', 'propertyLinks.property']);
+        /*
+         * `withCount` on the nested property, because `PropertyDirectory::row()`
+         * reports `deal_links_count` and every other caller supplies it. Without
+         * this the payload carried a hard-coded `0` for every row while the
+         * type declared a number — dead data, which is the shape this codebase
+         * keeps finding. Still one query, so the budget test holds.
+         */
+        $deal->load([
+            'dealType',
+            'propertyLinks.property' => fn ($property) => $property->withCount('dealLinks'),
+        ]);
 
         $isBuySide = $deal->dealType->side === DealSide::Buy;
 
@@ -102,6 +112,7 @@ class DealPropertyController extends Controller
 
         $properties = $directory
             ->query(null, trim((string) $request->query('q', '')))
+            ->withCount('dealLinks')
             ->whereDoesntHave('dealLinks', fn ($links) => $links->where('deal_id', $deal->getKey()))
             ->orderBy('city')
             ->orderBy('street')
@@ -146,9 +157,16 @@ class DealPropertyController extends Controller
     {
         $this->authorize('promote', $propertyLink);
 
+        // A link that was already the subject changes nothing, and saying
+        // "Subject property set" for a request that did nothing is how an
+        // audit story gets muddled. Reachable from a stale tab.
+        $changed = ! $propertyLink->is_subject;
+
         $deals->promote($propertyLink);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Subject property set.')]);
+        if ($changed) {
+            Inertia::flash('toast', ['type' => 'success', 'message' => __('Subject property set.')]);
+        }
 
         return to_route('deals.properties.index', $deal);
     }
@@ -159,11 +177,17 @@ class DealPropertyController extends Controller
      */
     public function rank(Request $request, Deal $deal, PropertyDeals $deals): RedirectResponse
     {
-        $this->authorize('create', [DealProperty::class, $deal]);
+        // `rank`, not `create`: reordering touches no property, and `create`
+        // asks for `properties.manage` on top of `deals.manage`.
+        $this->authorize('rank', [DealProperty::class, $deal]);
 
         $validated = $request->validate([
             'order' => ['required', 'array', 'max:200', 'list'],
-            'order.*' => ['required', 'string'],
+            // `distinct`, because the position in the list *is* the rank:
+            // `[B, B, A]` on a two-link deal put B at 1 and A at 2 and left
+            // nothing at 0. A drag that emits a stale duplicate is the
+            // ordinary way to send one.
+            'order.*' => ['required', 'string', 'distinct'],
         ]);
 
         $deals->rank($deal, $validated['order']);

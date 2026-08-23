@@ -118,7 +118,7 @@ final class NameDeal
      */
     private function clientSurname(Deal $deal): ?string
     {
-        $roles = array_column(app(DealRoster::class)->expectedRoles($deal), 'value');
+        $roles = array_column(DealRoster::expectedRoles($deal), 'value');
 
         if ($roles === []) {
             return null;

@@ -30,8 +30,11 @@ use Illuminate\Support\Facades\Schema;
  * every seller deal in the product. Null means *nobody has said*, which is a
  * different fact from *interested*, and F3.5 is explicitly buyer-side only.
  *
- * `StoreDealPropertyRequest` refuses an interest on a deal whose type is not
- * buy-side, so the column cannot quietly fill up with values no screen shows.
+ * `PropertyDeals::describe()` refuses an interest on a deal whose type is not
+ * buy-side, so the column cannot quietly fill up with values no screen shows —
+ * and `UpdateDealPropertyRequest` refuses it again on the way in, where it can
+ * be a named 422 rather than an exception. The service is the one that holds
+ * for the seeder and for whatever calls it next.
  */
 return new class extends Migration
 {

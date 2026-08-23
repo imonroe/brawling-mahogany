@@ -58,6 +58,27 @@ it('404s another team’s deal on every S20 route', function (): void {
     $this->post("/deals/{$foreignDeal->getKey()}/properties", ['property_id' => $ownProperty->getKey()])
         ->assertNotFound();
     $this->getJson("/deals/{$foreignDeal->getKey()}/properties/candidates")->assertNotFound();
+
+    /*
+     * And the four the first version of this stopped short of, while calling
+     * itself "every S20 route". A test named for coverage it does not have is
+     * worse than one named for what it checks.
+     */
+    $ownLink = DealProperty::query()->sole();
+
+    $this->put("/deals/{$foreignDeal->getKey()}/properties/order", ['order' => [$ownLink->getKey()]])
+        ->assertNotFound();
+    $this->patch("/deals/{$foreignDeal->getKey()}/properties/{$ownLink->getKey()}", [
+        'interest_status' => 'shortlisted',
+    ])->assertNotFound();
+    $this->post("/deals/{$foreignDeal->getKey()}/properties/{$ownLink->getKey()}/subject")
+        ->assertNotFound();
+    $this->delete("/deals/{$foreignDeal->getKey()}/properties/{$ownLink->getKey()}")
+        ->assertNotFound();
+
+    // Untouched by any of it.
+    expect($ownLink->fresh()->trashed())->toBeFalse()
+        ->and($ownLink->fresh()->interest_status)->toBeNull();
 });
 
 it('refuses a property from another team on the link route', function (): void {
@@ -122,7 +143,10 @@ it('keeps another team’s properties out of the picker', function (): void {
         ->assertJsonCount(1, 'properties')
         ->assertJsonPath('properties.0.id', $ownProperty->getKey());
 
-    expect($foreignProperty->getKey())->not->toBe($ownProperty->getKey());
+    // No "and the two ids differ" assertion here: two freshly generated ULIDs
+    // cannot collide, so it would pass whatever the picker returned. The
+    // count plus the path above is the whole control.
+    expect($foreignProperty->fresh())->not->toBeNull();
 });
 
 it('ranks only the links on the deal the route names', function (): void {

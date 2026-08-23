@@ -20,9 +20,10 @@
  * rename would be a lie.
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { Home, Plus, Star } from '@lucide/vue';
+import { ArrowDown, ArrowUp, Home, Plus, Star } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import Heading from '@/components/app/Heading.vue';
@@ -61,14 +62,46 @@ function titleOf(link: DealPropertyLink): string {
     return addressOf(link).line1 || link.property?.name || 'A deleted property';
 }
 
-function setInterest(link: DealPropertyLink, value: string): void {
-    // An empty select value means "nobody has said", which is a real state
-    // and different from Interested.
-    interest.interest_status = value === '' ? null : value;
+/**
+ * Null is a real value: *nobody has said*, which is a different fact from
+ * "Interested" and is what every candidate starts as. `AppSelect` maps the
+ * empty option to null so this does not have to.
+ */
+function setInterest(link: DealPropertyLink, value: string | null): void {
+    interest.interest_status = value;
 
     interest.patch(`/deals/${props.deal.id}/properties/${link.id}`, {
         preserveScroll: true,
     });
+}
+
+/**
+ * The ranking #62 asks for by name: *"`sort_order` exists so an agent can rank
+ * candidates."*
+ *
+ * Up/down buttons rather than a drag. They are keyboard-reachable and screen
+ * readable without a second implementation, they need no library, and an agent
+ * moving one house to the top of nine does it in one click either way. A drag
+ * can land later over the same route.
+ *
+ * The subject is not in this list and is never renumbered — it sorts above the
+ * candidates regardless of rank.
+ */
+function move(index: number, direction: -1 | 1): void {
+    const order = candidates.value.map((link) => link.id);
+    const target = index + direction;
+
+    if (target < 0 || target >= order.length) {
+        return;
+    }
+
+    [order[index], order[target]] = [order[target], order[index]];
+
+    router.put(
+        `/deals/${props.deal.id}/properties/order`,
+        { order },
+        { preserveScroll: true },
+    );
 }
 
 /**
@@ -194,20 +227,51 @@ function remove(link: DealPropertyLink): void {
                     subject is normal, not broken. Saying which name the deal
                     is using meanwhile is what stops it reading as a gap.
                 -->
+                <!--
+                    Branched, because a sell-side deal reaches this card too:
+                    link two properties, remove the subject, and `unlink()`
+                    deliberately does not promote a replacement by guess.
+                -->
                 <p v-else class="px-4 py-3 text-xs text-muted-foreground">
-                    None yet. A buyer’s deal takes its name from the client
-                    until an offer is accepted — promote a candidate below when
-                    one is.
+                    {{
+                        deal.isBuySide
+                            ? 'None yet. A buyer’s deal takes its name from the client until an offer is accepted — promote a candidate below when one is.'
+                            : 'None yet. Promote the house being sold below, and the deal takes its name from the address.'
+                    }}
                 </p>
             </Card>
 
             <Card v-if="candidates.length > 0" title="Candidates">
                 <ul class="flex flex-col">
                     <li
-                        v-for="link in candidates"
+                        v-for="(link, index) in candidates"
                         :key="link.id"
                         class="flex min-h-11 flex-wrap items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
                     >
+                        <span
+                            v-if="candidates.length > 1"
+                            class="flex items-center"
+                        >
+                            <AppButton
+                                variant="ghost"
+                                size="compact"
+                                :disabled="index === 0"
+                                :aria-label="`Move ${titleOf(link)} up`"
+                                @click="move(index, -1)"
+                            >
+                                <ArrowUp aria-hidden="true" />
+                            </AppButton>
+                            <AppButton
+                                variant="ghost"
+                                size="compact"
+                                :disabled="index === candidates.length - 1"
+                                :aria-label="`Move ${titleOf(link)} down`"
+                                @click="move(index, 1)"
+                            >
+                                <ArrowDown aria-hidden="true" />
+                            </AppButton>
+                        </span>
+
                         <span class="flex min-w-0 flex-1 flex-col">
                             <TextLink
                                 v-if="link.property"
@@ -245,26 +309,15 @@ function remove(link: DealPropertyLink): void {
                             <span class="sr-only"
                                 >Interest in {{ titleOf(link) }}</span
                             >
-                            <select
-                                :value="link.interestStatus ?? ''"
-                                class="h-8 rounded-md border bg-background px-2.5 text-xs"
-                                @change="
-                                    setInterest(
-                                        link,
-                                        ($event.target as HTMLSelectElement)
-                                            .value,
-                                    )
+                            <AppSelect
+                                :model-value="link.interestStatus"
+                                :options="interestStatuses"
+                                placeholder="Not said"
+                                class="w-auto"
+                                @update:model-value="
+                                    (value) => setInterest(link, value)
                                 "
-                            >
-                                <option value="">Not said</option>
-                                <option
-                                    v-for="(label, value) in interestStatuses"
-                                    :key="value"
-                                    :value="value"
-                                >
-                                    {{ label }}
-                                </option>
-                            </select>
+                            />
                         </label>
 
                         <AppButton

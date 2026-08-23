@@ -17,6 +17,7 @@ import { Home, LayoutGrid, List, Plus } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import PropertyFormDialog from '@/components/app/PropertyFormDialog.vue';
@@ -86,6 +87,20 @@ function selectStatus(status: string): void {
     );
 }
 
+/**
+ * `AppSelect` takes value → label, which is the shape every `Enum::options()`
+ * returns; the counts are folded into the label here rather than teaching the
+ * component about them.
+ */
+const statusOptions = computed(() =>
+    Object.fromEntries(
+        props.statusCounts.map((option) => [
+            option.value,
+            `${option.label} (${option.count})`,
+        ]),
+    ),
+);
+
 const subtitle = computed(() =>
     formatCount(props.properties.total, 'property', 'properties'),
 );
@@ -120,22 +135,13 @@ const isFiltered = computed(
                 class="w-full sm:w-72"
             />
             <label class="sr-only" for="status-filter">Filter by status</label>
-            <select
+            <AppSelect
                 id="status-filter"
-                :value="status"
-                class="h-8 rounded-md border bg-background px-2.5 text-xs"
-                @change="
-                    selectStatus(($event.target as HTMLSelectElement).value)
-                "
-            >
-                <option
-                    v-for="option in statusCounts"
-                    :key="option.value"
-                    :value="option.value"
-                >
-                    {{ option.label }} ({{ option.count }})
-                </option>
-            </select>
+                :model-value="status"
+                :options="statusOptions"
+                class="w-auto"
+                @update:model-value="(value) => selectStatus(value ?? 'all')"
+            />
 
             <div class="flex-1"></div>
 

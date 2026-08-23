@@ -215,19 +215,22 @@ class DemoTeamSeeder extends Seeder
             isPrimary: true,
         );
 
-        if ($mapleton instanceof Property) {
-            $links = app(PropertyDeals::class);
+        $links = app(PropertyDeals::class);
 
+        // `$listed` is unconditionally in scope; only the Mapleton fixture has
+        // to be looked up, so only that one is guarded. Guarding both meant
+        // moving one fixture would silently leave the demo buyer deal empty.
+        if ($mapleton instanceof Property) {
             $links->describe(
                 $links->link($mapleton, $buyerDeal),
                 ['interest_status' => PropertyInterest::Shortlisted],
             );
-
-            $links->describe(
-                $links->link($listed, $buyerDeal),
-                ['interest_status' => PropertyInterest::Passed],
-            );
         }
+
+        $links->describe(
+            $links->link($listed, $buyerDeal),
+            ['interest_status' => PropertyInterest::Passed],
+        );
     }
 
     /**

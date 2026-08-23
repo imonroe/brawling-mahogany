@@ -14,6 +14,7 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { Upload } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
@@ -56,6 +57,18 @@ const upload = useForm<{ source: string; file: File | null }>({
     source: 'csv',
     file: null,
 });
+
+/**
+ * What a person may do with one previewed row.
+ *
+ * Value → label, which is what `AppSelect` takes and what every
+ * `Enum::options()` returns on the server, so the two shapes match.
+ */
+const ROW_ACTIONS: Record<ImportRow['action'], string> = {
+    create: 'Add as new',
+    merge: 'Already have them',
+    skip: 'Skip',
+};
 
 // The parser's guesses, which the person may override before committing.
 const actions = ref<Record<number, ImportRow['action']>>(
@@ -276,15 +289,18 @@ function refresh(): void {
                                 }}</span
                             >
                         </span>
-                        <select
-                            v-model="actions[row.row]"
-                            class="h-8 rounded-md border bg-background px-2 text-xs"
+                        <AppSelect
+                            :model-value="actions[row.row]"
+                            :options="ROW_ACTIONS"
+                            class="w-auto"
                             :aria-label="`What to do with row ${row.row}`"
-                        >
-                            <option value="create">Add as new</option>
-                            <option value="merge">Already have them</option>
-                            <option value="skip">Skip</option>
-                        </select>
+                            @update:model-value="
+                                (value) =>
+                                    (actions[row.row] =
+                                        (value as ImportRow['action']) ??
+                                        'create')
+                            "
+                        />
                     </li>
                 </ul>
 

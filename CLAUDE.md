@@ -83,9 +83,17 @@ These come from PRD §8 and should guide the eventual build:
   type's side (IA §10) — and the typed half survives every one of those passes.
   `App\Support\Deals\NameDeal` is the only thing that writes
   `generated_name`, and it never touches `name`; `Deal::displayName()` decides
-  which a screen sees. Built across #61 and #62: linking a property, removing
-  one, editing a subject's street, and promoting a candidate all refresh the
-  derived name, and none of them can overwrite what somebody typed.
+  which a screen sees. Built across #61 and #62.
+
+  **Every fact it derives from has to trigger a refresh, and the buy side is
+  where forgetting one shows.** `PropertyDeals` (link, unlink, promote) and
+  `SaveProperty` (a subject's street changing) cover the property half;
+  `DealRoster` (add, replace, remove) covers the client half. That last one was
+  missing for a round, and it did not matter until #62 stopped making a
+  buyer's first house the subject — at which point a buy-side deal had nothing
+  *but* the surname to be named from, and rendered "Untitled deal" with a
+  named Buyer sitting on it. Adding a seventh fact means adding a seventh
+  trigger.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by
