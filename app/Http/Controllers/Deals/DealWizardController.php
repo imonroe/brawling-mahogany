@@ -227,9 +227,16 @@ class DealWizardController extends Controller
 
         $memberships = $directory
             ->query(PersonSegment::All, trim((string) $request->query('q', '')))
-            // Join-qualified, so `active()` cannot be used here — the scope
-            // writes an unqualified column and the directory query joins.
-            ->whereNull('team_memberships.revoked_at')
+            /*
+             * `active()`, like the other two callers. The table-qualified
+             * literal it replaces carried a comment claiming the scope could
+             * not be used here because the directory query joins — it has not
+             * joined since #140 (`PeopleDirectory::query()`: *"No join any
+             * more"*), so the comment described a constraint that had stopped
+             * existing, which is how a fourth and fifth literal copy came to
+             * be written.
+             */
+            ->active()
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->limit(20)

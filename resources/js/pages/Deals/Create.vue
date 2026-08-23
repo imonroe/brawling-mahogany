@@ -262,21 +262,34 @@ async function search(
  * outcome `CreateDealFromDraft`'s own docblock calls *worse* than a half-made
  * record, because it looks finished.
  *
- * So the mirrors follow the draft. This fires only when the server's answer
- * actually changes, which is the one moment it is authoritative.
+ * So the mirrors follow the draft — **one watcher per field**, each on a
+ * scalar getter, so each fires only when its own answer actually changes.
+ *
+ * The first version watched an array literal, which returns a fresh array on
+ * every evaluation and therefore fires on *every* draft prop update rather
+ * than on a change. That was not merely wasteful. The role setter deliberately
+ * does not PATCH when no client is chosen yet, so on a client-less draft the
+ * role lives only in component state — and an unconditional re-sync discarded
+ * it. Reachable: a fresh Rental, "Add somebody new", pick a role, hit a
+ * duplicate-email 422, and the role select blanks and "Add and continue" goes
+ * disabled, with the only visible error about a different field.
  */
 watch(
-    () => [
-        props.draft.participantRole,
-        props.draft.workflowTemplateId,
-        props.draft.membershipId,
-    ],
-    ([role, template, membership]) => {
+    () => props.draft.participantRole,
+    (role) => {
         stepTwo.participant_role = role ?? null;
         newClient.participant_role = role ?? null;
-        stepFour.workflow_template_id = template ?? '';
-        stepTwo.team_membership_id = membership ?? '';
     },
+);
+
+watch(
+    () => props.draft.workflowTemplateId,
+    (template) => (stepFour.workflow_template_id = template ?? ''),
+);
+
+watch(
+    () => props.draft.membershipId,
+    (membership) => (stepTwo.team_membership_id = membership ?? ''),
 );
 
 watch(clientSearch, (term) => {

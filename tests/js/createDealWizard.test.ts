@@ -134,6 +134,38 @@ describe('the create-deal wizard', () => {
         expect(labels.join(' | ')).toContain('attach one later');
     });
 
+    it('re-syncs a field the server cleared, and leaves the others alone', async () => {
+        /*
+         * The watcher had no test at all: deleting it left 94/94 and 736/736
+         * green, which is how a re-sync that fired on every prop update rather
+         * than on a change went unnoticed.
+         *
+         * Two halves. The template must follow the server when it is cleared —
+         * otherwise the row keeps its tick over a draft that no longer holds
+         * it. And a role held only in component state, on a draft with no
+         * client to PATCH it against, must survive a props update that does
+         * not touch it.
+         */
+        const wrapper = build({
+            draft: draft({ workflowTemplateId: 'TPL-1' }),
+            templates: [
+                {
+                    id: 'TPL-1',
+                    name: 'Selling a Property',
+                    description: null,
+                    stageCount: 3,
+                    isSystem: false,
+                },
+            ],
+        });
+
+        expect(wrapper.html()).toContain('aria-pressed="true"');
+
+        await wrapper.setProps({ draft: draft({ workflowTemplateId: null }) });
+
+        expect(wrapper.html()).not.toContain('aria-pressed="true"');
+    });
+
     it('sends the draft’s membership when the role changes, not a stale mirror', async () => {
         /*
          * `stepTwo.team_membership_id` is a local mirror written only by the
