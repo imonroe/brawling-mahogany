@@ -127,6 +127,52 @@ it('filters the picker by pack', function (): void {
         ->assertJsonCount(2, 'templates');
 });
 
+it('offers only packs this team could actually filter by', function (): void {
+    /*
+     * The catalogue used to be every `template_packs` row. A pack whose
+     * templates this team cannot see selects nothing, so choosing it emptied
+     * the list and read as a bug rather than as an empty pack.
+     */
+    $mine = TemplatePack::factory()->create(['name' => 'Listing', 'slug' => 'listing']);
+    $retired = TemplatePack::factory()->create(['name' => 'Retired', 'slug' => 'retired']);
+    $foreign = TemplatePack::factory()->create(['name' => 'Somebody Else', 'slug' => 'somebody-else']);
+    TemplatePack::factory()->create(['name' => 'Empty', 'slug' => 'empty']);
+
+    templateNamed('Selling a Property', 2, $mine);
+
+    // Visible pack, but its only template is out of circulation.
+    templateNamed('Withdrawn', 2, $retired)->forceFill(['is_active' => false])->save();
+
+    // Another team's private template, in a pack of its own.
+    [$otherTeam] = $this->teamWithMember();
+    app(TeamContext::class)->runFor($otherTeam, fn () => WorkflowTemplate::factory()->create([
+        'team_id' => $otherTeam->getKey(),
+        'template_pack_id' => $foreign->getKey(),
+        'is_active' => true,
+    ]));
+
+    $response = $this->getJson("/deals/{$this->deal->getKey()}/workflows/available")->assertOk();
+
+    expect(array_column($response->json('packs'), 'slug'))->toBe(['listing']);
+});
+
+it('does not narrow the pack catalogue as the pack filter is applied', function (): void {
+    // The thing most likely to break in scoping the catalogue: deriving it
+    // from the *filtered* query would leave one pack in the list the moment
+    // you picked one, and no way back to the others.
+    $listing = TemplatePack::factory()->create(['name' => 'Listing', 'slug' => 'listing']);
+    $closing = TemplatePack::factory()->create(['name' => 'Closing', 'slug' => 'closing']);
+
+    templateNamed('Selling a Property', 2, $listing);
+    templateNamed('Under Contract', 2, $closing);
+
+    $response = $this->getJson("/deals/{$this->deal->getKey()}/workflows/available?pack=listing")
+        ->assertOk()
+        ->assertJsonCount(1, 'templates');
+
+    expect(array_column($response->json('packs'), 'slug'))->toBe(['closing', 'listing']);
+});
+
 it('keeps an inactive template out of the picker and refuses it on the way in', function (): void {
     // A template a team took out of circulation is S76's archived deal type
     // one layer over: no new use of it, and the ones already running are

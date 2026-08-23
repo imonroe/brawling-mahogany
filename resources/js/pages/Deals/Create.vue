@@ -140,7 +140,13 @@ const finishError = computed<string | null>(() => {
      */
     const errors = finish.errors as Record<string, string | undefined>;
 
-    return errors.deal_type_id ?? errors.participant_role ?? null;
+    return (
+        errors.deal_type_id ??
+        errors.participant_role ??
+        errors.team_membership_id ??
+        errors.workflow_template_id ??
+        null
+    );
 });
 
 const creatingClient = ref(false);
@@ -179,6 +185,17 @@ const chosenRole = computed({
     set: (value: string | null) => {
         stepTwo.participant_role = value;
         newClient.participant_role = value;
+
+        /*
+         * Saved, not just held. Step two has no Next button — it advances when
+         * a client is picked — so once one *is* picked, changing the role had
+         * nothing left that would ever PATCH it. Reachable without doing
+         * anything odd: choose a client on a Sale, go back and switch the type
+         * to Rental, and the select you are then shown writes nowhere.
+         */
+        if (value !== null && stepTwo.team_membership_id !== '') {
+            stepTwo.patch('/deals/create', { preserveScroll: true });
+        }
     },
 });
 
@@ -256,6 +273,10 @@ function saveNewClient(): void {
         onSuccess: () => {
             creatingClient.value = false;
             newClient.reset();
+            // `reset()` returns every field to its initial value, the shared
+            // role included — so reopening this half showed an empty select
+            // and a disabled button while `stepTwo` still held the answer.
+            newClient.participant_role = stepTwo.participant_role;
             step.value = 'property';
         },
     });
@@ -785,6 +806,13 @@ function abandon(): void {
                     @click="chooseTemplate(null)"
                     >Not yet — I’ll attach one later</AppButton
                 >
+
+                <p
+                    v-if="stepFour.errors.workflow_template_id"
+                    class="text-[11px] text-state-danger"
+                >
+                    {{ stepFour.errors.workflow_template_id }}
+                </p>
 
                 <p v-if="finishError" class="text-[11px] text-state-danger">
                     {{ finishError }}

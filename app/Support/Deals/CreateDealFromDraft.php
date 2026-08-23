@@ -147,10 +147,25 @@ final class CreateDealFromDraft
             ->first();
 
         if (! $membership instanceof TeamMembership) {
-            // Gone since the draft was started. The deal is still worth
-            // making; S19 will say the role is missing, which is exactly what
-            // that warning is for.
-            return;
+            /*
+             * Revoked or deleted since the draft was started.
+             *
+             * This used to return, on the argument that "the deal is still
+             * worth making; S19 will say the role is missing". **S19 says no
+             * such thing on a Rental or an Other deal type**, because its
+             * warning filters `expectedRoles()`, which is empty on both — so
+             * the argument held on two of the four sides and the comment
+             * asserted a protection the code did not provide.
+             *
+             * The printout was blocker 2's, one branch over: a successful
+             * create, a "Deal created." toast, zero participants, no warning,
+             * and "Untitled deal". Refusing on all four sides is the same
+             * answer as eleven lines up and needs no per-side reasoning to
+             * stay correct.
+             */
+            throw ValidationException::withMessages([
+                'team_membership_id' => 'Choose the client again — the person this draft had is no longer on your team.',
+            ]);
         }
 
         $this->roster->add(
@@ -217,10 +232,26 @@ final class CreateDealFromDraft
             ->where('is_active', true)
             ->first();
 
-        if ($template instanceof WorkflowTemplate) {
-            // Refuses another team's private template itself (#66), so the
-            // wizard does not have to and cannot forget to.
-            $this->workflows->handle($deal, $template);
+        if (! $template instanceof WorkflowTemplate) {
+            /*
+             * Refused rather than skipped, because this method's own class
+             * docblock promises the last button "either produces the whole
+             * thing or changes nothing" — and a deal created without the
+             * workflow the person picked is the case that docblock calls
+             * *worse* than a missing property, "because it looks finished".
+             *
+             * Not attaching at all stays legal: `attachWorkflow()` returns
+             * early when nothing was chosen, and S28 exists to add one later.
+             * This is only about a template that *was* chosen and has since
+             * been withdrawn.
+             */
+            throw ValidationException::withMessages([
+                'workflow_template_id' => 'Choose a workflow again, or skip it — the template this draft had is no longer active.',
+            ]);
         }
+
+        // Refuses another team's private template itself (#66), so the
+        // wizard does not have to and cannot forget to.
+        $this->workflows->handle($deal, $template);
     }
 }

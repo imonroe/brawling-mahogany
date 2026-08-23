@@ -30,7 +30,7 @@ defineProps<{ screen: string; slice: number }>();
         </PageHeader>
 
         <EmptyState
-            title="The deals list lands with this slice"
+            :title="`The deals list lands with slice ${slice}`"
             :description="`${screen} is still to build. Creating a deal works now — the list of them arrives with the deal views.`"
             class="rounded-lg border bg-card"
         >

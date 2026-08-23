@@ -7,13 +7,16 @@ use App\Enums\DealSide;
 use App\Enums\ParticipantRole;
 use App\Enums\PersonLifecycleState;
 use App\Enums\StageState;
+use App\Enums\SystemRole;
 use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\DealProperty;
 use App\Models\DealType;
 use App\Models\Person;
 use App\Models\Property;
+use App\Models\Role;
 use App\Models\StageTemplate;
+use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\WorkflowTemplate;
 use App\Support\Tenancy\TeamContext;
@@ -56,6 +59,29 @@ function templateWithStages(int $stages = 3): WorkflowTemplate
     }
 
     return $template;
+}
+
+/** Somebody in the team holding no deal permissions at all (a Contact). */
+function permissionlessDealMember(Team $team): Person
+{
+    $person = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($team, function () use ($team, $person): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'No',
+            'last_name' => 'Permissions',
+            'status' => PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        $membership->roles()->attach(
+            Role::query()->whereNull('team_id')->where('key', SystemRole::Contact->value)->sole()->getKey(),
+        );
+    });
+
+    return $person;
 }
 
 /** Somebody in the directory. */
@@ -293,8 +319,8 @@ it('gives each person their own draft', function (): void {
             'status' => PersonLifecycleState::Active,
             'joined_at' => now(),
         ])->roles()->attach(
-            App\Models\Role::query()->whereNull('team_id')
-                ->where('key', App\Enums\SystemRole::TeamMember->value)->sole()->getKey(),
+            Role::query()->whereNull('team_id')
+                ->where('key', SystemRole::TeamMember->value)->sole()->getKey(),
         );
     });
 
@@ -418,11 +444,40 @@ it('does not add a client whose membership was revoked while the draft sat', fun
     );
 
     $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
-    $this->post('/deals/create')->assertRedirect();
 
-    // The deal is still worth making — S19 will say the Seller is missing,
-    // which is exactly what that warning is for.
-    expect(Deal::query()->sole()->participants()->count())->toBe(0);
+    /*
+     * Refused, not quietly created without them. The first version of this
+     * asserted a deal with zero participants on the argument that S19 would
+     * warn — and S19's warning filters `expectedRoles()`, which is empty on
+     * Rent and Other, so on those two sides nothing would have said anything.
+     */
+    $this->post('/deals/create')->assertSessionHasErrors('team_membership_id');
+
+    expect(Deal::query()->count())->toBe(0);
+});
+
+it('refuses the same way on a rental, where no warning downstream would catch it', function (): void {
+    // The side that made the silent version wrong: `missingExpectedRoles()`
+    // is empty here, so a deal created without the client says nothing at all.
+    $type = typeOn(DealSide::Rent);
+    $client = clientIn('Ilyas');
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+    $this->patch('/deals/create', [
+        'step' => 'client',
+        'team_membership_id' => $client->getKey(),
+        'participant_role' => ParticipantRole::Other->value,
+    ])->assertRedirect();
+
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $client->forceFill(['revoked_at' => now()])->save(),
+    );
+
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->post('/deals/create')->assertSessionHasErrors('team_membership_id');
+
+    expect(Deal::query()->count())->toBe(0);
 });
 
 it('does not attach a template deactivated while the draft sat', function (): void {
@@ -441,19 +496,59 @@ it('does not attach a template deactivated while the draft sat', function (): vo
 
     $template->forceFill(['is_active' => false])->save();
 
-    $this->post('/deals/create')->assertRedirect();
+    /*
+     * Refused, because the class docblock promises the last button "either
+     * produces the whole thing or changes nothing" — and it calls a deal
+     * whose workflow failed to attach *worse* than a half-made one, because
+     * it looks finished.
+     */
+    $this->post('/deals/create')->assertSessionHasErrors('workflow_template_id');
 
-    $deal = Deal::query()->sole();
+    expect(Deal::query()->count())->toBe(0);
+});
 
-    // The deal is made; S28 attaches a workflow to a live deal, which is the
-    // recovery. A snapshot of a withdrawn process is not.
-    expect($deal->workflows()->count())->toBe(0);
+it('still creates a deal when no workflow was chosen at all', function (): void {
+    // The refusal above is about a template that was chosen and withdrawn.
+    // Choosing none stays legal: F4.7 attaches workflows at different times,
+    // and S28 is the screen for the later ones.
+    $type = typeOn(DealSide::Sell);
+
+    $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'property', 'property_id' => null])->assertRedirect();
+    $this->patch('/deals/create', ['step' => 'template', 'workflow_template_id' => null])->assertRedirect();
+
+    $this->post('/deals/create')->assertSessionHasNoErrors();
+
+    expect(Deal::query()->sole()->workflows()->count())->toBe(0);
 });
 
 it('does not create a draft in order to abandon one', function (): void {
     // `open()` creates when it finds nothing. Giving up on a wizard you never
     // started should leave the table exactly as it was.
     $this->delete('/deals/create')->assertRedirect('/deals');
+
+    expect(DealDraft::withTrashed()->count())->toBe(0);
+});
+
+it('refuses the wizard to somebody with no deal permissions, and writes nothing', function (): void {
+    /*
+     * `POST /deals/create` is the one wizard write with no FormRequest in
+     * front of it, so it was the one endpoint that resolved the draft — which
+     * *creates* one — before asking the policy. A 403 that leaves a
+     * `deal_drafts` row behind is a small leak, but it is the shape
+     * `AuthorizationCoverageTest` cannot see: the source does call
+     * `authorize()`, just too late.
+     *
+     * `destroy()` is here for the other half: with the check inside the
+     * "is there a draft" branch, an unauthorized actor was answered with a
+     * redirect rather than a refusal.
+     */
+    $outsider = permissionlessDealMember($this->team);
+
+    $this->actingAsPerson($outsider, $this->team);
+
+    $this->post('/deals/create')->assertForbidden();
+    $this->delete('/deals/create')->assertForbidden();
 
     expect(DealDraft::withTrashed()->count())->toBe(0);
 });

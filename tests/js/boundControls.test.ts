@@ -76,6 +76,15 @@ function selectTags(source: string): string[] {
     return tags;
 }
 
+/**
+ * How many `<AppSelect>` tags exist today, less a margin.
+ *
+ * Nine across six files at the time of writing. Deliberately not exact: a
+ * screen that adds one should not have to edit this test, and the number only
+ * exists to catch a scanner that has stopped matching.
+ */
+const EXPECTED_SELECTS = 8;
+
 describe('bound controls', () => {
     it('never renders an AppSelect nothing can write to', () => {
         const files = vueFiles('resources/js');
@@ -83,6 +92,7 @@ describe('bound controls', () => {
         expect(files.length).toBeGreaterThan(0);
 
         const unbound: string[] = [];
+        let scanned = 0;
 
         for (const file of files) {
             // The component's own definition is where the props are declared.
@@ -93,6 +103,8 @@ describe('bound controls', () => {
             const source = readFileSync(resolve(process.cwd(), file), 'utf8');
 
             for (const tag of selectTags(source)) {
+                scanned++;
+
                 const writes =
                     tag.includes('v-model') ||
                     tag.includes('@update:model-value') ||
@@ -103,6 +115,19 @@ describe('bound controls', () => {
                 }
             }
         }
+
+        /*
+         * A floor, because a source-reading test that matches nothing is
+         * green. Mutating the scanner's own pattern to a tag name that cannot
+         * exist left this file passing — it was checking an empty list and
+         * calling it success. A lower bound, so adding a select never needs it
+         * changed; deleting most of them does.
+         */
+        expect(
+            scanned,
+            'The scanner found almost no AppSelect tags, which means it is not ' +
+                'reading what it thinks it is reading.',
+        ).toBeGreaterThanOrEqual(EXPECTED_SELECTS);
 
         expect(
             unbound,

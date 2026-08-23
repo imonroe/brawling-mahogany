@@ -155,9 +155,16 @@ class DealWizardController extends Controller
         /** @var Person $person */
         $person = $request->user();
 
-        // Authorized before anything is written. The other way round, a
-        // refused request still left a person in the directory — the create
-        // had already happened by the time the policy was asked.
+        /*
+         * The directory entry is created after the draft is authorized, not
+         * before. The other way round, a refused request still left a person
+         * in the directory.
+         *
+         * `open()` itself still inserts ahead of the `update` check, which is
+         * only unreachable because `CreateDraftClientRequest::authorize()`
+         * asked `create` first — so this ordering is defence in depth rather
+         * than the thing standing between a Contact and a stray row.
+         */
         $draft = $drafts->open($person);
 
         $this->authorize('update', $draft);
@@ -249,6 +256,17 @@ class DealWizardController extends Controller
      */
     public function store(Request $request, RecordDealDraft $drafts, CreateDealFromDraft $create): RedirectResponse
     {
+        /*
+         * Asked before the draft is resolved, not after.
+         *
+         * This is the only wizard write with no FormRequest in front of it, so
+         * it was the one endpoint where `open()` inserted a row and *then*
+         * asked — a 403 that left a `deal_drafts` row behind. The instance
+         * check below still runs; this is the gate that decides whether the
+         * person may use the wizard at all.
+         */
+        $this->authorize('create', DealDraft::class);
+
         /** @var Person $person */
         $person = $request->user();
 
@@ -266,6 +284,14 @@ class DealWizardController extends Controller
     /** Give up on it. */
     public function destroy(Request $request, RecordDealDraft $drafts): RedirectResponse
     {
+        /*
+         * Before the `if` below, so an unauthorized actor gets a 403 rather
+         * than the redirect they would get from falling past a draft that does
+         * not exist. `AuthorizationCoverageTest` reads the source and was
+         * satisfied either way; the endpoint was not.
+         */
+        $this->authorize('create', DealDraft::class);
+
         /** @var Person $person */
         $person = $request->user();
 

@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Requests\Deals;
 
 use App\Enums\ParticipantRole;
-use App\Models\DealDraft;
+use App\Models\DealType;
 use App\Models\Person;
 use App\Support\Deals\DealRoster;
+use App\Support\Deals\RecordDealDraft;
 use Illuminate\Validation\Rule;
 
 /**
@@ -31,15 +32,28 @@ trait ResolvesDraftRole
     /**
      * Required exactly where the deal type implies nothing.
      *
+     * **And not where there is no usable deal type at all.** `dealType()`
+     * returns null for a type archived while the draft sat, which makes
+     * `impliedRole()` null for a reason that has nothing to do with roles — so
+     * the unqualified version demanded a role and explained it with "this deal
+     * type doesn't imply one", which is both wrong and unactionable. Step one
+     * is the answer there, and `CreateDealFromDraft` says so at the button.
+     *
      * @return array<int, mixed>
      */
     protected function participantRoleRules(): array
     {
         return [
-            Rule::requiredIf(fn (): bool => $this->impliedRole() === null),
+            Rule::requiredIf(fn (): bool => $this->dealTypeIsUsable() && $this->impliedRole() === null),
             'nullable',
             Rule::enum(ParticipantRole::class),
         ];
+    }
+
+    /** Whether step one's answer still resolves to a type a deal may open on. */
+    protected function dealTypeIsUsable(): bool
+    {
+        return $this->draftDealType() instanceof DealType;
     }
 
     /**
@@ -52,14 +66,23 @@ trait ResolvesDraftRole
      */
     protected function impliedRole(): ?ParticipantRole
     {
+        return DealRoster::impliedRole($this->draftDealType());
+    }
+
+    /** The deal type step one chose, if it is still selectable. */
+    protected function draftDealType(): ?DealType
+    {
         /** @var Person|null $person */
         $person = $this->user();
 
-        $draft = $person === null
-            ? null
-            : DealDraft::query()->open()->where('created_by_person_id', $person->getKey())->first();
+        // Through the service that owns the question, rather than a second
+        // copy of its query. The first version wrote its own and dropped the
+        // `latest('updated_at')` ordering — harmless while the partial unique
+        // index holds, and exactly the two-places-that-can-drift shape this
+        // slice keeps being reviewed for.
+        $draft = $person === null ? null : app(RecordDealDraft::class)->existing($person);
 
-        return DealRoster::impliedRole($draft?->dealType());
+        return $draft?->dealType();
     }
 
     /**
