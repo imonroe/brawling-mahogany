@@ -83,10 +83,21 @@ class ImpersonationController extends Controller
         [$model, $person] = $teams->runWithoutScope(function () use ($team, $validated): array {
             $model = Team::query()->findOrFail($team);
 
+            /*
+             * The same question the picker asks, asked again here.
+             *
+             * Narrowing only `create()` closed the *list* and left the door
+             * behind it open: a POST naming a Status Viewer who has a password
+             * still started an audited impersonation session and landed the
+             * operator on `/no-team`. A picker is a convenience; this is the
+             * check.
+             */
             $membership = TeamMembership::withoutTeamScope()
                 ->where('team_id', $model->getKey())
                 ->where('person_id', $validated['person_id'])
                 ->whereNull('revoked_at')
+                ->carryingAccess()
+                ->whereHas('person', fn ($query) => $query->whereNotNull('password'))
                 ->with('person')
                 ->firstOrFail();
 

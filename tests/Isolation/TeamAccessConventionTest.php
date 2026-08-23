@@ -239,13 +239,36 @@ function anyPermissionTestsIn(string $contents): int
         $code .= is_array($token) ? $token[1] : $token;
     }
 
-    // `->whereHas('permissions')` and friends, closing immediately: no
-    // constraint. Both quote styles, because Pint is a formatter and not a
-    // guard.
-    return preg_match_all(
-        '/->(?:where|or[A-Za-z]*)?[Hh]as\(\s*[\'"]permissions[\'"]\s*\)/',
-        $code,
-    );
+    /*
+     * Any existence test on the `permissions` relation that is not narrowed by
+     * a closure.
+     *
+     * Three things this had to learn, all found by review:
+     *
+     * - **`whereDoesntHave`** counts. It is the Clients-segment spelling, and
+     *   this codebase's own paired scope is written that way — "no permission
+     *   at all" is the same mistake as "any permission at all", inverted.
+     * - **A trailing comma** counts, because `Pint` *writes* one: its
+     *   `trailing_comma_in_multiline` rule adds it the moment the call wraps,
+     *   so the project's own formatter produced the evasion.
+     * - **`has('permissions', '>=', 1)`** counts. The operator form is the
+     *   same unconstrained question with arithmetic on it.
+     *
+     * What must NOT count is a closure narrowing the relation, which is the
+     * shape this whole file exists to encourage.
+     */
+    $methods = 'has|whereHas|orWhereHas|whereDoesntHave|orWhereDoesntHave';
+    $relation = '[\'"]permissions[\'"]';
+
+    // Closes right after the relation name — no constraint. The optional
+    // trailing comma is the one Pint writes.
+    $bare = '/->(?:'.$methods.')\(\s*'.$relation.'\s*,?\s*\)/';
+
+    // The operator form, whose extra arguments are literals rather than a
+    // closure: `has('permissions', '>=', 1)`.
+    $counted = '/->(?:'.$methods.')\(\s*'.$relation.'\s*,\s*[\'"][^\'"]*[\'"]\s*,\s*[0-9]+\s*,?\s*\)/';
+
+    return preg_match_all($bare, $code) + preg_match_all($counted, $code);
 }
 
 /**
@@ -523,13 +546,30 @@ it('shows the same team on the console as on the team’s own members screen', f
 it('has no hard-coded role-key test outside the sanctioned call sites', function (): void {
     $found = [];
 
+    $scanned = 0;
+
     foreach ((new Finder)->files()->in([app_path()])->name('*.php') as $file) {
+        $scanned++;
+
         $uses = teamRoleKeyUsesIn((string) file_get_contents($file->getRealPath()));
 
         if ($uses > 0) {
             $found[str_replace('\\', '/', $file->getRelativePathname())] = $uses;
         }
     }
+
+    /*
+     * A floor on the walk itself, not on what it found.
+     *
+     * Changing `.name('*.php')` to something that matches nothing left this
+     * green over a codebase carrying both defects — an empty `$found` is
+     * indistinguishable from a clean one. The count test does not cover it
+     * either, because that reads its files directly.
+     */
+    expect($scanned)->toBeGreaterThan(
+        100,
+        'The scan walked almost no files, so it is not reading what it thinks it is.',
+    );
 
     $unsanctioned = array_diff_key($found, SANCTIONED_TEAM_ROLE_KEY_USES);
 
@@ -578,13 +618,24 @@ it('never asks whether a role carries any permission at all', function (): void 
      */
     $found = [];
 
+    $scanned = 0;
+
     foreach ((new Finder)->files()->in([app_path()])->name('*.php') as $file) {
+        $scanned++;
+
         $uses = anyPermissionTestsIn((string) file_get_contents($file->getRealPath()));
 
         if ($uses > 0) {
             $found[str_replace('\\', '/', $file->getRelativePathname())] = $uses;
         }
     }
+
+    // The same floor, for the same reason — and it matters more here, where
+    // the sanctioned list is empty and so an empty result is the expected one.
+    expect($scanned)->toBeGreaterThan(
+        100,
+        'The scan walked almost no files, so it is not reading what it thinks it is.',
+    );
 
     expect(array_diff_key($found, SANCTIONED_ANY_PERMISSION_TESTS))->toBe(
         [],
@@ -615,7 +666,12 @@ it('still recognises the query it is looking for', function (string $snippet, in
     'orWhereHas' => ["\$q->orWhereHas('permissions');", 1],
     'whitespace inside the call' => ["\$q->whereHas( 'permissions' );", 1],
     // Constrained: the question this file exists to encourage.
+    // Found by review: all three of these defeated the first pattern.
+    'whereDoesntHave, the Clients-segment spelling' => ["\$q->whereDoesntHave('permissions');", 1],
+    'the operator form' => ["\$q->has('permissions', '>=', 1);", 1],
+    'a trailing comma, which Pint itself writes' => ["\$q->whereHas(\n    'permissions',\n);", 1],
     'a closure constraining it' => ["\$q->whereHas('permissions', fn (\$p) => \$p->whereIn('key', \$keys));", 0],
+    'a closure over several lines' => ["\$q->whereHas(\n    'permissions',\n    fn (\$p) => \$p->whereIn('key', \$keys),\n);", 0],
     'a different relation' => ["\$q->whereHas('roles');", 0],
     // A comment saying it is not a query saying it.
     'inside a comment' => ["// \$q->whereHas('permissions');", 0],
