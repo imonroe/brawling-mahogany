@@ -35,6 +35,17 @@ final class PersonDeals
 
         $participations = DealParticipant::query()
             ->whereIn('team_membership_id', $ids->all())
+            /*
+             * Only participations whose deal still exists.
+             *
+             * Soft-deleting a deal does not delete its participants, and
+             * `DealParticipant::deal()` carries no `withTrashed()` — so the
+             * relation comes back null and `->displayName()` below is a fatal
+             * on a screen a team reaches by clicking a person. A deleted deal
+             * has no business in the Log-contact dialog either way, so the
+             * filter is the fix rather than a null check around the symptom.
+             */
+            ->whereHas('deal')
             // One query for the deals behind however many participations came
             // back, rather than one per row.
             ->with('deal')

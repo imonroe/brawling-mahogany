@@ -71,14 +71,20 @@ final class ActivityFeed
         /*
          * The screen is gated on `people.view` (ActivityEventPolicy::viewAny),
          * and a feed is the one place where events about several parts of the
-         * product arrive together — so the parts a viewer cannot open have to
-         * be filtered rather than assumed.
+         * product arrive together.
          *
-         * One rule, because there is one that is both cheap and certainly
-         * right: a deal-context event needs `deals.view`. `deal_id` is set on
-         * every event that belongs to a deal (`RecordActivity` fills it from
-         * the subject when the subject is a deal), so the whole rule is one
-         * `whereNull`.
+         * **One rule, and it is only about deals.** A deal-context event needs
+         * `deals.view`; `deal_id` is set on every event that belongs to a deal
+         * (`RecordActivity` fills it from the subject when the subject is a
+         * deal), so the whole rule is one `whereNull`.
+         *
+         * Nothing else here is filtered, and that is deliberate rather than
+         * unfinished. Everything a feed can currently carry is either about a
+         * deal — covered — or about a person, a property or a vendor, all of
+         * which `people.view` already opens. The next event type that is
+         * neither is the one that needs a second rule; there is no general
+         * per-surface filter to fall through to, so it will have to be
+         * written.
          *
          * The shipped roles all hold `deals.view` alongside `people.view`, so
          * today this changes nothing; a team's own composed role (PRD F2.3)

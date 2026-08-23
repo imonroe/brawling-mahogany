@@ -130,6 +130,43 @@ it('names an actor whose membership this team has since removed', function (): v
 });
 
 /**
+ * Once the purge has been through, all that is left is the sign-in address.
+ *
+ * `withTrashed()` defers this rather than avoiding it: `records:purge`
+ * hard-deletes a removed membership after thirty days, and then nothing this
+ * team typed about the person survives. The event does — it is a record of
+ * something that happened — so the resolver falls back the way
+ * `Person::displayNameWithin()` does.
+ *
+ * Pinned because it is a disclosure, and one worth being deliberate about: it
+ * is a colleague's work address, never a client's, because a client has no
+ * login and so is never an actor. If that stops being true, this test is where
+ * it fails.
+ */
+it('falls back to the sign-in address once the membership is really gone', function (): void {
+    [, $departed] = $this->teamWithMember();
+
+    $membership = app(TeamContext::class)->runFor($this->team, fn (): TeamMembership => TeamMembership::query()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $departed->getKey(),
+        'first_name' => 'Priya',
+        'last_name' => 'Raman',
+    ]));
+
+    $this->actingAsPerson($departed, $this->team);
+    feedEvent($this->member, 'person.added', 'Added to the team directory');
+
+    // What the purge leaves behind: the event, and no membership at all.
+    app(TeamContext::class)->runFor($this->team, fn () => $membership->forceDelete());
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/activity')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('events.0.actorName', $departed->email));
+});
+
+/**
  * Removed and re-added: the live membership is the one that names them.
  *
  * Both rows come back through `withTrashed()`, and the resolver keys by

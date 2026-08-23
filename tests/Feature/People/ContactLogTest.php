@@ -9,6 +9,7 @@ use App\Models\DealParticipant;
 use App\Models\DealType;
 use App\Models\Team;
 use App\Support\Tenancy\TeamContext;
+use Carbon\CarbonImmutable;
 
 /**
  * S26 — log a contact (PRD §4.2 F2.5 · issue #81).
@@ -71,6 +72,76 @@ it('puts an attached entry on the deal as well as the person', function (): void
         ->toContain($event->getKey())
         ->and(ActivityEvent::query()->forDeal($deal)->pluck('id'))
         ->toContain($event->getKey());
+});
+
+/**
+ * A deleted deal drops out of the dialog rather than 500ing the page.
+ *
+ * Soft-deleting a deal leaves its `deal_participants` rows behind, and
+ * `DealParticipant::deal()` carries no `withTrashed()` — so `PersonDeals` read
+ * a null relation and called `displayName()` on it. That is a fatal on
+ * `/people/{membership}`, a screen a team reaches by clicking somebody's name,
+ * and the deal it was about is one nobody should be offered anyway.
+ */
+it('leaves a deleted deal out of the deals a person can be logged against', function (): void {
+    $live = contactLogDeal($this->team);
+    $deleted = contactLogDeal($this->team);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($live, $deleted): void {
+        foreach ([$live, $deleted] as $deal) {
+            DealParticipant::factory()->create([
+                'team_id' => $this->team->getKey(),
+                'deal_id' => $deal->getKey(),
+                'team_membership_id' => $this->membership?->getKey(),
+                'participant_role' => ParticipantRole::Seller,
+            ]);
+        }
+
+        $deleted->delete();
+    });
+
+    $this->get("/people/{$this->membership?->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('deals', fn ($deals) => collect($deals)->pluck('id')->all() === [$live->getKey()]));
+});
+
+/**
+ * A contact is something that already happened.
+ *
+ * Both the feed and the person's timeline sort by `occurred_at` descending, so
+ * one fat-fingered year pins an entry to the top of every activity screen in
+ * the team. `nullable|date` alone accepted it.
+ */
+it('refuses a contact dated in the future', function (): void {
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'occurred_at' => now()->addMonth()->toDateTimeString(),
+    ])->assertSessionHasErrors('occurred_at');
+
+    expect(ActivityEvent::query()->where('event_type', 'contact.logged')->count())->toBe(0);
+});
+
+/**
+ * Later today is not the future, and the team's zone decides which is which.
+ *
+ * The rule parses the submitted string the same way `store()` does — in the
+ * team's zone — because a bound built in the app's zone rejects this evening's
+ * showing for any team east of UTC.
+ */
+it('accepts a contact dated later today in the team zone', function (): void {
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $this->team->forceFill(['timezone' => 'Pacific/Auckland'])->save(),
+    );
+
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'showing',
+        'occurred_at' => CarbonImmutable::now('Pacific/Auckland')->endOfDay()
+            ->subMinutes(5)->toDateTimeString(),
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(ActivityEvent::query()->where('event_type', 'contact.logged')->count())->toBe(1);
 });
 
 it('refuses a deal from another team without touching the timeline', function (): void {

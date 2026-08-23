@@ -150,25 +150,28 @@ final readonly class AdvanceResult
     /**
      * Gate id => label, read off the stage the result already carries.
      *
-     * No query: `AdvanceWorkflow` evaluated these gates from the stage's own
-     * loaded relation a moment ago, so the rows are in memory. The fallback in
-     * `reasons()` is for a result assembled some other way — a sentence
-     * without its label is worse than one with, and neither is worth a
-     * lazy-load on a refusal path.
+     * No query in practice: `blocked()` is only ever built after
+     * `AdvanceWorkflow` has walked `$stage->gates` to evaluate them, so the
+     * rows are already in memory by the time this asks for them.
+     *
+     * An earlier version guarded that with `relationLoaded('gates')` and
+     * returned `[]` otherwise. The branch was unreachable, and a docblock
+     * arguing for a branch nothing can enter is worse than no branch: it reads
+     * as a considered fallback and is really just an untested path. Reading
+     * the relation plainly costs one query in the case that cannot currently
+     * happen, and returns the right answer if it ever does.
      *
      * @return array<string, string>
      */
     private function gateLabels(): array
     {
-        $stage = $this->activatedStage;
-
-        if (! $stage instanceof Stage || ! $stage->relationLoaded('gates')) {
+        if (! $this->activatedStage instanceof Stage) {
             return [];
         }
 
         $labels = [];
 
-        foreach ($stage->gates as $gate) {
+        foreach ($this->activatedStage->gates as $gate) {
             $labels[(string) $gate->getKey()] = $gate->label;
         }
 

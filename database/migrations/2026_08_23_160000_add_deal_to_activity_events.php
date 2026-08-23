@@ -38,6 +38,7 @@ return new class extends Migration
         });
 
         $this->backfillDealSubjects();
+        $this->backfillWorkflowSubjects();
     }
 
     /**
@@ -71,6 +72,37 @@ return new class extends Migration
              where deals.id = activity_events.subject_id
                and deals.team_id = activity_events.team_id
                and activity_events.subject_type = 'App\Models\Deal'
+               and activity_events.deal_id is null
+        SQL);
+    }
+
+    /**
+     * And so does every event recorded against one of that deal's workflows.
+     *
+     * This is the half that is easy to forget, because the deal is one hop
+     * away rather than in the row. `stage.advanced`, `milestone.reached`,
+     * `workflow.completed` and `workflow.started` are all subjected to the
+     * **workflow** — they pass `deal:` explicitly now, but nothing filled the
+     * column before it existed.
+     *
+     * Leaving them out is not a cosmetic gap. S15's activity card reads by
+     * `deal_id`, and a stage advance is the single entry a person opening that
+     * screen most wants to see; the retention purge's detach step reads the
+     * same column to decide what a purged deal takes with it. A null here
+     * means an advance that vanishes from its own deal and survives the deal's
+     * deletion as an orphan.
+     *
+     * `workflows.deal_id` is `NOT NULL`, so every matched row yields a deal.
+     */
+    private function backfillWorkflowSubjects(): void
+    {
+        DB::statement(<<<'SQL'
+            update activity_events
+               set deal_id = workflows.deal_id
+              from workflows
+             where workflows.id = activity_events.subject_id
+               and workflows.team_id = activity_events.team_id
+               and activity_events.subject_type = 'App\Models\Workflow'
                and activity_events.deal_id is null
         SQL);
     }

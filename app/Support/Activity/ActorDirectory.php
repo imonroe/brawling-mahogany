@@ -65,27 +65,54 @@ final class ActorDirectory
          * the fallback below would print their sign-in address instead. That
          * is both worse to read and more than the row needs to disclose.
          */
-        $names = TeamMembership::query()
+        $memberships = TeamMembership::query()
             ->withTrashed()
             ->whereIn('person_id', $ids->all())
-            ->get(['id', 'person_id', 'first_name', 'last_name', 'deleted_at'])
-            /*
-             * A person can hold a removed membership and a live one — added,
-             * removed, added again. `mapWithKeys` keeps the last row for a
-             * key, so the live one is sorted last and wins.
-             */
-            ->sortByDesc(fn (TeamMembership $membership): int => $membership->deleted_at === null ? 0 : 1)
-            ->mapWithKeys(fn (TeamMembership $membership): array => [
-                (string) $membership->person_id => $membership->fullName(),
-            ])
-            ->all();
+            ->get(['id', 'person_id', 'first_name', 'last_name', 'deleted_at']);
+
+        /*
+         * A person can hold a removed membership *and* a live one — added,
+         * removed, added again — and the live one is what the team means by
+         * them now.
+         *
+         * Taken in two passes rather than by sorting one. A sort decides this
+         * by the order rows come back in, and `whereIn` promises no order at
+         * all: the comparator can be neutered to a constant and the right
+         * answer still falls out of Postgres most of the time, which is a
+         * guarantee that holds until it does not. Live first, removed only
+         * where nothing live exists, is the same rule with nothing left to
+         * chance.
+         */
+        $names = [];
+
+        foreach ($memberships->whereNull('deleted_at') as $membership) {
+            $names[(string) $membership->person_id] = $membership->fullName();
+        }
+
+        foreach ($memberships->whereNotNull('deleted_at') as $membership) {
+            $names[(string) $membership->person_id] ??= $membership->fullName();
+        }
 
         $missing = $ids->reject(fn (string $id): bool => isset($names[$id]))->values();
 
         if ($missing->isNotEmpty()) {
-            // The same fallback `displayNameWithin` uses, and for the same
-            // reason: an event with no name against it reads as though nobody
-            // did it, which is worse than an address.
+            /*
+             * The same fallback `displayNameWithin` uses, and for the same
+             * reason: an event with no name against it reads as though nobody
+             * did it.
+             *
+             * **This is a routine path, not an exotic one.** `records:purge`
+             * hard-deletes a `team_memberships` row thirty days after it is
+             * removed, so `withTrashed()` above defers this fallback rather
+             * than avoiding it — every actor a team removed a month ago
+             * arrives here, as does a platform administrator who never held a
+             * membership at all. What it prints is a sign-in address, which
+             * is a colleague's work address rather than a client's: a client
+             * has no login, so a client is never an actor. Diverging from
+             * `displayNameWithin` here would put this back to two answers for
+             * one question, which is the thing that went wrong in the first
+             * place. `ActivityFeedTest` pins it so it stays a decision.
+             */
             foreach (Person::query()->whereIn('id', $missing->all())->get(['id', 'email']) as $person) {
                 $names[(string) $person->getKey()] = $person->email ?? 'Unknown';
             }

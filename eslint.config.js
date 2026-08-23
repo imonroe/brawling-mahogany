@@ -91,10 +91,15 @@ export default defineConfigWithVueTs(
             'vendor',
             'node_modules',
             /*
-             * Agent scratch checkouts. `vendor` above is anchored at the repo
-             * root, so a nested checkout's own vendor directory is not covered
-             * by it — and linting one dies on a Vue stub inside a Composer
-             * package that no tsconfig knows about.
+             * Tooling's own directory in a working copy — settings, and the
+             * scratch checkouts agents make under `worktrees/`. None of it is
+             * repository source.
+             *
+             * Ignored because `vendor` above is anchored at the repo root, so
+             * a nested checkout's own vendor directory is not covered by it,
+             * and linting one dies on a Vue stub inside a Composer package
+             * that no tsconfig knows about. A clean clone has nothing here and
+             * the entry costs nothing.
              */
             '.claude/**',
             'public',

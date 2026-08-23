@@ -438,6 +438,69 @@ it('shows activity recorded against the deal and against its workflows', functio
         });
 });
 
+/**
+ * A contact logged **on this deal** appears on it. Issue #81's whole point.
+ *
+ * F2.5 logs a contact against a *person* and optionally a deal, so the subject
+ * is the person and the deal is context. A card that asks
+ * `forSubjects([$deal, ...$deal->workflows])` never sees it — the subject is
+ * neither — and `Deals/People.vue` puts the Log-contact dialog on this very
+ * deal, so the entry a team just made lands everywhere except where they made
+ * it. `deal_id` is the column that answers the question either way, and
+ * `ActivityEvent::forDeal()` is what asks it.
+ */
+it('shows a contact logged against a person with this deal as context', function (): void {
+    [$deal] = overviewDeal();
+
+    $membership = app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $this->member->membershipIn($this->team),
+    );
+
+    $this->post("/people/{$membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'note' => 'Walked through the inspection dates.',
+        'deal_id' => $deal->getKey(),
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $this->get("/deals/{$deal->getKey()}")
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $types = collect($page->toArray()['props']['activity'])->pluck('eventType');
+
+            expect($types)->toContain('contact.logged');
+        });
+});
+
+/**
+ * The card names its actor, and names them from `ActorDirectory`.
+ *
+ * Asserted because nothing else did: the S7 change that folded this screen's
+ * hand-rolled mapping into the shared resolver could be reverted to a
+ * hardcoded `null` and the whole suite stayed green.
+ */
+it('names the person behind an activity entry', function (): void {
+    [$deal, $workflow] = overviewDeal();
+
+    app(AdvanceWorkflow::class)->handle($workflow->fresh(), $this->member);
+
+    $name = app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $this->member->membershipIn($this->team)?->fullName(),
+    );
+
+    expect($name)->not->toBeNull();
+
+    $this->get("/deals/{$deal->getKey()}")
+        ->assertOk()
+        ->assertInertia(function ($page) use ($name): void {
+            $advance = collect($page->toArray()['props']['activity'])
+                ->firstWhere('eventType', 'stage.advanced');
+
+            expect($advance['actorName'])->toBe($name);
+        });
+});
+
 /* -------------------------------------------------------------------------
  * Routing and access
  * ---------------------------------------------------------------------- */

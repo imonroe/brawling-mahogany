@@ -182,10 +182,20 @@ class DealOverviewController extends Controller
     /**
      * Recent activity on this deal (F3.7).
      *
-     * Read across the deal **and its workflows**, because that is where the
-     * events actually are: `AdvanceWorkflow` records against the workflow, so
-     * a card asking only about the deal would never once mention an advance.
-     * `ActivityEvent::forSubjects()` does it in one query.
+     * **Asked by `deal_id`, not by subject.** *What this happened to* and
+     * *which deal it belongs on* are two different questions, and this card
+     * wants the second one. Three of the event types it most needs are
+     * subjected to something else: `AdvanceWorkflow` records against the
+     * workflow, and F2.5 logs a contact against the **person** with the deal
+     * as context. An earlier draft asked
+     * `forSubjects([$deal, ...$deal->workflows])`, which covered the workflow
+     * half by enumerating it and missed the contact entirely — so an entry a
+     * team made from this deal's own People tab appeared on the person and in
+     * the team feed, everywhere except the deal they attached it to.
+     *
+     * `ActivityEvent::forDeal()` is the scope that exists for this, and it is
+     * one predicate on an indexed column rather than a list of subjects that
+     * has to be kept in step with every new event type.
      *
      * **Actor names come from `ActorDirectory`, and this screen does not have
      * its own copy of that.** `Person::displayNameWithin()` reads the actor's
@@ -204,7 +214,7 @@ class DealOverviewController extends Controller
     private function recentActivity(Deal $deal): array
     {
         $events = ActivityEvent::query()
-            ->forSubjects([$deal, ...$deal->workflows])
+            ->forDeal($deal)
             ->limit(self::ACTIVITY_SHOWN)
             ->get();
 

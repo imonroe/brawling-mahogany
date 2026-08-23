@@ -13,6 +13,7 @@ use App\Models\TeamMembership;
 use App\Support\Activity\RecordActivity;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -49,7 +50,38 @@ class ContactLogController extends Controller
         $validated = $request->validate([
             'contact_type' => ['required', Rule::enum(ContactType::class)],
             'note' => ['nullable', 'string', 'max:2000'],
-            'occurred_at' => ['nullable', 'date'],
+            /*
+             * A contact is something that already happened.
+             *
+             * `nullable|date` alone accepts next March, and both the feed and
+             * the person's timeline sort by `occurred_at` descending — so one
+             * fat-fingered year pins an entry to the top of every activity
+             * screen in the team until somebody works out why.
+             *
+             * A closure rather than `before_or_equal:<timestamp>`, because
+             * that rule would parse the submitted string in the *app's* zone
+             * while `store()` below parses it in the **team's**. The two
+             * disagree by the offset, and for a team east of UTC they disagree
+             * in the direction that rejects this evening's showing. Parsing it
+             * here exactly the way it will be stored is what keeps the rule
+             * and the record talking about the same moment.
+             *
+             * Bounded to the end of the team's today rather than to `now`: a
+             * team logging a showing they are on their way to is not
+             * predicting the future.
+             */
+            'occurred_at' => [
+                'nullable',
+                'date',
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    $zone = $this->teamTimeZone();
+
+                    if (CarbonImmutable::parse((string) $value, $zone)
+                        ->isAfter(CarbonImmutable::now($zone)->endOfDay())) {
+                        $fail(__('A contact cannot be logged for a date in the future.'));
+                    }
+                },
+            ],
             /*
              * Optional, per F2.5: *"against a person and optionally a deal."*
              *

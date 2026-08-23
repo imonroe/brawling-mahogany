@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\ActivitySource;
 use App\Models\Deal;
+use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
@@ -17,16 +18,39 @@ use Illuminate\Support\Facades\DB;
  * `dev` has had deals since #59, so without the backfill S15's activity card
  * and S12's deal filter open on a history that begins the day the column did.
  *
- * The migration's `up()` cannot be re-run against a migrated database (the
- * column is already there), so the backfill is invoked directly. That is the
- * point of it being its own method: the SQL under test is the SQL that ships,
- * not a copy of it written into the test.
+ * Two ways in, because they hold different things.
+ *
+ * `runWholeMigration()` takes the column away and puts it back — `down()` then
+ * `up()` — which is the only way to test that `up()` *calls* the backfill at
+ * all. Reflection alone holds the SQL and not the wiring: dropping the call
+ * from `up()` left the whole suite green.
+ *
+ * `runDealBackfill()` reaches the methods directly, for the cases that need a
+ * starting state `down()` would destroy — a row that already names a deal
+ * cannot survive a column drop.
  */
+function backfillMigration(): object
+{
+    return require database_path('migrations/2026_08_23_160000_add_deal_to_activity_events.php');
+}
+
+/** The real thing: drop the column, re-add it, and let `up()` do the rest. */
+function runWholeMigration(): void
+{
+    $migration = backfillMigration();
+
+    $migration->down();
+    $migration->up();
+}
+
+/** Just the backfill statements, for a starting state a column drop would lose. */
 function runDealBackfill(): void
 {
-    $migration = require database_path('migrations/2026_08_23_160000_add_deal_to_activity_events.php');
+    $migration = backfillMigration();
 
-    (new ReflectionMethod($migration, 'backfillDealSubjects'))->invoke($migration);
+    foreach (['backfillDealSubjects', 'backfillWorkflowSubjects'] as $method) {
+        (new ReflectionMethod($migration, $method))->invoke($migration);
+    }
 }
 
 beforeEach(function (): void {
@@ -44,10 +68,40 @@ it('gives a pre-existing deal-subject event its deal back', function (): void {
         source: ActivitySource::Manual,
     );
 
-    // The state the table was in before the column existed.
-    DB::table('activity_events')->where('id', $event->getKey())->update(['deal_id' => null]);
+    // `down()` drops the column, which is exactly the state the table was in
+    // before this migration — so `up()` has the job it will really have.
+    runWholeMigration();
 
-    runDealBackfill();
+    expect(DB::table('activity_events')->where('id', $event->getKey())->value('deal_id'))
+        ->toBe($deal->getKey());
+});
+
+/**
+ * And a workflow-subject event, which is the half that is easy to forget.
+ *
+ * `stage.advanced` is subjected to the workflow, one hop from the deal. S15's
+ * activity card reads by `deal_id`, and an advance is the single entry a
+ * person opening that screen most wants to see — so a null here is an advance
+ * missing from its own deal. The retention purge reads the same column to
+ * decide what a purged deal takes with it, so a null is also an orphan.
+ */
+it('gives a pre-existing workflow-subject event its deal back', function (): void {
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $workflow = Workflow::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    $event = app(RecordActivity::class)->record(
+        subject: $workflow,
+        eventType: 'stage.advanced',
+        summary: 'Emily advanced the stage.',
+        source: ActivitySource::Manual,
+        deal: $deal,
+    );
+
+    runWholeMigration();
 
     expect(DB::table('activity_events')->where('id', $event->getKey())->value('deal_id'))
         ->toBe($deal->getKey());
