@@ -97,11 +97,11 @@ class TaskController extends Controller
              * already assigned to them and cannot be given a new one. See
              * `App\Queries\TaskAssignees`.
              */
-            'assignees' => $assignees->memberships()
+            'assignees' => array_values($assignees->memberships()
                 ->map(fn (TeamMembership $membership): array => [
                     'id' => (string) $membership->person_id,
                     'name' => $membership->fullName(),
-                ])->all(),
+                ])->all()),
             'stageOptions' => $this->stageOptions($deal),
         ]);
     }
@@ -137,6 +137,13 @@ class TaskController extends Controller
      * different act: it writes an activity event, it is the thing a
      * `required_tasks_complete` gate is counting, and it is the one a person
      * does fifty times a deal from a checkbox rather than from a form.
+     *
+     * **Back, not to the tasks tab.** Two screens tick these boxes — this one
+     * and S16's stage rail (#71 wired it up) — and sending everybody to
+     * `deals.tasks.index` would yank a reader off the timeline they were
+     * working, at the moment they most want to look at the requirements pane
+     * beside the checklist they just cleared. Every other route here redirects
+     * to the tab, because the tab is the only place that posts to them.
      */
     public function complete(Request $request, Deal $deal, Task $task, DealTasks $tasks): RedirectResponse
     {
@@ -147,17 +154,21 @@ class TaskController extends Controller
 
         $tasks->complete($deal, $task, $actor);
 
-        return to_route('deals.tasks.index', $deal);
+        return back();
     }
 
-    /** Unticking the box. A `DELETE` on the completion, not on the task. */
+    /**
+     * Unticking the box. A `DELETE` on the completion, not on the task.
+     *
+     * Back, for the reason `complete()` gives.
+     */
     public function reopen(Deal $deal, Task $task, DealTasks $tasks): RedirectResponse
     {
         $this->authorize('update', $task);
 
         $tasks->reopen($deal, $task);
 
-        return to_route('deals.tasks.index', $deal);
+        return back();
     }
 
     /**
@@ -244,7 +255,7 @@ class TaskController extends Controller
             ];
         }
 
-        return $groups;
+        return array_values($groups);
     }
 
     /**
@@ -253,7 +264,7 @@ class TaskController extends Controller
      */
     private function rows(Collection $tasks, ActorDirectory $names): array
     {
-        return $tasks
+        return array_values($tasks
             ->sort($this->byUrgency(...))
             ->values()
             ->map(fn (Task $task): array => [
@@ -285,7 +296,7 @@ class TaskController extends Controller
                 'source' => $task->source->value,
                 'sourceLabel' => $task->source->label(),
             ])
-            ->all();
+            ->all());
     }
 
     /**
@@ -361,12 +372,12 @@ class TaskController extends Controller
      */
     private function stageOptions(Deal $deal): array
     {
-        return $deal->workflows->map(fn (Workflow $workflow): array => [
+        return array_values($deal->workflows->map(fn (Workflow $workflow): array => [
             'workflowName' => $workflow->name,
-            'stages' => $workflow->stages->map(fn (Stage $stage): array => [
+            'stages' => array_values($workflow->stages->map(fn (Stage $stage): array => [
                 'id' => (string) $stage->getKey(),
                 'name' => $stage->name,
-            ])->values()->all(),
-        ])->values()->all();
+            ])->all()),
+        ])->all());
     }
 }

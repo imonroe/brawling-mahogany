@@ -172,18 +172,24 @@ function metaFor(task: TaskRow): string | null {
  * reopening says the team has decided the work is not done after all.
  *
  * `preserveScroll`, because the row that was just ticked is somewhere down a
- * long checklist and jumping to the top of it loses the reader's place.
+ * long checklist and jumping to the top of it loses the reader's place. And
+ * `preserveState`, because the view above is a local ref: without it, ticking
+ * a box while reading **Completed** or **All** remounts the page and drops the
+ * reader back to **Open** — which is the filter working against the person
+ * using it.
  */
+const VISIT = { preserveScroll: true, preserveState: true } as const;
+
 function setCompleted(task: TaskRow, completed: boolean): void {
     const url = `${props.dealUrl}/tasks/${task.id}/completion`;
 
     if (completed) {
-        router.post(url, {}, { preserveScroll: true });
+        router.post(url, {}, VISIT);
 
         return;
     }
 
-    router.delete(url, { preserveScroll: true });
+    router.delete(url, VISIT);
 }
 
 const editing = ref<TaskFormValues | null>(null);

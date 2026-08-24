@@ -276,7 +276,9 @@ describe('Deals/Tasks', () => {
         expect(routerPost).toHaveBeenCalledWith(
             '/deals/deal-1/tasks/task-9/completion',
             {},
-            { preserveScroll: true },
+            // `preserveState`, because the Open/Completed/All view is a local
+            // ref: a remount would drop the reader back to Open.
+            { preserveScroll: true, preserveState: true },
         );
 
         const done = screen([
@@ -291,7 +293,7 @@ describe('Deals/Tasks', () => {
         // is a different act with a different consequence.
         expect(routerDelete).toHaveBeenCalledWith(
             '/deals/deal-1/tasks/task-9/completion',
-            { preserveScroll: true },
+            { preserveScroll: true, preserveState: true },
         );
     });
 

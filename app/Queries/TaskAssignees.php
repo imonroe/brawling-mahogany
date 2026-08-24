@@ -60,10 +60,9 @@ final readonly class TaskAssignees
      */
     public function personIds(): array
     {
-        return $this->memberships()
+        return array_values($this->memberships()
             ->map(fn (TeamMembership $membership): string => (string) $membership->person_id)
             ->unique()
-            ->values()
-            ->all();
+            ->all());
     }
 }

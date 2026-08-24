@@ -53,18 +53,26 @@ function advance(workflowId: string, stageId: string): void {
  * The same two endpoints S17 posts to, from the rail's own checkbox.
  *
  * `preserveScroll`, because the stage being worked is somewhere down a rail of
- * twenty and the rail has just been scrolled to it.
+ * twenty and the rail has just been scrolled to it. `preserveState`, because
+ * which rows are expanded lives in `StageRail`'s own `opened` set — remounting
+ * would collapse every row the reader had opened, including the one holding
+ * the checkbox they just ticked.
+ *
+ * The server sends them **back** here rather than to the tasks tab, so what
+ * they see next is the requirements pane opposite the checklist, recounted.
  */
+const VISIT = { preserveScroll: true, preserveState: true } as const;
+
 function setCompleted(taskId: string, completed: boolean): void {
     const url = `${props.dealUrl}/tasks/${taskId}/completion`;
 
     if (completed) {
-        router.post(url, {}, { preserveScroll: true });
+        router.post(url, {}, VISIT);
 
         return;
     }
 
-    router.delete(url, { preserveScroll: true });
+    router.delete(url, VISIT);
 }
 </script>
 

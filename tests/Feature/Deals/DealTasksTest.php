@@ -395,16 +395,55 @@ it('edits a task, and re-ranks it when it moves stage', function (): void {
         ->and($task->sort_order)->toBe(8);
 });
 
-it('leaves a task where it is when an edit does not mention the stage', function (): void {
+it('changes only what an edit actually mentions', function (): void {
+    /*
+     * The defect this pins is not a lost field. `is_required` is what a
+     * `required_tasks_complete` gate counts, so an edit that read the absent
+     * checkbox as **false** would unblock the stage the task was holding —
+     * by renaming it, with nothing on any screen to say so.
+     */
     [$deal, , $stages] = taskDeal(2);
 
-    $task = taskOn($deal, $stages[0], ['title' => 'Order the sign']);
+    $heather = colleague('Heather', 'Nguyen');
+
+    $task = taskOn($deal, $stages[0], [
+        'title' => 'Sign the listing agreement',
+        'is_required' => true,
+        'assignee_id' => $heather->person_id,
+        'due_date' => now()->addWeek(),
+        'description' => 'Both sellers have to sign.',
+    ]);
 
     $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
-        'title' => 'Order the sign today',
+        'title' => 'Sign the listing agreement today',
     ])->assertRedirect("/deals/{$deal->getKey()}/tasks");
 
-    expect($task->refresh()->stage_id)->toBe($stages[0]->getKey());
+    $task->refresh();
+
+    expect($task->title)->toBe('Sign the listing agreement today')
+        ->and($task->is_required)->toBeTrue()
+        ->and($task->stage_id)->toBe($stages[0]->getKey())
+        ->and($task->assignee_id)->toBe($heather->person_id)
+        ->and($task->description)->toBe('Both sellers have to sign.')
+        ->and($task->due_date)->not->toBeNull();
+});
+
+it('still lets S27 clear the flag, because the form sends it as false', function (): void {
+    /*
+     * The other half of the rule above. Inertia's `useForm` posts every
+     * declared field, so an unticked box arrives as `false` rather than as a
+     * hole — which is what makes presence a safe test for a checkbox here.
+     */
+    [$deal, , $stages] = taskDeal(1);
+
+    $task = taskOn($deal, $stages[0], ['title' => 'Order the sign', 'is_required' => true]);
+
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Order the sign',
+        'is_required' => false,
+    ])->assertRedirect("/deals/{$deal->getKey()}/tasks");
+
+    expect($task->refresh()->is_required)->toBeFalse();
 });
 
 it('deletes a task softly, so PRD §9’s window covers a mistake', function (): void {
@@ -430,8 +469,14 @@ it('completes a task, recording who ticked it', function (): void {
 
     $task = taskOn($deal, $stages[0], ['title' => 'Order the sign']);
 
-    $this->post("/deals/{$deal->getKey()}/tasks/{$task->getKey()}/completion")
-        ->assertRedirect("/deals/{$deal->getKey()}/tasks");
+    /*
+     * From the timeline, and it has to come back to the timeline. Two screens
+     * tick these boxes — S17 and S16's stage rail — and a redirect to the
+     * tasks tab would yank a reader off the rail they were working.
+     */
+    $this->from("/deals/{$deal->getKey()}/timeline")
+        ->post("/deals/{$deal->getKey()}/tasks/{$task->getKey()}/completion")
+        ->assertRedirect("/deals/{$deal->getKey()}/timeline");
 
     $task->refresh();
 
@@ -467,8 +512,9 @@ it('reopens a task, and says so rather than quietly', function (): void {
 
     $task = taskOn($deal, $stages[0], ['title' => 'Order the sign', 'completed_at' => now()]);
 
-    $this->delete("/deals/{$deal->getKey()}/tasks/{$task->getKey()}/completion")
-        ->assertRedirect("/deals/{$deal->getKey()}/tasks");
+    $this->from("/deals/{$deal->getKey()}/timeline")
+        ->delete("/deals/{$deal->getKey()}/tasks/{$task->getKey()}/completion")
+        ->assertRedirect("/deals/{$deal->getKey()}/timeline");
 
     $task->refresh();
 

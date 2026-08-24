@@ -6,7 +6,9 @@ namespace App\Http\Requests\Deals;
 
 use App\Models\Deal;
 use App\Models\Stage;
+use App\Models\Workflow;
 use App\Queries\TaskAssignees;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 
 /**
@@ -67,13 +69,13 @@ trait ResolvesTaskFields
      */
     private function stageIdsFor(Deal $deal): array
     {
-        return $deal->workflows()
+        return array_values($deal->workflows()
             ->with('stages:id,workflow_id')
             ->get()
-            ->flatMap(fn ($workflow) => $workflow->stages->map(
+            ->flatMap(fn (Workflow $workflow): Collection => $workflow->stages->map(
                 fn (Stage $stage): string => (string) $stage->getKey(),
             ))
-            ->all();
+            ->all());
     }
 
     /**

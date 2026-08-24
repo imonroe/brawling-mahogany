@@ -61,7 +61,7 @@ final readonly class DealTasks
     /**
      * IA §7: **Add** attaches something to a parent. The parent is the deal.
      *
-     * @param  array{title: string, description?: ?string, assignee_id?: ?string, due_date?: ?string, is_required?: bool}  $attributes
+     * @param  array<string, mixed>  $attributes  from `StoreTaskRequest::taskAttributes()`
      */
     public function add(Deal $deal, ?Stage $stage, array $attributes): Task
     {
@@ -69,11 +69,7 @@ final readonly class DealTasks
             $task = new Task;
 
             $task->fill([
-                'title' => $attributes['title'],
-                'description' => $attributes['description'] ?? null,
-                'assignee_id' => $attributes['assignee_id'] ?? null,
-                'due_date' => $attributes['due_date'] ?? null,
-                'is_required' => $attributes['is_required'] ?? false,
+                ...$attributes,
                 'sort_order' => $this->nextSortOrder($deal, $stage),
             ]);
 

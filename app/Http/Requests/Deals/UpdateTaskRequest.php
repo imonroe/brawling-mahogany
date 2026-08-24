@@ -41,22 +41,52 @@ class UpdateTaskRequest extends FormRequest
     }
 
     /**
-     * The columns the service fills, which are not all the fields validated.
+     * The columns the service fills — **by presence, not by value**.
      *
      * `stage_id` is deliberately absent: it is applied by association, from a
      * `Stage` the request resolved through the deal.
+     *
+     * The presence rule is the fix for a real defect rather than a nicety.
+     * The first version built this array unconditionally, so an edit that did
+     * not mention `is_required` — a rename from a future screen, a partial
+     * PATCH from Slice 5 — read the absent checkbox as **false** and quietly
+     * cleared the flag. That is not a lost field: `is_required` is what a
+     * `required_tasks_complete` gate counts, so renaming a task would have
+     * unblocked the stage it was holding, with nothing on any screen to say
+     * so. `description`, `assignee_id` and `due_date` had the same shape with
+     * a smaller blast radius.
+     *
+     * S27's own form always sends all five, so nothing about this modal
+     * changes. What changes is what happens when something else posts here.
      *
      * @return array<string, mixed>
      */
     public function changes(): array
     {
-        return [
-            'title' => $this->validated('title'),
-            'description' => $this->validated('description'),
-            'assignee_id' => $this->validated('assignee_id'),
-            'due_date' => $this->validated('due_date'),
-            'is_required' => (bool) $this->boolean('is_required'),
-        ];
+        $changes = [];
+
+        foreach (['title', 'description', 'assignee_id', 'due_date'] as $field) {
+            if ($this->has($field)) {
+                $changes[$field] = $this->validated($field);
+            }
+        }
+
+        /*
+         * The checkbox, and the reason presence is a safe test for it here.
+         *
+         * An unticked checkbox in an HTML form sends nothing at all, which
+         * would make absence ambiguous — unticked, or never asked? Inertia's
+         * `useForm` posts every declared field as JSON, so S27's unticked box
+         * arrives as `is_required: false` rather than as a hole. Presence
+         * therefore means *this sender had the field*, which is exactly the
+         * question. A future form built the plain-HTML way would need to say
+         * so; nothing in this codebase is built that way.
+         */
+        if ($this->has('is_required')) {
+            $changes['is_required'] = $this->boolean('is_required');
+        }
+
+        return $changes;
     }
 
     /**

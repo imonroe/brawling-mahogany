@@ -57,7 +57,7 @@ class StoreTaskRequest extends FormRequest
             // Absent means false. A checkbox nobody ticked sends nothing at
             // all, and `is_required` decides whether a stage can advance —
             // the safe reading of silence is the one that blocks nothing.
-            'is_required' => (bool) $this->boolean('is_required'),
+            'is_required' => $this->boolean('is_required'),
         ];
     }
 }
