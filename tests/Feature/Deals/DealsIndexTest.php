@@ -653,3 +653,39 @@ it('renders a deal that has a property linked to it', function (): void {
             ->has('deals.data', 1)
             ->where('deals.data.0.id', $deal->getKey()));
 });
+
+/**
+ * The URL the screen actually sends now sorts the way the screen believes.
+ *
+ * `Index.vue` puts every filter through one canonical spelling in which the
+ * server's defaults drop out — `segment=open`, `dealType=all` and, since the
+ * sixth review round, `direction=asc`. So the ascending press that used to
+ * navigate to `?sort=primary&direction=asc` now navigates to `?sort=primary`,
+ * and the two have to be the same view or the arrow lies about the list under
+ * it.
+ *
+ * They are the same for two reasons a line apart in the controller — the
+ * query default is `asc`, and anything that is not `desc` resolves to `asc` —
+ * and neither was pinned, because every sort test here spells the direction
+ * out. This is the URL the app sends; the ones above are the URLs a person
+ * might type.
+ */
+it('sorts ascending when the direction is left out, as the screen leaves it out', function (): void {
+    indexDeal(attributes: ['name' => 'Aardvark', 'generated_name' => '1 A St']);
+    indexDeal(attributes: ['name' => 'Zebra', 'generated_name' => '2 Z St']);
+
+    $bare = $this->get('/deals?sort=primary');
+    $spelled = $this->get('/deals?sort=primary&direction=asc');
+
+    foreach ([$bare, $spelled] as $response) {
+        $response
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('deals.data.0.name', 'Aardvark')
+                ->where('deals.data.1.name', 'Zebra')
+                // Echoed back the same way too, so the header lights up
+                // identically whichever URL the reader arrived on.
+                ->where('sort', 'primary')
+                ->where('direction', 'asc'));
+    }
+});
