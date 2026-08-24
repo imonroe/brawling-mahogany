@@ -126,8 +126,10 @@ describe('Deals index filter races', () => {
         expect(queryOf(1)).toMatchObject({
             segment: 'all',
             sort: 'primary',
-            direction: 'asc',
         });
+
+        // `asc` is the server's default and drops out, like `segment: 'open'`.
+        expect(queryOf(1).direction).toBeUndefined();
     });
 
     it('carries the segment into a deal type chosen before the response lands', async () => {
@@ -161,10 +163,8 @@ describe('Deals index filter races', () => {
         await sortHeader(wrapper).trigger('click');
         await sortHeader(wrapper).trigger('click');
 
-        expect(queryOf(0)).toMatchObject({
-            sort: 'primary',
-            direction: 'asc',
-        });
+        expect(queryOf(0)).toMatchObject({ sort: 'primary' });
+        expect(queryOf(0).direction).toBeUndefined();
 
         /*
          * `sortBy()` read `props.sort` — still the *previous* column — so the
@@ -205,9 +205,16 @@ describe('Deals index filter races', () => {
     });
 
     it('still echoes the server into the box when nothing is pending', async () => {
-        // The other side of that guard. A back button or a hand-edited URL
-        // arrives as a prop change with no local edit outstanding, and the box
-        // has to follow it or it lies about what is being filtered.
+        /*
+         * The other side of that guard, and the case that actually reaches it.
+         *
+         * A partial visit (`only:` — every visit this page makes) updates
+         * `search` in place, so whenever the server resolves it to something
+         * other than what was typed, the box has to follow or it lies about
+         * what the list is filtered by. Not a back button: popstate remounts
+         * the component, so that arrives as fresh props on a fresh instance
+         * and never reaches this watcher at all.
+         */
         const wrapper = page();
 
         await wrapper.setProps({ search: 'from the url' });
@@ -312,5 +319,90 @@ describe('Deals index filter races', () => {
 
         // `segment: 'open'` is the default and drops out of the query string.
         expect(query.segment).toBeUndefined();
+    });
+});
+
+/**
+ * The record of what was asked is *released*, and released on the paths a
+ * reader actually takes.
+ *
+ * Kept apart from the races above because it tests the opposite direction:
+ * those check that `asked` outlives a stale prop, these check that it does not
+ * outlive an accurate one. A record that is never released is not a cache, it
+ * is a page that has stopped listening to the server.
+ *
+ * The bug this holds: `resolved()` normalised the props (dropping `asc`,
+ * `open`, `all`) while `visit()` stored its caller's `changes` verbatim. The
+ * first press of a sort header therefore stored `direction: 'asc'` against a
+ * `resolved()` saying `undefined`, the two never compared equal, and `asked`
+ * was pinned for the life of the component.
+ *
+ * The suite did not catch it: the release test above happens to press the
+ * segment control and assert on `segment: 'all'` — the one value in the whole
+ * filter set that normalises to itself. Every fixture here is deliberately a
+ * value that does **not**.
+ */
+describe('Deals index asked-record release', () => {
+    it.each([
+        ['a sort press, which stores the default direction', 'sort'],
+        ['the segment reset to its default', 'segment'],
+        ['the deal type reset to its default', 'dealType'],
+    ])('releases after %s', async (_label, control) => {
+        const wrapper = page(
+            control === 'segment'
+                ? { segment: 'all' }
+                : control === 'dealType'
+                  ? { dealType: 'dt-1' }
+                  : {},
+        );
+
+        if (control === 'sort') {
+            // Stores `direction: 'asc'` — the default, which `resolved()` drops.
+            await sortHeader(wrapper).trigger('click');
+            await wrapper.setProps({ sort: 'primary', direction: 'asc' });
+        } else if (control === 'segment') {
+            // Back to `open`, the default, from a page that was on `all`.
+            await segments(wrapper)[0]!.trigger('click');
+            await wrapper.setProps({ segment: 'open' });
+        } else {
+            await wrapper.find('select').setValue('all');
+            await wrapper.setProps({ dealType: 'all' });
+        }
+
+        /*
+         * The server has now answered exactly what was asked, so the record is
+         * spent and the props are authoritative again. Move one the page did
+         * not cause, and check the next visit inherits it.
+         */
+        await wrapper.setProps({ dealType: 'dt-1' });
+        await segments(wrapper)[1]!.trigger('click');
+
+        expect(queryOf(routerGet.mock.calls.length - 1)).toMatchObject({
+            segment: 'all',
+            dealType: 'dt-1',
+        });
+    });
+
+    it('keeps the box following the server after a cancelled search', async () => {
+        vi.useFakeTimers();
+
+        const wrapper = page();
+        const box = wrapper.find('input[type="search"]');
+
+        // Typed, then a segment pressed before the debounce fires. `visit()`
+        // cancels the pending search on the way out.
+        await box.setValue('smith');
+        await segments(wrapper)[1]!.trigger('click');
+
+        await wrapper.setProps({ search: 'from the server' });
+
+        /*
+         * Cancelling has to *record* that nothing is pending, not just clear
+         * the timer. The echo guard reads `debounce !== undefined`, so a
+         * cleared-but-still-set id looks exactly like a pending edit — and the
+         * box stops following the server permanently, from the first time the
+         * reader types and then touches any other control.
+         */
+        expect((box.element as HTMLInputElement).value).toBe('from the server');
     });
 });

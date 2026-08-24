@@ -92,19 +92,43 @@ function cancelSearch(): void {
 }
 
 /**
- * What the server last resolved, as a query string would carry it.
+ * One filter set, in the single spelling everything else compares against.
  *
- * Defaults drop out, so this round-trips: `/deals` bare and
- * `?segment=open&direction=asc` are the same view and produce the same object.
+ * Defaults drop out, so `/deals` bare and `?segment=open&direction=asc` are
+ * the same view *and the same object* — which is what lets a record of what
+ * was asked be compared to what came back.
+ *
+ * **Both the props and an outgoing visit go through here, and that is the
+ * point.** They did not: `resolved()` normalised while `visit()` spread its
+ * caller's `changes` verbatim, so the first press of a sort header stored
+ * `direction: 'asc'` against a `resolved()` that says `undefined`. Those never
+ * compare equal, so `asked` was never released and the props could never take
+ * over again — the release mechanism was dead on the commonest path on the
+ * screen. Pressing **Open**, choosing **All deal types**, or leaving a
+ * trailing space in the search box did the same thing.
+ *
+ * Two spellings of one value is the defect this screen keeps producing. There
+ * is one spelling now, and one function that produces it.
  */
-function resolved(): Query {
+function canonical(query: Query): Query {
     return {
-        segment: props.segment === 'open' ? undefined : props.segment,
-        search: props.search.trim() || undefined,
-        dealType: props.dealType === 'all' ? undefined : props.dealType,
-        sort: props.sort || undefined,
-        direction: props.direction === 'asc' ? undefined : props.direction,
+        segment: query.segment === 'open' ? undefined : query.segment,
+        search: query.search?.trim() || undefined,
+        dealType: query.dealType === 'all' ? undefined : query.dealType,
+        sort: query.sort || undefined,
+        direction: query.direction === 'asc' ? undefined : query.direction,
     };
+}
+
+/** What the server last resolved. */
+function resolved(): Query {
+    return canonical({
+        segment: props.segment,
+        search: props.search,
+        dealType: props.dealType,
+        sort: props.sort,
+        direction: props.direction,
+    });
 }
 
 const QUERY_KEYS = [
@@ -222,10 +246,10 @@ watch(search, (value) => {
     }
 
     debounce = setTimeout(() => {
-        // Before the visit, so `visit()` and the props watcher both see that
-        // this edit is no longer pending.
-        debounce = undefined;
-
+        // No `debounce = undefined` here: `visit()` opens with `cancelSearch()`,
+        // which does it. A second assignment read as though it were load-bearing
+        // and was not — the one place this is cleared is the one function that
+        // clears it.
         visit({ search: value || undefined });
     }, 250);
 });
@@ -257,7 +281,7 @@ onBeforeUnmount(() => {
 function visit(changes: Query): void {
     cancelSearch();
 
-    const query: Query = {
+    const query: Query = canonical({
         ...(asked ?? resolved()),
         /*
          * The **ref**, not either of them.
@@ -273,7 +297,7 @@ function visit(changes: Query): void {
          */
         search: search.value.trim() || undefined,
         ...changes,
-    };
+    });
 
     asked = query;
 
@@ -380,7 +404,15 @@ function clearFilters(): void {
      * also lands here, and they want their search dropped, not closed deals
      * they never asked for. So the test is whether anything *else* is
      * narrowing the list: if a search or a deal type is set, clearing those is
-     * enough, and the segment stays where the reader left it.
+     * enough and the segment is not widened.
+     *
+     * **Not widened is not the same as preserved**, and an earlier version of
+     * this comment claimed the latter. The other branch sends a bare `{}`,
+     * which resets *every* filter including the segment — so a reader on
+     * **All** with a search that matches nothing is returned to **Open**. That
+     * is the button doing what it says (clear the filters, land on the default
+     * view) rather than a bug, but it is not the segment staying where they
+     * left it, and the two readings differ.
      *
      * An earlier version tested `deals.data.length === 0` instead, which is
      * always true wherever this button renders — the button only exists inside
@@ -392,7 +424,13 @@ function clearFilters(): void {
         props.search.trim() === '' &&
         props.dealType === 'all';
 
-    const query: Query = widen ? { segment: 'all' } : {};
+    /*
+     * `canonical()` here changes nothing today — both literals are already in
+     * that spelling — and it is kept so that *everything* writing `asked`
+     * writes it the same way, with no exception to remember. A mutation
+     * confirms it is currently unobservable; it is a rule, not a fix.
+     */
+    const query: Query = canonical(widen ? { segment: 'all' } : {});
 
     /*
      * Recorded like any other visit. This is the second thing on the page that
