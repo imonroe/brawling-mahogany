@@ -300,4 +300,40 @@ class Deal extends Model
     {
         return $query->where('state', DealState::Active->value);
     }
+
+    /**
+     * The soonest open task's due date, as a selected column.
+     *
+     * For the deals index (S13), whose "next date" cell needs one date per
+     * deal. A subquery rather than a relation walked per row: twenty-five
+     * deals each asking their own tasks is the N+1
+     * `DealsIndexBudgetTest` refuses, and the same shape #148 found the hard
+     * way on the properties index.
+     *
+     * **Open tasks only.** A deal whose only dated task was finished last
+     * week has nothing coming up, and showing the date it was finished by
+     * would read as a deadline that has passed.
+     *
+     * Not a key date. `key_dates` does not exist — Dates and Deadlines is S18,
+     * in Slice 4 — and a task due date is the nearest true answer the schema
+     * can give: it is a date somebody on this deal has to do something by.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeWithNextDueDate(Builder $query): Builder
+    {
+        return $query->addSelect([
+            /*
+             * Through `Task::query()`, so the global team scope and the
+             * soft-delete scope both apply — this drops to no builder that
+             * would shed them. The `deal_id` correlation is the only join
+             * condition written by hand.
+             */
+            'next_due_date' => Task::query()
+                ->selectRaw('min(due_date)')
+                ->whereColumn('tasks.deal_id', 'deals.id')
+                ->whereNull('tasks.completed_at'),
+        ]);
+    }
 }

@@ -8,6 +8,8 @@
  * `<colgroup>`, so the header and every row are laid out by the same values
  * rather than by two lists that can drift apart.
  */
+import { ChevronDown, ChevronUp } from '@lucide/vue';
+import { useAttrs } from 'vue';
 import { cn } from '@/lib/utils';
 import type { DealRowColumn } from './dealRow';
 
@@ -16,8 +18,29 @@ const props = defineProps<{
     /** Rendered in the footer: "25 active · 4 closed this quarter". */
     caption?: string | null;
     footerNote?: string | null;
+    /** Which sortable column is sorted, and which way. */
+    sort?: string | null;
+    direction?: 'asc' | 'desc' | null;
     class?: string;
 }>();
+
+/*
+ * §8.8: "sortable columns adding a 12px chevron-down". `dealRow.ts` has
+ * marked two columns `sortable` since #33 and nothing rendered it, so a
+ * column advertised itself as sortable and did nothing when pressed — which
+ * is worse than not offering it.
+ *
+ * A header is only a button when the parent is listening. A table with no
+ * `@sort` handler keeps plain `<th>` text rather than an affordance that
+ * leads nowhere.
+ */
+const emit = defineEmits<{ sort: [key: string] }>();
+
+const attrs = useAttrs();
+
+function isSortable(column: DealRowColumn): boolean {
+    return column.sortable === true && Boolean(attrs.onSort);
+}
 </script>
 
 <template>
@@ -65,9 +88,35 @@ const props = defineProps<{
                                 )
                             "
                         >
-                            <span :class="column.label ? '' : 'sr-only'">{{
-                                column.label || column.key
-                            }}</span>
+                            <button
+                                v-if="isSortable(column)"
+                                type="button"
+                                class="inline-flex items-center gap-1 hover:text-foreground"
+                                :aria-label="`Sort by ${column.label}`"
+                                @click="emit('sort', column.key)"
+                            >
+                                {{ column.label }}
+                                <component
+                                    :is="
+                                        sort === column.key &&
+                                        direction === 'desc'
+                                            ? ChevronUp
+                                            : ChevronDown
+                                    "
+                                    class="size-3"
+                                    :class="
+                                        sort === column.key
+                                            ? 'text-foreground'
+                                            : 'opacity-40'
+                                    "
+                                    aria-hidden="true"
+                                />
+                            </button>
+                            <span
+                                v-else
+                                :class="column.label ? '' : 'sr-only'"
+                                >{{ column.label || column.key }}</span
+                            >
                         </th>
                     </tr>
                 </thead>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Activity\ActivityController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
+use App\Http\Controllers\Deals\DealIndexController;
 use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
 use App\Http\Controllers\Deals\DealWizardController;
@@ -156,12 +157,8 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * "New deal" into a 404 for a deal whose id is the word `create`.
      * `DealOverviewTest` holds it.
      */
-    /*
-     * S13 is #78 and still a placeholder — but it is where "New Deal" lives
-     * (PRD §5.2 step 1), so it is rendered here rather than left pointing at
-     * a route that does not exist.
-     */
-    Route::inertia('deals', 'Deals/Index', ['screen' => 'S13', 'slice' => 2])->name('deals.index');
+    // S13 (#78). Registered before `deals/{deal}` for the reason above.
+    Route::get('deals', [DealIndexController::class, 'index'])->name('deals.index');
 
     Route::get('deals/create', [DealWizardController::class, 'create'])->name('deals.create');
     Route::patch('deals/create', [DealWizardController::class, 'update'])->name('deals.draft.update');

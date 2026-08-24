@@ -444,6 +444,35 @@ Two consequences:
 1. **Design to 20 visible rows** as the realistic desktop case. Emily's "25 concurrent deals" requirement is about the dashboard and the data model coping with 25, not about all 25 being simultaneously visible.
 2. The deals index (S13) is drawn on a **1440×1200** frame precisely so all 25 rows can be seen and judged. That frame is a design convenience, not a viewport target.
 
+#### Confirmed by building it (#78)
+
+S13 is built, and the arithmetic above holds — **twenty rows** is the honest
+desktop number. Every line of the budget is a real measurement rather than an
+estimate now:
+
+| | | |
+|---|---|---|
+| App top bar | 56 | `AppLayout`'s `h-14` |
+| Page gutter | 48 | `p-4 md:p-6` — the desktop branch, twice |
+| Page header | 44 | `PageHeader` with a subtitle |
+| Gap | 16 | the page's `gap-4` |
+| Filter bar | 32 | search, segments and the deal-type chip, all `h-8` |
+| Gap | 16 | `gap-4` again |
+| Table column header | 32 | `Table`'s `h-8 bg-muted` |
+| Table footer | 44 | `Table`'s `h-11` |
+| **Remaining** | **736** | **20 rows at `h-9`** |
+
+**The one thing that would break it is the filter bar.** Properties and People
+both hand-roll a `flex-wrap` row of inputs rather than using the `h-8`
+components, and that row wraps to two lines the moment a third control is
+added — which costs eight rows, not one. S13 uses `AppInput` at `h-8`,
+`SegmentedControl` and `AppSelect` at the filter size for exactly that reason.
+Adding a fourth filter to this screen means checking this number again.
+
+So: **design to 20**, and keep drawing S13 at 1440×1200 when all 25 need to be
+judged at once. Emily's twenty-five is a claim about the data model and the
+dashboard, not about one screenful.
+
 > [!warning] Density is for the desktop internal app only
 > Everything on a phone is comfortable. Everything on the client status page is comfortable. Compact is a desktop-power-user affordance, not a house style.
 
@@ -1326,7 +1355,7 @@ resources/js/
 2. ~~`AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.~~ — **built; the review with Heather is still outstanding**
 3. ~~`StatusBadge`, since it appears on nearly every screen~~ — **done**
 4. ~~`PageHeader`, `FilterBar`, `EmptyState`, which unlock every P1 list page~~ — **done**, along with `Card`, `Table`, `DealRow`, `TaskItem`, `ActivityItem`, `DateChip`, `IconButton`, and `Tab`
-5. One real list screen end to end (S13), to prove the density spec at 20 rows — Slice 2
+5. ~~One real list screen end to end (S13), to prove the density spec at 20 rows~~ — done in #78; §4.3 carries the measured budget
 6. Then the bespoke work, starting with the stage rail (S16) — Slice 2
 
 > [!warning] Step 2 still owes its review
@@ -1401,7 +1430,7 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 - [x] Build `AppLayout` plus the sidebar (section 8) ✅ 2026-08-21
 - [ ] **Review `AppLayout` with Heather before any product screen is built** 📅 2026-08-31
 - [x] Build `StatusBadge` against the section 2.4 table ✅ 2026-08-21
-- [ ] Build S13 end to end and confirm 20 rows is the honest desktop number 📅 2026-09-07
+- [x] Build S13 end to end and confirm 20 rows is the honest desktop number ✅ 2026-08-24 — #78; §4.3 now carries the measured budget rather than the estimate
 - [x] Design the mobile collapse for the shell before the PWA slice ✅ 2026-08-21 — built; still to be judged on a real phone
 - [ ] Choose the sortable library, needed by S38, S41, and S42 📅 2026-09-07
 - [ ] Decide the calendar approach for S57 📅 2026-09-14
