@@ -141,6 +141,23 @@ class DealOverviewController extends Controller
 
         $readiness = $stage instanceof Stage ? $blockers->forStage($stage) : null;
 
+        /*
+         * **The current stage's badge, derived once.**
+         *
+         * This screen draws that stage twice — §9.2's progress strip and the
+         * card under it — and for one round they read different sources, so a
+         * single response carried `active` in one and `blocked` in the other
+         * for the same id. Fixing that by repeating the expression left two
+         * copies of a rule that had *just* been broken by having two copies of
+         * it, plus a `??` fallback in each that cannot fire:
+         * `DescribeBlockers::forStage()` returns a non-nullable
+         * `StageReadiness`, so this is null exactly when `$stage` is, and both
+         * readers are already inside a `$stage instanceof Stage` guard.
+         *
+         * One local, computed where the null actually lives.
+         */
+        $currentState = $readiness?->stageState()->value;
+
         $index = $stage instanceof Stage
             ? $workflow->stages->values()->search(fn (Stage $each): bool => $each->is($stage))
             : false;
@@ -158,20 +175,10 @@ class DealOverviewController extends Controller
             'stages' => $workflow->stages->map(fn (Stage $each): array => [
                 'id' => $each->getKey(),
                 'name' => $each->name,
-                /*
-                 * The current stage takes the live verdict, exactly as the card
-                 * below does — one payload must not carry two answers for one
-                 * stage.
-                 *
-                 * Fixing only the card left this strip on the cache, so a
-                 * single Inertia response said `active` here and `blocked`
-                 * three keys down for the same id, and the screen painted the
-                 * same stage blue in the strip and amber in the card. A
-                 * half-applied rule is worse than the cache was: at least the
-                 * cache disagreed with the truth consistently.
-                 */
-                'state' => $stage instanceof Stage && $each->is($stage)
-                    ? ($readiness?->stageState()->value ?? $each->state->value)
+                // The current stage takes the live verdict; the rest are
+                // history and the column is the fact. See `$currentState`.
+                'state' => $currentState !== null && $each->is($stage)
+                    ? $currentState
                     : $each->state->value,
                 'isCurrent' => $stage instanceof Stage && $each->is($stage),
             ])->values()->all(),
@@ -188,7 +195,7 @@ class DealOverviewController extends Controller
                  * "1 requirement to clear", while the timeline badged Blocked.
                  * One of them had to be wrong and it was this one.
                  */
-                'state' => $readiness?->stageState()->value ?? $stage->state->value,
+                'state' => $currentState,
                 'description' => $stage->description,
                 'plannedEnd' => $stage->planned_end?->toIso8601String(),
                 'position' => is_int($index) ? $index + 1 : null,

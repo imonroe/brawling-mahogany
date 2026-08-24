@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Workflow;
 
+use App\Enums\StageState;
 use App\Models\Gate;
 use App\Models\Stage;
 use App\Models\Task;
@@ -262,11 +263,19 @@ final readonly class StageTimeline
          * stage in the workflow. On a twenty-stage rail that is a page of
          * things reading as though they had already gone wrong.
          *
-         * Only a stage that is over can be said to have ended without it.
+         * **And a skipped stage is not a completed one**, which is why this
+         * reads `$stage->state` rather than `isFinished()`: that method is
+         * `[Complete, Skipped]`, and lumping them together says a skipped
+         * stage's condition went unmet *before the stage ended* — as though
+         * somebody worked through it and fell short. Nobody worked it. IA §7
+         * keeps Skip and Override apart for exactly this reason, and the same
+         * care applies one method along.
          */
-        return $stage->isFinished()
-            ? "{$type} · not recorded as met before this stage ended"
-            : "{$type} · not yet recorded";
+        return match ($stage->state) {
+            StageState::Complete => "{$type} · not recorded as met before this stage ended",
+            StageState::Skipped => "{$type} · not required, because this stage was skipped",
+            default => "{$type} · not yet recorded",
+        };
     }
 
     /**

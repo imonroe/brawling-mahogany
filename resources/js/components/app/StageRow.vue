@@ -269,20 +269,34 @@ const footerLine = computed(() => {
                             cn(
                                 'truncate font-semibold',
                                 expanded ? 'text-[15px]' : 'text-sm',
+                                // §7.4's Skipped row: `minus`, **card text
+                                // muted**. A stage nobody worked should not
+                                // read at the same weight as the twelve that
+                                // were.
+                                stage.state === 'skipped' &&
+                                    'text-muted-foreground',
                             )
                         "
+                        data-slot="stage-name"
                         >{{ stage.name }}</span
                     >
 
                     <!--
                         §7.4's milestone pill, on the collapsed row only — the
                         expanded header band is `[name] [badge] [meta]
-                        [chevron]` and has no pill in it.
+                        [chevron]` and has no pill in it either.
+
+                        It reads **Milestone**, not `milestoneLabel`. The pill
+                        marks *that* this stage is a moment; the label is the
+                        sentence a **client** is told about it (IA §3), and its
+                        home is the status page. Rendering it here put "Under
+                        contract" in a slot §7.4 specifies as the word
+                        `Milestone`, and beside a stage usually named the same
+                        thing.
 
                         Tinted `state-success` once the moment has happened and
-                        `state-neutral` while it is still ahead: IA §3 makes a
-                        milestone a moment, and a moment that has not arrived is
-                        not an achievement yet.
+                        `state-neutral` while it is still ahead: a moment that
+                        has not arrived is not an achievement yet.
                     -->
                     <span
                         v-if="stage.isMilestone && !expanded"
@@ -297,7 +311,7 @@ const footerLine = computed(() => {
                         data-slot="milestone-pill"
                     >
                         <Flag class="size-[11px]" aria-hidden="true" />
-                        {{ stage.milestoneLabel ?? 'Milestone' }}
+                        Milestone
                     </span>
 
                     <StatusBadge

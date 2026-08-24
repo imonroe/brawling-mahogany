@@ -360,6 +360,41 @@ describe('StageRow', () => {
         expect(wrapper.text()).not.toContain('Advance stage');
     });
 
+    it('mutes a skipped stage’s name, and says Milestone on the pill', () => {
+        /*
+         * Two lines of §7.4 the build had skipped: the Skipped row is `minus`
+         * **and card text muted** — a stage nobody worked should not read at the
+         * weight of the twelve that were — and the pill carries the word
+         * `Milestone`, not `milestoneLabel`.
+         *
+         * The label is the sentence a **client** is told (IA §3) and its home is
+         * the status page; rendering it here put "Under contract" in the slot
+         * §7.4 reserves for the marker, beside a stage usually named the same
+         * thing.
+         */
+        const skipped = row({ state: 'skipped' });
+
+        expect(skipped.find('[data-slot="stage-name"]').classes()).toContain(
+            'text-muted-foreground',
+        );
+
+        const running = row({ state: 'active' });
+
+        expect(
+            running.find('[data-slot="stage-name"]').classes(),
+        ).not.toContain('text-muted-foreground');
+
+        const milestone = row({
+            state: 'complete',
+            isMilestone: true,
+            milestoneLabel: 'Under contract',
+        });
+
+        expect(milestone.find('[data-slot="milestone-pill"]').text()).toBe(
+            'Milestone',
+        );
+    });
+
     it('says a skipped stage carried no reason rather than saying nothing', () => {
         // IA §7 calls conflating Skip with Override legally material, and the
         // difference a reader can see is that one of them always says why.

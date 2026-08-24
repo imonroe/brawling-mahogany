@@ -651,3 +651,36 @@ it('never lets one overview payload carry two answers for one stage', function (
                 ->and($inStrip['state'])->toBe(StageState::Blocked->value);
         });
 });
+
+it('does not tell a skipped stage it fell short', function (): void {
+    /*
+     * `Stage::isFinished()` is `[Complete, Skipped]`, and reading it here said a
+     * skipped stage's condition went unmet *before the stage ended* — as though
+     * somebody worked through it and did not manage it. Nobody worked it.
+     *
+     * IA §7 keeps Skip and Override apart because they are different acts with
+     * different audit consequences; the same care applies one method along, and
+     * this is the third place in this PR the distinction had to be made
+     * explicit.
+     */
+    [$deal, $workflow, $stages] = timelineDeal(3);
+
+    $skipped = $stages->get(1);
+
+    timelineGate($skipped, 'Survey returned');
+
+    app(TeamContext::class)->runFor($this->team, function () use ($skipped): void {
+        DB::table('stages')->where('id', $skipped->getKey())->update([
+            'state' => StageState::Skipped->value,
+        ]);
+    });
+
+    $this->get("/deals/{$deal->getKey()}/timeline")
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $explanation = $page->toArray()['props']['workflows'][0]['stages'][1]['gates'][0]['explanation'];
+
+            expect($explanation)->toContain('skipped')
+                ->and($explanation)->not->toContain('this stage ended');
+        });
+});

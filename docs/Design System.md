@@ -833,7 +833,7 @@ a row badged Overridden says the opposite of what happened.
 
 
 > [!note] Built as `components/app/StageRail.vue` and `StageRow.vue` (#76)
-> Five departures from the anatomy above, each with a reason the spec could not
+> Four departures from the anatomy above, each with a reason the spec could not
 > have known:
 >
 > - **Row heights are not hard-coded.** §7.4 fixes them at 58px collapsed and
@@ -844,9 +844,6 @@ a row badged Overridden says the opposite of what happened.
 >   them.
 > - **The two-pane body stacks below `lg`.** The requirements pane is fixed at
 >   340px, and two panes at that width on a phone is two columns of two words.
-> - **The milestone pill is on the collapsed row only.** §7.4's expanded header
->   band is `[name] [StatusBadge] [flex-1] [meta] [chevron-up]` and has no pill
->   in it.
 > - **The collapsed card and the expanded header band are one `<button>`**,
 >   not two. They are the same control saying the same thing, and a `v-if` pair
 >   dropped keyboard focus to `<body>` on every toggle.
