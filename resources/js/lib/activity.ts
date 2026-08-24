@@ -33,6 +33,7 @@ import {
     MessageSquare,
     PenLine,
     Phone,
+    ShieldAlert,
     Star,
     Trash2,
     UserMinus,
@@ -75,6 +76,19 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
     'stage.advanced': { icon: ArrowRight, tone: 'success' },
     'milestone.reached': { icon: Flag, tone: 'success' },
     'workflow.completed': { icon: Flag, tone: 'success' },
+
+    /*
+     * The override marker (Design System §7.3, §7.4 · PRD F4.9 · #69).
+     *
+     * The only `warning` in the table, and the only entry whose tone is fixed
+     * by name in the spec: *"override `state-warning`"*. §7.4's stage rail
+     * gives the same event a `shield-alert` marker, so the glyph matches the
+     * one S16 will draw beside the stage.
+     *
+     * It has to be recognisable without reading the summary — a bypassed gate
+     * that looks like every other row is a bypassed gate nobody finds.
+     */
+    'gate.overridden': { icon: ShieldAlert, tone: 'warning' },
 
     // The rest, neutral by Design System §7.3's own rule.
     'workflow.started': { icon: Activity, tone: 'neutral' },

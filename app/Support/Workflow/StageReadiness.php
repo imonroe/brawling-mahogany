@@ -24,10 +24,14 @@ final readonly class StageReadiness
     /**
      * @param  array<string, array{gate: Gate, verdict: GateVerdict}>  $blocking
      * @param  array<string, array{gate: Gate, verdict: GateVerdict}>  $advisories
+     * @param  array<string, array{gate: Gate, verdict: GateVerdict}>  $met  the
+     *                                                                       ones nothing is waiting on, carried for S23 and dropped by
+     *                                                                       `toArray()` — see `checklist()`
      */
     public function __construct(
         public array $blocking,
         public array $advisories,
+        public array $met,
     ) {}
 
     /**
@@ -60,23 +64,88 @@ final readonly class StageReadiness
     public function toArray(): array
     {
         return [
-            ...$this->describe($this->blocking, true),
-            ...$this->describe($this->advisories, false),
+            ...$this->describe($this->blocking),
+            ...$this->describe($this->advisories),
         ];
     }
 
     /**
+     * Every gate on the stage, including the ones nothing is waiting on (S23).
+     *
+     * The difference from `toArray()` is the audience, not the data. F3.7 asks
+     * the overview *what blocks advance*, so `toArray()` drops the met ones —
+     * a hub screen listing satisfied conditions is a hub screen burying the
+     * two that matter. S23 is the opposite question: Design System §7.4's
+     * requirements pane is a **checklist** with its own count (*"Requirements
+     * to advance · 2 of 3 cleared"*), and a checklist that hides the ticked rows
+     * cannot be counted by the person reading it.
+     *
+     * Blocking first, then advisories, then met — the order somebody should
+     * read them in, which is the same argument `toArray()` makes for its two.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function checklist(): array
+    {
+        return [
+            ...$this->describe($this->blocking),
+            ...$this->describe($this->advisories),
+            ...$this->describe($this->met),
+        ];
+    }
+
+    /**
+     * How many of each kind, for §7.4's pane heading.
+     *
+     * `cleared` is met **plus overridden**, because that is the question the
+     * heading asks — how many are no longer in the way. IA §8 keeps the two
+     * apart everywhere it matters (the badge, the timeline, the audit entry);
+     * a count of things standing in the way is the one place they are the
+     * same, and an overridden gate that still read as outstanding would make
+     * the count disagree with the button beside it.
+     *
+     * @return array<string, int>
+     */
+    public function counts(): array
+    {
+        $overridden = count(array_filter(
+            $this->advisories,
+            fn (array $entry): bool => $entry['gate']->overridden,
+        ));
+
+        return [
+            'total' => count($this->blocking) + count($this->advisories) + count($this->met),
+            'blocking' => count($this->blocking),
+            'advisory' => count($this->advisories) - $overridden,
+            'overridden' => $overridden,
+            'cleared' => count($this->met) + $overridden,
+        ];
+    }
+
+    /**
+     * One bucket, in a shape Inertia can carry.
+     *
+     * `isBlocking` is the gate's own column; `blocksAdvance` is whether it
+     * stands in the way **right now**. They differ on exactly one kind of row,
+     * and it is the kind this issue creates: an overridden blocking gate sorts
+     * into `advisories`, because `Gate::blocksAdvance()` is `is_blocking && !
+     * overridden`. Before #77 nothing could write `overridden`, so the two
+     * questions had never once disagreed and one field answered both — and
+     * reporting such a gate as `isBlocking: false` would have had S15 draw it
+     * as an **Advisory**, which is exactly what IA §8 says an override is not.
+     *
      * @param  array<string, array{gate: Gate, verdict: GateVerdict}>  $entries
      * @return list<array<string, mixed>>
      */
-    private function describe(array $entries, bool $isBlocking): array
+    private function describe(array $entries): array
     {
         return array_values(array_map(
             fn (array $entry): array => [
                 'id' => $entry['gate']->getKey(),
                 'label' => $entry['gate']->label,
                 'gateType' => $entry['gate']->gate_type,
-                'isBlocking' => $isBlocking,
+                'isBlocking' => $entry['gate']->is_blocking,
+                'blocksAdvance' => $entry['gate']->blocksAdvance() && ! $entry['verdict']->met,
                 // IA §8: overridden is not a kind of met, and the badge has to
                 // say which. `Gate::state()` is the only thing that decides.
                 'gateState' => $entry['gate']->state()->value,

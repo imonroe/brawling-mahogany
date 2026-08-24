@@ -123,9 +123,42 @@ const STATE_WRITE_PATTERNS = [
     '/->\s*setRawAttributes\s*\(/',
     // DB::table('stages')->update(…) — Eloquent bypassed entirely, so the
     // model, its casts, and its transition map never see the write
-    '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows)[\'"]\s*\)/',
+    '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows|gates)[\'"]\s*\)/',
     // …and the same by hand
-    '/\bUPDATE\s+(?:stages|workflows)\b/i',
+    '/\bUPDATE\s+(?:stages|workflows|gates)\b/i',
+
+    /*
+     * And the override flag, which is workflow state by every argument that
+     * makes `stages.state` workflow state — F4.9's override is a flag, an
+     * immutable audit entry naming who/when/which gate/why, a timeline marker,
+     * and an auto-created follow-up task, and a caller that writes the flag
+     * and forgets the other three looks like it worked.
+     *
+     * Added when #77 gave `overridden` its first writer. Before that the guard
+     * covered `stages.state` only, and a probe proved the gap was real: a
+     * controller calling `Gate::query()->update(['overridden' => true])`
+     * passed this test, while the same controller writing `stages.state`
+     * failed it. Documenting that hazard was the alternative; holding it is
+     * better.
+     */
+    '/->\s*overridden\s*=(?!=)/',
+    '/'.WRITE_CALLS.'\s*\(\s*\['.ARRAY_BODY.'[\'"]overridden[\'"]\s*=>/s',
+    '/->\s*setAttribute\s*\(\s*[\'"]overridden[\'"]/',
+    '/\[\s*[\'"]overridden[\'"]\s*\]\s*=(?!=)/',
+
+    /*
+     * `override_reason` and `overridden_by` are deliberately not guarded — the
+     * two that exist, and the list is exactly those two. They are the *record*
+     * of the decision rather than the decision: neither changes whether a gate
+     * blocks an advance, and writing one without `overridden` moves no
+     * workflow. `overridden` is the flag both of them describe, so guarding it
+     * is guarding the act, and a pattern per column would be three ways to say
+     * one thing, two of which fire on a row that is already correct.
+     *
+     * `stages.skipped_reason` is not guarded either, for a different reason:
+     * F4.12's skip is #70's work and nothing writes it yet. It belongs here
+     * the day something does.
+     */
 ];
 
 /**
@@ -202,10 +235,27 @@ function touchesWorkflowState(string $contents): bool
 {
     $code = codeWithoutComments($contents);
 
+    /*
+     * `Gate` is in this list, and leaving it out made the `overridden`
+     * patterns dead on arrival.
+     *
+     * This is the **candidate filter** — the write patterns are only ever run
+     * against files it admits — so a column added to `STATE_WRITE_PATTERNS`
+     * without its model added here is a pattern that can never match. When
+     * #77 widened the patterns to `gates.overridden`, the probe that was
+     * supposed to prove it worked lived in a controller that already named
+     * `Workflow`, so it cleared the filter for an unrelated reason and the
+     * verification proved the wrong thing. A class writing nothing but
+     * `Gate::query()->update(['overridden' => true])` was still never read.
+     *
+     * The same shape as the `DB::table('stages')` hole #68's first review
+     * found. **Adding a guarded column means adding its model and its table
+     * here as well.**
+     */
     foreach ([
-        '/\b(?:Stage|Workflow)(?:::class|\s*\$|::query)/',
-        '/[\'"](?:stages|workflows)[\'"]/',
-        '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows)\b/i',
+        '/\b(?:Stage|Workflow|Gate)(?:::|\s*\$)/',
+        '/[\'"](?:stages|workflows|gates)[\'"]/',
+        '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows|gates)\b/i',
     ] as $pattern) {
         if (preg_match($pattern, $code) === 1) {
             return true;
@@ -311,6 +361,100 @@ it('catches every shape of writing workflow state', function (string $shape): vo
     // only thing standing there.
     'setAttribute with a variable' => ['$column = \'state\'; $stage->setAttribute($column, StageState::Complete);'],
     'nested array' => ['$stage->update([\'configuration\' => [\'a\'], \'state\' => \'complete\']);'],
+]);
+
+/**
+ * The shapes that carry their own signal, in a fixture that names nothing.
+ *
+ * The filter admits a file when it sees the **model** or the **table**. These
+ * three carry the table or the model inside the write itself, so they clear it
+ * unaided — and the fixture deliberately has no type hint, no import and no
+ * mention of a gate anywhere else, so nothing but the shape can be doing it.
+ *
+ * That is the half round 1's fix got wrong twice. The first attempt at these
+ * cases used `run(Gate $gate)`, which matches the filter's *model* pattern on
+ * the parameter type — so `touchesWorkflowState()` was true by the signature,
+ * exactly as `run(Stage $stage)` had been in the older dataset, and exactly
+ * what its docblock claimed to have escaped. A fixture that cannot fail the
+ * filter cannot test it.
+ */
+it('reads a file whose only signal is the write itself', function (string $shape): void {
+    $source = "<?php\n\nclass Sneaky\n{\n    public function run(\$id): void\n    {\n        {$shape}\n    }\n}\n";
+
+    expect(touchesWorkflowState($source))->toBeTrue("The detector never even reads: {$shape}")
+        ->and(writesWorkflowState($source))->toBeTrue("The detector waves through: {$shape}");
+})->with([
+    // The override flag, which is what this dataset was added for.
+    'gate, eloquent mass update' => ['Gate::query()->whereKey($id)->update([\'overridden\' => true]);'],
+    /*
+     * A static call that is not `::query` or `::class`, which is the whole
+     * point of the model pattern taking a bare `::`. Every other case here
+     * spells it `::query`, so the alternative the pattern was *widened* to
+     * accept was the one alternative no case exercised — reverting it to
+     * `(?:::class|\s*\$|::query)` left the suite green.
+     */
+    'gate, find then update' => ['Gate::findOrFail($id)->update([\'overridden\' => true]);'],
+    'gate, query builder' => ['DB::table(\'gates\')->whereKey($id)->update([\'overridden\' => true]);'],
+    'gate, raw sql' => ['DB::statement(\'UPDATE gates SET overridden = true\');'],
+
+    /*
+     * And `stages.state`, the column this whole test was built for — whose
+     * table patterns turned out to be just as unheld, for longer.
+     *
+     * `catches every shape` covers these three shapes already, but through
+     * `run(Stage $stage)`: the *model* half of the filter is satisfied by the
+     * parameter, so narrowing both table patterns to `gates` alone left the
+     * entire suite green. That is the `DB::table('stages')` hole #68's first
+     * review found, re-opened and invisible. A query-builder write is exactly
+     * the case that names no model — it is what "Eloquent bypassed entirely"
+     * means — so it is the case that most needs a fixture naming none.
+     */
+    'stage, eloquent mass update' => ['Stage::query()->whereKey($id)->update([\'state\' => \'complete\']);'],
+    'stage, query builder' => ['DB::table(\'stages\')->whereKey($id)->update([\'state\' => \'complete\']);'],
+    'stage, raw sql' => ['DB::statement(\'UPDATE stages SET state = \\\'complete\\\'\');'],
+    /*
+     * A static call on the model, which is what holds each alternative of the
+     * filter's *model* pattern. `Workflow` had only table shapes here, so
+     * dropping it from that pattern failed nothing.
+     */
+    'workflow, eloquent mass update' => ['Workflow::query()->whereKey($id)->update([\'state\' => \'completed\']);'],
+    'workflow, query builder' => ['DB::table(\'workflows\')->whereKey($id)->update([\'state\' => \'completed\']);'],
+    'workflow, raw sql' => ['DB::statement(\'UPDATE workflows SET state = \\\'completed\\\'\');'],
+]);
+
+/**
+ * And the shapes that need the file to have named a gate somewhere.
+ *
+ * `$gate->overridden = true;` carries no signal of its own: the variable could
+ * be anything. The filter cannot read every file in `app/` — that is the point
+ * of having a filter — so these are held only against a file that names the
+ * model: a type hint, or any static call on it (`::query`, `::find`,
+ * `::findOrFail`, `::class`).
+ *
+ * **Not a relation.** `foreach ($deal->workflows as $w)` down to a gate names
+ * no guarded model anywhere, and the filter does not see it. An earlier
+ * version of this paragraph claimed relations were covered; they are not, and
+ * `Gate::findOrFail($id)->update([...])` was not covered either until the
+ * model pattern stopped insisting on `::query` or `::class` specifically.
+ *
+ * **So this asserts the pattern half only.** Asserting the filter half here
+ * would be asserting the type hint, which is the trap above. The limit is
+ * real and worth stating rather than papering over: a write to `overridden`
+ * on an untyped variable, in a file that names neither `Gate` nor `gates`, is
+ * invisible to this test. Nothing in the codebase looks like that, and the
+ * runtime half of the guarantee — `HasStateMachine`'s `saving` hook — does not
+ * care what the file mentions.
+ */
+it('matches every shape of writing the override flag', function (string $shape): void {
+    $source = "<?php\n\nclass Sneaky\n{\n    public function run(Gate \$gate): void\n    {\n        {$shape}\n    }\n}\n";
+
+    expect(writesWorkflowState($source))->toBeTrue("The detector waves through: {$shape}");
+})->with([
+    'plain property' => ['$gate->overridden = true;'],
+    'array key' => ['$gate->forceFill([\'overridden\' => true])->save();'],
+    'double-quoted key' => ['$gate->update(["overridden" => true]);'],
+    'setAttribute' => ['$gate->setAttribute(\'overridden\', true);'],
+    'array key assignment' => ['$payload = []; $payload[\'overridden\'] = true; $gate->forceFill($payload)->save();'],
 ]);
 
 it('stays quiet about code that only reads workflow state', function (string $shape): void {

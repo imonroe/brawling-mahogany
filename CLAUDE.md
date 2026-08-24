@@ -18,7 +18,7 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 > Obsidian vault paths inside `[[wikilinks]]` also still read
 > `brawling mahogany` and must stay that way or the links break.
 
-**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), the create-deal wizard with attach-workflow (S14, S28), **the deal overview (S15)** — which brought with it the deal chrome every tab now wears and the first HTTP route in front of `AdvanceWorkflow` — and the team activity feed with the two-click contact log (S12, S26). Its remaining screens — the deals index, the timeline, tasks, offers, the advance and override modals, and the templates UI — are still open under epic #3.
+**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), the create-deal wizard with attach-workflow (S14, S28), **the deal overview (S15)** — which brought with it the deal chrome every tab now wears and the first HTTP route in front of `AdvanceWorkflow` — the team activity feed with the two-click contact log (S12, S26), and **the advance and override modals (S23, S24)**, which gave the engine a way past a gate that cannot clear on its own. Its remaining screens — the deals index, the timeline, tasks, offers, and the templates UI — are still open under epic #3.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -156,6 +156,32 @@ These come from PRD §8 and should guide the eventual build:
   exclusion list fails open, and did, in review. See
   [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"A
   `teamScopedForeign` that means context still cascades"*.
+- **An override is four artefacts, and the fourth is the one that gets
+  dropped.** PRD F4.9 is not "set a flag": it is the flag, an immutable audit
+  entry naming **who, when, which gate, and why**, a distinct timeline marker,
+  and an **auto-created follow-up task** — because an override *defers* an
+  obligation and does not delete one. All four live inside
+  `AdvanceWorkflow::override()`, beside `handle()`, for the reason the single
+  mutation path exists at all: a controller that wrote the flag and remembered
+  three of the four would look like it worked. `SingleMutationPathTest` did
+  **not** catch that when #77 was written — a probe confirmed it, a controller
+  calling `Gate::query()->update(['overridden' => true])` passing while the
+  same controller writing `stages.state` failed — so the guard was widened to
+  the override flag and the `gates` table rather than the hazard being written
+  down. Built in Slice 2 (#77, #69).
+
+  Two things about it are load-bearing and neither is obvious. **The follow-up
+  task is not `is_required`**: `is_required` feeds `required_tasks_complete`,
+  which counts the required tasks on the stage the person is about to *leave*,
+  so a required follow-up would be counted by a tasks gate on that same stage
+  and would block the very advance the override exists to permit. And
+  **overriding never advances** — overriding one of three blocking gates must
+  not move the deal past the other two, so the modal reopens onto the
+  refreshed checklist and Advance is a second, deliberate press.
+
+  IA §7 calls conflating **Override** with **Skip** legally material, and
+  F4.12's skip is still #70's work. Nothing here writes
+  `stages.skipped_reason`.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by

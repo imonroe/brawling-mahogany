@@ -796,7 +796,12 @@ The meta string carries dates, duration, and counts: `15 Jul–2 Aug · 18 days 
 2. **Body**, a two-pane split with a 1px vertical divider: **Tasks** on the left (`flex-1 p-3.5 gap-[9px]`), **Requirements** on the right (`w-[340px] p-3.5 gap-[9px]`)
 3. **Footer**, `h-13 px-3.5 bg-muted border-t`: `[zap icon] [what advancing will do, 12 muted] [flex-1] [Override] [Advance Stage]`
 
-Each pane opens with a 12px/600 muted heading carrying its own count (`Tasks · 5 of 7 complete`, `Requirements to advance · 2 of 3 met`, the latter in `state-warning` when unmet).
+Each pane opens with a 12px/600 muted heading carrying its own count (`Tasks · 5 of 7 complete`, `Requirements to advance · 2 of 3 cleared`, the latter in `state-warning` when something is still blocking).
+
+**"Cleared", not "met".** The count is met *plus* overridden, and IA §8 makes
+Overridden a state of its own rather than a kind of Met — so "1 of 1 met" over
+a row badged Overridden says the opposite of what happened.
+
 
 #### Requirement (gate) row
 
@@ -813,11 +818,22 @@ The sub-line always states the **gate type and its evidence**: `Manual confirmat
 
 In the advance dialog the row is promoted to a bordered box: `p-3 rounded-md border`, unmet rows getting `bg-state-warning-bg border-state-warning` and a right-aligned outlined action button that clears the gate.
 
+> [!note] Built as `components/app/GateRow.vue` (#77)
+> One component for all three densities, with `boxed` selecting the dialog's. Two rules it settles that the anatomy above does not:
+>
+> - **Overridden is a third marker, not a variant of met.** `circle-check`/`state-success` is met and `circle-alert`/`state-warning` is unmet; an overridden gate takes §7.4's own override glyph, `shield-alert` in `state-warning` — the same one the stage rail and `lib/activity.ts` use, so one fact has one glyph wherever it appears. IA §8 is emphatic that overridden is not a kind of met, and it is not a kind of advisory either: `StageReadiness` sorts an overridden gate into the advisory bucket (`blocksAdvance()` is `is_blocking && ! overridden`), which is why the payload carries `isBlocking` *and* `blocksAdvance` and the row badges from the first.
+> - **Only a row genuinely in the way gets the amber box.** A met or overridden row inside the dialog is a plain bordered box, so the reader's eye lands on what is left.
+>
+> **The dialog's Override sits on the row, never in the footer.** §8.9's footer offers `cancel → alternate → primary`, and an Override there cannot say *which* gate it means once there are two blockers — which is the ordinary case. So the footer is `Cancel → Advance stage`, and each blocking row carries its own action: a link where the evaluator named a resolution, an **Override** where it could not.
+
 #### "What happens when you advance" block
 
 Sits in the advance dialog (S23) and, condensed to one line, in the stage card footer. Each entry is `[icon 15 muted] [ Label 13/500 · Detail 12 muted ]`, and the four entries are always in this order: emails, tasks, calendar events, stage completion.
 
 Never ship the advance action without this block. An automation that emails the wrong client cannot be recalled, and this is the last place a human can catch it.
+
+> [!note] Built server-side, and the empty entries say which slice fills them (#77)
+> All four entries come from `App\Support\Workflow\AdvancePreview`, not from copy in the dialog, so what the reader is promised can be asserted in a test. Emails and calendar events have no data until Slices 3 and 4, and they render **naming the slice** rather than being dropped: an absent Emails row reads as "no emails will be sent", which is true today and will silently stop being true. The tasks entry carries the half nobody expects — open tasks on the completing stage stay open, because F4.10 keeps a task (work owed) apart from a gate (a condition on advancement).
 
 #### Progress strip (S15)
 

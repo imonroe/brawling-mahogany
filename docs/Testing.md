@@ -165,6 +165,8 @@ remembering them:
 | `tests/js/activityEventTypes.test.ts` | The same event types all have an icon in `lib/activity.ts`. That table deliberately falls back rather than throwing (Design System §7.3 specifies the fallback), so nothing at runtime would ever report a forgotten one | Design System §7.3, issue #81 |
 | `tests/js/logContactDialog.test.ts` | S26's **two-click target**, measured: with the person known, a type tile and Log it save an entry, and nothing else is ever required. A requirement stated in prose erodes one field at a time | Screen Inventory S26, PRD F12.3 |
 | `tests/Isolation/DealDraftIsolationTest.php` | A wizard draft is the actor's and its team's, and a foreign id sent inside a *step* is refused — there is no draft id in a URL to send, so the steps are the vector. Also holds both halves of the abandonment sweep: a draft nobody came back to is purged, and one touched yesterday is not | ADR 0002, PRD §9, issue #74 |
+| `tests/js/gates.test.ts` | Design System §7.4's requirement row decides one thing once, for S15, S16 and S23 alike — and an **overridden** gate is drawn as neither met nor advisory. `StageReadiness` sorts it into the advisory bucket (`blocksAdvance()` is `is_blocking && ! overridden`), so before #77 a row reporting itself non-blocking was always genuinely advisory and S15 drew the Advisory pill from that flag. The first override would have rendered a bypassed requirement as optional | Design System §7.4, IA §8, issues #77, #69 |
+| `tests/Feature/Workflow/OverrideGateTest.php` | F4.9 is **four** artefacts and asserts all four: the flag with who and why, an immutable audit entry naming the gate, a distinct `gate.overridden` timeline marker, and the follow-up task. Also that the follow-up is **not** `is_required` — a required task on the stage being left is counted by a `required_tasks_complete` gate on that same stage and would block the very advance the override exists to permit | PRD §4.4 F4.9, §5.5, issue #69 |
 | `tests/Feature/Deals/DealOverviewTest.php` | Looking at a deal changes nothing. The overview evaluates every gate through `DescribeBlockers` and writes neither `stages.state` nor `gates.is_met` — proven against a fixture the same test then hands to `AdvanceWorkflow`, which *does* mark the stage blocked. Without that second half the assertion passes on any fixture with nothing to write | issue #75 |
 
 When one of these fails, the fix is the code or the document — not the test.
@@ -210,6 +212,20 @@ one layer up.
 
 Do the same for the next one. An enumerating test you have never seen fail is a
 test you do not know the behaviour of.
+
+S23's budget test was checked the same way, and the first attempt found
+nothing. Deleting the controller's inverse-relation loop changed no query
+count — because `DescribeBlockers` already hands every gate the stage it came
+from, so twenty gates share one object and the evaluators memoise off it. What
+*does* break it is deleting that `setRelation`, which turns the same fixture
+from 22 queries into 49. A budget test's fixture has to grow the thing whose
+absence would actually cost a query; a fixture that grows something already
+shared measures nothing and reads as coverage.
+
+Its companion case is the other half of the same problem: *"really did render
+the larger workflow"* asserts the payload holds twenty gates and eleven stages,
+because "the same number of queries" is equally true of two fixtures that were
+never built.
 
 > [!warning] A `0` or a `null` is the answer a broken feature gives too
 > The trap this catches repeatedly: asserting a count is `0`, or a value is

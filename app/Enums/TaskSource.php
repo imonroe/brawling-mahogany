@@ -24,6 +24,17 @@ enum TaskSource: string implements HasLabel
 
     case Manual = 'manual';
     case Template = 'template';
+    /**
+     * The follow-up an override leaves behind (PRD F4.9 · issue #69).
+     *
+     * Its own source rather than `manual`, for the reason the column exists at
+     * all: nobody typed this one either. An override defers an obligation and
+     * does not delete one, and the task that carries the obligation forward
+     * has to be tellable from a task somebody chose to write — otherwise the
+     * only record that the gate was bypassed is in the audit log, which is not
+     * a screen anybody works from.
+     */
+    case Override = 'override';
     case Extracted = 'extracted';
 
     public function label(): string
@@ -31,6 +42,7 @@ enum TaskSource: string implements HasLabel
         return match ($this) {
             self::Manual => 'Added by hand',
             self::Template => 'From the workflow',
+            self::Override => 'From an override',
             self::Extracted => 'From Extract',
         };
     }

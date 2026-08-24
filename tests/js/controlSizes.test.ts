@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
+import AppTextarea from '@/components/app/AppTextarea.vue';
 
 /**
  * Design System §4.2 measures every control in the built designs, and shadcn's
@@ -98,6 +99,26 @@ describe('control sizes', () => {
         expect(input.classes()).toContain('text-base');
         // §11's minimum has no exceptions, filters included.
         expect(input.classes()).toContain('min-h-11');
+    });
+
+    it('gives AppTextarea §10’s padding, height and type size', () => {
+        /*
+         * §10, in full: "Textarea: `rounded-md border p-[11px]` at 13–14px,
+         * roughly 86px tall for a reason field." The reason field it names is
+         * S24's, which is the first form in the product to need one — and the
+         * padding is `p-[11px]` rather than the input's `px-3` because prose
+         * does not centre itself vertically the way one line does.
+         */
+        const textarea = mount(AppTextarea);
+
+        expect(textarea.classes()).toContain('p-[11px]');
+        expect(textarea.classes()).toContain('min-h-[86px]');
+        expect(textarea.classes()).toContain('rounded-md');
+        // 16px on a phone or iOS Safari zooms on focus; 14px above `md`.
+        // Never text-13, which §3.3 reserves for rows (§4.2).
+        expect(textarea.classes()).toContain('text-base');
+        expect(textarea.classes()).toContain('md:text-sm');
+        expect(textarea.classes()).not.toContain('text-13');
     });
 
     it('gives AppSelect the same measured sizes as AppInput', () => {

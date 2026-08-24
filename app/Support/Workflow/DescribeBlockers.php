@@ -59,14 +59,19 @@ final readonly class DescribeBlockers
      * Two places deciding "does this stop the advance" differently is the
      * defect this codebase keeps finding; both ask the same method.
      *
-     * Gates already met are dropped. F3.7 asks the overview for *what blocks
-     * advance*, not for a checklist of everything that does not — the full
-     * gate list belongs to S23's advance modal.
+     * Gates already met are collected into their own bucket rather than
+     * dropped, and `StageReadiness` decides who sees them: `toArray()` — what
+     * S15 renders — leaves them out, because F3.7 asks the overview for *what
+     * blocks advance* and not for a checklist of everything that does not.
+     * `checklist()` keeps them, because S23 is the screen that asks the
+     * opposite question and Design System §7.4 wants a count of *"2 of 3 cleared"*
+     * that a reader can check against the rows above it.
      */
     public function forStage(Stage $stage): StageReadiness
     {
         $blocking = [];
         $advisories = [];
+        $met = [];
 
         foreach ($stage->gates as $gate) {
             /*
@@ -82,11 +87,13 @@ final readonly class DescribeBlockers
 
             $verdict = $this->gates->evaluate($gate);
 
+            $entry = ['gate' => $gate, 'verdict' => $verdict];
+
             if ($verdict->met) {
+                $met[$gate->getKey()] = $entry;
+
                 continue;
             }
-
-            $entry = ['gate' => $gate, 'verdict' => $verdict];
 
             if ($gate->blocksAdvance()) {
                 $blocking[$gate->getKey()] = $entry;
@@ -97,6 +104,6 @@ final readonly class DescribeBlockers
             $advisories[$gate->getKey()] = $entry;
         }
 
-        return new StageReadiness($blocking, $advisories);
+        return new StageReadiness($blocking, $advisories, $met);
     }
 }
