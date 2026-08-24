@@ -122,7 +122,23 @@ it('writes all four of F4.9’s artefacts', function (): void {
         ->and($task->stage_id)->toBe($stage->getKey())
         ->and($task->assignee_id)->toBe($this->member->getKey())
         ->and($task->source)->toBe(TaskSource::Override)
-        ->and($task->title)->toContain('Appraisal is back');
+        ->and($task->title)->toContain('Appraisal is back')
+        /*
+         * The same rule as the timeline marker above, and it needs its own
+         * assertion because the task is read somewhere else: My Work (S11)
+         * shows it to anybody the deal is shared with, while the audit entry
+         * has the retention and the access control the reason needs. It was
+         * interpolated here for a round, three lines under a comment saying
+         * the reason lives in the audit log.
+         */
+        ->and($task->description)->not->toContain('uploading tomorrow')
+        /*
+         * And the description does not claim the stage moved. Overriding
+         * never advances — that is the invariant the test below pins from the
+         * other direction — so a follow-up saying the stage "was advanced" is
+         * wrong on a deal that is still sitting exactly where it was.
+         */
+        ->and($task->description)->not->toContain('was advanced');
 });
 
 /**

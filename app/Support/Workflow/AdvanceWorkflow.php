@@ -310,7 +310,7 @@ final class AdvanceWorkflow
                 'overridden_by' => $actor->getKey(),
             ])->save();
 
-            $followUp = $this->followUpFor($gate, $stage, $actor, $reason);
+            $followUp = $this->followUpFor($gate, $stage, $actor);
 
             $deal = $workflow->deal;
 
@@ -424,7 +424,13 @@ final class AdvanceWorkflow
      * sorts to the bottom of My Work (S11 is *"my open tasks, soonest
      * first"*), which is where a deferred obligation goes to be forgotten.
      */
-    private function followUpFor(Gate $gate, Stage $stage, Person $actor, string $reason): Task
+    /*
+     * No `$reason` parameter, deliberately. It was passed in and interpolated
+     * into the description; dropping the argument rather than just the
+     * interpolation means putting it back is a signature change somebody has
+     * to mean, not a string edit.
+     */
+    private function followUpFor(Gate $gate, Stage $stage, Person $actor): Task
     {
         $task = new Task;
 
@@ -436,7 +442,25 @@ final class AdvanceWorkflow
             // gate named". The deal comes from the row; the gate has to be in
             // the title, because a task list shows titles.
             'title' => "Follow up on the overridden gate: {$gate->label}",
-            'description' => "{$stage->name} was advanced with this gate unmet. Reason given: {$reason}",
+            /*
+             * **Not "was advanced".** Overriding does not advance — waiving
+             * one of three blocking gates must not move the deal past the
+             * other two — so at the moment this task is written the stage is
+             * exactly where it was. A description that says otherwise is
+             * wrong on the deal that is still sitting there, and it
+             * contradicts the invariant three methods up.
+             *
+             * **And not the reason.** The reason is free text somebody typed
+             * about a live transaction, and the comment beside the timeline
+             * marker above says where it lives: the audit entry, which has
+             * the retention and the access control for it. A task is read by
+             * anyone who can open My Work (S11), so copying it here is the
+             * protection being described in one place and given away in
+             * another. The task names the gate; the audit log holds the why.
+             */
+            'description' => 'This gate was overridden rather than met, so the obligation behind it '
+                ."still stands. {$stage->name} has not advanced. The reason given is recorded in "
+                .'the audit log against this gate.',
             'assignee_id' => $actor->getKey(),
             'due_date' => now()->toDateString(),
             'is_required' => false,

@@ -369,8 +369,16 @@ function onOverridden(): void {
                                         ? 'text-state-warning'
                                         : ''
                                 "
-                                >{{ preview.counts.cleared }} of
-                                {{ preview.counts.total }} met</span
+                                ><!--
+                                    "cleared", not "met". `counts.cleared` is
+                                    `met + overridden`, and IA §8 is explicit
+                                    that Overridden is its own state and not a
+                                    kind of Met — so one waived gate read
+                                    "1 of 1 met" directly above a row badged
+                                    Overridden, which is the same contradiction
+                                    the badge ordering on S15 was fixed for.
+                                -->{{ preview.counts.cleared }} of
+                                {{ preview.counts.total }} cleared</span
                             >
                         </h3>
 

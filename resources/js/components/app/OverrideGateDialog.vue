@@ -71,7 +71,32 @@ function submit(): void {
     form.post(`/deals/${props.dealId}/workflows/${props.workflowId}/override`, {
         preserveScroll: true,
         preserveState: true,
-        onSuccess: () => emit('overridden'),
+        /*
+         * A refused override is a **successful request**.
+         *
+         * `AdvanceWorkflow::override()` returns a result object rather than
+         * throwing, because a workflow on hold or a gate a colleague cleared
+         * first is an ordinary outcome — so the controller flashes the reason
+         * and redirects back, and Inertia calls this. Emitting `overridden`
+         * on it closed this dialog and left the refusal rendering behind the
+         * advance modal still open underneath, where nobody reads it.
+         *
+         * The flash is what distinguishes them: a refusal sets `advance`, a
+         * success sets `toast`. Same key `DealLayout` renders from, so there
+         * is one place on the screen that says why nothing moved.
+         */
+        onSuccess: (page) => {
+            const refused = (
+                page.props.flash as
+                    { advance?: { refused?: boolean } } | undefined
+            )?.advance?.refused;
+
+            if (refused === true) {
+                return;
+            }
+
+            emit('overridden');
+        },
     });
 }
 </script>

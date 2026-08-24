@@ -221,10 +221,27 @@ function touchesWorkflowState(string $contents): bool
 {
     $code = codeWithoutComments($contents);
 
+    /*
+     * `Gate` is in this list, and leaving it out made the `overridden`
+     * patterns dead on arrival.
+     *
+     * This is the **candidate filter** — the write patterns are only ever run
+     * against files it admits — so a column added to `STATE_WRITE_PATTERNS`
+     * without its model added here is a pattern that can never match. When
+     * #77 widened the patterns to `gates.overridden`, the probe that was
+     * supposed to prove it worked lived in a controller that already named
+     * `Workflow`, so it cleared the filter for an unrelated reason and the
+     * verification proved the wrong thing. A class writing nothing but
+     * `Gate::query()->update(['overridden' => true])` was still never read.
+     *
+     * The same shape as the `DB::table('stages')` hole #68's first review
+     * found. **Adding a guarded column means adding its model and its table
+     * here as well.**
+     */
     foreach ([
-        '/\b(?:Stage|Workflow)(?:::class|\s*\$|::query)/',
-        '/[\'"](?:stages|workflows)[\'"]/',
-        '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows)\b/i',
+        '/\b(?:Stage|Workflow|Gate)(?:::class|\s*\$|::query)/',
+        '/[\'"](?:stages|workflows|gates)[\'"]/',
+        '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows|gates)\b/i',
     ] as $pattern) {
         if (preg_match($pattern, $code) === 1) {
             return true;
@@ -330,6 +347,37 @@ it('catches every shape of writing workflow state', function (string $shape): vo
     // only thing standing there.
     'setAttribute with a variable' => ['$column = \'state\'; $stage->setAttribute($column, StageState::Complete);'],
     'nested array' => ['$stage->update([\'configuration\' => [\'a\'], \'state\' => \'complete\']);'],
+]);
+
+/**
+ * The same, for the override flag — in a fixture that names no stage.
+ *
+ * Separate from the dataset above, and the fixture is the whole point. That
+ * one wraps every shape in `run(Stage $stage)`, so its `touchesWorkflowState`
+ * assertion is true whatever the shape is: the filter is satisfied by the
+ * method signature rather than by the write. That made it structurally unable
+ * to notice a column whose model the filter did not admit — which is exactly
+ * what happened when the `overridden` patterns were added and the filter was
+ * not, leaving them dead.
+ *
+ * So these take a `Gate` and mention nothing else. A guarded column has to
+ * clear both halves — be *read* and be *matched* — and only a fixture that
+ * can fail the first half proves it.
+ */
+it('catches every shape of writing the override flag', function (string $shape): void {
+    $source = "<?php\n\nclass Sneaky\n{\n    public function run(Gate \$gate): void\n    {\n        {$shape}\n    }\n}\n";
+
+    expect(touchesWorkflowState($source))->toBeTrue("The detector never even reads: {$shape}")
+        ->and(writesWorkflowState($source))->toBeTrue("The detector waves through: {$shape}");
+})->with([
+    'plain property' => ['$gate->overridden = true;'],
+    'array key' => ['$gate->forceFill([\'overridden\' => true])->save();'],
+    'double-quoted key' => ['$gate->update(["overridden" => true]);'],
+    'setAttribute' => ['$gate->setAttribute(\'overridden\', true);'],
+    'array key assignment' => ['$payload = []; $payload[\'overridden\'] = true; $gate->forceFill($payload)->save();'],
+    'eloquent mass update' => ['Gate::query()->whereKey($gate->id)->update([\'overridden\' => true]);'],
+    'query builder' => ['DB::table(\'gates\')->whereKey($gate->id)->update([\'overridden\' => true]);'],
+    'raw sql' => ['DB::statement(\'UPDATE gates SET overridden = true\');'],
 ]);
 
 it('stays quiet about code that only reads workflow state', function (string $shape): void {
