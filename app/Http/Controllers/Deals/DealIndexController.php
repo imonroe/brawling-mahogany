@@ -91,19 +91,6 @@ class DealIndexController extends Controller
         $known = array_column($segments, 'value');
         $segment = in_array($segment, $known, true) ? $segment : 'open';
 
-        /*
-         * `sort` and `dealType` are resolved the same way, and for a sharper
-         * reason than tidiness: both are **echoed back to the page**, and the
-         * page draws affordances from them.
-         *
-         * `Table` tints a column's chevron and sets `aria-sort` when `sort`
-         * equals its key — so echoing an unvalidated key made the header light
-         * up, the arrow flip on a second press, and a screen reader announce
-         * "ascending" over rows the server had not reordered, because the
-         * allowlist had already rejected the key. A control that confirms an
-         * action nobody performed is worse than one that does nothing.
-         */
-
         return Inertia::render('Deals/Index', [
             'segment' => $segment,
             'segmentCounts' => $segments,

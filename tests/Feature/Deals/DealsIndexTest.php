@@ -122,7 +122,17 @@ it('falls back to open rather than emptying the screen on a nonsense segment', f
 });
 
 it('searches the typed name and the generated one', function (): void {
-    $typed = indexDeal(attributes: ['name' => 'Bosart purchase']);
+    /*
+     * **Both halves of both rows are pinned**, including the ones the
+     * assertions never mention.
+     *
+     * `DealFactory` defaults `generated_name` to `faker->streetAddress()`, and
+     * the typed row leaving it unset is a coin flip: the full suite drew an
+     * *Elmer* street for it, `search=elm` matched two rows, and the file
+     * passed on its own all day. A fixture is only pinned when the fields the
+     * query reads are pinned, not the fields the assertion reads.
+     */
+    $typed = indexDeal(attributes: ['name' => 'Bosart purchase', 'generated_name' => '2 Quarry Way']);
     $generated = indexDeal(attributes: ['name' => null, 'generated_name' => '14 Elm St']);
 
     $this->get('/deals?search=bosart')
@@ -141,8 +151,10 @@ it('searches the typed name and the generated one', function (): void {
 });
 
 it('escapes the wildcards, so a search for a percent sign is a search', function (): void {
-    indexDeal(attributes: ['name' => 'Seller wants 100% of list']);
-    indexDeal(attributes: ['name' => 'Ordinary deal']);
+    // Pinned for the reason the search test above gives: the query reads both
+    // columns, so a faker street left in either one is an unpinned fixture.
+    indexDeal(attributes: ['name' => 'Seller wants 100% of list', 'generated_name' => '2 Quarry Way']);
+    indexDeal(attributes: ['name' => 'Ordinary deal', 'generated_name' => '3 Quarry Way']);
 
     $this->get('/deals?search='.urlencode('100%'))
         ->assertOk()
@@ -318,20 +330,30 @@ it('sorts by the name the row displays, both ways', function (): void {
  * first rename endpoint that trusts `nullable|string` reintroduces it — which
  * is the whole reason the sort expression, not the writer, is where this is
  * settled.
+ *
+ * **A tab is blank too, and that is the half `btrim()` alone gets wrong.**
+ * `btrim(x)` strips spaces and nothing else, so a `name` of `"\t"` survived
+ * as a value and — under this database's `C` collation, where 0x09 precedes
+ * every letter — headed an ascending list while the row showed its generated
+ * name. The expression names PHP `trim()`'s character set for that reason,
+ * and this fixture is what fails when somebody shortens it back.
  */
 it('treats a blank name the way the row does, as no name', function (): void {
-    $blank = indexDeal(attributes: ['name' => 'placeholder', 'generated_name' => 'ZZZ generated']);
+    $spaces = indexDeal(attributes: ['name' => 'placeholder', 'generated_name' => 'ZZZ generated']);
+    $tabbed = indexDeal(attributes: ['name' => 'placeholder', 'generated_name' => 'YYY generated']);
     $nulled = indexDeal(attributes: ['name' => null, 'generated_name' => 'MMM generated']);
 
-    // Straight to the column, because every writer normalises this away.
-    DB::table('deals')->where('id', $blank->getKey())->update(['name' => '   ']);
+    // Straight to the column, because every writer normalises these away.
+    DB::table('deals')->where('id', $spaces->getKey())->update(['name' => '   ']);
+    DB::table('deals')->where('id', $tabbed->getKey())->update(['name' => "\t\x0B"]);
 
     $this->get('/deals?sort=primary&direction=asc')
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            // M before Z, because both rows sort by what they show.
+            // M, Y, Z — every row sorting by what it shows.
             ->where('deals.data.0.id', $nulled->getKey())
-            ->where('deals.data.1.id', $blank->getKey()));
+            ->where('deals.data.1.id', $tabbed->getKey())
+            ->where('deals.data.2.id', $spaces->getKey()));
 });
 
 /**
@@ -371,6 +393,21 @@ it('sorts a nameless deal last however the arrow points', function (): void {
  */
 it('sorts by every column key the table offers', function (): void {
     $source = (string) file_get_contents(base_path('resources/js/components/app/dealRow.ts'));
+
+    /*
+     * Commentary out first, and for the floor's sake rather than the scan's.
+     *
+     * The floor below counts `sortable: true` marks in the source. A file
+     * whose docblock *mentions* `sortable: true` — this one's own type
+     * definition is one sentence away from doing so — would count a mark with
+     * no entry behind it, and fail a correct `dealRow.ts` for describing
+     * itself. `routeTargets.test.ts` strips for the mirror-image reason.
+     */
+    $source = (string) preg_replace(
+        ['#/\\*[\\s\\S]*?\\*/#', '#(^|[^:])//[^\n]*#m'],
+        [' ', '$1'],
+        $source,
+    );
 
     // The `key: '…'` of every entry carrying `sortable: true`.
     preg_match_all("/\\{\\s*key:\\s*'([a-z0-9]+)'[^}]*sortable:\\s*true/i", $source, $matches);

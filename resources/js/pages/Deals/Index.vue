@@ -74,17 +74,56 @@ const columns = dealRowColumns({ hide: ['owner'] });
 
 const search = ref(props.search);
 
+let debounce: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Whether the pending change to `search` was written by this page rather than
+ * typed into the box.
+ *
+ * The debounce watcher cannot tell the two apart, and the difference is the
+ * whole question: a keystroke should schedule a visit, and a value the page
+ * assigns itself should not — it is either echoing what the server just
+ * resolved, or part of a visit already going out.
+ *
+ * `clearFilters()` is where the absence of this showed. It cancels the
+ * pending debounce and then clears the box, and clearing the box **re-armed
+ * the timer the line above had just cancelled**. So the clear navigated to
+ * `segment=all`, and 250ms later a second visit went out reading the props
+ * the server had not answered yet — `/deals` bare, which *is* `segment=open`.
+ * The button widened the list and then put it straight back, which is the
+ * exact defect the widening was added to fix, arriving by the fix for it.
+ */
+let assigned = false;
+
+function setSearch(value: string): void {
+    /*
+     * A no-op assignment fires no watcher, so arming the flag for one would
+     * leave it armed and swallow the reader's next real keystroke instead.
+     */
+    if (search.value === value) {
+        return;
+    }
+
+    assigned = true;
+    search.value = value;
+}
+
+// The server's answer, echoed into the box. Assigned, so it does not ask again.
 watch(
     () => props.search,
     (value) => {
-        search.value = value;
+        setSearch(value);
     },
 );
 
-let debounce: ReturnType<typeof setTimeout> | undefined;
-
 watch(search, (value) => {
     clearTimeout(debounce);
+
+    if (assigned) {
+        assigned = false;
+
+        return;
+    }
 
     debounce = setTimeout(() => {
         visit({ search: value || undefined });
@@ -215,18 +254,39 @@ const isFiltered = computed(
  */
 function clearFilters(): void {
     /*
-     * Widen the segment only when the segment is what is hiding things.
+     * The pending search goes too. `visit()` says why it cancels the debounce,
+     * and this is the second thing that builds a query string — a rule written
+     * into one of two callers is the defect this screen keeps producing.
+     * Without it the clear undoes itself 250ms later.
+     *
+     * `setSearch()` rather than a bare assignment, because a bare one re-armed
+     * the timer the line above cancels. See the flag it reads.
+     */
+    clearTimeout(debounce);
+    setSearch('');
+
+    /*
+     * Widen the segment only when the segment is the **only** thing filtering.
      *
      * `/deals` with no query string *is* `segment=open`, so clearing to it
-     * left a closed-only team on the identical empty screen. But a team with
-     * open deals who merely typed a search wants the search cleared, not
-     * closed deals they never asked for — so `all` is for the case where
-     * `open` really is the filter: nothing showing, and deals elsewhere.
+     * left a closed-only team on the identical empty screen — that is what
+     * `segment: 'all'` is for.
+     *
+     * But a team with open deals whose search happens to match none of them
+     * also lands here, and they want their search dropped, not closed deals
+     * they never asked for. So the test is whether anything *else* is
+     * narrowing the list: if a search or a deal type is set, clearing those is
+     * enough, and the segment stays where the reader left it.
+     *
+     * An earlier version tested `deals.data.length === 0` instead, which is
+     * always true wherever this button renders — the button only exists inside
+     * the empty state. It read like a narrowing and was a no-op.
      */
     const widen =
         hasAnyDeals.value &&
         props.segment === 'open' &&
-        props.deals.data.length === 0;
+        props.search.trim() === '' &&
+        props.dealType === 'all';
 
     router.get('/deals', widen ? { segment: 'all' } : {}, {
         preserveState: true,

@@ -44,7 +44,11 @@ type Row = {
     nextDate: string | null;
 };
 
-function page(counts: { open: number; all: number }, data: Row[] = []) {
+function page(
+    counts: { open: number; all: number },
+    data: Row[] = [],
+    overrides: Record<string, unknown> = {},
+) {
     return mount(Index, {
         props: {
             segment: 'open',
@@ -66,8 +70,28 @@ function page(counts: { open: number; all: number }, data: Row[] = []) {
                 prev_page_url: null,
                 next_page_url: null,
             },
+            ...overrides,
         },
     });
+}
+
+/**
+ * The Clear filters button, or a failure saying it was not there.
+ *
+ * It renders only inside `<template #empty>`, under `v-if` on both an empty
+ * page and `isFiltered` — so a fixture with a row has no button, and
+ * `find(…)?.trigger('click')` on it is a no-op that any negative assertion
+ * survives. That is exactly how the narrowing test below passed while
+ * pressing nothing.
+ */
+function pressClear(wrapper: ReturnType<typeof page>) {
+    const button = wrapper
+        .findAll('button')
+        .find((b) => b.text() === 'Clear filters');
+
+    expect(button, 'No Clear filters button rendered to press.').toBeDefined();
+
+    return button!.trigger('click');
 }
 
 beforeEach(() => {
@@ -124,10 +148,7 @@ describe('Deals index filtering', () => {
         // so clearing to it reloaded the identical empty screen.
         const wrapper = page({ open: 0, all: 8 });
 
-        await wrapper
-            .findAll('button')
-            .find((b) => b.text() === 'Clear filters')
-            ?.trigger('click');
+        await pressClear(wrapper);
 
         expect(routerGet).toHaveBeenCalledWith(
             '/deals',
@@ -137,30 +158,55 @@ describe('Deals index filtering', () => {
     });
 
     it('clears only the search when the segment is not what is hiding things', async () => {
-        // Open deals exist and some are showing: the reader typed a search, so
-        // clearing means dropping the search, not showing them closed deals.
-        const wrapper = page({ open: 4, all: 9 }, [
-            {
-                id: 'd1',
-                name: '14 Elm St',
-                url: '/deals/d1',
-                client: null,
-                stage: null,
-                state: 'active',
-                dealTypeName: null,
-                nextDate: null,
-            },
-        ]);
+        /*
+         * Four open deals, and a search matching none of them. The reader
+         * wants their search dropped — not five closed deals they never asked
+         * to see. So this clears to `/deals` bare, which *is* `segment=open`.
+         *
+         * The fixture is empty **and** searched, which is the only shape that
+         * reaches the narrowing at all: the button lives inside the empty
+         * state, so a version of this test that supplied a row rendered no
+         * button, pressed nothing, and passed on a negative assertion that
+         * was true by construction. `search` goes in as a prop because that
+         * is what the branch reads — the server's resolved value, not the box.
+         */
+        const wrapper = page({ open: 4, all: 9 }, [], { search: 'smith' });
+
+        await pressClear(wrapper);
+
+        // Positive, not negative: the press happened and carried nothing.
+        expect(routerGet).toHaveBeenCalledWith('/deals', {}, expect.anything());
+    });
+
+    it('clears only the deal type when that is what is hiding things', async () => {
+        // The other half of the same branch, and the one a `&&` slipped to a
+        // `||` would take. Same team, same segment, filtered by type instead.
+        const wrapper = page({ open: 4, all: 9 }, [], { dealType: 'dt-1' });
+
+        await pressClear(wrapper);
+
+        expect(routerGet).toHaveBeenCalledWith('/deals', {}, expect.anything());
+    });
+
+    it('cancels a pending search rather than letting it undo the clear', async () => {
+        vi.useFakeTimers();
+
+        // Typed but not yet fired: the debounce is 250ms and 100 have passed.
+        const wrapper = page({ open: 0, all: 8 });
 
         await wrapper.find('input[type="search"]').setValue('smith');
-        await wrapper
-            .findAll('button')
-            .find((b) => b.text() === 'Clear filters')
-            ?.trigger('click');
+        vi.advanceTimersByTime(100);
 
-        // No rows are missing, so there is no Clear filters button to press —
-        // the empty state is not rendered at all. Nothing widened.
-        expect(routerGet).not.toHaveBeenCalledWith(
+        await pressClear(wrapper);
+        vi.advanceTimersByTime(500);
+
+        // One visit, and it is the clear. `visit()` cancels the debounce and
+        // says why; this is the second thing on the page that builds a query
+        // string, and a rule written into one of two callers is the defect
+        // this screen keeps producing. Without the cancel, the pending search
+        // fired 150ms later and put `smith` straight back.
+        expect(routerGet).toHaveBeenCalledTimes(1);
+        expect(routerGet).toHaveBeenCalledWith(
             '/deals',
             { segment: 'all' },
             expect.anything(),
@@ -190,10 +236,41 @@ describe('Deals index filtering', () => {
 
         vi.advanceTimersByTime(500);
 
-        // Exactly one visit, and it carries both. Cancelling the pending
+        // Exactly one visit, and it carries **both**. Cancelling the pending
         // search used to drop it; not cancelling it used to drop the segment.
+        // Asserting only the search would pass on a visit that lost the click
+        // that triggered it, which is half the bug.
         expect(routerGet).toHaveBeenCalledTimes(1);
-        expect(routerGet.mock.calls[0][1]).toMatchObject({ search: 'smith' });
+        expect(routerGet.mock.calls[0][1]).toMatchObject({
+            search: 'smith',
+            segment: 'all',
+        });
+    });
+
+    it('does not swallow the keystroke after the server echoes the search back', async () => {
+        vi.useFakeTimers();
+
+        const wrapper = page({ open: 2, all: 2 });
+
+        await wrapper.find('input[type="search"]').setValue('smith');
+        vi.advanceTimersByTime(300);
+
+        expect(routerGet).toHaveBeenCalledTimes(1);
+
+        /*
+         * The server answers, resolving the search to the same string the box
+         * already holds. `setSearch()` has to notice: arming the flag for an
+         * assignment that changes nothing fires no watcher to disarm it, so
+         * the flag stays up and eats the reader's **next** keystroke instead
+         * — a search box that goes dead one round trip in.
+         */
+        await wrapper.setProps({ search: 'smith' });
+
+        await wrapper.find('input[type="search"]').setValue('smithy');
+        vi.advanceTimersByTime(300);
+
+        expect(routerGet).toHaveBeenCalledTimes(2);
+        expect(routerGet.mock.calls[1][1]).toMatchObject({ search: 'smithy' });
     });
 
     it('does not navigate after the page has gone', async () => {

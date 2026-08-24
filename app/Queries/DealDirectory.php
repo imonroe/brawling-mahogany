@@ -300,8 +300,16 @@ final class DealDirectory
          * **deal name** — a header confirming a sort nobody asked for, which
          * is the defect this screen has now been through twice. An unhandled
          * key falls to the default it already falls to for junk.
+         *
+         * The arms are exact literals, so anything that is not one of them —
+         * a new `SORTS` key with no arm, or a hand-typed `?sort=banana` —
+         * lands on `default`. There used to be an `in_array($sort, SORTS)`
+         * wrapped round the subject as well; it maps one set of unhandled
+         * strings onto another and changes nothing, which a mutation proved.
+         * The allowlist that matters is the controller's, because that is the
+         * one deciding what gets **echoed back** to the page.
          */
-        match (in_array($sort, self::SORTS, true) ? $sort : '') {
+        match ($sort) {
             /*
              * Deals with nothing due sort last either way round: an empty cell
              * is not "soonest", and it is not "latest" either.
@@ -319,9 +327,18 @@ final class DealDirectory
              * `nullif(btrim(...))` rather than a bare `coalesce`, because
              * `displayName()` falls back on **blank** and `coalesce` falls
              * back on null — so a `name` of `''` was a value `coalesce` kept
-             * and sorted by. The character set matches PHP's `trim()` rather
-             * than `btrim()`'s space-only default, so a tab is no more a name
-             * than a space is.
+             * and sorted by. The row and the sort have to agree on what blank
+             * means, so the character set is PHP `trim()`'s default rather
+             * than `btrim()`'s space-only one: a name of a single tab renders
+             * as its generated name, and without the tab in here it sorted
+             * under one.
+             *
+             * `trim()`'s list is ` \t\n\r\0\x0B` and this one is that list
+             * **minus the NUL**, deliberately. `E'\000'` is not a string
+             * Postgres will accept — *invalid byte sequence for encoding
+             * "UTF8": 0x00* — because a `text` value cannot contain a NUL at
+             * all, so there is nothing here to trim. The two lists differ by a
+             * character that cannot reach this column.
              *
              * `nulls last` in both directions: Postgres defaults to NULLS
              * FIRST on a descending sort, and a deal with no name at all
@@ -329,8 +346,8 @@ final class DealDirectory
              * anybody asked for. It is what puts "Untitled deal" last.
              */
             'primary' => $query->orderByRaw(
-                "coalesce(nullif(btrim(deals.name, E' \\t\\n\\r'), ''), "
-                ."nullif(btrim(deals.generated_name, E' \\t\\n\\r'), '')) {$direction} nulls last",
+                "coalesce(nullif(btrim(deals.name, E' \\t\\n\\r\\013'), ''), "
+                ."nullif(btrim(deals.generated_name, E' \\t\\n\\r\\013'), '')) {$direction} nulls last",
             ),
 
             /*
