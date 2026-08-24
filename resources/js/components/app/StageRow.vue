@@ -43,12 +43,10 @@ export type StageTask = {
 export type TimelineStage = {
     id: string;
     name: string;
-    description: string | null;
     position: number;
     isActive: boolean;
     state: string;
     isMilestone: boolean;
-    milestoneLabel: string | null;
     plannedStart: string | null;
     plannedEnd: string | null;
     actualStart: string | null;
@@ -62,6 +60,8 @@ export type TimelineStage = {
 
 const props = defineProps<{
     stage: TimelineStage;
+    /** How many stages the rail holds, for the row's accessible name. */
+    total: number;
     isLast: boolean;
     expanded: boolean;
     canAdvance: boolean;
@@ -75,6 +75,21 @@ const emit = defineEmits<{
 }>();
 
 const { can } = usePermissions();
+
+/**
+ * What the toggle is called when you cannot see the rail.
+ *
+ * The marker, the connector and the row's position down the page are the whole
+ * argument for a rail over a list — a stage is legible **in its sequence** —
+ * and every one of them is visual. A screen reader otherwise hears twenty
+ * buttons named after twenty stages, in no stated order, with nothing saying
+ * which one is current.
+ */
+const accessibleName = computed(
+    () =>
+        `Stage ${props.stage.position} of ${props.total}: ${props.stage.name}` +
+        (props.stage.isActive ? ', current stage' : ''),
+);
 
 const marker = computed(() => stageMarker(props.stage));
 
@@ -262,6 +277,7 @@ const footerLine = computed(() => {
                         )
                     "
                     :aria-expanded="expanded"
+                    :aria-label="accessibleName"
                     @click="emit('toggle')"
                 >
                     <span

@@ -113,7 +113,18 @@ final readonly class StageTimeline
         return [
             'id' => $stage->getKey(),
             'name' => $stage->name,
-            'description' => $stage->description,
+            /*
+             * 1-based, and it has a reader: the row's accessible name is
+             * *"Stage 3 of 20: Listing Preparation"*, because the rail's whole
+             * argument is that a stage is legible **in its sequence** and a
+             * screen reader gets none of the line and markers that carry that
+             * visually.
+             *
+             * `description` used to ride along here and was read by nothing —
+             * §7.4's expanded card has no slot for it. CLAUDE.md's rule for an
+             * eager-load is the same rule for a payload field: name the cell
+             * that reads it, and if there is not one, that is the finding.
+             */
             'position' => $index + 1,
             'isActive' => $isActive,
 
@@ -128,8 +139,13 @@ final readonly class StageTimeline
                 ? $readiness->stageState()->value
                 : $stage->state->value,
 
+            /*
+             * Whether, not which. §7.4's pill carries the word `Milestone`, and
+             * `milestone_label` is the sentence a **client** is told about the
+             * moment (IA §3) — its reader is the status page, S62. Shipping it
+             * here left a typed, asserted field nothing rendered.
+             */
             'isMilestone' => $stage->is_milestone,
-            'milestoneLabel' => $stage->milestone_label,
 
             /*
              * Planned dates are days and actual dates are moments — the casts
@@ -270,10 +286,17 @@ final readonly class StageTimeline
          * somebody worked through it and fell short. Nobody worked it. IA §7
          * keeps Skip and Override apart for exactly this reason, and the same
          * care applies one method along.
+         *
+         * The skipped arm says what was **recorded**, not what was required.
+         * It read *"not required, because this stage was skipped"* for a round,
+         * on a row whose own `isBlocking` makes `GateRow` badge it as
+         * required — a sub-line contradicting the badge eight pixels above it.
+         * Skipping a stage does not retroactively make its conditions optional;
+         * it means nobody evaluated them.
          */
         return match ($stage->state) {
             StageState::Complete => "{$type} · not recorded as met before this stage ended",
-            StageState::Skipped => "{$type} · not required, because this stage was skipped",
+            StageState::Skipped => "{$type} · not recorded as met; this stage was skipped",
             default => "{$type} · not yet recorded",
         };
     }

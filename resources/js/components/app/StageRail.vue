@@ -179,6 +179,7 @@ const total = computed(() => props.workflow.stages.length);
             >
                 <StageRow
                     :stage="stage"
+                    :total="total"
                     :is-last="index === workflow.stages.length - 1"
                     :expanded="opened.has(stage.id)"
                     :can-advance="workflow.canAdvance"

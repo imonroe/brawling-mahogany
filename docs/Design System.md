@@ -833,7 +833,7 @@ a row badged Overridden says the opposite of what happened.
 
 
 > [!note] Built as `components/app/StageRail.vue` and `StageRow.vue` (#76)
-> Four departures from the anatomy above, each with a reason the spec could not
+> Five departures from the anatomy above, each with a reason the spec could not
 > have known:
 >
 > - **Row heights are not hard-coded.** §7.4 fixes them at 58px collapsed and
@@ -847,6 +847,11 @@ a row badged Overridden says the opposite of what happened.
 > - **The collapsed card and the expanded header band are one `<button>`**,
 >   not two. They are the same control saying the same thing, and a `v-if` pair
 >   dropped keyboard focus to `<body>` on every toggle.
+> - **The meta string is hidden below `sm`.** §7.4's collapsed card carries it
+>   unconditionally — `15 Jul–2 Aug · 18 days · 8 of 8 tasks` — and on a 360px
+>   phone that string plus a stage name, a badge and a chevron does not fit on
+>   one 44px line. §11 floors the row at 44px and the name is what a reader
+>   scans by, so the meta is what gives way. It returns at `sm`.
 > - **The footer has no `[Override]`.** The anatomy above lists one, and it
 >   carries exactly the ambiguity §7.4 already rejects one section down for the
 >   dialog's footer: *"an Override there cannot say which gate it means once

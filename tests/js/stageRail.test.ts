@@ -40,12 +40,10 @@ function stage(overrides: Partial<TimelineStage> = {}): TimelineStage {
     return {
         id: 'stage-1',
         name: 'Listing Preparation',
-        description: null,
         position: 1,
         isActive: false,
         state: 'pending',
         isMilestone: false,
-        milestoneLabel: null,
         plannedStart: null,
         plannedEnd: null,
         actualStart: null,
@@ -69,6 +67,7 @@ function row(overrides: Partial<TimelineStage> = {}, expanded = false) {
     return mount(StageRow, {
         props: {
             stage: stage(overrides),
+            total: 3,
             isLast: false,
             expanded,
             canAdvance: true,
@@ -178,6 +177,54 @@ describe('StageRow', () => {
         ).toBe('overridden');
         expect(wrapper.find('[data-slot="status-badge"]').text()).toBe(
             'Complete',
+        );
+    });
+
+    it('names the row by its place in the sequence, for a reader who cannot see it', () => {
+        /*
+         * The marker, the connector and the row's position down the page are
+         * the whole argument for a rail over a list — a stage is legible **in
+         * its sequence** — and every one of them is visual. Without this a
+         * screen reader hears twenty buttons named after twenty stages, in no
+         * stated order, with nothing saying which one is current.
+         *
+         * It is also what `position` is *for*: the field shipped for a round
+         * with no reader at all, which is CLAUDE.md's eager-load rule wearing
+         * different clothes.
+         */
+        const wrapper = mount(StageRow, {
+            props: {
+                stage: stage({ position: 3, name: 'Under Contract' }),
+                total: 20,
+                isLast: false,
+                expanded: false,
+                canAdvance: false,
+                advanceRefusal: null,
+            },
+        });
+
+        expect(wrapper.get('button').attributes('aria-label')).toBe(
+            'Stage 3 of 20: Under Contract',
+        );
+
+        const current = mount(StageRow, {
+            props: {
+                stage: stage({
+                    position: 3,
+                    name: 'Under Contract',
+                    isActive: true,
+                }),
+                total: 20,
+                isLast: false,
+                expanded: true,
+                canAdvance: false,
+                advanceRefusal: null,
+            },
+        });
+
+        // Which one is current is a fact the rail draws with a bigger marker.
+        expect(current.get('button').attributes('aria-label')).toContain(
+            'current stage',
         );
     });
 
@@ -349,6 +396,7 @@ describe('StageRow', () => {
         const wrapper = mount(StageRow, {
             props: {
                 stage: stage({ isActive: true }),
+                total: 3,
                 isLast: false,
                 expanded: true,
                 canAdvance: false,
@@ -387,7 +435,6 @@ describe('StageRow', () => {
         const milestone = row({
             state: 'complete',
             isMilestone: true,
-            milestoneLabel: 'Under contract',
         });
 
         expect(milestone.find('[data-slot="milestone-pill"]').text()).toBe(
@@ -417,6 +464,7 @@ describe('StageRow', () => {
         const wrapper = mount(StageRow, {
             props: {
                 stage: stage(),
+                total: 3,
                 isLast: false,
                 expanded: false,
                 canAdvance: false,
@@ -444,6 +492,7 @@ describe('StageRow', () => {
         const middle = mount(StageRow, {
             props: {
                 stage: stage(),
+                total: 3,
                 isLast: false,
                 expanded: false,
                 canAdvance: false,
@@ -454,6 +503,7 @@ describe('StageRow', () => {
         const last = mount(StageRow, {
             props: {
                 stage: stage(),
+                total: 3,
                 isLast: true,
                 expanded: false,
                 canAdvance: false,

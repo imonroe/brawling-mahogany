@@ -354,7 +354,14 @@ it('reports a finished stage’s gates as recorded rather than re-evaluating the
  * The rest of the payload
  * ---------------------------------------------------------------------- */
 
-it('carries the milestone flag and its label', function (): void {
+it('carries whether a stage is a milestone, and not which one', function (): void {
+    /*
+     * §7.4's pill reads the word `Milestone`; `milestone_label` is the sentence
+     * a **client** is told about the moment (IA §3), and its reader is the
+     * status page, S62. Shipping it here left a typed, asserted field that
+     * nothing rendered — CLAUDE.md's eager-load rule in another form: name the
+     * cell that reads it, and if there is not one, that is the finding.
+     */
     [$deal, $workflow, $stages] = timelineDeal(3);
 
     $stages->get(1)->forceFill([
@@ -366,8 +373,9 @@ it('carries the milestone flag and its label', function (): void {
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->where('workflows.0.stages.1.isMilestone', true)
-            ->where('workflows.0.stages.1.milestoneLabel', 'Under contract')
-            ->where('workflows.0.stages.0.isMilestone', false));
+            ->where('workflows.0.stages.0.isMilestone', false)
+            ->missing('workflows.0.stages.1.milestoneLabel')
+            ->missing('workflows.0.stages.1.description'));
 });
 
 it('counts a stage’s tasks and lists them', function (): void {
@@ -681,6 +689,15 @@ it('does not tell a skipped stage it fell short', function (): void {
             $explanation = $page->toArray()['props']['workflows'][0]['stages'][1]['gates'][0]['explanation'];
 
             expect($explanation)->toContain('skipped')
-                ->and($explanation)->not->toContain('this stage ended');
+                ->and($explanation)->not->toContain('this stage ended')
+                /*
+                 * And it says what was **recorded**, not what was required. The
+                 * first wording said "not required", on a row whose own
+                 * `isBlocking` makes `GateRow` badge it Required — a sub-line
+                 * contradicting the badge eight pixels above it. Skipping a
+                 * stage does not make its conditions optional; it means nobody
+                 * evaluated them.
+                 */
+                ->and($explanation)->not->toContain('not required');
         });
 });
