@@ -6,8 +6,10 @@ use App\Enums\ParticipantRole;
 use App\Enums\WorkflowState;
 use App\Models\Deal;
 use App\Models\DealParticipant;
+use App\Models\DealProperty;
 use App\Models\DealType;
 use App\Models\Person;
+use App\Models\Property;
 use App\Models\Stage;
 use App\Models\Task;
 use App\Models\TeamMembership;
@@ -31,11 +33,11 @@ use Illuminate\Support\Facades\DB;
  * `toBe`, not "within a factor of two". A tenfold N+1 fits comfortably inside
  * a doubling budget, which is how #148's first version of this passed.
  */
-function seedDeals(int $count): array
+function seedDeals(int $count, bool $withProperties = false): array
 {
     [$team, $member] = test()->teamWithMember();
 
-    app(TeamContext::class)->runFor($team, function () use ($team, $count): void {
+    app(TeamContext::class)->runFor($team, function () use ($team, $count, $withProperties): void {
         $type = DealType::query()->whereNull('team_id')->firstOrFail();
 
         for ($i = 0; $i < $count; $i++) {
@@ -83,6 +85,20 @@ function seedDeals(int $count): array
                 'deal_id' => $deal->getKey(),
                 'due_date' => now()->addDays($i + 1)->toDateString(),
             ]);
+
+            /*
+             * A subject property, for the test that no cell reads one. Off by
+             * default so the growth test above measures the four cells it was
+             * written for and nothing else.
+             */
+            if ($withProperties) {
+                DealProperty::factory()->create([
+                    'team_id' => $team->getKey(),
+                    'deal_id' => $deal->getKey(),
+                    'property_id' => Property::factory()->create(['team_id' => $team->getKey()])->getKey(),
+                    'is_subject' => true,
+                ]);
+            }
         }
     });
 
@@ -131,4 +147,40 @@ it('does not grow its query count with the number of deals', function (): void {
      * large fixture is the case the issue names rather than a round number.
      */
     expect($large)->toBe($small);
+});
+
+/**
+ * The index does not pay for a relation no cell reads.
+ *
+ * `paginate()` eager-loaded `propertyLinks` with a nested `property` and
+ * nothing ever touched it: `row()` names a deal with `displayName()`, which
+ * reads the `name` and `generated_name` **columns**. The subject property is
+ * how `generated_name` was *derived*, upstream, by `NameDeal` — it is not
+ * something this screen asks the database for.
+ *
+ * The growth test above cannot see this. It asserts 25 deals cost what 2
+ * deals cost, which is the right shape for an N+1 and blind to a fixed cost
+ * paid once per page. So this one holds the two fixtures **the same size**
+ * and varies only whether the deals have properties hanging off them: an
+ * eager-load that nothing reads shows up as the linked team costing more.
+ *
+ * It is a ceiling on nothing in particular, which is the point — an absolute
+ * number would measure the layout's permission checks, as the test above
+ * explains.
+ */
+it('does not pay for a relation no cell reads', function (): void {
+    [$plainTeam, $plainMember] = seedDeals(3);
+    [$linkedTeam, $linkedMember] = seedDeals(3, withProperties: true);
+
+    $plain = countDealsIndexQueries(function () use ($plainMember, $plainTeam): void {
+        $this->actingAsPerson($plainMember, $plainTeam);
+        $this->get('/deals')->assertOk();
+    });
+
+    $linked = countDealsIndexQueries(function () use ($linkedMember, $linkedTeam): void {
+        $this->actingAsPerson($linkedMember, $linkedTeam);
+        $this->get('/deals')->assertOk();
+    });
+
+    expect($linked)->toBe($plain);
 });

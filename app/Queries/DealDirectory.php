@@ -83,18 +83,31 @@ final class DealDirectory
              */
             ->withNextDueDate()
             /*
-             * The client, the stage and the subject property, eager-loaded.
+             * The client and the stage, eager-loaded — and nothing else.
              *
              * Twenty-five rows each asking for their own participant is the
              * N+1 `DealsIndexBudgetTest` refuses. `currentStage` is the one
              * `Workflow` calls *"a denormalised convenience for the deals
              * index"* — this is the screen it was denormalised for, so it is
              * read rather than walked.
+             *
+             * **`propertyLinks` used to be in here and nothing read it.**
+             * `row()` names the deal with `displayName()`, which reads the
+             * `name` and `generated_name` *columns*; the subject property is
+             * how `generated_name` was derived, not something this screen
+             * asks for. So the eager-load cost a query per page — two once
+             * any deal in the page had a link — to hydrate a relation no cell
+             * touches.
+             *
+             * `DealsIndexBudgetTest` could not see it: it asserts the query
+             * count for 25 deals equals the count for 2, which catches an N+1
+             * and is blind to fixed-cost waste. An eager-load is a claim that
+             * a row needs the relation, so the check is `row()`, not the
+             * budget.
              */
             ->with([
                 'dealType:id,name,side',
                 'participants' => fn ($participants) => $participants->with('membership:id,first_name,last_name'),
-                'propertyLinks' => fn ($links) => $links->with('property:id,street,city,state,postal_code,parcel_number'),
                 'workflows' => fn ($workflows) => $workflows->with('currentStage:id,name'),
             ]);
 

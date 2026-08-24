@@ -247,6 +247,42 @@ describe('Deals index filtering', () => {
         });
     });
 
+    it('cancels a search the reader emptied by hand before pressing Clear', async () => {
+        vi.useFakeTimers();
+
+        const wrapper = page({ open: 0, all: 8 });
+        const box = wrapper.find('input[type="search"]');
+
+        // Typed, then deleted back to empty. That deletion is a real keystroke
+        // and arms the debounce like any other.
+        await box.setValue('smith');
+        await box.setValue('');
+        vi.advanceTimersByTime(100);
+
+        await pressClear(wrapper);
+        vi.advanceTimersByTime(500);
+
+        /*
+         * This is the path that holds `clearFilters()`' own `clearTimeout`.
+         *
+         * The sibling test above reaches the clear with text still in the box,
+         * so `setSearch('')` changes the ref, the watcher runs, and the
+         * watcher's own first line clears the timer — the line in
+         * `clearFilters()` is doing nothing there, and deleting it left all
+         * eleven of these green. Here the ref is **already** `''`, so
+         * `setSearch()` is a no-op by design, no watcher fires, and the timer
+         * the reader armed survives unless `clearFilters()` cancels it itself.
+         * Without that line: two visits, the second to bare `/deals`, which
+         * *is* `segment=open` — the clear undoing itself again.
+         */
+        expect(routerGet).toHaveBeenCalledTimes(1);
+        expect(routerGet).toHaveBeenCalledWith(
+            '/deals',
+            { segment: 'all' },
+            expect.anything(),
+        );
+    });
+
     it('does not swallow the keystroke after the server echoes the search back', async () => {
         vi.useFakeTimers();
 

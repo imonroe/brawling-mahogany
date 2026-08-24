@@ -8,8 +8,10 @@ use App\Enums\SystemRole;
 use App\Enums\WorkflowState;
 use App\Models\Deal;
 use App\Models\DealParticipant;
+use App\Models\DealProperty;
 use App\Models\DealType;
 use App\Models\Person;
+use App\Models\Property;
 use App\Models\Role;
 use App\Models\Stage;
 use App\Models\Task;
@@ -611,4 +613,43 @@ it('orders by something unique, so a page cannot repeat a row', function (): voi
 
     expect($offsets)->not->toBeEmpty()
         ->and(max($offsets))->toBe($tiebreaker, 'something sorts after the tiebreaker');
+});
+
+/**
+ * A deal with a property on it still renders — which it did not.
+ *
+ * `paginate()` eager-loaded `propertyLinks` with
+ * `property:id,street,city,state,postal_code,parcel_number`, and `properties`
+ * has no `state` column. It has `state_code`; `state` is what `deals` calls
+ * its lifecycle. So the moment any deal in the page had a property linked to
+ * it, the whole index answered *SQLSTATE[42703]: column "state" does not
+ * exist* — a 500 on the primary list screen, for the ordinary case of a deal
+ * with a subject property.
+ *
+ * Five review rounds went past it because **no index fixture ever attached a
+ * property to a deal**. Every test here seeded participants, workflows,
+ * stages and tasks — the four cells the row renders — and a relation nothing
+ * renders is a relation nothing thought to seed. The eager-load is gone now
+ * (`row()` never read it), so this is a regression test for the shape rather
+ * than for the column list.
+ */
+it('renders a deal that has a property linked to it', function (): void {
+    $deal = indexDeal(attributes: ['name' => 'Has a property']);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($deal): void {
+        DealProperty::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $deal->getKey(),
+            'property_id' => Property::factory()->create([
+                'team_id' => $this->team->getKey(),
+            ])->getKey(),
+            'is_subject' => true,
+        ]);
+    });
+
+    $this->get('/deals')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('deals.data', 1)
+            ->where('deals.data.0.id', $deal->getKey()));
 });

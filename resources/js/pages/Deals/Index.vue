@@ -142,10 +142,28 @@ onBeforeUnmount(() => {
 });
 
 /**
- * One place that builds the query string, so a filter can never drop another.
+ * One place that builds the query string, so that a filter dropping another is
+ * one bug rather than six.
  *
  * Every control passes only what it changes; everything else is read from the
  * props, which are what the server last resolved.
+ *
+ * **`search` is the only axis that survives a race, and the other three are a
+ * known gap — issue to follow.** `props` are stale for the whole in-flight
+ * round trip, so two controls used inside one are read through the *first*
+ * one's un-updated props: click **All** and then a sort header before the
+ * response lands, and the second visit goes out as
+ * `{sort: 'primary', direction: 'asc'}` with no segment at all, putting the
+ * reader back on open deals without saying so. Same for the deal-type select.
+ * `search` escapes it only because it has a local ref and this function reads
+ * that ref rather than the prop.
+ *
+ * The fix is the same shape for all four — the page has to remember what it
+ * last asked for until the server answers — and it is deliberately **not**
+ * being made here: this screen has had four consecutive rounds in which the
+ * round's fix opened the hole it closed, and restructuring the navigation
+ * path is not something to land unreviewed. It is recoverable in one click
+ * and the UI comes back truthful, which is why it is a gap and not a stop.
  *
  * **Cancelling the pending search is part of that guarantee, not tidiness.**
  * The debounce closure reads `props.search` and `props.segment` — the values
