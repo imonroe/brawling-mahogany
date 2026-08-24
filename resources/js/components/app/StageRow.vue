@@ -20,7 +20,7 @@
  * The last row has no connector: a line trailing past the final stage draws a
  * step that does not exist.
  */
-import { ChevronDown, ChevronUp, Flag, Zap } from '@lucide/vue';
+import { ChevronDown, ChevronUp, Flag, ShieldAlert, Zap } from '@lucide/vue';
 import { computed } from 'vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateShort } from '@/lib/formatters';
@@ -77,6 +77,20 @@ const emit = defineEmits<{
 const { can } = usePermissions();
 
 const marker = computed(() => stageMarker(props.stage));
+
+/*
+ * What the marker is *saying*, for the tests and for anybody inspecting the
+ * DOM — derived from `stageMarker` rather than re-deciding beside it.
+ *
+ * It re-decided for one round, and drifted the moment the rule changed: after
+ * the override marker was narrowed to finished stages, an active overridden
+ * stage drew a `Loader` under an attribute still reading `overridden`. A hook
+ * that describes something other than what rendered is worse than no hook,
+ * because it is what a test believes.
+ */
+const markerState = computed(() =>
+    marker.value.icon === ShieldAlert ? 'overridden' : props.stage.state,
+);
 
 /*
  * §7.4's meta string: `15 Jul–2 Aug · 18 days · 8 of 8 tasks`.
@@ -199,9 +213,7 @@ const footerLine = computed(() => {
                     )
                 "
                 data-slot="stage-marker"
-                :data-marker-state="
-                    stage.hasOverride ? 'overridden' : stage.state
-                "
+                :data-marker-state="markerState"
             >
                 <component
                     :is="marker.icon"

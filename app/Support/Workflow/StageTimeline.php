@@ -222,7 +222,7 @@ final readonly class StageTimeline
             'blocksAdvance' => false,
             'gateState' => $gate->state()->value,
             'met' => $gate->is_met,
-            'explanation' => self::recordedExplanation($gate),
+            'explanation' => self::recordedExplanation($gate, $stage),
             'linkTarget' => [],
         ])->all());
     }
@@ -235,10 +235,9 @@ final readonly class StageTimeline
      * reader comparing a finished stage with the current one should not have to
      * change how they read the line halfway down the page.
      */
-    private static function recordedExplanation(Gate $gate): string
+    private static function recordedExplanation(Gate $gate, Stage $stage): string
     {
-        $type = str_replace('_', ' ', $gate->gate_type);
-        $type = ucfirst($type);
+        $type = ucfirst(str_replace('_', ' ', $gate->gate_type));
 
         if ($gate->overridden) {
             $reason = trim((string) $gate->override_reason);
@@ -248,9 +247,26 @@ final readonly class StageTimeline
                 : "{$type} · overridden: {$reason}";
         }
 
-        return $gate->is_met
-            ? "{$type} · recorded as met"
-            : "{$type} · never met on this stage";
+        if ($gate->is_met) {
+            // "Recorded as", not "is": `is_met` is a cache that an advance
+            // attempt writes, and the model says so outright.
+            return "{$type} · recorded as met";
+        }
+
+        /*
+         * **A stage that has not started has not failed anything.**
+         *
+         * An unmet gate on an upcoming stage is a condition somebody will meet
+         * in a fortnight, and the first wording here — *"never met on this
+         * stage"* — put that past tense on every requirement of every future
+         * stage in the workflow. On a twenty-stage rail that is a page of
+         * things reading as though they had already gone wrong.
+         *
+         * Only a stage that is over can be said to have ended without it.
+         */
+        return $stage->isFinished()
+            ? "{$type} · not recorded as met before this stage ended"
+            : "{$type} · not yet recorded";
     }
 
     /**

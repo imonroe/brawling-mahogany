@@ -1,6 +1,7 @@
 import { Check, Circle, Flag, Loader, Minus, ShieldAlert } from '@lucide/vue';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 import { MARKER_TONE, stageMarker } from '@/components/app/stageRail';
 
 /*
@@ -136,9 +137,19 @@ describe('stageMarker', () => {
             stageMarker(stage({ state: 'active', hasOverride: true })).icon,
         ).toBe(Loader);
 
-        // A skipped stage is finished, so the override still shows there.
+        /*
+         * And a skipped stage is not an overridden one, however its gates ended
+         * up. IA §7 calls conflating Skip with Override legally material —
+         * different acts, different audit consequences — so the skip marker
+         * wins. The shield belongs to a stage somebody advanced *through* by
+         * waiving a condition, which is `complete` and nothing else.
+         */
         expect(
             stageMarker(stage({ state: 'skipped', hasOverride: true })).icon,
+        ).toBe(Minus);
+
+        expect(
+            stageMarker(stage({ state: 'complete', hasOverride: true })).icon,
         ).toBe(ShieldAlert);
     });
 
@@ -168,6 +179,32 @@ describe('StageRow', () => {
         expect(wrapper.find('[data-slot="status-badge"]').text()).toBe(
             'Complete',
         );
+    });
+
+    it('never lets the marker hook describe something other than the glyph', () => {
+        /*
+         * `data-marker-state` is what a test believes the marker is saying, so
+         * it has to be derived from `stageMarker` rather than re-decided beside
+         * it. Re-deciding drifted the moment the rule changed: once the override
+         * marker was narrowed to completed stages, an *active* overridden stage
+         * drew a `Loader` under an attribute still reading `overridden`. A hook
+         * that describes something other than what rendered is worse than none.
+         */
+        const active = row({ state: 'blocked', hasOverride: true });
+
+        expect(
+            active
+                .find('[data-slot="stage-marker"]')
+                .attributes('data-marker-state'),
+        ).toBe('blocked');
+
+        const done = row({ state: 'complete', hasOverride: true });
+
+        expect(
+            done
+                .find('[data-slot="stage-marker"]')
+                .attributes('data-marker-state'),
+        ).toBe('overridden');
     });
 
     it('builds §7.4’s meta string from dates, duration and task counts', () => {
@@ -535,6 +572,73 @@ describe('StageRail', () => {
         // … and the row the reader already had open is still theirs. Advancing
         // adds; it does not tidy the screen up behind them.
         expect(expanded[1]).toBe(true);
+    });
+
+    it('scrolls the current stage into view, on arrival and on every advance', async () => {
+        /*
+         * The other half of "does not require the user to lose their place",
+         * and the half that was held by nothing: deleting **both** call sites
+         * left all 186 JS tests green. Opening the right row is no use if it is
+         * eight hundred pixels below the fold.
+         *
+         * `scrollIntoView` is stubbed because jsdom does not implement it —
+         * which is also why the component calls it through `?.()`, so a missing
+         * implementation is not a crash.
+         */
+        const scrollIntoView = vi.fn();
+
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+            configurable: true,
+            writable: true,
+            value: scrollIntoView,
+        });
+
+        try {
+            const wrapper = mount(StageRail, {
+                props: { workflow: workflow() },
+                attachTo: document.body,
+            });
+
+            // On arrival, so stage seventeen of twenty does not open with a
+            // thousand pixels of history above it.
+            expect(scrollIntoView).toHaveBeenCalledTimes(1);
+            expect(scrollIntoView.mock.calls[0][0]).toMatchObject({
+                block: 'center',
+            });
+
+            await wrapper.setProps({
+                workflow: workflow({
+                    activeStageId: 'stage-3',
+                    stages: [
+                        stage({
+                            id: 'stage-1',
+                            state: 'complete',
+                            position: 1,
+                        }),
+                        stage({
+                            id: 'stage-2',
+                            state: 'complete',
+                            position: 2,
+                        }),
+                        stage({
+                            id: 'stage-3',
+                            state: 'active',
+                            isActive: true,
+                            position: 3,
+                        }),
+                    ],
+                }),
+            });
+
+            await nextTick();
+
+            // And again when the workflow moves on under a preserved state.
+            expect(scrollIntoView).toHaveBeenCalledTimes(2);
+
+            wrapper.unmount();
+        } finally {
+            Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+        }
     });
 
     it('says once why a stopped workflow has no Advance', () => {

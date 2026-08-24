@@ -586,3 +586,68 @@ it('never leaves a requirement row without its sub-line', function (): void {
                 ->toContain('Buyer waived in writing');
         });
 });
+
+it('does not put a future requirement in the past tense', function (): void {
+    /*
+     * An unmet gate on an *upcoming* stage is a condition somebody will meet in
+     * a fortnight, not something that already went wrong. The first wording
+     * here read "never met on this stage", which on a twenty-stage rail is a
+     * page of requirements looking like failures.
+     *
+     * A stage that is over is the only one that can be said to have ended
+     * without it.
+     */
+    [$deal, $workflow, $stages] = timelineDeal(3);
+
+    $upcoming = $stages->get(2);
+    $finished = $stages->get(1);
+
+    timelineGate($upcoming, 'Appraisal ordered');
+    timelineGate($finished, 'Survey returned');
+
+    app(TeamContext::class)->runFor($this->team, function () use ($finished): void {
+        DB::table('stages')->where('id', $finished->getKey())->update([
+            'state' => StageState::Complete->value,
+        ]);
+    });
+
+    $this->get("/deals/{$deal->getKey()}/timeline")
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $stages = $page->toArray()['props']['workflows'][0]['stages'];
+
+            expect($stages[2]['gates'][0]['explanation'])
+                ->toBe('Manual confirmation · not yet recorded');
+
+            expect($stages[1]['gates'][0]['explanation'])
+                ->toContain('before this stage ended');
+        });
+});
+
+it('never lets one overview payload carry two answers for one stage', function (): void {
+    /*
+     * S15 draws the current stage twice — once in §9.2's progress strip and
+     * once in the card below it — and fixing only the card left the strip on
+     * the cache. So a single Inertia response said `active` in one place and
+     * `blocked` three keys down **for the same stage id**, and the screen
+     * painted it blue in the strip and amber in the card.
+     *
+     * A half-applied rule is worse than the cache was: the cache at least
+     * disagreed with the truth consistently.
+     */
+    [$deal, $workflow, $stages] = timelineDeal(3);
+
+    timelineGate($stages->first(), 'Seller has signed');
+
+    $this->get("/deals/{$deal->getKey()}")
+        ->assertOk()
+        ->assertInertia(function ($page) use ($stages): void {
+            $shown = $page->toArray()['props']['workflows'][0];
+
+            $inStrip = collect($shown['stages'])
+                ->firstWhere('id', $stages->first()->getKey());
+
+            expect($inStrip['state'])->toBe($shown['currentStage']['state'])
+                ->and($inStrip['state'])->toBe(StageState::Blocked->value);
+        });
+});

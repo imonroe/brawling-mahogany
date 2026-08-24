@@ -833,7 +833,7 @@ a row badged Overridden says the opposite of what happened.
 
 
 > [!note] Built as `components/app/StageRail.vue` and `StageRow.vue` (#76)
-> Four departures from the anatomy above, each with a reason the spec could not
+> Five departures from the anatomy above, each with a reason the spec could not
 > have known:
 >
 > - **Row heights are not hard-coded.** §7.4 fixes them at 58px collapsed and
@@ -850,6 +850,13 @@ a row badged Overridden says the opposite of what happened.
 > - **The collapsed card and the expanded header band are one `<button>`**,
 >   not two. They are the same control saying the same thing, and a `v-if` pair
 >   dropped keyboard focus to `<body>` on every toggle.
+> - **The footer has no `[Override]`.** The anatomy above lists one, and it
+>   carries exactly the ambiguity §7.4 already rejects one section down for the
+>   dialog's footer: *"an Override there cannot say which gate it means once
+>   there are two blockers — which is the ordinary case."* The card's
+>   requirement rows are the plain density and carry no actions, so there is
+>   nowhere on the card to put a per-gate Override. Advance opens S23, whose
+>   rows each carry their own.
 >
 > Two rules it settles that the anatomy does not:
 >

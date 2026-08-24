@@ -149,10 +149,13 @@ These come from PRD §8 and should guide the eventual build:
   presentation of one. Built in Slice 2 (#76).
 
   The presentation has its own boundary, too: the override marker applies only
-  to a **finished** stage. Overriding does not advance, so an active stage can
+  to a **completed** stage. Overriding does not advance, so an active stage can
   carry a waived gate while two others still block it — and marking that one
   Overridden would replace the live "something is still in your way" with a
-  historical note, on the one row the reader is there to act on.
+  historical note, on the one row the reader is there to act on. A **skipped**
+  stage is excluded for a different and sharper reason: IA §7 calls conflating
+  Skip with Override legally material, so the one row that earns the shield is a
+  stage somebody advanced *through* by waiving a condition.
 
 - **A cache is only true at the moment something refreshed it.** `stages.state`
   is written by an advance attempt and by nothing else, so a stage cached

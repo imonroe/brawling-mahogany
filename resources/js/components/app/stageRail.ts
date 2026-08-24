@@ -73,11 +73,18 @@ export type StageMarker = {
  * So an unfinished stage shows what it is doing now, and the override shows up
  * where it belongs: on the gate's own row, which `GateRow` already draws with
  * this same glyph.
+ *
+ * **And a skipped stage is not an overridden one.** IA §7 calls conflating Skip
+ * with Override legally material — they are different acts with different audit
+ * consequences — so a stage that was *skipped*, whatever happened to its gates
+ * along the way, shows §7.4's skip marker. The one row that earns the shield is
+ * a stage somebody advanced **through** by waiving a condition, which is
+ * `complete` and nothing else.
+ *
+ * This read `['complete', 'skipped']` for a round, with a test pinning it.
  */
-const FINISHED = ['complete', 'skipped'];
-
 export function stageMarker(stage: StageMarkerInput): StageMarker {
-    if (stage.hasOverride && FINISHED.includes(stage.state)) {
+    if (stage.hasOverride && stage.state === 'complete') {
         return { icon: ShieldAlert, tone: 'warning' };
     }
 

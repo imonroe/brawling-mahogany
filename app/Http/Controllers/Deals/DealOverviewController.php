@@ -158,7 +158,21 @@ class DealOverviewController extends Controller
             'stages' => $workflow->stages->map(fn (Stage $each): array => [
                 'id' => $each->getKey(),
                 'name' => $each->name,
-                'state' => $each->state->value,
+                /*
+                 * The current stage takes the live verdict, exactly as the card
+                 * below does — one payload must not carry two answers for one
+                 * stage.
+                 *
+                 * Fixing only the card left this strip on the cache, so a
+                 * single Inertia response said `active` here and `blocked`
+                 * three keys down for the same id, and the screen painted the
+                 * same stage blue in the strip and amber in the card. A
+                 * half-applied rule is worse than the cache was: at least the
+                 * cache disagreed with the truth consistently.
+                 */
+                'state' => $stage instanceof Stage && $each->is($stage)
+                    ? ($readiness?->stageState()->value ?? $each->state->value)
+                    : $each->state->value,
                 'isCurrent' => $stage instanceof Stage && $each->is($stage),
             ])->values()->all(),
             'currentStage' => $stage instanceof Stage ? [

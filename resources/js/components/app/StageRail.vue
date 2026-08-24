@@ -24,8 +24,9 @@
  *
  * - The active stage opens expanded, and everything else opens collapsed, so
  *   the one row that needs reading is the one row that is tall.
- * - The rail scrolls that row into view on mount, once, so arriving at stage
- *   seventeen of twenty does not begin with a thousand pixels of history.
+ * - The rail scrolls that row into view — on arrival, and again whenever an
+ *   advance moves the workflow on — so neither landing on stage seventeen of
+ *   twenty nor advancing into it begins with a thousand pixels of history.
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import StageRow from './StageRow.vue';
