@@ -72,6 +72,28 @@ it('shows open deals by default and hides the closed ones', function (): void {
         ->assertInertia(fn ($page) => $page->has('deals.data', 3));
 });
 
+/**
+ * A team whose deals are all closed has deals.
+ *
+ * The default segment is `open`, so they land on an empty list — and "No deals
+ * yet. Create your first deal." is what a screen says to somebody with none.
+ * The `all` count is on the page and knows better.
+ */
+it('does not tell a team with closed deals that it has none', function (): void {
+    indexDeal(DealState::Closed);
+
+    $this->get('/deals')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $props = $page->toArray()['props'];
+            $counts = collect($props['segmentCounts'])->keyBy('value');
+
+            // Nothing in the default view, and yet plainly not a new team.
+            expect($props['deals']['data'])->toHaveCount(0)
+                ->and($counts['all']['count'])->toBe(1);
+        });
+});
+
 it('counts every segment, not only the one being shown', function (): void {
     indexDeal();
     indexDeal();
@@ -254,17 +276,52 @@ it('shows the soonest open task due date, and ignores the finished ones', functi
             ->where('deals.data.0.nextDate', now()->addDays(3)->toDateString()));
 });
 
-it('sorts by name, both ways, when asked', function (): void {
-    indexDeal(attributes: ['name' => null, 'generated_name' => 'Zeta Road']);
-    indexDeal(attributes: ['name' => null, 'generated_name' => 'Alpha Way']);
+/**
+ * Sorted by the string the cell shows, which is neither column on its own.
+ *
+ * `displayName()` prefers the typed `name` and falls back to
+ * `generated_name`, so a mixed list is the only fixture that can see the
+ * difference. The first version of this test set `name => null` on both rows
+ * — which made every row's displayed string *equal* its `generated_name`, so
+ * ordering by that column passed while the screen alphabetised by a value the
+ * reader could not see.
+ */
+it('sorts by the name the row displays, both ways', function (): void {
+    indexDeal(attributes: ['name' => 'Aardvark typed', 'generated_name' => '9 Zoo Lane']);
+    indexDeal(attributes: ['name' => null, 'generated_name' => 'Middle Road']);
+    indexDeal(attributes: ['name' => 'Zebra typed', 'generated_name' => '1 Aardvark Ave']);
 
     $this->get('/deals?sort=name&direction=asc')
         ->assertOk()
-        ->assertInertia(fn ($page) => $page->where('deals.data.0.name', 'Alpha Way'));
+        ->assertInertia(fn ($page) => $page
+            ->where('deals.data.0.name', 'Aardvark typed')
+            ->where('deals.data.2.name', 'Zebra typed'));
 
     $this->get('/deals?sort=name&direction=desc')
         ->assertOk()
-        ->assertInertia(fn ($page) => $page->where('deals.data.0.name', 'Zeta Road'));
+        ->assertInertia(fn ($page) => $page
+            ->where('deals.data.0.name', 'Zebra typed')
+            ->where('deals.data.2.name', 'Aardvark typed'));
+});
+
+/**
+ * A deal with no name at all sorts last, both ways.
+ *
+ * `generated_name` is nullable and `name` may be too — a deal with neither a
+ * subject property nor a named client has nothing to sort by. Postgres
+ * defaults to NULLS FIRST on a descending sort, so without `nulls last` the
+ * nameless deal would head the list on one of the two presses.
+ */
+it('sorts a nameless deal last however the arrow points', function (): void {
+    indexDeal(attributes: ['name' => 'Has a name', 'generated_name' => null]);
+    $nameless = indexDeal(attributes: ['name' => null, 'generated_name' => null]);
+
+    foreach (['asc', 'desc'] as $direction) {
+        $this->get("/deals?sort=name&direction={$direction}")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('deals.data.1.id', $nameless->getKey()));
+    }
 });
 
 /**
@@ -336,12 +393,19 @@ it('orders by something unique, so a page cannot repeat a row', function (): voi
 
     expect($tiebreaker)->not->toBeFalse('the directory query has no unique tiebreaker');
 
-    // And it is last: an `orderBy` after it would be the thing deciding ties.
-    foreach (['orderByDesc(', "orderBy('deals.", 'orderByRaw('] as $call) {
-        $at = strrpos($source, $call);
+    /*
+     * And nothing orders after it.
+     *
+     * The first version looped over three call spellings and skipped the one
+     * the tiebreaker itself uses — so an `->orderBy('deals.updated_at')` added
+     * *after* it stayed green, which is the exact regression the check is for.
+     * Every ordering call is found instead, and the last one has to be the
+     * tiebreaker.
+     */
+    preg_match_all('/->order[A-Za-z]*\(/', $source, $matches, PREG_OFFSET_CAPTURE);
 
-        if ($at !== false && $call !== "orderBy('deals.") {
-            expect($at)->toBeLessThan($tiebreaker, "{$call} sorts after the tiebreaker");
-        }
-    }
+    $offsets = array_column($matches[0], 1);
+
+    expect($offsets)->not->toBeEmpty()
+        ->and(max($offsets))->toBe($tiebreaker, 'something sorts after the tiebreaker');
 });

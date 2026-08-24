@@ -41,11 +41,12 @@ final class DealDirectory
      * `dealRow.ts` marks exactly two columns sortable — the deal and the next
      * date — so exactly two are here. A third would be a column header that
      * offers something the table cannot do.
+     *
+     * Keys rather than key => column, because neither sort is one column:
+     * the deal sorts by the string `displayName()` produces, and the date by
+     * a subquery result.
      */
-    private const SORTS = [
-        'name' => 'generated_name',
-        'date' => 'next_due_date',
-    ];
+    private const SORTS = ['name', 'date'];
 
     /**
      * @return LengthAwarePaginator<int, array<string, mixed>>
@@ -283,21 +284,32 @@ final class DealDirectory
     private function applySort(Builder $query, string $sort, string $direction): void
     {
         $direction = strtolower($direction) === 'desc' ? 'desc' : 'asc';
-        $column = self::SORTS[$sort] ?? null;
 
-        if ($column === null) {
+        if (! in_array($sort, self::SORTS, true)) {
             /*
              * The default, and it is the one the index on `deals` was written
              * for: `(team_id, state, opened_at)`. Sorting by name instead
              * would not use it.
              */
             $query->orderByDesc('deals.opened_at');
-        } elseif ($column === 'next_due_date') {
+        } elseif ($sort === 'date') {
             // Deals with nothing due sort last either way round: an empty cell
             // is not "soonest", and it is not "latest" either.
             $query->orderByRaw("next_due_date {$direction} nulls last");
         } else {
-            $query->orderBy("deals.{$column}", $direction);
+            /*
+             * **The string the cell shows**, which is not either column on its
+             * own. `Deal::displayName()` prefers the typed `name` and falls
+             * back to `generated_name`, so ordering by `generated_name`
+             * alphabetised by a value the reader cannot see: a deal typed
+             * "Aardvark" with a generated name of "9 Zoo Lane" sorted last
+             * under an ascending Deal header.
+             *
+             * `nulls last` for the same reason as the date, and because
+             * `generated_name` is nullable: Postgres defaults to NULLS FIRST
+             * on a descending sort, so a nameless deal would head the list.
+             */
+            $query->orderByRaw("coalesce(deals.name, deals.generated_name) {$direction} nulls last");
         }
 
         /*

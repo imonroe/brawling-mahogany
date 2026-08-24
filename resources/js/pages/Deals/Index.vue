@@ -30,6 +30,7 @@ import { Head, router } from '@inertiajs/vue3';
 import { Plus } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
+import AppInput from '@/components/app/AppInput.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
 import { dealRowColumns } from '@/components/app/dealRow';
 import DealRow from '@/components/app/DealRow.vue';
@@ -37,7 +38,6 @@ import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import SegmentedControl from '@/components/app/SegmentedControl.vue';
 import Table from '@/components/app/Table.vue';
-import AppInput from '@/components/ui/input/Input.vue';
 import { formatCount } from '@/lib/formatters';
 import type { Paginated } from '@/types/people';
 
@@ -145,11 +145,30 @@ const dealTypeChoices = computed<Record<string, string>>(() =>
     ]),
 );
 
+/**
+ * Whether this team has any deals at all, as opposed to none *here*.
+ *
+ * The default segment is `open`, so a team whose deals are all closed lands on
+ * an empty list — and calling that "No deals yet. Create your first deal." is
+ * telling somebody with eight hundred deals that they have none. The `all`
+ * count is already on the page and knows the difference.
+ */
+const hasAnyDeals = computed(
+    () =>
+        (props.segmentCounts.find((segment) => segment.value === 'all')
+            ?.count ?? 0) > 0,
+);
+
+/**
+ * Whether anything is narrowing the list — including the default segment,
+ * once we know deals exist outside it.
+ */
 const isFiltered = computed(
     () =>
         props.search.trim().length > 0 ||
         props.dealType !== 'all' ||
-        props.segment !== 'open',
+        props.segment !== 'open' ||
+        hasAnyDeals.value,
 );
 
 function clearFilters(): void {
@@ -175,10 +194,18 @@ function clearFilters(): void {
 
         <!-- §8.6: one h-8 row, search first, then the filters. -->
         <div class="flex flex-wrap items-center gap-2">
+            <!--
+                The house component at the filter size, not the raw shadcn
+                `Input` with an `h-8` class on it. §4.2 puts the filter size at
+                32px on a pointer device and §11 floors a touch target at 44 —
+                `AppInput` carries both, and a hand-set height carries neither.
+                It is also what §4.3's row-count arithmetic assumes.
+            -->
             <AppInput
                 v-model="search"
+                size="filter"
                 type="search"
-                class="h-8 w-[260px]"
+                class="w-[260px]"
                 placeholder="Search deals"
                 aria-label="Search deals"
             />
@@ -203,6 +230,7 @@ function clearFilters(): void {
         <Table
             :columns="columns"
             caption="Deals"
+            sortable
             :sort="sort || null"
             :direction="direction === 'desc' ? 'desc' : 'asc'"
             @sort="sortBy"

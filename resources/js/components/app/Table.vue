@@ -9,7 +9,6 @@
  * rather than by two lists that can drift apart.
  */
 import { ChevronDown, ChevronUp } from '@lucide/vue';
-import { useAttrs } from 'vue';
 import { cn } from '@/lib/utils';
 import type { DealRowColumn } from './dealRow';
 
@@ -18,6 +17,17 @@ const props = defineProps<{
     /** Rendered in the footer: "25 active · 4 closed this quarter". */
     caption?: string | null;
     footerNote?: string | null;
+    /**
+     * Whether the parent handles `@sort`.
+     *
+     * An explicit opt-in rather than sniffing `$attrs.onSort`, which is what
+     * the first version did and which never worked: declaring `defineEmits`
+     * for `sort` removes `onSort` from `$attrs`, so the check was permanently
+     * false and every header rendered as plain text. The feature was invisible
+     * and the whole suite was green, because the backend sort tests hit the
+     * URL directly and never rendered a header.
+     */
+    sortable?: boolean;
     /** Which sortable column is sorted, and which way. */
     sort?: string | null;
     direction?: 'asc' | 'desc' | null;
@@ -30,16 +40,29 @@ const props = defineProps<{
  * column advertised itself as sortable and did nothing when pressed — which
  * is worse than not offering it.
  *
- * A header is only a button when the parent is listening. A table with no
- * `@sort` handler keeps plain `<th>` text rather than an affordance that
- * leads nowhere.
+ * Two conditions, both required: the column says it can be sorted, and the
+ * table says somebody is listening. A header that is a button on a screen
+ * with no handler is an affordance that leads nowhere.
  */
 const emit = defineEmits<{ sort: [key: string] }>();
 
-const attrs = useAttrs();
-
 function isSortable(column: DealRowColumn): boolean {
-    return column.sortable === true && Boolean(attrs.onSort);
+    return column.sortable === true && props.sortable === true;
+}
+
+/** What a screen reader is told about a sorted column. */
+function ariaSort(
+    column: DealRowColumn,
+): 'ascending' | 'descending' | 'none' | undefined {
+    if (!isSortable(column)) {
+        return undefined;
+    }
+
+    if (props.sort !== column.key) {
+        return 'none';
+    }
+
+    return props.direction === 'desc' ? 'descending' : 'ascending';
 }
 </script>
 
@@ -77,6 +100,7 @@ function isSortable(column: DealRowColumn): boolean {
                             v-for="column in columns"
                             :key="column.key"
                             scope="col"
+                            :aria-sort="ariaSort(column)"
                             :class="
                                 cn(
                                     'px-4 text-xs font-medium text-muted-foreground',
