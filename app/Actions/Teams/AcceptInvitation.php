@@ -236,12 +236,15 @@ final class AcceptInvitation
         bool $nameIsAuthoritative,
     ): TeamMembership {
         /*
-         * Which kind of invitation this is, asked once (#162).
+         * Whether **this invitation** puts somebody on the team (#162).
          *
-         * `Contact` and `Status Viewer` are roles a **client** holds — they
-         * carry no team-surface permission — so accepting one is not somebody
-         * joining the team, and the lifecycle is theirs to keep. Only a role
-         * that grants team access clears it.
+         * `Contact` and `Status Viewer` are roles a client holds — they carry
+         * no team-surface permission — so accepting one is not somebody
+         * joining the team, and the lifecycle is theirs to keep.
+         *
+         * `withTrashed()`, because a soft-deleted role still answers: without
+         * it an invitation to a role the team archived in the meantime was a
+         * fatal on null.
          */
         $joinsTheTeam = $invitation->role()->withTrashed()->first()?->grantsTeamAccess() ?? false;
 
@@ -306,7 +309,7 @@ final class AcceptInvitation
          * somebody who had worked here. Null is what a colleague's lifecycle
          * is; if they leave, the team records what they are then.
          *
-         * **Only for a role that grants team access**, and a client keeps a
+         * **Only for somebody on the team**, and a client keeps a
          * lifecycle either way. Clearing it for `Contact` and `Status Viewer`
          * erased a typed **Client** the moment somebody was given a
          * status-page login; and a client who was **not** already in the
@@ -321,8 +324,28 @@ final class AcceptInvitation
          * insert is followed unconditionally by this write, so a second copy
          * is one no test can tell from a typo.
          */
+        /*
+         * Whether they are on the team **after** this accept, which is not the
+         * same question.
+         *
+         * On a live membership the roles are `syncWithoutDetaching` — a union
+         * — so the invited role does not decide it: a Team Member invited to
+         * read a status page is still a Team Member. Asking only the
+         * invitation wrote `active` onto a colleague, invisibly (the badge
+         * suppresses a colleague's lifecycle) and uncorrectably (`PersonRules`
+         * prohibits the field), and the team found out on the day they revoked
+         * access and the row came back a green **Client**. Round 5 of review
+         * on #162 measured it; it also re-created the exact ambiguity the
+         * nullable column exists to remove, since `AcceptInvitation` would
+         * once again be writing a value no human chose.
+         *
+         * A revival is the other case: `sync()` below replaces the whole set,
+         * so there the invited role really is the answer.
+         */
+        $staysOnTheTeam = $joinsTheTeam || (! $wasRevoked && $membership->carriesAccess());
+
         $membership->forceFill([
-            'status' => $joinsTheTeam
+            'status' => $staysOnTheTeam
                 ? null
                 : ($membership->status ?? PersonLifecycleState::Active),
             'first_name' => $nameIsAuthoritative || $membership->first_name === ''

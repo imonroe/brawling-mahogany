@@ -678,10 +678,22 @@ it('does not die accepting an invitation to a role that has since been archived'
         'password_confirmation' => 'a-long-enough-password',
     ])->assertRedirect();
 
-    expect(TeamMembership::withoutTeamScope()
+    $membership = TeamMembership::withoutTeamScope()
         ->where('team_id', $this->team->getKey())
         ->whereRaw('lower(email) = ?', ['heather@example.test'])
-        ->exists())->toBeTrue();
+        ->sole();
+
+    /*
+     * And the row says something. Round 5 found the first version surviving
+     * the 500 and producing a membership with **no badge of any kind**: the
+     * role was resolved `withTrashed()` and answered *yes* to granting access,
+     * so the lifecycle was cleared — while `carriesAccess()`, which excludes
+     * an archived role, answered *no*, so there were no roles to draw either.
+     * One question, two halves, opposite answers. An archived role grants
+     * nothing, and this asserts both halves agree on that.
+     */
+    expect($membership->carriesAccess())->toBeFalse()
+        ->and($membership->status)->toBe(App\Enums\PersonLifecycleState::Active);
 });
 
 it('keeps a former colleague off the Leads tab they were once on', function (): void {

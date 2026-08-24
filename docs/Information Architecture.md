@@ -324,10 +324,27 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 > former colleague recorded as a past client was then visible on no segment but
 > All.
 >
-> Accepting an invitation clears the lifecycle **only for a role that grants
-> team access**. `Contact` and `Status Viewer` are roles a client holds, and
-> giving somebody a status-page login is not them joining the team — clearing
-> it there erased a classification the team had typed.
+> **What accepting an invitation does to the lifecycle**, since that is the one
+> place the product writes it without a human choosing:
+>
+> - Somebody who is **on the team afterwards** holds null. That is the invited
+>   role granting team access, *or* a live membership that already carried it —
+>   the roles are a union on a live row, so a Team Member given a status page is
+>   still a Team Member, and asking only the invitation wrote `active` onto a
+>   colleague where nobody could see or correct it.
+> - Anybody else **keeps the lifecycle they had**. Clearing it for `Contact` and
+>   `Status Viewer` erased a classification the team had typed.
+> - With none to keep, they get `active` — *Client*. This is what the product
+>   did before any of this and is deliberately unchanged, but it is a guess, and
+>   for the `Contact` role — *"known to the team, with no access of any kind"*,
+>   which is a lender or an inspector as readily as a client — it is the wrong
+>   one. `SavePerson::create` answers the same question with `Lead`. Neither
+>   answer is right for a professional contact, and issue #167 is where the
+>   fifth state, or the second flag, gets decided.
+>
+> An **archived** role grants nothing, on both sides of that question: a
+> membership whose only role is archived carries no access, so it is not a
+> colleague, so its lifecycle is its own.
 >
 > A screen draws three independent facts, each when it is true: the roles the
 > team calls them by (whenever the membership carries access, revoked or not,

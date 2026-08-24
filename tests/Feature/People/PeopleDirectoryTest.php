@@ -7,6 +7,7 @@ use App\Enums\SystemRole;
 use App\Models\ActivityEvent;
 use App\Models\Person;
 use App\Models\Role;
+use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
@@ -793,4 +794,46 @@ it('does not revoke somebody twice', function (): void {
             ->where('auditable_id', $membership->getKey())
             ->where('action', 'membership.revoked')
             ->count())->toBe(1);
+});
+
+it('does not put a lifecycle on a colleague who is also given a status page', function (): void {
+    /*
+     * Found by review on #162, round five, and a regression the previous
+     * round's fix introduced.
+     *
+     * On a live membership the roles are a **union** — `syncWithoutDetaching`
+     * — so the invited role does not decide whether somebody is on the team
+     * afterwards. Asking only the invitation wrote `active` onto a person who
+     * is still a Team Member: invisible, because the badge suppresses a
+     * colleague's lifecycle, and uncorrectable, because `PersonRules`
+     * prohibits the field. The team would have found out on the day they
+     * revoked access, when the row came back a green **Client**.
+     *
+     * Asserted on the **column**. The badge is honest here and the column is
+     * not, which is why five rounds of badge fixtures went past it.
+     */
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    expect($membership->status)->toBeNull();
+
+    $owner = TeamMembership::query()
+        ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
+        ->sole();
+
+    $this->actingAsPerson($this->enrollTwoFactor($owner->person), $this->team);
+
+    $this->post('/settings/members/invitations', [
+        'email' => $membership->email,
+        'role_id' => Role::query()->whereNull('team_id')
+            ->where('key', SystemRole::StatusViewer->value)->sole()->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    $invitation = TeamInvitation::query()->latest('created_at')->sole();
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect();
+
+    expect($membership->refresh()->status)->toBeNull()
+        ->and($membership->carriesAccess())->toBeTrue();
 });

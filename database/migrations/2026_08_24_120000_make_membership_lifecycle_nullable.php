@@ -51,11 +51,21 @@ return new class extends Migration
          * team chose. Review on #162 found it. Asking the scope means the two
          * cannot disagree at all, rather than agreeing until somebody edits
          * one of them.
+         *
+         * Two consequences of asking the model, both deliberate. A
+         * soft-deleted membership is **not** backfilled — `carryingAccess()`
+         * carries the soft-delete scope — which is harmless because nothing
+         * restores one and `records:purge` reaches them; and `update()`
+         * stamps `updated_at` on every row it clears, where raw SQL would not.
+         *
+         * And a caveat for anyone replaying this against a restored dump:
+         * what `carryingAccess()` means is read at **that** moment, not at
+         * this migration's. If the definition of team access changes, so does
+         * what replaying this does.
          */
         TeamMembership::withoutTeamScope()
             ->carryingAccess()
             ->update(['status' => null]);
-
     }
 
     public function down(): void

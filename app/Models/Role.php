@@ -72,6 +72,20 @@ class Role extends Model
      */
     public function grantsTeamAccess(): bool
     {
+        /*
+         * An archived role grants nothing. `holdsATeamSurfacePermission()`
+         * excludes a soft-deleted role, and so does the relation behind
+         * `carriesAccess()` — so a role that answered *yes* here while the
+         * membership holding it answered *no* would put the two halves of one
+         * question on opposite sides. Review on #162 measured exactly that:
+         * accepting an invitation to a role archived in the meantime cleared
+         * the lifecycle for a membership that then carried no access, leaving
+         * a row with no badge of any kind.
+         */
+        if ($this->trashed()) {
+            return false;
+        }
+
         return Permissions::grantTeamAccess($this->permissionKeys());
     }
 
