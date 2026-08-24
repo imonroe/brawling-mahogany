@@ -124,6 +124,7 @@ function screen(groups: ReturnType<typeof group>[], counts = {}) {
             assignees: [{ id: 'person-1', name: 'Heather Nguyen' }],
             stageOptions: [
                 {
+                    workflowId: 'workflow-1',
                     workflowName: 'Listing to Close',
                     stages: [{ id: 'stage-1', name: 'Listing Preparation' }],
                 },
@@ -332,6 +333,32 @@ describe('Deals/Tasks', () => {
         expect(
             wrapper.find('input[type="checkbox"]').attributes('aria-label'),
         ).toBe('Complete Order the sign');
+    });
+
+    it('keeps the reader’s filter across a write', async () => {
+        /*
+         * Every write on this screen carries `preserveState`, because the
+         * Open/Completed/All view is a local ref: without it, deleting a
+         * completed task remounts the page and drops the reader back to Open,
+         * so the row they were working on vanishes along with the filter.
+         * Round 1 fixed this for the checkbox; the other three writes needed
+         * it too.
+         */
+        const wrapper = screen([group([task({ id: 'task-3' })])]);
+
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        await wrapper.find('[aria-label^="Delete"]').trigger('click');
+
+        expect(routerDelete).toHaveBeenCalledWith(
+            '/deals/deal-1/tasks/task-3',
+            {
+                preserveScroll: true,
+                preserveState: true,
+            },
+        );
+
+        vi.restoreAllMocks();
     });
 
     it('shows the two counts that need chasing, and only when there are any', () => {

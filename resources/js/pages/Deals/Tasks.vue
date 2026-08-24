@@ -212,6 +212,20 @@ const editing = ref<TaskFormValues | null>(null);
 const editorStageId = ref<string | null>(null);
 const editorOpen = ref(false);
 
+/**
+ * The row behind the open dialog, so the dialog's Delete asks the same
+ * question the row's does — `TaskPolicy::delete()` refuses an override's
+ * follow-up to somebody without `workflow.override`, and a control that
+ * appears in one place and not the other is the shape of an eventual 403.
+ */
+const editingTask = computed(() =>
+    editing.value === null
+        ? null
+        : (props.groups
+              .flatMap((group) => group.tasks)
+              .find((row) => row.id === editing.value?.id) ?? null),
+);
+
 function addTask(stageId: string | null): void {
     editing.value = null;
     editorStageId.value = stageId;
@@ -248,9 +262,24 @@ function deleteTask(task: TaskRow): void {
         return;
     }
 
-    router.delete(`${props.dealUrl}/tasks/${task.id}`, {
-        preserveScroll: true,
-    });
+    // `preserveState` for the same reason every other write on this screen
+    // carries it: the view above is a local ref, and a remount drops the
+    // reader back to Open.
+    router.delete(`${props.dealUrl}/tasks/${task.id}`, VISIT);
+}
+
+/** The dialog's own Delete, which the row hides below `sm`. */
+function deleteFromDialog(id: string): void {
+    const task = props.groups
+        .flatMap((group) => group.tasks)
+        .find((row) => row.id === id);
+
+    if (!task) {
+        return;
+    }
+
+    editorOpen.value = false;
+    deleteTask(task);
 }
 
 /**
@@ -451,6 +480,8 @@ onMounted(() => {
             :default-stage-id="editorStageId"
             :assignees="assignees"
             :stage-options="stageOptions"
+            :can-delete="editingTask ? canDelete(editingTask) : false"
+            @delete="deleteFromDialog"
         />
     </div>
 </template>

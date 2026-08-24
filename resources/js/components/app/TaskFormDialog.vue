@@ -45,6 +45,8 @@ export type TaskFormValues = {
 };
 
 export type StageOptionGroup = {
+    /** Two workflows on one deal may share a name (F4.7) — the id keys them. */
+    workflowId: string;
     workflowName: string;
     stages: { id: string; name: string }[];
 };
@@ -58,9 +60,21 @@ const props = defineProps<{
     defaultStageId?: string | null;
     assignees: { id: string; name: string }[];
     stageOptions: StageOptionGroup[];
+    /**
+     * Whether this reader may delete the task being edited.
+     *
+     * The page decides — `TaskPolicy::delete()` asks for `workflow.override`
+     * on an override's follow-up task — and the control is hidden rather than
+     * disabled, per §7.3.
+     */
+    canDelete?: boolean;
 }>();
 
-const emit = defineEmits<{ 'update:open': [value: boolean] }>();
+const emit = defineEmits<{
+    'update:open': [value: boolean];
+    /** The page owns the confirmation and the request; this only asks. */
+    delete: [id: string];
+}>();
 
 /**
  * The people this task may be assigned to, plus whoever it already names.
@@ -131,6 +145,13 @@ watch(
 function submit(): void {
     const options = {
         preserveScroll: true,
+        /*
+         * `preserveState`, for the reason the checkbox already carries it: the
+         * Open/Completed/All view behind this dialog is a local ref, and a
+         * remount drops the reader back to Open — so editing a completed task
+         * made the row they had just edited disappear.
+         */
+        preserveState: true,
         onSuccess: () => emit('update:open', false),
     };
 
@@ -251,7 +272,7 @@ function submit(): void {
                         <option value="">Not tied to a stage</option>
                         <optgroup
                             v-for="group in stageOptions"
-                            :key="group.workflowName"
+                            :key="group.workflowId"
                             :label="group.workflowName"
                         >
                             <option
@@ -278,27 +299,22 @@ function submit(): void {
                     </label>
                     <!--
                         Design System §12: a consequential input carries its
-                        consequence beneath it. This one decides whether a
-                        colleague can move the deal on, and the only way past
-                        it is an override — which is audited, and which IA §7
-                        keeps for the case where the condition should have been
-                        met and was not.
-                    -->
-                    <!--
-                        The consequence, stated accurately. An earlier draft
-                        said getting past it "takes an override, which is
-                        written to the audit log" — and unticking this box is
-                        the other way past, which review on #71 pointed out is
-                        exactly the sentence being wrong. Both routes are on
-                        the record now, in different places, and the copy says
-                        which.
+                        consequence beneath it — and the consequence has to be
+                        true. An earlier draft said getting past a required
+                        task "takes an override, which is written to the audit
+                        log", which review on #71 pointed out was false twice
+                        over: unticking this box and moving the task to another
+                        stage each clear the same gate. Both are recorded on
+                        the deal's activity now, which is what makes the
+                        sentence below stand.
                     -->
                     <p class="text-[11px] text-muted-foreground">
                         A required task blocks the stage’s
                         <strong>requirement to advance</strong> until it is
-                        complete. Changing this is recorded on the deal’s
-                        activity; waiving the requirement without doing the work
-                        is an override, which is written to the audit log.
+                        complete. Changing this — or moving the task to another
+                        stage — is recorded on the deal’s activity; waiving the
+                        requirement without doing the work is an override, which
+                        is written to the audit log.
                     </p>
                     <p
                         v-if="form.errors.is_required"
@@ -309,6 +325,20 @@ function submit(): void {
                 </div>
 
                 <DialogFooter>
+                    <!--
+                        Delete lives here as well as on the row, because the
+                        row hides it below `sm` to buy the title back its
+                        horizontal budget — and hiding a control on a phone
+                        must relocate the capability rather than remove it.
+                        IA §7: **Delete** destroys, which is what this does.
+                    -->
+                    <AppButton
+                        v-if="task && canDelete"
+                        variant="ghost"
+                        class="text-state-danger"
+                        @click="emit('delete', task.id)"
+                        >Delete task</AppButton
+                    >
                     <AppButton
                         variant="ghost"
                         @click="emit('update:open', false)"

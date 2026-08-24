@@ -8,6 +8,8 @@ use App\Enums\TaskSource;
 use App\Enums\TaskState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
+use App\Support\Tenancy\TeamContext;
+use Carbon\CarbonImmutable;
 use Database\Factories\TaskFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -106,30 +108,53 @@ class Task extends Model
         }
 
         /*
-         * **Before today, not before now.**
+         * **Before today, in the team's calendar.**
+         *
+         * Two bugs live in the obvious spelling of this, and review on #71
+         * found them one round apart.
          *
          * `due_date` is a `date` cast, so it lands at midnight — and
-         * `isPast()` compares against the current *instant*, which makes a
-         * task due today overdue from 00:00:01 onwards. A deadline of "today"
-         * is a deadline somebody still has the day to meet, and badging it
-         * Overdue on the morning of the day it is due is the screen telling
-         * them they are already late.
+         * `isPast()` compares against the current *instant*, which made a task
+         * due today overdue from 00:00:01. A deadline of "today" is one
+         * somebody still has the day to meet.
          *
-         * Found by review on #71. `DateChip` already draws due-today in the
-         * danger tone — urgency, which is a different question from state, and
-         * §7.2 says so.
+         * Comparing against **UTC's** start of day then moved the same
+         * mistake seven hours: at 18:00 in Denver it is already tomorrow in
+         * UTC, so a task due today read as overdue while the reader still had
+         * six hours of their working day — and `lib/formatters.ts` renders
+         * every date in the team's zone, so the badge and the chip beside it
+         * disagreed during exactly those hours.
          *
-         * The zone is the application's, not the team's. PRD §9 stores UTC and
-         * displays the team's zone, and doing that here would mean every
-         * caller of this method holding a team — which is a broader change
-         * than this line, and one worth making when S11's cross-deal queue
-         * lands and a team in Denver is reading it at 6pm.
+         * The zone comes from the resolved team (`TeamContext`, which is
+         * already in memory — asking `$this->team` would be a query per row on
+         * a list of forty). Calendar days are compared as days, because that
+         * is what a deadline is.
+         *
+         * `DateChip` still draws due-today in the danger tone. That is
+         * urgency, which §7.2 says is a different question from state.
          */
-        if ($this->due_date !== null && $this->due_date->lt(now()->startOfDay())) {
+        if ($this->due_date !== null && $this->due_date->toDateString() < $this->today()) {
             return TaskState::Overdue;
         }
 
         return TaskState::Open;
+    }
+
+    /**
+     * Today, where the team is.
+     *
+     * Falls back to the application's zone when no team is resolved — a
+     * console command sweeping every team, or a test that has not established
+     * one. PRD §9 stores UTC and displays the team's zone; this is the second
+     * half of that rule reaching a question the server has to answer.
+     */
+    private function today(): string
+    {
+        $team = app(TeamContext::class)->get();
+
+        $timeZone = $team instanceof Team ? $team->timezone : config('app.timezone');
+
+        return CarbonImmutable::now(is_string($timeZone) ? $timeZone : 'UTC')->toDateString();
     }
 
     public function isComplete(): bool

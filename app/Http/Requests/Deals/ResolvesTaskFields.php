@@ -22,9 +22,6 @@ use Illuminate\Validation\Rule;
 trait ResolvesTaskFields
 {
     /**
-     * @return array<string, mixed>
-     */
-    /**
      * @param  string|null  $keepAssignee  a person id the task already names,
      *                                     which stays valid however their
      *                                     membership has changed since

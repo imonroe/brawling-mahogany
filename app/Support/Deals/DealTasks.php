@@ -104,20 +104,25 @@ final readonly class DealTasks
      * on work that is already on the record, and a feed that reported every
      * one of them would bury the entries somebody scans it to find.
      *
-     * **`is_required` is the exception, and it is not a small one.** That flag
-     * is what a `required_tasks_complete` gate counts, so unticking it is a
-     * second way past a blocking gate — one that needs neither
-     * `workflow.override` nor a typed reason, and that a Team Member holds by
-     * default. Found by review on #71: a gate blocked, a PATCH cleared the
-     * flag, **nothing** was written anywhere, and the advance then succeeded.
+     * **Two of the fields are exceptions, and neither is small.**
+     * `required_tasks_complete` counts *the required tasks on one stage*, so
+     * both halves of that sentence are ways past a blocking gate: unticking
+     * `is_required`, and moving the task to a **different stage**. Neither
+     * needs `workflow.override` or a typed reason, and a Team Member holds
+     * both by default.
      *
-     * The answer is not to refuse the edit. A task list is the customer's to
-     * shape — PRD §7.10 makes that the whole product — and somebody who
-     * mis-flagged a task at 9am must be able to fix it at 10. What was wrong
-     * was that it happened in silence, so it is recorded: an override is in
-     * the audit log because it defers an obligation somebody else set, and
-     * this is on the deal's activity because it changes what the team decided
-     * the obligation *is*.
+     * Review on #71 found the first and named the second in the same
+     * sentence; the first fix shipped only the first half, so the second round
+     * proved the identical bypass one control higher up the same form — same
+     * permissions, same one click, zero events. Both are recorded now, which
+     * is the only reason the copy under that checkbox is true.
+     *
+     * The answer is not to refuse either edit. A task list is the customer's
+     * to shape — PRD §7.10 makes that the whole product — and somebody who
+     * mis-filed a task at 9am must be able to fix it at 10. What was wrong was
+     * that it happened in silence: an override is in the audit log because it
+     * defers an obligation somebody else set, and these are on the deal's
+     * activity because they change what the team decided the obligation *is*.
      *
      * @param  array<string, mixed>  $attributes
      */
@@ -150,18 +155,46 @@ final readonly class DealTasks
              * one that was there. `isDirty()` is what makes this record a
              * *change* rather than every submit of the form.
              */
-            $waived = $task->isDirty('is_required');
+            $flagChanged = $task->isDirty('is_required');
             $nowRequired = (bool) $task->is_required;
+
+            /*
+             * Read before the save, because after it `getOriginal()` is the
+             * value that was just written and the move is invisible.
+             */
+            $movedFrom = $task->isDirty('stage_id')
+                ? $this->stageName($task->getOriginal('stage_id'))
+                : null;
 
             $task->save();
 
-            if ($waived) {
+            if ($flagChanged) {
                 $this->activity->record(
                     subject: $deal,
                     eventType: 'task.required_changed',
                     summary: $nowRequired
                         ? "Made “{$task->title}” required to advance the stage"
                         : "Made “{$task->title}” no longer required to advance the stage",
+                );
+            }
+
+            if ($movedFrom !== null) {
+                /*
+                 * Recorded for every task, not only a required one. A gate is
+                 * the reason this cannot be silent, but "which stage is this
+                 * work under" is a fact about the process that a team reads
+                 * back — and a rule that only fired on required tasks would be
+                 * one flag away from being silent again.
+                 */
+                $this->activity->record(
+                    subject: $deal,
+                    eventType: 'task.moved',
+                    summary: sprintf(
+                        'Moved “%s” from %s to %s',
+                        $task->title,
+                        $movedFrom,
+                        $stage instanceof Stage ? $stage->name : 'no stage',
+                    ),
                 );
             }
 
@@ -267,6 +300,25 @@ final readonly class DealTasks
                 summary: "Deleted task “{$title}”",
             );
         });
+    }
+
+    /**
+     * What a stage the task is leaving was called, for the timeline entry.
+     *
+     * One query, and only when something actually moved. Null `stage_id` is
+     * an ordinary state rather than a missing row — PRD §6.4 makes it nullable
+     * so an ad-hoc job can live on the deal outside any stage — so it has a
+     * name rather than an absence.
+     */
+    private function stageName(mixed $stageId): string
+    {
+        if (! is_string($stageId) || $stageId === '') {
+            return 'no stage';
+        }
+
+        $stage = Stage::query()->whereKey($stageId)->first();
+
+        return $stage instanceof Stage ? $stage->name : 'a stage that no longer exists';
     }
 
     /** Whether the task is already in the group it is being moved to. */

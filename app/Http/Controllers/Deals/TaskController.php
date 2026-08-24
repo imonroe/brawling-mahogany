@@ -384,6 +384,14 @@ class TaskController extends Controller
     private function stageOptions(Deal $deal): array
     {
         return array_values($deal->workflows->map(fn (Workflow $workflow): array => [
+            /*
+             * The id travels with the name because the name is not unique:
+             * `WorkflowAttachmentController` lets a deal carry two workflows
+             * from the same template, and PRD F4.7 makes concurrent workflows
+             * the ordinary case. A picker keyed on the name renders two groups
+             * Vue considers the same element.
+             */
+            'workflowId' => (string) $workflow->getKey(),
             'workflowName' => $workflow->name,
             'stages' => array_values($workflow->stages->map(fn (Stage $stage): array => [
                 'id' => (string) $stage->getKey(),

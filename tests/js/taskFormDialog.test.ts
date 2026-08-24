@@ -72,6 +72,7 @@ function dialog(props: Partial<Record<string, unknown>> = {}) {
             assignees: [{ id: 'person-1', name: 'Heather Nguyen' }],
             stageOptions: [
                 {
+                    workflowId: 'workflow-1',
                     workflowName: 'Listing to Close',
                     stages: [{ id: 'stage-1', name: 'Listing Preparation' }],
                 },
@@ -191,6 +192,39 @@ describe('TaskFormDialog', () => {
         );
     });
 
+    it('offers Delete only when the page says this reader may', async () => {
+        /*
+         * The row hides Delete below `sm` to buy the title back its horizontal
+         * budget, so this is where the capability lives on a phone — and it
+         * has to ask the same question the row does. `TaskPolicy::delete()`
+         * refuses an override's follow-up to somebody without
+         * `workflow.override`; a control that appears here and not there is
+         * the shape of an eventual 403.
+         */
+        const allowed = dialog({
+            task: task({ id: 'task-4' }),
+            canDelete: true,
+        });
+
+        expect(allowed.text()).toContain('Delete task');
+
+        await allowed
+            .findAll('[data-slot="app-button"]')
+            .find((button) => button.text() === 'Delete task')!
+            .trigger('click');
+
+        expect(allowed.emitted('delete')).toEqual([['task-4']]);
+
+        expect(dialog({ task: task(), canDelete: false }).text()).not.toContain(
+            'Delete task',
+        );
+
+        // Nothing to delete yet when the dialog is adding.
+        expect(dialog({ task: null, canDelete: true }).text()).not.toContain(
+            'Delete task',
+        );
+    });
+
     it('says what a required task costs, without overstating it', () => {
         /*
          * The copy used to say getting past a required task "takes an
@@ -201,6 +235,9 @@ describe('TaskFormDialog', () => {
         const text = dialog({ task: task() }).text();
 
         expect(text).toContain('recorded on the deal’s activity');
+        // Both routes past the gate, because both are recorded — the copy said
+        // only one of them for a round, and review found the other twice.
+        expect(text).toContain('moving the task to another stage');
         expect(text).toContain('override');
     });
 });

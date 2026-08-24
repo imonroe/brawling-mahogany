@@ -313,6 +313,34 @@ it('does not call a task due today overdue', function (): void {
             ->where('groups.0.tasks.1.state', 'open'));
 });
 
+it('reads today in the team’s calendar, not the server’s', function (): void {
+    /*
+     * The second round of the same defect. Comparing against **UTC's** start
+     * of day moves the mistake seven hours west: at 18:00 in Denver it is
+     * already tomorrow in UTC, so a task due today read as overdue while the
+     * reader still had six hours of their working day — and every date on the
+     * screen beside it is rendered in the team's zone.
+     */
+    $this->team->forceFill(['timezone' => 'America/Denver'])->save();
+
+    // 01:00 UTC on the 25th is 18:00 on the 24th in Denver.
+    $this->freezeAt('2026-08-25 01:00:00');
+
+    [$deal, , $stages] = taskDeal(1);
+
+    taskOn($deal, $stages[0], ['title' => 'Due today in Denver', 'due_date' => '2026-08-24']);
+    taskOn($deal, $stages[0], ['title' => 'Genuinely late', 'due_date' => '2026-08-23']);
+
+    $this->get("/deals/{$deal->getKey()}/tasks")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('counts.overdue', 1)
+            ->where('groups.0.tasks.0.title', 'Genuinely late')
+            ->where('groups.0.tasks.0.state', 'overdue')
+            ->where('groups.0.tasks.1.title', 'Due today in Denver')
+            ->where('groups.0.tasks.1.state', 'open'));
+});
+
 it('counts what is unassigned, and names who is assigned', function (): void {
     [$deal, , $stages] = taskDeal(1);
 
@@ -583,6 +611,83 @@ it('records it on the deal when somebody makes a task no longer required', funct
     ]);
 
     expect(ActivityEvent::query()->where('event_type', 'task.required_changed')->count())->toBe(2);
+});
+
+it('records it on the deal when a task moves off the stage its gate counts', function (): void {
+    /*
+     * The same bypass as unticking `is_required`, one control higher up the
+     * same form: `required_tasks_complete` counts the required tasks on **one
+     * stage**, so moving the task to a later stage clears the gate exactly as
+     * clearing the flag does.
+     *
+     * Round 1 of #71's review named both halves and the fix shipped only the
+     * first, so round 2 proved this one end to end — same permissions, same
+     * one click, zero events, advance succeeds. Hence a test for the half that
+     * was missed rather than a comment about it.
+     */
+    [$deal, $workflow, $stages] = taskDeal(2);
+
+    Gate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'stage_id' => $stages[0]->getKey(),
+        'gate_type' => 'required_tasks_complete',
+        'label' => 'The listing paperwork is done',
+        'is_blocking' => true,
+    ]);
+
+    $task = taskOn($deal, $stages[0], [
+        'title' => 'Sign the listing agreement',
+        'is_required' => true,
+    ]);
+
+    $advance = "/deals/{$deal->getKey()}/workflows/{$workflow->getKey()}/advance";
+
+    $this->post($advance, ['stage_id' => $stages[0]->getKey()]);
+
+    expect($workflow->refresh()->current_stage_id)->toBe($stages[0]->getKey());
+
+    // The move: still required, just not here any more.
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Sign the listing agreement',
+        'is_required' => true,
+        'stage_id' => $stages[1]->getKey(),
+    ])->assertRedirect("/deals/{$deal->getKey()}/tasks");
+
+    $event = ActivityEvent::query()->where('event_type', 'task.moved')->sole();
+
+    expect($event->summary)->toContain('Stage 0')
+        ->and($event->summary)->toContain('Stage 1')
+        ->and($event->deal_id)->toBe($deal->getKey());
+
+    // And the gate really is clear now — which is why the record matters.
+    $this->post($advance, ['stage_id' => $stages[0]->getKey()]);
+
+    expect($workflow->refresh()->current_stage_id)->toBe($stages[1]->getKey());
+
+    // An edit that leaves the stage alone says nothing.
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Sign it today',
+        'is_required' => true,
+        'stage_id' => $stages[1]->getKey(),
+    ]);
+
+    expect(ActivityEvent::query()->where('event_type', 'task.moved')->count())->toBe(1);
+});
+
+it('names the absence when a task moves off every stage', function (): void {
+    // PRD §6.4 makes `stage_id` nullable, so "no stage" is a place a task can
+    // be rather than a missing row — and the entry has to read as one.
+    [$deal, , $stages] = taskDeal(1);
+
+    $task = taskOn($deal, $stages[0], ['title' => 'Chase the survey']);
+
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Chase the survey',
+        'stage_id' => '',
+    ])->assertRedirect("/deals/{$deal->getKey()}/tasks");
+
+    expect(ActivityEvent::query()->where('event_type', 'task.moved')->sole()->summary)
+        ->toContain('to no stage');
 });
 
 it('keeps an override’s follow-up task from being deleted by somebody who could not have waived the gate', function (): void {

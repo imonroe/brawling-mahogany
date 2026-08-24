@@ -119,6 +119,14 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * not silent, which is what it was.
      */
     'task.required_changed': { icon: ListChecks, tone: 'neutral' },
+    /*
+     * The same bypass one control higher up the form: a
+     * `required_tasks_complete` gate counts the required tasks on **one
+     * stage**, so moving a task off that stage clears it exactly as unticking
+     * the flag does. Round 2 of #71's review proved it, after round 1 had
+     * fixed only the half it named first.
+     */
+    'task.moved': { icon: ArrowRight, tone: 'neutral' },
     'task.reopened': { icon: ListChecks, tone: 'neutral' },
     'task.deleted': { icon: ListX, tone: 'neutral' },
     'contact.logged': { icon: MessageSquare, tone: 'neutral' },
