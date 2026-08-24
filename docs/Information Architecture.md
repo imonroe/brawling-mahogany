@@ -298,6 +298,24 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 
 `lead` → Lead · `active` → Client · `past_client` → Past Client · `archived` → Archived
 
+> [!warning] This describes a **contact**, not a colleague
+> Every value in it is a stage of a client relationship, so somebody on the
+> team has no honest answer here — their membership holds `active` only
+> because `AcceptInvitation` has to write something, and `active` reads as
+> *Client*. Drawing it unconditionally told a team that their own assistant
+> was a client of theirs (#162).
+>
+> So a membership that **carries team access** is not described by this table
+> at all: the directory badges it with the team's own name for them — their
+> role — and S32 does not offer the lifecycle for editing, because what
+> decides a colleague's standing is their role and their access, both managed
+> on the members screen. `TeamMembership::carriesAccess()` is what asks, which
+> is the one definition of team access (§13, #142) rather than a list of role
+> keys.
+>
+> The same rule governs the **Leads** and **Clients** segments of S30, both of
+> which narrow to memberships carrying no access.
+
 ### Automation / message
 
 `pending` → Scheduled · `awaiting_approval` → Needs Review · `sent` → Sent · `failed` → Failed · `cancelled` → Cancelled

@@ -162,7 +162,25 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                             label="Vendor"
                             dotless
                         />
-                        <StatusBadge domain="person" :state="person.status" />
+                        <!--
+                            The lifecycle badge is for a **contact** (#162).
+                            `active`'s label is *Client*, so drawing it
+                            unconditionally told a team that their own
+                            assistant was a client of theirs. A colleague gets
+                            what the team actually calls them, which is the
+                            same thing `/settings/members` shows.
+                        -->
+                        <StatusBadge
+                            v-if="person.carriesAccess"
+                            tone="info"
+                            :label="person.roles.join(' · ') || 'Team'"
+                            dotless
+                        />
+                        <StatusBadge
+                            v-else
+                            domain="person"
+                            :state="person.status"
+                        />
                     </Link>
                 </li>
             </ul>

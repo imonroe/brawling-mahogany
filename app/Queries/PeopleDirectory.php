@@ -31,6 +31,13 @@ final class PeopleDirectory
             // Only the login is still needed from `people` — S31's "no login"
             // state asks whether they can sign in, and nothing else does.
             ->with('person:id,password')
+            /*
+             * `carriesAccess()` walks roles → permissions and the badge reads
+             * the role name, so both are loaded once for the page rather than
+             * twice per row. `PeopleIndexBudgetTest` is what holds it: 25 rows
+             * cost what 2 rows cost.
+             */
+            ->with('roles.permissions')
             ->orderBy('team_memberships.last_name')
             ->orderBy('team_memberships.first_name')
             ->paginate(self::PER_PAGE)
@@ -83,7 +90,17 @@ final class PeopleDirectory
                 ])
                 ->notCarryingAccess(),
             PersonSegment::Vendors => $query->where('team_memberships.is_vendor', true),
-            PersonSegment::Leads => $query->where('team_memberships.status', PersonLifecycleState::Lead->value),
+            /*
+             * `notCarryingAccess()` here for the same reason Clients carries
+             * it: the lifecycle describes a **contact**, and a colleague's
+             * membership holds a value from it only because the column has to
+             * hold something. Without this, one edit setting a team member to
+             * Lead — which S32's form used to offer (#162) — put them in this
+             * segment, and the segment is how a team decides who to chase.
+             */
+            PersonSegment::Leads => $query
+                ->where('team_memberships.status', PersonLifecycleState::Lead->value)
+                ->notCarryingAccess(),
             PersonSegment::Team => $query
                 ->whereNull('team_memberships.revoked_at')
                 ->carryingAccess(),
@@ -119,6 +136,27 @@ final class PeopleDirectory
             'email' => $membership->email,
             'phone' => $membership->phone,
             'status' => $membership->status->value,
+            /*
+             * Whether the lifecycle above describes this person at all (#162).
+             *
+             * `PersonLifecycleState` is a **client** lifecycle — Lead, Client,
+             * Past Client, Archived — and a colleague has no honest value in
+             * it. Their membership holds `active` because `AcceptInvitation`
+             * has to write something, and `active`'s label is *Client*, so
+             * every screen drawing the badge unconditionally told a team that
+             * their own assistant was a client of theirs.
+             *
+             * Asked through `carriesAccess()`, which is the one definition of
+             * team access (#142) — not by counting roles and not by naming
+             * role keys.
+             */
+            'carriesAccess' => $membership->carriesAccess(),
+            /*
+             * What the team calls them, for the badge a colleague gets
+             * instead. `/settings/members` shows the same thing, so the two
+             * screens describe somebody the same way.
+             */
+            'roles' => $membership->roles->map(fn ($role): string => $role->name)->values()->all(),
             'isVendor' => $membership->is_vendor,
             // S31's "no login" state. Most of this directory has none, and the
             // screen says so rather than implying an account exists.
@@ -135,10 +173,13 @@ final class PeopleDirectory
         return [
             ...self::row($membership),
             'notes' => $membership->notes,
-            'roles' => $membership->roles->map(fn ($role): array => [
-                'key' => $role->key,
-                'name' => $role->name,
-            ])->all(),
+            /*
+             * No keyed `roles` shape here any more. It carried `key` and
+             * `name` for every role and **nothing rendered either** — the same
+             * finding CLAUDE.md records about an eager-load: name the cell
+             * that reads it, and if there is not one, that is the finding.
+             * `row()` now carries the names, which is what the badge draws.
+             */
             'vendor' => [
                 'specialties' => $membership->vendor_specialties ?? [],
                 'typicalCost' => $membership->vendor_typical_cost,

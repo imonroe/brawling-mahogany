@@ -108,7 +108,15 @@ function remove(): void {
                     <div class="flex items-center gap-3 px-4 py-3">
                         <PersonAvatar :person="membership" :size="46" />
                         <div class="flex min-w-0 flex-col gap-1">
+                            <!-- A colleague is not a client — see S30. -->
                             <StatusBadge
+                                v-if="membership.carriesAccess"
+                                tone="info"
+                                :label="membership.roles.join(' · ') || 'Team'"
+                                dotless
+                            />
+                            <StatusBadge
+                                v-else
                                 domain="person"
                                 :state="membership.status"
                             />

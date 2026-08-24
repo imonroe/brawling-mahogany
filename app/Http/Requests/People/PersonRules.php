@@ -101,6 +101,13 @@ trait PersonRules
      */
     protected function personRules(?TeamMembership $ignoring = null): array
     {
+        /*
+         * `$ignoring` is the membership being edited — named for the unique
+         * rule below, which is what it was added for, and now also the row
+         * the lifecycle rule asks about. Null when creating, and a person
+         * being created cannot already carry team access: an invitation is
+         * what grants it, and that is a different flow entirely.
+         */
         return [
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
@@ -109,7 +116,28 @@ trait PersonRules
                 $this->uniqueWithinTeam($ignoring),
             ],
             'phone' => ['nullable', 'string', 'max:50'],
-            'status' => ['required', Rule::enum(PersonLifecycleState::class)],
+            /*
+             * **A colleague has no lifecycle** (#162).
+             *
+             * `PersonLifecycleState` describes a contact — Lead, Client, Past
+             * Client, Archived — and S32 offered all four for anybody,
+             * including somebody on the team. Picking one moved an assistant
+             * into the Leads segment, which is the list a team works to decide
+             * who to chase.
+             *
+             * Refused rather than ignored. A rule that quietly dropped the
+             * field would leave a stale tab believing it had changed something
+             * it had not, which is the failure mode this codebase keeps
+             * finding in "we'll just not save it" — and the form does not send
+             * it, so the only requests that hit this are a stale tab or
+             * something written against the API by hand.
+             *
+             * Asked through `carriesAccess()`, the one definition of team
+             * access (#142), rather than by naming role keys.
+             */
+            'status' => $ignoring?->carriesAccess() === true
+                ? ['prohibited']
+                : ['required', Rule::enum(PersonLifecycleState::class)],
             'notes' => ['nullable', 'string', 'max:10000'],
 
             'is_vendor' => ['boolean'],

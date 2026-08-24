@@ -96,9 +96,19 @@ it('renders the people index within its query budget at 500 rows', function (): 
 
     $this->get('/people')->assertOk();
 
-    // Five segment counts, the page, its total, and the shared tenancy
-    // queries every request carries. Not five hundred.
-    expect($queries)->toBeLessThanOrEqual(20);
+    /*
+     * Five segment counts, the page, its total, the shared tenancy queries
+     * every request carries, and the two below. Not five hundred.
+     *
+     * **22 rather than 20 since #162**, and the two are worth naming rather
+     * than absorbing: the row says whether the lifecycle badge describes this
+     * person at all (`carriesAccess`) and carries the role names it is drawn
+     * with instead, so `roles` and `roles.permissions` are eager-loaded. Both
+     * are one query for the page however many rows it holds — the growth test
+     * below is what proves that, and it is the one that would catch this
+     * becoming per-row.
+     */
+    expect($queries)->toBeLessThanOrEqual(22);
 });
 
 it('does not grow its query count with the directory', function (): void {

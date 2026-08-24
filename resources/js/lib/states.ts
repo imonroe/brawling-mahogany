@@ -77,6 +77,14 @@ const gate: StateTable = {
     overridden: { label: 'Overridden', tone: 'warning', clientLabel: null },
 };
 
+/**
+ * IA §8's person lifecycle — which describes a **contact**.
+ *
+ * A colleague has no honest value in it: their membership holds `active`
+ * because something had to be written, and `active` reads as *Client*. A
+ * screen asks `carriesAccess` first and draws the person's role instead
+ * (#162); this table is what a contact gets.
+ */
 const person: StateTable = {
     lead: { label: 'Lead', tone: 'info', clientLabel: null },
     active: { label: 'Client', tone: 'success', clientLabel: null },

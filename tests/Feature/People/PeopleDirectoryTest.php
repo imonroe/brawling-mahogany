@@ -533,3 +533,110 @@ function ownerMembershipOf(App\Models\Team $team): TeamMembership
         ->get()
         ->first(fn (TeamMembership $membership): bool => $membership->hasRole('team_owner'));
 }
+
+/* -------------------------------------------------------------------------
+ * A colleague is not a client (#162)
+ * ---------------------------------------------------------------------- */
+
+it('does not call somebody on the team a client', function (): void {
+    /*
+     * The bug as reported: invite an assistant, and the People index draws
+     * them with a green **Client** badge. The segment was never wrong —
+     * `notCarryingAccess()` keeps them out of Clients — the *badge* was, because
+     * `PersonLifecycleState::Active`'s label is literally "Client" and every
+     * row rendered it unconditionally.
+     *
+     * `carriesAccess` is what a screen asks now, and the roles are what it
+     * draws instead. Asserted on the payload rather than the markup, because
+     * the payload is what both screens read.
+     */
+    $this->get('/people?segment=team')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $rows = collect($page->toArray()['props']['people']['data']);
+
+            $colleague = $rows->firstWhere('email', $this->member->email);
+
+            expect($colleague)->not->toBeNull()
+                ->and($colleague['carriesAccess'])->toBeTrue()
+                ->and($colleague['roles'])->toContain('Team Member');
+        });
+});
+
+it('still calls a client a client', function (): void {
+    // The control. Without it this passes by never drawing a lifecycle at all.
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'last_name' => 'Nakamura',
+        'email' => 'claire@example.test',
+        'status' => PersonLifecycleState::Active->value,
+    ]);
+
+    $this->get('/people?segment=clients')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('email', 'claire@example.test');
+
+            expect($row)->not->toBeNull()
+                ->and($row['carriesAccess'])->toBeFalse()
+                ->and($row['status'])->toBe('active')
+                ->and($row['roles'])->toBe([]);
+        });
+});
+
+it('refuses a lifecycle change on somebody who is on the team', function (): void {
+    /*
+     * The second half of #162: S32 offered all four lifecycle states for a
+     * colleague. The form no longer sends the field — and the server refuses
+     * it rather than ignoring it, so a stale tab is told what happened instead
+     * of believing it changed something it did not.
+     */
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    $this->patch("/people/{$membership->getKey()}", [
+        'first_name' => $membership->first_name,
+        'last_name' => $membership->last_name,
+        'email' => $membership->email,
+        'status' => PersonLifecycleState::Lead->value,
+    ])->assertSessionHasErrors('status');
+
+    expect($membership->refresh()->status)->toBe(PersonLifecycleState::Active);
+});
+
+it('lets a colleague’s other details be edited without a lifecycle', function (): void {
+    // The control for the rule above: refusing the field must not refuse the
+    // form. A colleague's phone number is ordinary directory work.
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    $this->patch("/people/{$membership->getKey()}", [
+        'first_name' => 'Demo',
+        'last_name' => 'Assistant',
+        'email' => $membership->email,
+        'phone' => '+1 303 555 0199',
+    ])->assertRedirect();
+
+    expect($membership->refresh()->phone)->toBe('+1 303 555 0199')
+        ->and($membership->last_name)->toBe('Assistant')
+        // Untouched, rather than reset by an absent field.
+        ->and($membership->status)->toBe(PersonLifecycleState::Active);
+});
+
+it('keeps a colleague out of the Leads segment', function (): void {
+    /*
+     * The latent half of the same bug. `Leads` filtered on status alone, so
+     * one edit setting a team member to Lead — which S32 used to offer — put
+     * them in the list a team works to decide who to chase. The rule above
+     * stops the edit; this stops the segment agreeing with it if anything else
+     * ever writes that value.
+     */
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    $membership->forceFill(['status' => PersonLifecycleState::Lead])->save();
+
+    $this->get('/people?segment=leads')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            expect(collect($page->toArray()['props']['people']['data']))->toHaveCount(0);
+        });
+});

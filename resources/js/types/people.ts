@@ -14,6 +14,18 @@ export type PersonRow = {
     email: string | null;
     phone: string | null;
     status: string;
+    /**
+     * Whether `status` describes this person at all (#162).
+     *
+     * `status` is a **client** lifecycle — Lead, Client, Past Client,
+     * Archived — and a colleague has no honest value in it: their membership
+     * holds `active` because something had to be written, and `active` reads
+     * as *Client*. A screen draws the lifecycle badge only when this is false,
+     * and the person's roles when it is true.
+     */
+    carriesAccess: boolean;
+    /** What the team calls them, when they are on it. Empty for a contact. */
+    roles: string[];
     isVendor: boolean;
     /** Most of this directory has none, and S31 says so rather than implying one. */
     hasLogin: boolean;
@@ -31,7 +43,6 @@ export type VendorFields = {
 
 export type PersonDetail = PersonRow & {
     notes: string | null;
-    roles: { key: string; name: string }[];
     vendor: VendorFields;
     joinedAt: string | null;
     revokedAt: string | null;

@@ -15,6 +15,7 @@ import { router, useForm } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
+import TextLink from '@/components/app/TextLink.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
@@ -37,6 +38,19 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
 const editing = computed(() => Boolean(props.membership));
+
+/**
+ * Whether this person is a colleague rather than a contact (#162).
+ *
+ * The status field is a **client** lifecycle — Lead, Client, Past Client,
+ * Archived — and offering it for somebody on the team invited exactly the
+ * confusion the issue reports: the four options make no sense for an
+ * assistant, and picking one used to move them into the Leads segment. What
+ * decides a colleague's standing is their **role**, which lives on
+ * Settings → Members, and the server refuses a lifecycle change on this
+ * membership either way.
+ */
+const isColleague = computed(() => props.membership?.carriesAccess === true);
 
 const form = useForm({
     first_name: props.membership?.firstName ?? '',
@@ -115,6 +129,23 @@ const specialtiesText = computed({
 
 function submit(): void {
     if (editing.value && props.membership) {
+        /*
+         * A colleague's lifecycle is not this form's to send. `PersonRules`
+         * refuses it outright rather than ignoring it, so a stale tab is told
+         * what happened instead of silently having half its edit dropped.
+         */
+        form.transform((data) => {
+            if (!isColleague.value) {
+                return data;
+            }
+
+            const { status, ...rest } = data;
+
+            void status;
+
+            return rest;
+        });
+
         form.patch(`/people/${props.membership.id}`, {
             onSuccess: () => emit('update:open', false),
         });
@@ -202,7 +233,14 @@ function submit(): void {
                         <Label for="phone">Phone</Label>
                         <AppInput id="phone" v-model="form.phone" />
                     </div>
-                    <div class="flex flex-col gap-1.5">
+                    <!--
+                        The lifecycle belongs to a contact. For somebody on the
+                        team it is replaced by a sentence saying where their
+                        standing actually lives — hidden rather than disabled,
+                        per §7.3, because a greyed-out select still advertises
+                        a capability that does not exist here.
+                    -->
+                    <div v-if="!isColleague" class="flex flex-col gap-1.5">
                         <Label for="status">Status</Label>
                         <select
                             id="status"
@@ -217,6 +255,18 @@ function submit(): void {
                                 {{ label }}
                             </option>
                         </select>
+                    </div>
+                    <div v-else class="flex flex-col gap-1.5">
+                        <Label>Status</Label>
+                        <p class="text-[11px] text-muted-foreground">
+                            {{
+                                membership?.roles.join(' · ') || 'On your team'
+                            }}. A colleague is not a lead or a client — their
+                            role and their access are managed on
+                            <TextLink href="/settings/members"
+                                >Settings → Members</TextLink
+                            >.
+                        </p>
                     </div>
                 </div>
 
