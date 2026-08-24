@@ -1,3 +1,4 @@
+import { router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 
 /**
@@ -30,6 +31,19 @@ export type AdvanceTarget = {
 };
 
 const target = ref<AdvanceTarget | null>(null);
+
+/**
+ * Module state outlives the page, so it has to be closed on navigation.
+ *
+ * That is the cost of the design above: `target` is not owned by a component,
+ * so nothing unmounts it. A gate's "Go and clear it" link is the case that
+ * makes it visible — it navigates to the properties tab and the modal is still
+ * there, covering the thing it just sent the reader to look at. Registered
+ * once at module scope, alongside the state it clears.
+ */
+router.on('navigate', () => {
+    target.value = null;
+});
 
 export function useAdvanceDialog() {
     function openAdvance(next: AdvanceTarget): void {

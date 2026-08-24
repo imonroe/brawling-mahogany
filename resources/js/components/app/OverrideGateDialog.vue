@@ -30,7 +30,7 @@
  */
 import { useForm } from '@inertiajs/vue3';
 import { ShieldAlert } from '@lucide/vue';
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
     Dialog,
     DialogContent,
@@ -52,6 +52,15 @@ const emit = defineEmits<{ close: []; overridden: [] }>();
 
 const form = useForm({ gate_id: '', reason: '' });
 
+/**
+ * Why the last attempt was refused, if it was.
+ *
+ * Not a validation error — the request was fine and the answer was no: a hold,
+ * a colleague who cleared the gate first, an advisory that was never in the
+ * way. Held locally because this dialog is what the person is looking at.
+ */
+const refusal = ref<string | null>(null);
+
 const open = computed(() => props.gate !== null);
 
 watch(
@@ -59,6 +68,7 @@ watch(
     (gate) => {
         form.reset();
         form.clearErrors();
+        refusal.value = null;
         form.gate_id = gate?.id ?? '';
     },
 );
@@ -82,16 +92,26 @@ function submit(): void {
          * advance modal still open underneath, where nobody reads it.
          *
          * The flash is what distinguishes them: a refusal sets `advance`, a
-         * success sets `toast`. Same key `DealLayout` renders from, so there
-         * is one place on the screen that says why nothing moved.
+         * success sets `toast`.
          */
         onSuccess: (page) => {
-            const refused = (
+            const advance = (
                 page.props.flash as
-                    { advance?: { refused?: boolean } } | undefined
-            )?.advance?.refused;
+                    | { advance?: { refused?: boolean; reasons?: string[] } }
+                    | undefined
+            )?.advance;
 
-            if (refused === true) {
+            if (advance?.refused === true) {
+                /*
+                 * Stay open and say why. Closing on a refusal stranded the
+                 * explanation under the advance modal; closing *silently* —
+                 * which is what the first attempt at this did — left the
+                 * person pressing a button that appeared to do nothing.
+                 */
+                refusal.value =
+                    advance.reasons?.[0] ??
+                    'This gate could not be overridden. Reload to see where the workflow is now.';
+
                 return;
             }
 
@@ -178,6 +198,16 @@ function submit(): void {
                         class="text-xs text-destructive"
                     >
                         {{ form.errors.gate_id }}
+                    </p>
+                    <!--
+                        A refusal, which is not a validation error: the request
+                        was fine and the answer was no. Rendered here rather
+                        than in the flash `DealLayout` draws, because this
+                        dialog sits on top of the advance modal and a message
+                        two layers down is a message nobody reads.
+                    -->
+                    <p v-else-if="refusal" class="text-xs text-destructive">
+                        {{ refusal }}
                     </p>
                     <!--
                         §10's exact wording for this field. It is not softened

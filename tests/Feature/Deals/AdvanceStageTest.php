@@ -19,6 +19,7 @@ use App\Support\Permissions;
 use App\Support\Tenancy\TeamContext;
 use App\Support\Workflow\AdvanceWorkflow;
 use Illuminate\Support\Str;
+use Inertia\Support\SessionKey;
 
 /**
  * S23, the advance stage modal, and the S24 override it reaches (#77, #69).
@@ -490,7 +491,23 @@ it('overrides a gate and hands back a follow-up task', function (): void {
         ->and($preview['gates'][0]['met'])->toBeFalse()
         ->and($preview['gates'][0]['isBlocking'])->toBeTrue()
         ->and($preview['gates'][0]['blocksAdvance'])->toBeFalse()
-        ->and($preview['counts']['overridden'])->toBe(1);
+        /*
+         * The whole counts array, not just `overridden`.
+         *
+         * Each of these is arithmetic over the same three buckets, and each
+         * could be quietly wrong on its own: `cleared` reverting to
+         * `count($met)` reads "0 of 1 cleared" above a row badged Overridden,
+         * and `advisory` forgetting to subtract the overridden ones counts a
+         * waived blocker as advice. Asserting one number leaves the others
+         * free.
+         */
+        ->and($preview['counts'])->toBe([
+            'total' => 1,
+            'blocking' => 0,
+            'advisory' => 0,
+            'overridden' => 1,
+            'cleared' => 1,
+        ]);
 });
 
 /**
@@ -517,6 +534,51 @@ it('refuses an override from somebody who may advance but not override', functio
         'reason' => 'Appraisal received by email, uploading tomorrow.',
     ])->assertForbidden();
 
+    expect($gate->fresh()->overridden)->toBeFalse()
+        ->and(Task::query()->count())->toBe(0);
+});
+
+/**
+ * A refused override comes back as a flash, not an exception — and the shape
+ * of that flash is a contract the dialog depends on.
+ *
+ * `AdvanceWorkflow::override()` returns a result rather than throwing, because
+ * a workflow on hold is an ordinary outcome. So the request succeeds, Inertia
+ * calls `onSuccess`, and the only thing telling `OverrideGateDialog` that
+ * nothing happened is `advance.refused`. Every refusal path in the service had
+ * its own test; none of them went through the controller, so the key the
+ * screen reads was held by nothing.
+ */
+it('flashes the reason when an override is refused, and writes nothing', function (): void {
+    [$workflow, $first] = advanceModalWorkflow($this->deal);
+
+    $gate = Gate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'stage_id' => $first->getKey(),
+        'label' => 'Appraisal is back',
+    ]);
+
+    app(TeamContext::class)->runFor($this->team, fn () => $workflow->transitionTo(WorkflowState::OnHold)->save());
+
+    // Somebody who really may override, so the refusal below is the workflow's
+    // state talking and not the permission check.
+    $this->actingAsPerson(advanceModalOverrider(), $this->team);
+
+    $this->post("/deals/{$this->deal->getKey()}/workflows/{$workflow->getKey()}/override", [
+        'gate_id' => $gate->getKey(),
+        'reason' => 'Appraisal received by email, uploading tomorrow.',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $flash = session(SessionKey::FLASH_DATA)['advance'] ?? null;
+
+    expect($flash)->not->toBeNull()
+        ->and($flash['refused'])->toBeTrue()
+        // The dialog renders `reasons[0]` in place of the field errors, so an
+        // empty list is a refusal the person cannot see.
+        ->and($flash['reasons'])->toHaveCount(1)
+        ->and($flash['reasons'][0])->toBe(WorkflowState::OnHold->advanceRefusal());
+
+    // And none of the four artefacts was written.
     expect($gate->fresh()->overridden)->toBeFalse()
         ->and(Task::query()->count())->toBe(0);
 });

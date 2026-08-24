@@ -796,7 +796,12 @@ The meta string carries dates, duration, and counts: `15 Jul–2 Aug · 18 days 
 2. **Body**, a two-pane split with a 1px vertical divider: **Tasks** on the left (`flex-1 p-3.5 gap-[9px]`), **Requirements** on the right (`w-[340px] p-3.5 gap-[9px]`)
 3. **Footer**, `h-13 px-3.5 bg-muted border-t`: `[zap icon] [what advancing will do, 12 muted] [flex-1] [Override] [Advance Stage]`
 
-Each pane opens with a 12px/600 muted heading carrying its own count (`Tasks · 5 of 7 complete`, `Requirements to advance · 2 of 3 met`, the latter in `state-warning` when unmet).
+Each pane opens with a 12px/600 muted heading carrying its own count (`Tasks · 5 of 7 complete`, `Requirements to advance · 2 of 3 cleared`, the latter in `state-warning` when something is still blocking).
+
+**"Cleared", not "met".** The count is met *plus* overridden, and IA §8 makes
+Overridden a state of its own rather than a kind of Met — so "1 of 1 met" over
+a row badged Overridden says the opposite of what happened.
+
 
 #### Requirement (gate) row
 

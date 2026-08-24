@@ -424,13 +424,23 @@ function onOverridden(): void {
                                 class="text-xs font-medium text-secondary-foreground"
                                 data-slot="not-clearable-heading"
                             >
+                                <!--
+                                    "these cannot" over a plural, because
+                                    `formatCount` pluralises the noun and the
+                                    clause did not — "2 requirements that
+                                    cannot clear on its own".
+                                -->
                                 {{
                                     formatCount(
                                         notClearable.length,
                                         'requirement',
                                     )
                                 }}
-                                that cannot clear on its own
+                                {{
+                                    notClearable.length === 1
+                                        ? 'that cannot clear on its own'
+                                        : 'that cannot clear on their own'
+                                }}
                             </p>
                             <GateRow
                                 v-for="gate in notClearable"

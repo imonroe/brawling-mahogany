@@ -169,6 +169,18 @@ function railClass(stage: StageDot): string {
  * separately where a `tasks` link points is two screens that disagree the day
  * S17 moves.
  */
+/**
+ * How many of a workflow's gates actually stand in the way.
+ *
+ * `gates` carries every unmet gate, blocking or not — advisories are shown
+ * because #75's standard is that the screen says what is going on without a
+ * click, and an overridden gate is shown because hiding it would hide a
+ * decision somebody made and signed for. Neither is something to go and clear.
+ */
+function blockingCount(workflow: WorkflowCard): number {
+    return workflow.gates.filter((gate) => gate.blocksAdvance).length;
+}
+
 function linkFor(gate: GateSummary): string | null {
     return gateResolutionLink(gate, dealUrl.value);
 }
@@ -313,20 +325,43 @@ function advance(workflow: WorkflowCard): void {
                                 Nothing is holding this stage up.
                             </p>
                             <template v-else>
+                                <!--
+                                    Three states, not two. A stage whose only
+                                    unmet gates have been waived still lists
+                                    them — an override that vanished would hide
+                                    what somebody decided — but it is not held
+                                    up, so it gets neither the warning triangle
+                                    nor a count of things to go and do.
+                                -->
                                 <p
                                     class="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground uppercase"
                                 >
                                     <TriangleAlert
+                                        v-if="blockingCount(workflow) > 0"
                                         class="size-3.5 text-state-warning"
                                         aria-hidden="true"
                                     />
-                                    {{
-                                        formatCount(
-                                            workflow.gates.length,
-                                            'gate',
-                                        )
-                                    }}
-                                    to clear
+                                    <!--
+                                        Counted by `blocksAdvance`, not by
+                                        length: counting a waived gate put
+                                        "2 gates to clear" behind a warning
+                                        triangle over a list where one was
+                                        badged Overridden. Same arithmetic S23
+                                        was corrected for in round 1; this is
+                                        the caller that fix did not reach.
+                                    -->
+                                    <template
+                                        v-if="blockingCount(workflow) > 0"
+                                    >
+                                        {{
+                                            formatCount(
+                                                blockingCount(workflow),
+                                                'gate',
+                                            )
+                                        }}
+                                        to clear
+                                    </template>
+                                    <template v-else>Requirements</template>
                                 </p>
                                 <!--
                                     §7.4's requirement row, in its plain
