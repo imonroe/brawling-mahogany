@@ -377,8 +377,19 @@ it('sorts by every column key the table offers', function (): void {
 
     $offered = $matches[1];
 
-    // A floor, because a regex that matches nothing would pass silently.
-    expect($offered)->toHaveCount(2)
+    /*
+     * The floor counts the *marks*, not a number.
+     *
+     * The pattern requires `key:` before `sortable:` inside an entry, so
+     * `{ sortable: true, key: 'meta1', … }` — same meaning, properties the
+     * other way round — is invisible to it. A hard `toHaveCount(2)` did not
+     * cover that: it passes at two found while three are marked, and it also
+     * fails a legitimate third sortable column added properly to both lists.
+     *
+     * Counting `sortable: true` separately catches the reordering (three
+     * marked, two found) and lets a real third column through.
+     */
+    expect($offered)->toHaveCount(preg_match_all('/\\bsortable:\\s*true/', $source))
         ->and($offered)->toEqualCanonicalizing(DealDirectory::SORTS);
 });
 
@@ -422,6 +433,39 @@ it('sorts by the next date, with the empty ones last either way', function (): v
             ->where('deals.data.0.id', $later->getKey())
             // Still last. This is the assertion the `nulls last` exists for.
             ->where('deals.data.2.id', $never->getKey()));
+});
+
+/**
+ * A junk deal-type filters neither the rows nor the counts.
+ *
+ * These are two callers of one builder, and the rule went into the second
+ * only: `dealType` was resolved *after* `segmentCounts()`, so the counts
+ * filtered by the junk value while the rows filtered by the cleaned one. A
+ * `?dealType=banana` URL listed deals under a filter bar reading "All (0)" —
+ * the exact thing `DealDirectory`'s docblock says sharing a builder prevents.
+ *
+ * The page reads that `all` count to decide whether it is empty or merely
+ * filtered, so on a team whose deals are all closed it brought back "No deals
+ * yet. Create your first deal." over a team with deals.
+ */
+it('ignores a junk deal type in the counts as well as the rows', function (): void {
+    indexDeal();
+    indexDeal();
+    indexDeal(DealState::Closed);
+
+    $this->get('/deals?dealType=banana')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $props = $page->toArray()['props'];
+            $counts = collect($props['segmentCounts'])->keyBy('value');
+
+            expect($props['deals']['data'])->toHaveCount(2)
+                ->and($props['dealType'])->toBe('all')
+                // The half that was wrong: counts computed from the raw value.
+                ->and($counts['open']['count'])->toBe(2)
+                ->and($counts['all']['count'])->toBe(3)
+                ->and($counts['closed']['count'])->toBe(1);
+        });
 });
 
 /**

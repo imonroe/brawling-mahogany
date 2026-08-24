@@ -57,14 +57,21 @@ describe('Table sorting', () => {
     });
 
     it('points the chevron up for ascending, the way every table does', () => {
-        const ascending = headers(true, 'primary', 'asc');
-        const descending = headers(true, 'primary', 'desc');
+        /*
+         * Named glyphs, not "these two differ".
+         *
+         * The first version asserted the ascending and descending renders were
+         * not identical — which is true whichever way round they are, so
+         * inverting the ternary left it green. The test's own name was the
+         * only thing claiming a direction.
+         */
+        expect(
+            headers(true, 'primary', 'asc').find('thead button svg').classes(),
+        ).toContain('lucide-chevron-up');
 
-        // The component name is the only thing distinguishing them once
-        // rendered, and it is what a reader reads as direction.
-        expect(ascending.findAll('thead button svg')[0].html()).not.toBe(
-            descending.findAll('thead button svg')[0].html(),
-        );
+        expect(
+            headers(true, 'primary', 'desc').find('thead button svg').classes(),
+        ).toContain('lucide-chevron-down');
     });
 
     it('tells a screen reader which column is sorted and which way', () => {

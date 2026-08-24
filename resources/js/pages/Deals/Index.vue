@@ -39,7 +39,7 @@ import PageHeader from '@/components/app/PageHeader.vue';
 import SegmentedControl from '@/components/app/SegmentedControl.vue';
 import Table from '@/components/app/Table.vue';
 import { formatCount } from '@/lib/formatters';
-import type { Paginated } from '@/types/people';
+import type { Paginated } from '@/types';
 
 type DealRowData = {
     id: string;
@@ -123,7 +123,21 @@ function visit(changes: Record<string, string | undefined>): void {
         '/deals',
         {
             segment: props.segment === 'open' ? undefined : props.segment,
-            search: props.search || undefined,
+            /*
+             * The **ref**, not the prop.
+             *
+             * `props.search` is what the server last resolved, and during a
+             * race it is stale: type `smith`, click a segment 100ms later, and
+             * cancelling the pending debounce meant the segment's own visit
+             * went out reading `''`. The search was not carried, it was thrown
+             * away — and because `props.search` came back empty, the watcher
+             * below never fired, so the box went on showing `smith` over a
+             * list that was not filtered by it.
+             *
+             * The window is wider than the debounce: `props.search` stays
+             * stale for the whole in-flight round trip.
+             */
+            search: search.value.trim() || undefined,
             dealType: props.dealType === 'all' ? undefined : props.dealType,
             sort: props.sort || undefined,
             direction: props.direction === 'asc' ? undefined : props.direction,
@@ -200,7 +214,21 @@ const isFiltered = computed(
  * that shows a team all of its deals.
  */
 function clearFilters(): void {
-    router.get('/deals', hasAnyDeals.value ? { segment: 'all' } : {}, {
+    /*
+     * Widen the segment only when the segment is what is hiding things.
+     *
+     * `/deals` with no query string *is* `segment=open`, so clearing to it
+     * left a closed-only team on the identical empty screen. But a team with
+     * open deals who merely typed a search wants the search cleared, not
+     * closed deals they never asked for — so `all` is for the case where
+     * `open` really is the filter: nothing showing, and deals elsewhere.
+     */
+    const widen =
+        hasAnyDeals.value &&
+        props.segment === 'open' &&
+        props.deals.data.length === 0;
+
+    router.get('/deals', widen ? { segment: 'all' } : {}, {
         preserveState: true,
         replace: true,
     });

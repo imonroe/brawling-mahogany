@@ -291,18 +291,23 @@ final class DealDirectory
     {
         $direction = strtolower($direction) === 'desc' ? 'desc' : 'asc';
 
-        if (! in_array($sort, self::SORTS, true)) {
+        /*
+         * A `match` on the key, not an `if`/`else` chain.
+         *
+         * The `else` used to be `'primary'` by position: adding a third key to
+         * `SORTS` and to `dealRow.ts` would satisfy the test that binds those
+         * two lists, light that column's chevron, and order the rows by the
+         * **deal name** — a header confirming a sort nobody asked for, which
+         * is the defect this screen has now been through twice. An unhandled
+         * key falls to the default it already falls to for junk.
+         */
+        match (in_array($sort, self::SORTS, true) ? $sort : '') {
             /*
-             * The default, and it is the one the index on `deals` was written
-             * for: `(team_id, state, opened_at)`. Sorting by name instead
-             * would not use it.
+             * Deals with nothing due sort last either way round: an empty cell
+             * is not "soonest", and it is not "latest" either.
              */
-            $query->orderByDesc('deals.opened_at');
-        } elseif ($sort === 'date') {
-            // Deals with nothing due sort last either way round: an empty cell
-            // is not "soonest", and it is not "latest" either.
-            $query->orderByRaw("next_due_date {$direction} nulls last");
-        } else {
+            'date' => $query->orderByRaw("next_due_date {$direction} nulls last"),
+
             /*
              * **The string the cell shows**, which is not either column on its
              * own. `Deal::displayName()` prefers the typed `name` and falls
@@ -311,24 +316,30 @@ final class DealDirectory
              * "Aardvark" with a generated name of "9 Zoo Lane" sorted last
              * under an ascending Deal header.
              *
-             * `nullif(btrim(...), '')` rather than a bare `coalesce`, because
+             * `nullif(btrim(...))` rather than a bare `coalesce`, because
              * `displayName()` falls back on **blank** and `coalesce` falls
-             * back on null. A `name` of `''` is a value `coalesce` keeps and
-             * sorts by, so a deal displaying its generated name would sort as
-             * though it had none. Nothing writes a blank name today —
-             * `DealDraft::text()` normalises it — but `name` is fillable, and
-             * the first rename endpoint trusting `nullable|string` would
-             * reintroduce this quietly.
+             * back on null — so a `name` of `''` was a value `coalesce` kept
+             * and sorted by. The character set matches PHP's `trim()` rather
+             * than `btrim()`'s space-only default, so a tab is no more a name
+             * than a space is.
              *
              * `nulls last` in both directions: Postgres defaults to NULLS
              * FIRST on a descending sort, and a deal with no name at all
              * heading the list on one of the two presses is not an order
              * anybody asked for. It is what puts "Untitled deal" last.
              */
-            $query->orderByRaw(
-                "coalesce(nullif(btrim(deals.name), ''), nullif(btrim(deals.generated_name), '')) {$direction} nulls last",
-            );
-        }
+            'primary' => $query->orderByRaw(
+                "coalesce(nullif(btrim(deals.name, E' \\t\\n\\r'), ''), "
+                ."nullif(btrim(deals.generated_name, E' \\t\\n\\r'), '')) {$direction} nulls last",
+            ),
+
+            /*
+             * The default, and it is the one the index on `deals` was written
+             * for: `(team_id, state, opened_at)`. Sorting by name instead
+             * would not use it.
+             */
+            default => $query->orderByDesc('deals.opened_at'),
+        };
 
         /*
          * A tiebreaker, because ties are the normal case here.

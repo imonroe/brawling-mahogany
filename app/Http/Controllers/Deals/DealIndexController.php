@@ -50,6 +50,35 @@ class DealIndexController extends Controller
         $sort = (string) $request->query('sort', '');
         $direction = (string) $request->query('direction', 'asc');
 
+        /*
+         * **Everything is resolved before anything is queried.**
+         *
+         * `sort` and `dealType` are both echoed back to the page, and the page
+         * draws affordances from them: `Table` tints a column's chevron and
+         * sets `aria-sort` when `sort` equals its key, so echoing an
+         * unvalidated key made a header light up and announce "ascending" over
+         * rows the server had not reordered.
+         *
+         * The ordering matters as much as the validation, and getting it wrong
+         * is what this method did first. `dealType` was resolved *after*
+         * `segmentCounts()` — so the counts filtered by the junk value while
+         * the rows filtered by the cleaned one, and a `?dealType=banana` URL
+         * listed two deals under a filter bar reading "Open (0) · All (0)".
+         * `DealDirectory`'s own docblock promises that cannot happen: *"one
+         * builder shared by the rows and the counts, so a filter bar can never
+         * disagree with the list under it."* Sharing the builder is not enough
+         * if the two callers are handed different arguments.
+         *
+         * Worse on a team whose deals are all closed: the page reads
+         * `segmentCounts`' `all` count to decide whether it is empty or merely
+         * filtered, so a zeroed bar brought back "No deals yet. Create your
+         * first deal." over a team with deals.
+         */
+        $sort = in_array($sort, DealDirectory::SORTS, true) ? $sort : '';
+
+        $types = $directory->dealTypeOptions();
+        $dealType = in_array($dealType, array_column($types, 'value'), true) ? $dealType : '';
+
         $segments = $directory->segmentCounts($search, $dealType === '' ? null : $dealType);
 
         /*
@@ -74,10 +103,6 @@ class DealIndexController extends Controller
          * allowlist had already rejected the key. A control that confirms an
          * action nobody performed is worse than one that does nothing.
          */
-        $sort = in_array($sort, DealDirectory::SORTS, true) ? $sort : '';
-
-        $types = $directory->dealTypeOptions();
-        $dealType = in_array($dealType, array_column($types, 'value'), true) ? $dealType : '';
 
         return Inertia::render('Deals/Index', [
             'segment' => $segment,
