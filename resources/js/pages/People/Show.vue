@@ -109,17 +109,28 @@ function remove(): void {
                         <PersonAvatar :person="membership" :size="46" />
                         <div class="flex min-w-0 flex-col gap-1">
                             <!-- A colleague is not a client — see S30. -->
-                            <StatusBadge
-                                v-if="membership.carriesAccess"
-                                tone="info"
-                                :label="membership.roles.join(' · ') || 'Team'"
-                                dotless
-                            />
-                            <StatusBadge
-                                v-else
-                                domain="person"
-                                :state="membership.status"
-                            />
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <template v-if="membership.isColleague">
+                                    <StatusBadge
+                                        v-for="role in membership.roles"
+                                        :key="role"
+                                        tone="neutral"
+                                        :label="role"
+                                        dotless
+                                    />
+                                </template>
+                                <StatusBadge
+                                    v-else
+                                    domain="person"
+                                    :state="membership.status"
+                                />
+                                <StatusBadge
+                                    v-if="membership.isRevoked"
+                                    tone="danger"
+                                    label="Revoked"
+                                    dotless
+                                />
+                            </div>
                             <p
                                 v-if="!membership.hasLogin"
                                 class="text-[11px] text-muted-foreground"

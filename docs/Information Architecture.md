@@ -305,13 +305,22 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 > *Client*. Drawing it unconditionally told a team that their own assistant
 > was a client of theirs (#162).
 >
-> So a membership that **carries team access** is not described by this table
-> at all: the directory badges it with the team's own name for them — their
-> role — and S32 does not offer the lifecycle for editing, because what
-> decides a colleague's standing is their role and their access, both managed
-> on the members screen. `TeamMembership::carriesAccess()` is what asks, which
-> is the one definition of team access (§13, #142) rather than a list of role
-> keys.
+> So a membership that is a **colleague's** is not described by this table at
+> all: the directory badges it with the team's own name for them — their
+> role, one badge each, the same shape `/settings/members` and the console
+> use — and S32 does not offer the lifecycle for editing, because what decides
+> a colleague's standing is their role and their access, both managed on the
+> members screen.
+>
+> **Colleague means team access *and* not revoked.**
+> `TeamMembership::carriesAccess()` is the one definition of team access (§2's
+> note above, and issue #142) and deliberately says nothing about revocation —
+> a revoked Team Owner's membership is still an access membership, which is
+> why removing somebody revokes rather than deletes. `isColleague()` is the
+> question a **screen** asks, and the difference is not academic: badging a
+> revoked colleague as a current one, and refusing to let anybody reclassify
+> them, left somebody who had left the team unable to be recorded as the past
+> client they now are.
 >
 > The same rule governs the **Leads** and **Clients** segments of S30, both of
 > which narrow to memberships carrying no access.

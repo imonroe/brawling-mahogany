@@ -58,7 +58,13 @@ class PersonController extends Controller
     {
         $this->authorize('view', $membership);
 
-        $membership->load(['person', 'roles']);
+        /*
+         * `roles.permissions`, not just `roles`: the badge asks
+         * `isColleague()`, which walks the permissions — and without the
+         * nested load that is a lazy query per role. Found by review on #162,
+         * measured rather than argued.
+         */
+        $membership->load(['person', 'roles.permissions']);
 
         /*
          * Shaped by `ActivityFeed`, not here.

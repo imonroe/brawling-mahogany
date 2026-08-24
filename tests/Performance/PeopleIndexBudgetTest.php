@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\PersonLifecycleState;
 use App\Models\Person;
+use App\Models\TeamMembership;
 use App\Queries\PeopleDirectory;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,32 @@ function seedDirectory(int $count, string $prefix = 'person'): array
 
     app(TeamContext::class)->runFor($team, function () use ($team, $count, $prefix): void {
         $now = now();
+
+        /*
+         * **The page must always contain a role-holder**, in every fixture,
+         * or the two counts below are not comparable.
+         *
+         * Eloquent skips a nested eager load when the parent returns nothing:
+         * `with('roles.permissions')` costs two queries on a page holding a
+         * colleague and **one** on a page of pure contacts. The team's own
+         * owner and member are the only role-holders here, and their faker
+         * surnames sorted them onto page one of the 20-row fixture and
+         * usually off page one of the 500-row fixture — so the growth test
+         * compared 22 against 21 and failed about a quarter of the time.
+         * Review on #162 caught it by running the suite repeatedly rather than
+         * once.
+         *
+         * Sorting them to the front makes the composition the same on both
+         * sides, which is what the test is actually about: the same page, ten
+         * times the rows, the same number of queries. A fixture that differs
+         * in *what it holds* measures the difference in what it holds.
+         */
+        TeamMembership::query()
+            ->carryingAccess()
+            ->get()
+            ->each(fn (TeamMembership $membership) => $membership
+                ->forceFill(['last_name' => 'Aaa'.$membership->getKey()])
+                ->save());
 
         // Inserted directly: five hundred round trips through Eloquent is a
         // slow fixture, and the point of the test is the *read* path.
@@ -127,6 +154,38 @@ it('does not grow its query count with the directory', function (): void {
     $large = countQueries(fn () => $this->get('/people')->assertOk());
 
     expect($large)->toBe($small);
+});
+
+it('puts a colleague on the first page of every fixture', function (): void {
+    /*
+     * The control for the comparison above, and the reason it is a test.
+     *
+     * Eloquent skips a nested eager load when the parent returns nothing, so
+     * a page of pure contacts costs one query fewer than a page holding a
+     * colleague — and the growth test then compares two numbers that differ
+     * for a reason that has nothing to do with row count. It failed about a
+     * quarter of the time before `seedDirectory()` sorted the role-holders to
+     * the front, and a fixture whose composition drifts back would make it
+     * flaky again **silently**, since the failure looks like an N+1.
+     *
+     * So the property the comparison rests on is asserted directly, at both
+     * sizes, rather than trusted.
+     */
+    foreach ([20 => 'ctrl-small', 400 => 'ctrl-large'] as $size => $prefix) {
+        [$team, $member] = seedDirectory($size, $prefix);
+
+        $this->actingAsPerson($member, $team);
+
+        $this->get('/people')
+            ->assertOk()
+            ->assertInertia(function ($page) use ($size): void {
+                $colleagues = collect($page->toArray()['props']['people']['data'])
+                    ->filter(fn (array $row): bool => $row['isColleague'] === true);
+
+                expect($colleagues)
+                    ->not->toBeEmpty("No colleague on page one of the {$size}-row fixture.");
+            });
+    }
 });
 
 it('never puts more than a page of rows in the response', function (): void {

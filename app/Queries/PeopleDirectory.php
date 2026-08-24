@@ -146,11 +146,14 @@ final class PeopleDirectory
              * every screen drawing the badge unconditionally told a team that
              * their own assistant was a client of theirs.
              *
-             * Asked through `carriesAccess()`, which is the one definition of
-             * team access (#142) — not by counting roles and not by naming
-             * role keys.
+             * Asked through `isColleague()` — `carriesAccess()`, which is the
+             * one definition of team access (#142), **and** not revoked.
+             * Revocation ends being a colleague, and a revoked person is
+             * exactly what the lifecycle describes: somebody the team knows.
+             * Review on #162 found the first version badging a revoked
+             * colleague as a current one, with no way back.
              */
-            'carriesAccess' => $membership->carriesAccess(),
+            'isColleague' => $membership->isColleague(),
             /*
              * What the team calls them, for the badge a colleague gets
              * instead. `/settings/members` shows the same thing, so the two

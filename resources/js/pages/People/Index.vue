@@ -166,20 +166,41 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                             The lifecycle badge is for a **contact** (#162).
                             `active`'s label is *Client*, so drawing it
                             unconditionally told a team that their own
-                            assistant was a client of theirs. A colleague gets
-                            what the team actually calls them, which is the
-                            same thing `/settings/members` shows.
+                            assistant was a client of theirs.
+
+                            A colleague gets what the team calls them, in the
+                            **same shape** `/settings/members` and the console
+                            already use: one neutral badge per role, and a
+                            danger *Revoked* when their access has ended.
+                            Three screens describing a colleague three ways is
+                            how they drift, and review on #162 caught this one
+                            inventing a fourth.
                         -->
-                        <StatusBadge
-                            v-if="person.carriesAccess"
-                            tone="info"
-                            :label="person.roles.join(' · ') || 'Team'"
-                            dotless
-                        />
+                        <template v-if="person.isColleague">
+                            <StatusBadge
+                                v-for="role in person.roles"
+                                :key="role"
+                                tone="neutral"
+                                :label="role"
+                                dotless
+                            />
+                        </template>
                         <StatusBadge
                             v-else
                             domain="person"
                             :state="person.status"
+                        />
+                        <!--
+                            A revoked colleague is not a current one, and the
+                            row has to say so — they keep their roles until
+                            somebody tidies up, so the roles alone read as
+                            though they still work here.
+                        -->
+                        <StatusBadge
+                            v-if="person.isRevoked"
+                            tone="danger"
+                            label="Revoked"
+                            dotless
                         />
                     </Link>
                 </li>

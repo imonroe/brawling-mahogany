@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use App\Enums\PersonLifecycleState;
+use App\Enums\SystemRole;
 use App\Models\ActivityEvent;
 use App\Models\Person;
+use App\Models\Role;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
@@ -422,7 +424,7 @@ it('revokes rather than deletes when the person holds access', function (): void
         ]);
 
         $membership->roles()->attach(
-            App\Models\Role::query()->whereNull('team_id')->where('key', 'team_member')->sole()->getKey(),
+            Role::query()->whereNull('team_id')->where('key', 'team_member')->sole()->getKey(),
         );
     });
 
@@ -492,7 +494,7 @@ it('refuses a person without the permission', function (): void {
         ]);
 
         $membership->roles()->attach(
-            App\Models\Role::query()->whereNull('team_id')->where('key', 'contact')->sole()->getKey(),
+            Role::query()->whereNull('team_id')->where('key', 'contact')->sole()->getKey(),
         );
     });
 
@@ -558,7 +560,7 @@ it('does not call somebody on the team a client', function (): void {
             $colleague = $rows->firstWhere('email', $this->member->email);
 
             expect($colleague)->not->toBeNull()
-                ->and($colleague['carriesAccess'])->toBeTrue()
+                ->and($colleague['isColleague'])->toBeTrue()
                 ->and($colleague['roles'])->toContain('Team Member');
         });
 });
@@ -579,7 +581,7 @@ it('still calls a client a client', function (): void {
                 ->firstWhere('email', 'claire@example.test');
 
             expect($row)->not->toBeNull()
-                ->and($row['carriesAccess'])->toBeFalse()
+                ->and($row['isColleague'])->toBeFalse()
                 ->and($row['status'])->toBe('active')
                 ->and($row['roles'])->toBe([]);
         });
@@ -620,6 +622,68 @@ it('lets a colleague’s other details be edited without a lifecycle', function 
         ->and($membership->last_name)->toBe('Assistant')
         // Untouched, rather than reset by an absent field.
         ->and($membership->status)->toBe(PersonLifecycleState::Active);
+});
+
+it('lets a revoked colleague be recorded as the past client they now are', function (): void {
+    /*
+     * Found by review on #162, and the same failure family as the bug itself.
+     * `carriesAccess()` says nothing about revocation on purpose — a revoked
+     * Team Owner's membership is still an access membership, which is why
+     * `destroy()` revokes rather than deletes — so the first version of this
+     * fix badged somebody who had left as a current **Team Member** and
+     * refused every attempt to reclassify them. `destroy()` only revokes them
+     * again, so there was no way out at all.
+     *
+     * Revocation ends being a colleague. What is left is a person the team
+     * knows, which is exactly what the lifecycle describes.
+     */
+    /*
+     * A second colleague, because revoking the acting member would take away
+     * the access this test needs to read the screen with.
+     */
+    $person = Person::factory()->create();
+
+    $membership = app(TeamContext::class)->runFor($this->team, function () use ($person): TeamMembership {
+        $created = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'Gone',
+            'last_name' => 'Away',
+            'status' => PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        $created->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', SystemRole::TeamMember->value)->sole()->getKey(),
+        );
+
+        return $created;
+    });
+
+    $membership->revoke();
+
+    $this->get('/people')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('id', $membership->getKey());
+
+            expect($row['isColleague'])->toBeFalse()
+                // The roles survive until somebody tidies up, which is why the
+                // screen has to say Revoked beside them.
+                ->and($row['isRevoked'])->toBeTrue()
+                ->and($row['roles'])->toContain('Team Member');
+        });
+
+    $this->patch("/people/{$membership->getKey()}", [
+        'first_name' => $membership->first_name,
+        'last_name' => $membership->last_name,
+        'email' => $membership->email,
+        'status' => PersonLifecycleState::PastClient->value,
+    ])->assertRedirect();
+
+    expect($membership->refresh()->status)->toBe(PersonLifecycleState::PastClient);
 });
 
 it('keeps a colleague out of the Leads segment', function (): void {

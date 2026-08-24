@@ -82,8 +82,9 @@ const gate: StateTable = {
  *
  * A colleague has no honest value in it: their membership holds `active`
  * because something had to be written, and `active` reads as *Client*. A
- * screen asks `carriesAccess` first and draws the person's role instead
- * (#162); this table is what a contact gets.
+ * screen asks `isColleague` first — team access **and** not revoked — and
+ * draws the person's roles instead (issue 162); this table is what a contact
+ * gets, and a revoked colleague is one.
  */
 const person: StateTable = {
     lead: { label: 'Lead', tone: 'info', clientLabel: null },

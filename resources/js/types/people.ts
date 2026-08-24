@@ -22,8 +22,13 @@ export type PersonRow = {
      * holds `active` because something had to be written, and `active` reads
      * as *Client*. A screen draws the lifecycle badge only when this is false,
      * and the person's roles when it is true.
+     *
+     * Access **and not revoked**: revocation ends being a colleague, and what
+     * is left is a person the team knows — which is what the lifecycle is for.
+     * They keep `roles` until somebody tidies up, so `isRevoked` is what the
+     * screen says beside them.
      */
-    carriesAccess: boolean;
+    isColleague: boolean;
     /** What the team calls them, when they are on it. Empty for a contact. */
     roles: string[];
     isVendor: boolean;

@@ -64,7 +64,7 @@ function person(overrides: Partial<PersonRow> = {}): PersonRow {
         email: 'assistant@example.test',
         phone: null,
         status: 'active',
-        carriesAccess: false,
+        isColleague: false,
         roles: [],
         isVendor: false,
         hasLogin: false,
@@ -156,7 +156,7 @@ describe('a colleague in the People directory', () => {
 
     it('wears their role, not a Client badge', () => {
         const wrapper = directory([
-            person({ carriesAccess: true, roles: ['Team Member'] }),
+            person({ isColleague: true, roles: ['Team Member'] }),
         ]);
 
         const badges = wrapper
@@ -176,19 +176,59 @@ describe('a colleague in the People directory', () => {
         expect(badges).toContain('Client');
     });
 
-    it('says Team when the roles list is empty but access is real', () => {
-        // A composed role with no name should still not read as a client.
-        const badges = directory([person({ carriesAccess: true, roles: [] })])
+    it('says a revoked colleague is revoked, rather than still on the team', () => {
+        /*
+         * Found by review on #162, and the same failure family as the bug
+         * itself: `carriesAccess()` says nothing about revocation on purpose,
+         * so somebody whose access had ended was still badged **Team Member**
+         * with nothing saying otherwise. They keep their roles until somebody
+         * tidies up, so the roles alone read as though they still work here.
+         *
+         * `isColleague` is access **and** not revoked, which is why the
+         * lifecycle comes back for them — a person who has left is exactly
+         * what that vocabulary describes.
+         */
+        const badges = directory([
+            person({
+                isColleague: false,
+                isRevoked: true,
+                roles: ['Team Member'],
+                status: 'past_client',
+            }),
+        ])
             .findAll('[data-slot="status-badge"]')
             .map((badge) => badge.text());
 
-        expect(badges).toContain('Team');
-        expect(badges).not.toContain('Client');
+        expect(badges).toContain('Revoked');
+        expect(badges).toContain('Past Client');
+        expect(badges).not.toContain('Team Member');
+    });
+
+    it('badges each role separately, as the members screen does', () => {
+        /*
+         * Three screens describe a colleague, and review on #162 caught this
+         * one inventing a fourth vocabulary: one `info` pill with the roles
+         * joined by a middot, where `/settings/members` and the console draw
+         * one neutral badge per role. `lead` is also `info` (§8), so on the
+         * All tab a Lead and a colleague were the same blue.
+         */
+        const badges = directory([
+            person({
+                isColleague: true,
+                roles: ['Team Owner', 'Waives Gates'],
+            }),
+        ])
+            .findAll('[data-slot="status-badge"]')
+            .map((badge) => badge.text());
+
+        expect(badges).toContain('Team Owner');
+        expect(badges).toContain('Waives Gates');
+        expect(badges).not.toContain('Team Owner · Waives Gates');
     });
 
     it('is not offered a lifecycle in the edit form', () => {
         const colleague = dialog(
-            detail({ carriesAccess: true, roles: ['Team Member'] }),
+            detail({ isColleague: true, roles: ['Team Member'] }),
         );
 
         expect(colleague.find('#status').exists()).toBe(false);
@@ -212,7 +252,7 @@ describe('a colleague in the People directory', () => {
          * either a 422 nobody expects or a rule only the client enforces.
          */
         const colleague = dialog(
-            detail({ carriesAccess: true, roles: ['Team Member'] }),
+            detail({ isColleague: true, roles: ['Team Member'] }),
         );
 
         await colleague.find('form').trigger('submit');

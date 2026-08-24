@@ -132,10 +132,14 @@ trait PersonRules
              * it, so the only requests that hit this are a stale tab or
              * something written against the API by hand.
              *
-             * Asked through `carriesAccess()`, the one definition of team
-             * access (#142), rather than by naming role keys.
+             * Asked through `isColleague()` — team access (#142) **and** not
+             * revoked. Review on #162 found the first version refusing the
+             * field for somebody whose access had ended, so a colleague who
+             * left could never be recorded as the past client they now are,
+             * and `destroy()` only revokes them again. A dead end, in the
+             * shape of the bug this fix is for.
              */
-            'status' => $ignoring?->carriesAccess() === true
+            'status' => $ignoring?->isColleague() === true
                 ? ['prohibited']
                 : ['required', Rule::enum(PersonLifecycleState::class)],
             'notes' => ['nullable', 'string', 'max:10000'],

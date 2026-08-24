@@ -50,7 +50,7 @@ const editing = computed(() => Boolean(props.membership));
  * Settings → Members, and the server refuses a lifecycle change on this
  * membership either way.
  */
-const isColleague = computed(() => props.membership?.carriesAccess === true);
+const isColleague = computed(() => props.membership?.isColleague === true);
 
 const form = useForm({
     first_name: props.membership?.firstName ?? '',
@@ -259,13 +259,25 @@ function submit(): void {
                     <div v-else class="flex flex-col gap-1.5">
                         <Label>Status</Label>
                         <p class="text-[11px] text-muted-foreground">
-                            {{
-                                membership?.roles.join(' · ') || 'On your team'
-                            }}. A colleague is not a lead or a client — their
-                            role and their access are managed on
+                            {{ membership?.roles.join(' · ') }}. A colleague is
+                            not a lead or a client — their role and their access
+                            are managed on
                             <TextLink href="/settings/members"
                                 >Settings → Members</TextLink
                             >.
+                        </p>
+                        <!--
+                            The server refuses this field for a colleague, and
+                            until now its message had nowhere to render — so a
+                            stale tab was told nothing, which is exactly what
+                            the rule's own comment claimed it avoided. Found by
+                            review on #162.
+                        -->
+                        <p
+                            v-if="form.errors.status"
+                            class="text-[11px] text-state-danger"
+                        >
+                            {{ form.errors.status }}
                         </p>
                     </div>
                 </div>

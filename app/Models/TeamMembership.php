@@ -247,6 +247,29 @@ class TeamMembership extends Model
     }
 
     /**
+     * Somebody the team **works with now** — the question the directory asks.
+     *
+     * `carriesAccess()` says nothing about revocation on purpose, and that is
+     * right for the question it answers: a revoked Team Owner's membership is
+     * still an access membership, which is why `destroy()` revokes it rather
+     * than deleting it. It is the wrong question for a screen, though, and
+     * review on #162 proved the difference is not academic. A revoked
+     * colleague was badged **Team Member** with nothing saying otherwise, and
+     * the lifecycle rule that protects a colleague from being called a client
+     * refused to let anybody reclassify them — so somebody who had left the
+     * team could not be recorded as the past client they now are, and
+     * `destroy()` only revokes them again. A dead end, in the same shape as
+     * the bug this all started with.
+     *
+     * Revocation ends being a colleague. What is left is a person the team
+     * knows, which is exactly what the lifecycle describes.
+     */
+    public function isColleague(): bool
+    {
+        return $this->carriesAccess() && ! $this->isRevoked();
+    }
+
+    /**
      * `carriesAccess()`, asked of a query rather than of a loaded row.
      *
      * The same question in SQL, so the members screen (S74), the People
