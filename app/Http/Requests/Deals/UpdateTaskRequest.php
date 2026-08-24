@@ -36,8 +36,17 @@ class UpdateTaskRequest extends FormRequest
     {
         /** @var Deal $deal */
         $deal = $this->route('deal');
+        $task = $this->route('task');
 
-        return $this->taskRules($deal);
+        /*
+         * The incumbent assignee stays valid, however their membership has
+         * changed. See `ResolvesTaskFields::taskRules()` — a task assigned to
+         * a revoked colleague was otherwise uneditable.
+         */
+        return $this->taskRules(
+            $deal,
+            $task instanceof Task ? $task->assignee_id : null,
+        );
     }
 
     /**

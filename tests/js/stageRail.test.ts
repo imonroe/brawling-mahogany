@@ -1,6 +1,6 @@
 import { Check, Circle, Flag, Loader, Minus, ShieldAlert } from '@lucide/vue';
 import { mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { MARKER_TONE, stageMarker } from '@/components/app/stageRail';
 
@@ -597,9 +597,18 @@ describe('StageRow', () => {
 
         expect(box.exists()).toBe(true);
         expect(box.attributes('disabled')).toBeDefined();
-
-        permissions.value = ['workflow.advance', 'deals.manage'];
     });
+});
+
+/*
+ * Restored here rather than at the end of each test that narrows it. A
+ * restoring line inside the test body only runs when the test *passes* — so a
+ * failing assertion leaks the narrowed permissions into every test that
+ * follows, and what you get is one real failure followed by a page of
+ * confusing ones.
+ */
+afterEach(() => {
+    permissions.value = ['workflow.advance', 'deals.manage'];
 });
 
 function workflow(overrides: Partial<TimelineWorkflow> = {}): TimelineWorkflow {

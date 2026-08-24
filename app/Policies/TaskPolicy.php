@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Enums\TaskSource;
 use App\Models\Deal;
 use App\Models\Person;
 use App\Models\Task;
@@ -70,8 +71,26 @@ class TaskPolicy
             && $this->allows($person, Permissions::MANAGE_DEALS);
     }
 
+    /**
+     * Deleting, and the one task that takes more than `deals.manage`.
+     *
+     * PRD F4.9 makes an override **four** artefacts, and the fourth is the
+     * follow-up task that carries the deferred obligation forward — the only
+     * one of the four that lives on a screen somebody works from rather than
+     * in the audit log. An ordinary delete of that row erases the visible half
+     * of a bypass, so it asks for the permission that created it: whoever may
+     * waive a gate may drop its follow-up, and nobody else.
+     *
+     * Every other task is deal work and needs `deals.manage` alone. Raised by
+     * review on #71.
+     */
     public function delete(Person $person, Task $task): bool
     {
+        if ($task->source === TaskSource::Override) {
+            return $this->update($person, $task)
+                && $this->allows($person, Permissions::OVERRIDE_GATE);
+        }
+
         return $this->update($person, $task);
     }
 }

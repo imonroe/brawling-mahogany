@@ -24,7 +24,13 @@ trait ResolvesTaskFields
     /**
      * @return array<string, mixed>
      */
-    protected function taskRules(Deal $deal): array
+    /**
+     * @param  string|null  $keepAssignee  a person id the task already names,
+     *                                     which stays valid however their
+     *                                     membership has changed since
+     * @return array<string, mixed>
+     */
+    protected function taskRules(Deal $deal, ?string $keepAssignee = null): array
     {
         return [
             'title' => ['required', 'string', 'max:255'],
@@ -48,8 +54,25 @@ trait ResolvesTaskFields
              * `people` has no `team_id` (ADR 0002), so this is the only thing
              * standing between the column and another team's person id. See
              * `App\Queries\TaskAssignees`.
+             *
+             * **Plus whoever the task already names.** The assignable list is
+             * live colleagues (`carryingAccess()->active()`), and S27's form
+             * posts every field including the assignee it was opened with — so
+             * without this, a task assigned to somebody who has since been
+             * revoked could never be edited again: renaming it answered *"The
+             * selected assignee id is invalid"* about a field nobody touched.
+             * Found by review on #71. Keeping a value that is already on the
+             * row discloses nothing and reassigns nothing; choosing it afresh
+             * is still refused, because it is not in the list.
              */
-            'assignee_id' => ['nullable', 'string', Rule::in(app(TaskAssignees::class)->personIds())],
+            'assignee_id' => [
+                'nullable',
+                'string',
+                Rule::in(array_values(array_unique(array_filter([
+                    ...app(TaskAssignees::class)->personIds(),
+                    $keepAssignee,
+                ])))),
+            ],
 
             /*
              * Any date, including one in the past. A team catching up on a

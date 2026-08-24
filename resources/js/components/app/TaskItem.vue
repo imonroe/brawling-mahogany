@@ -93,11 +93,22 @@ defineEmits<{ 'update:completed': [value: boolean] }>();
             :tone="completed ? 'neutral' : undefined"
             class="shrink-0"
         />
+        <!--
+            Hidden below `sm`, and the reason is arithmetic rather than taste.
+            The row is one non-wrapping line: on a 360px phone the checkbox,
+            the date chip, the avatar and two 44px action buttons leave about
+            100px for the title, which truncates Emily's checklist to a dozen
+            characters. §7.3 already hides this avatar on My Work; on a phone
+            it is the least load-bearing cell here too, because the meta line
+            says when nobody owns the task and the tasks tab is scoped to one
+            deal. A fuller mobile treatment of this row belongs with S11, which
+            is the phone-first screen.
+        -->
         <PersonAvatar
             v-if="assignee"
             :person="assignee"
             :size="24"
-            class="shrink-0"
+            class="hidden shrink-0 sm:inline-flex"
         />
 
         <!--

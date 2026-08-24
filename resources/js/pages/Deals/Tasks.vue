@@ -90,6 +90,22 @@ const { can } = usePermissions();
 /** PRD §4.2 F2.2's Read Only role reads this screen and changes nothing. */
 const canManage = computed(() => can('deals.manage'));
 
+/**
+ * Who may delete this particular task.
+ *
+ * PRD F4.9's fourth artefact is the follow-up an override leaves behind, and
+ * it is the only one of the four that lives on a screen rather than in the
+ * audit log — so dropping it asks for the permission that created it.
+ * `TaskPolicy::delete()` is what decides; this hides the control rather than
+ * offering one that 403s, per §7.3.
+ */
+function canDelete(task: TaskRow): boolean {
+    return (
+        canManage.value &&
+        (task.source !== 'override' || can('workflow.override'))
+    );
+}
+
 /*
  * Open by default. A deal that has run for a month has more completed tasks
  * than open ones, and the screen is opened to answer "what is left" — a first
@@ -209,6 +225,7 @@ function editTask(task: TaskRow): void {
         description: task.description,
         stageId: task.stageId,
         assigneeId: task.assigneeId,
+        assigneeName: task.assigneeName,
         dueDate: task.dueDate,
         isRequired: task.isRequired,
     };
@@ -408,9 +425,17 @@ onMounted(() => {
                                 :label="`Edit ${task.title}`"
                                 @click="editTask(task)"
                             />
+                            <!--
+                                Hidden below `sm`: see `TaskItem`'s note on the
+                                avatar. On a phone the row's horizontal budget
+                                goes to the title and the two controls somebody
+                                actually uses there — the checkbox and Edit.
+                            -->
                             <IconButton
+                                v-if="canDelete(task)"
                                 :icon="Trash2"
                                 :label="`Delete ${task.title}`"
+                                class="hidden sm:inline-flex"
                                 @click="deleteTask(task)"
                             />
                         </template>

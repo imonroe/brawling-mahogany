@@ -111,6 +111,14 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * team has since decided is not true: a completion is already in it.
      */
     'task.added': { icon: ListPlus, tone: 'neutral' },
+    /*
+     * The other way past a blocking gate (#71, found in review). Neutral
+     * rather than `warning`: §7.3 gives `warning` to an override, and this is
+     * a team changing what it decided the obligation is rather than somebody
+     * waiving one that stands. It is on the feed at all so that the change is
+     * not silent, which is what it was.
+     */
+    'task.required_changed': { icon: ListChecks, tone: 'neutral' },
     'task.reopened': { icon: ListChecks, tone: 'neutral' },
     'task.deleted': { icon: ListX, tone: 'neutral' },
     'contact.logged': { icon: MessageSquare, tone: 'neutral' },

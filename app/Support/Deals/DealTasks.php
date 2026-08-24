@@ -100,11 +100,24 @@ final readonly class DealTasks
     /**
      * IA §7: **Edit** changes an existing record.
      *
-     * No activity event. Editing a title or a due date is housekeeping on work
-     * that is already on the record, and a feed that reported every one of
-     * them would bury the entries somebody scans the feed to find. The two
-     * things a reader does care about — that a task appeared, and that it got
-     * done — are the two this class records.
+     * Mostly no activity event. Editing a title or a due date is housekeeping
+     * on work that is already on the record, and a feed that reported every
+     * one of them would bury the entries somebody scans it to find.
+     *
+     * **`is_required` is the exception, and it is not a small one.** That flag
+     * is what a `required_tasks_complete` gate counts, so unticking it is a
+     * second way past a blocking gate — one that needs neither
+     * `workflow.override` nor a typed reason, and that a Team Member holds by
+     * default. Found by review on #71: a gate blocked, a PATCH cleared the
+     * flag, **nothing** was written anywhere, and the advance then succeeded.
+     *
+     * The answer is not to refuse the edit. A task list is the customer's to
+     * shape — PRD §7.10 makes that the whole product — and somebody who
+     * mis-flagged a task at 9am must be able to fix it at 10. What was wrong
+     * was that it happened in silence, so it is recorded: an override is in
+     * the audit log because it defers an obligation somebody else set, and
+     * this is on the deal's activity because it changes what the team decided
+     * the obligation *is*.
      *
      * @param  array<string, mixed>  $attributes
      */
@@ -131,7 +144,26 @@ final readonly class DealTasks
                 $task->stage()->associate($stage);
             }
 
+            /*
+             * Read before the save is committed but after `fill()`, so what is
+             * compared is the value that is about to be written against the
+             * one that was there. `isDirty()` is what makes this record a
+             * *change* rather than every submit of the form.
+             */
+            $waived = $task->isDirty('is_required');
+            $nowRequired = (bool) $task->is_required;
+
             $task->save();
+
+            if ($waived) {
+                $this->activity->record(
+                    subject: $deal,
+                    eventType: 'task.required_changed',
+                    summary: $nowRequired
+                        ? "Made “{$task->title}” required to advance the stage"
+                        : "Made “{$task->title}” no longer required to advance the stage",
+                );
+            }
 
             return $task;
         });

@@ -764,6 +764,15 @@ The assignee avatar is hidden on My Work, where it is always the current user.
 >   not complete the task rather than when the endpoint does not exist. The
 >   checkbox is disabled rather than dropped, because its state is the
 >   information: PRD §4.2 F2.2's Read Only role has to see what is done.
+>
+> And one departure, forced by arithmetic. The row is a single non-wrapping
+> line, so on a 360px phone the checkbox, the date chip, the avatar and two
+> 44px action buttons leave roughly 100px for the title — which truncates a
+> real checklist item to a dozen characters. **Below `sm` the assignee avatar
+> and the Delete action are hidden**, which buys the title back about 80px and
+> keeps every remaining control at §11's 44px floor. §7.3 already hides this
+> avatar on My Work; a fuller mobile treatment of the row belongs with S11,
+> which is the phone-first screen and will force the question properly.
 
 #### ActivityItem
 

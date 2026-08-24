@@ -105,7 +105,27 @@ class Task extends Model
             return TaskState::Completed;
         }
 
-        if ($this->due_date !== null && $this->due_date->isPast()) {
+        /*
+         * **Before today, not before now.**
+         *
+         * `due_date` is a `date` cast, so it lands at midnight — and
+         * `isPast()` compares against the current *instant*, which makes a
+         * task due today overdue from 00:00:01 onwards. A deadline of "today"
+         * is a deadline somebody still has the day to meet, and badging it
+         * Overdue on the morning of the day it is due is the screen telling
+         * them they are already late.
+         *
+         * Found by review on #71. `DateChip` already draws due-today in the
+         * danger tone — urgency, which is a different question from state, and
+         * §7.2 says so.
+         *
+         * The zone is the application's, not the team's. PRD §9 stores UTC and
+         * displays the team's zone, and doing that here would mean every
+         * caller of this method holding a team — which is a broader change
+         * than this line, and one worth making when S11's cross-deal queue
+         * lands and a team in Denver is reading it at 6pm.
+         */
+        if ($this->due_date !== null && $this->due_date->lt(now()->startOfDay())) {
             return TaskState::Overdue;
         }
 

@@ -18,7 +18,7 @@
  * **Deleting.** Also its own action, on the row, behind its own confirmation.
  */
 import { useForm } from '@inertiajs/vue3';
-import { watch } from 'vue';
+import { computed, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import AppTextarea from '@/components/app/AppTextarea.vue';
@@ -38,6 +38,8 @@ export type TaskFormValues = {
     description: string | null;
     stageId: string | null;
     assigneeId: string | null;
+    /** What the team calls the assignee — see `assignableTo` below. */
+    assigneeName: string | null;
     dueDate: string | null;
     isRequired: boolean;
 };
@@ -59,6 +61,32 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
+
+/**
+ * The people this task may be assigned to, plus whoever it already names.
+ *
+ * The list from the server is live colleagues only — somebody whose membership
+ * was revoked keeps the work already assigned to them and cannot be given
+ * more. But a select with no option for the value it is holding renders
+ * **blank**, which reads as Unassigned and is the opposite of the truth. So
+ * the incumbent is added back, said out loud rather than silently: the reader
+ * can leave them there or pick somebody who still works here, and the server
+ * accepts exactly those two outcomes.
+ */
+const assignableTo = computed(() => {
+    const options = [...props.assignees];
+
+    const incumbent = props.task?.assigneeId;
+
+    if (incumbent && !options.some((person) => person.id === incumbent)) {
+        options.unshift({
+            id: incumbent,
+            name: `${props.task?.assigneeName ?? 'Assigned'} — no longer on the team`,
+        });
+    }
+
+    return options;
+});
 
 const form = useForm({
     title: '',
@@ -177,7 +205,7 @@ function submit(): void {
                         >
                             <option value="">Unassigned</option>
                             <option
-                                v-for="person in assignees"
+                                v-for="person in assignableTo"
                                 :key="person.id"
                                 :value="person.id"
                             >
@@ -256,11 +284,21 @@ function submit(): void {
                         keeps for the case where the condition should have been
                         met and was not.
                     -->
+                    <!--
+                        The consequence, stated accurately. An earlier draft
+                        said getting past it "takes an override, which is
+                        written to the audit log" — and unticking this box is
+                        the other way past, which review on #71 pointed out is
+                        exactly the sentence being wrong. Both routes are on
+                        the record now, in different places, and the copy says
+                        which.
+                    -->
                     <p class="text-[11px] text-muted-foreground">
                         A required task blocks the stage’s
                         <strong>requirement to advance</strong> until it is
-                        complete. Getting past it without doing it takes an
-                        override, which is written to the audit log.
+                        complete. Changing this is recorded on the deal’s
+                        activity; waiving the requirement without doing the work
+                        is an override, which is written to the audit log.
                     </p>
                     <p
                         v-if="form.errors.is_required"

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Deals;
 
+use App\Enums\TaskState;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Deals\StoreTaskRequest;
 use App\Http\Requests\Deals\UpdateTaskRequest;
@@ -354,8 +355,14 @@ class TaskController extends Controller
              * says the same thing, and a count that disagreed with the badges
              * under it would be the screen arguing with itself.
              */
+            /*
+             * Asked of `Task::state()` rather than re-derived, so the number
+             * and the badges under it cannot disagree — the first version
+             * spelled out `due_date->isPast()` here, which counted a task due
+             * *today* as overdue while the row beside it said Open.
+             */
             'overdue' => $open->filter(
-                fn (Task $task): bool => $task->due_date !== null && $task->due_date->isPast(),
+                fn (Task $task): bool => $task->state() === TaskState::Overdue,
             )->count(),
             'unassigned' => $open->filter(
                 fn (Task $task): bool => $task->assignee_id === null,

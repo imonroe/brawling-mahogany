@@ -128,6 +128,40 @@ function readOnlyMember(Team $team): Person
     return $person;
 }
 
+/** Somebody who may run deals *and* waive a gate — F4.9's permission. */
+function memberWhoMayOverride(Team $team): Person
+{
+    $person = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($team, function () use ($team, $person): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'May',
+            'last_name' => 'Override',
+            'status' => PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::query()->create([
+            'team_id' => $team->getKey(),
+            'key' => 'waives_gates',
+            'name' => 'Waives Gates',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()
+                ->whereIn('key', ['deals.view', 'deals.manage', 'workflow.override'])
+                ->pluck('id')
+                ->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    return $person;
+}
+
 /** Another colleague, so assignment has somebody to name. */
 function colleague(string $first, string $last): TeamMembership
 {
@@ -254,6 +288,29 @@ it('derives overdue rather than storing it', function (): void {
             ->where('groups.0.tasks.0.state', 'overdue')
             ->where('groups.0.tasks.1.state', 'open')
             ->where('groups.0.tasks.2.state', 'completed'));
+});
+
+it('does not call a task due today overdue', function (): void {
+    /*
+     * `due_date` is a `date` cast, so it lands at midnight and `isPast()` made
+     * a task due today overdue from 00:00:01 — the screen telling somebody
+     * they are late on the morning of the day it is due. Found by review on
+     * #71. `DateChip` still draws it in the danger tone, which is urgency and
+     * a different question from state (§7.2).
+     */
+    [$deal, , $stages] = taskDeal(1);
+
+    taskOn($deal, $stages[0], ['title' => 'Due today', 'due_date' => now()]);
+    taskOn($deal, $stages[0], ['title' => 'Due yesterday', 'due_date' => now()->subDay()]);
+
+    $this->get("/deals/{$deal->getKey()}/tasks")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('counts.overdue', 1)
+            ->where('groups.0.tasks.0.title', 'Due yesterday')
+            ->where('groups.0.tasks.0.state', 'overdue')
+            ->where('groups.0.tasks.1.title', 'Due today')
+            ->where('groups.0.tasks.1.state', 'open'));
 });
 
 it('counts what is unassigned, and names who is assigned', function (): void {
@@ -446,6 +503,119 @@ it('still lets S27 clear the flag, because the form sends it as false', function
     expect($task->refresh()->is_required)->toBeFalse();
 });
 
+it('still edits a task whose assignee has since been revoked', function (): void {
+    /*
+     * The assignable list is live colleagues, and S27's form posts the
+     * assignee it was opened with — so without keeping the incumbent valid,
+     * renaming this task answered "The selected assignee id is invalid" about
+     * a field nobody touched, forever. Found by review on #71.
+     */
+    [$deal, , $stages] = taskDeal(1);
+
+    $gone = colleague('Gone', 'Away');
+    $task = taskOn($deal, $stages[0], [
+        'title' => 'Order the sign',
+        'assignee_id' => $gone->person_id,
+    ]);
+
+    $gone->revoke();
+
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Order the sign and the rider',
+        'assignee_id' => $gone->person_id,
+    ])->assertRedirect("/deals/{$deal->getKey()}/tasks");
+
+    $task->refresh();
+
+    expect($task->title)->toBe('Order the sign and the rider')
+        // Kept, not quietly unassigned: the work is still owed by whoever it
+        // was owed by.
+        ->and($task->assignee_id)->toBe($gone->person_id);
+
+    // Assigning somebody revoked *afresh* is still refused — the rule widens
+    // to what the row already holds, and to nothing else.
+    $other = taskOn($deal, $stages[0], ['title' => 'Book the photographer']);
+
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$other->getKey()}", [
+        'title' => 'Book the photographer',
+        'assignee_id' => $gone->person_id,
+    ])->assertSessionHasErrors('assignee_id');
+});
+
+it('records it on the deal when somebody makes a task no longer required', function (): void {
+    /*
+     * The second way past a blocking gate, and the one that needed neither
+     * `workflow.override` nor a reason. Review on #71 proved it wrote nothing
+     * anywhere: the gate blocked, a PATCH cleared the flag, and the advance
+     * then succeeded in silence. The edit is still allowed — a task list is
+     * the customer's to shape — but it is on the record.
+     */
+    [$deal, , $stages] = taskDeal(1);
+
+    $task = taskOn($deal, $stages[0], [
+        'title' => 'Sign the listing agreement',
+        'is_required' => true,
+    ]);
+
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Sign the listing agreement',
+        'is_required' => false,
+    ])->assertRedirect("/deals/{$deal->getKey()}/tasks");
+
+    $event = ActivityEvent::query()->where('event_type', 'task.required_changed')->sole();
+
+    expect($event->summary)->toContain('no longer required')
+        ->and($event->deal_id)->toBe($deal->getKey());
+
+    // The other direction reads as itself rather than as the same sentence.
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Sign the listing agreement',
+        'is_required' => true,
+    ]);
+
+    expect(ActivityEvent::query()->where('event_type', 'task.required_changed')->count())->toBe(2);
+
+    // An edit that leaves the flag alone says nothing, or the feed fills up
+    // with every save of the form.
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Sign the listing agreement today',
+        'is_required' => true,
+    ]);
+
+    expect(ActivityEvent::query()->where('event_type', 'task.required_changed')->count())->toBe(2);
+});
+
+it('keeps an override’s follow-up task from being deleted by somebody who could not have waived the gate', function (): void {
+    /*
+     * PRD F4.9 makes an override four artefacts, and the follow-up is the only
+     * one that lives on a screen rather than in the audit log. A Team Member
+     * holds `deals.manage` and not `workflow.override`, so before this they
+     * could erase the visible half of a bypass they could not have performed.
+     */
+    [$deal, , $stages] = taskDeal(1);
+
+    $followUp = taskOn($deal, $stages[0], [
+        'title' => 'Chase the survey that was waived',
+        'source' => TaskSource::Override,
+    ]);
+    $ordinary = taskOn($deal, $stages[0], ['title' => 'Order the sign']);
+
+    // The control: an ordinary task on the same deal, by the same person.
+    $this->delete("/deals/{$deal->getKey()}/tasks/{$ordinary->getKey()}")->assertRedirect();
+
+    $this->delete("/deals/{$deal->getKey()}/tasks/{$followUp->getKey()}")->assertForbidden();
+
+    expect($followUp->refresh()->trashed())->toBeFalse();
+
+    // And the other half, or this only proves that deleting is hard: somebody
+    // who *could* have waived the gate may drop what it left behind.
+    $this->actingAsPerson(memberWhoMayOverride($this->team), $this->team);
+
+    $this->delete("/deals/{$deal->getKey()}/tasks/{$followUp->getKey()}")->assertRedirect();
+
+    expect($followUp->refresh()->trashed())->toBeTrue();
+});
+
 it('deletes a task softly, so PRD §9’s window covers a mistake', function (): void {
     [$deal, , $stages] = taskDeal(1);
 
@@ -585,11 +755,48 @@ it('lets somebody who may only read a deal read the checklist', function (): voi
     // the checklist and cannot tick it.
     $this->get("/deals/{$deal->getKey()}/tasks")->assertOk();
 
+    /*
+     * Every route that writes, not the three that were easiest to type. A
+     * permission test that covers most of a surface is a permission test that
+     * says the surface is covered.
+     */
     $this->post("/deals/{$deal->getKey()}/tasks/{$task->getKey()}/completion")->assertForbidden();
+    $this->delete("/deals/{$deal->getKey()}/tasks/{$task->getKey()}/completion")->assertForbidden();
     $this->post("/deals/{$deal->getKey()}/tasks", ['title' => 'Mine now'])->assertForbidden();
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", ['title' => 'Renamed'])
+        ->assertForbidden();
     $this->delete("/deals/{$deal->getKey()}/tasks/{$task->getKey()}")->assertForbidden();
 
-    expect($task->refresh()->isComplete())->toBeFalse();
+    $task->refresh();
+
+    expect($task->isComplete())->toBeFalse()
+        ->and($task->title)->toBe('Order the sign')
+        ->and($task->trashed())->toBeFalse();
+});
+
+it('renders every task it counts', function (): void {
+    /*
+     * The chips count `$deal->tasks` and the rows walk `$stage->tasks` plus
+     * the unstaged remainder — two collections, one number. They agree only
+     * because `ResolvesTaskFields` guarantees a task's stage belongs to its
+     * own deal, which is an invariant held somewhere else entirely. This is
+     * the test that fails if it ever stops being true.
+     */
+    [$deal, , $stages] = taskDeal(3);
+
+    taskOn($deal, $stages[0], ['title' => 'One']);
+    taskOn($deal, $stages[2], ['title' => 'Two', 'completed_at' => now()]);
+    taskOn($deal, null, ['title' => 'Three']);
+
+    $this->get("/deals/{$deal->getKey()}/tasks")
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $props = $page->toArray()['props'];
+
+            $rendered = collect($props['groups'])->sum(fn (array $group): int => count($group['tasks']));
+
+            expect($rendered)->toBe($props['counts']['all'])->toBe(3);
+        });
 });
 
 /* -------------------------------------------------------------------------

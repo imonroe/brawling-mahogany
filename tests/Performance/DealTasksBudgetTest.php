@@ -41,11 +41,11 @@ use Illuminate\Support\Facades\DB;
  * counted closure measures the seed, which is what #61's first version of this
  * did.
  */
-function tasksBudgetFixture(int $size): array
+function tasksBudgetFixture(int $size, bool $withTasks = true): array
 {
     [$team, $member] = test()->teamWithMember();
 
-    $deal = app(TeamContext::class)->runFor($team, function () use ($team, $size): Deal {
+    $deal = app(TeamContext::class)->runFor($team, function () use ($team, $size, $withTasks): Deal {
         $type = DealType::factory()->create(['team_id' => $team->getKey()]);
 
         $deal = Deal::factory()->create([
@@ -99,7 +99,7 @@ function tasksBudgetFixture(int $size): array
 
                 $active ??= $stage;
 
-                for ($t = 0; $t < $size; $t++) {
+                for ($t = 0; $withTasks && $t < $size; $t++) {
                     $assignee = $colleagues[$t % $colleagues->count()];
                     $completer = $colleagues[($t + 1) % $colleagues->count()];
 
@@ -127,17 +127,21 @@ function tasksBudgetFixture(int $size): array
         }
 
         // One that belongs to no stage, so the unstaged group is measured too.
-        Task::factory()->create([
-            'team_id' => $team->getKey(),
-            'deal_id' => $deal->getKey(),
-            'stage_id' => null,
-            'title' => 'Chase the survey',
-        ]);
+        if ($withTasks) {
+            Task::factory()->create([
+                'team_id' => $team->getKey(),
+                'deal_id' => $deal->getKey(),
+                'stage_id' => null,
+                'title' => 'Chase the survey',
+            ]);
+        }
 
         return $deal;
     });
 
-    return [$team, $member, "/deals/{$deal->getKey()}/tasks"];
+    // The deal travels with it, so a test that wants to assert *about the
+    // fixture* does not have to take a URL apart to find it.
+    return [$team, $member, "/deals/{$deal->getKey()}/tasks", $deal];
 }
 
 function countDealTaskQueries(Closure $callback): int
@@ -177,15 +181,18 @@ it('does not grow its query count with the tasks, stages or people on a deal', f
  * The deal header carries an open-task count on **every** deal tab, and every
  * one of those tabs loads a different set of relations — so the count either
  * reads a loaded relation or pays a `loadCount`, and which of the two happens
- * depends on the screen. A growth test on the tasks tab alone would never
- * exercise the second branch, because the tasks tab always has the relation.
+ * depends on the screen. The growth test above never exercises the second
+ * branch, because the tasks tab always has the relation loaded.
  *
- * Two same-sized fixtures differing only in whether the deal has tasks at all,
- * measured through a tab that does **not** load them.
+ * **Two fixtures of the same size, differing only in whether the deal has any
+ * tasks**, measured through a tab that does not load them. The first version
+ * of this built sizes 1 and 5 — both populated — and called them `$empty` and
+ * `$full`, which is the shape of test that cannot fail for the reason its own
+ * docblock gives. Review on #71 caught it.
  */
-it('costs the same on a tab that does not load tasks, however many there are', function (): void {
-    [$emptyTeam, $emptyMember, $emptyUrl] = tasksBudgetFixture(1);
-    [$fullTeam, $fullMember, $fullUrl] = tasksBudgetFixture(5);
+it('costs the same on a tab that does not load tasks, with tasks or without', function (): void {
+    [$emptyTeam, $emptyMember, $emptyUrl] = tasksBudgetFixture(3, withTasks: false);
+    [$fullTeam, $fullMember, $fullUrl] = tasksBudgetFixture(3, withTasks: true);
 
     $empty = countDealTaskQueries(function () use ($emptyMember, $emptyTeam, $emptyUrl): void {
         $this->actingAsPerson($emptyMember, $emptyTeam);
@@ -198,4 +205,24 @@ it('costs the same on a tab that does not load tasks, however many there are', f
     });
 
     expect($full)->toBe($empty);
+});
+
+/**
+ * And the control that makes the pair above mean something: the deal with no
+ * tasks really is empty, and the one with tasks really is not.
+ *
+ * Without this, both fixtures could quietly seed nothing — which is exactly
+ * how the first version passed.
+ */
+it('builds one fixture with tasks and one without', function (): void {
+    [$emptyTeam, , , $emptyDeal] = tasksBudgetFixture(3, withTasks: false);
+    [$fullTeam, , , $fullDeal] = tasksBudgetFixture(3, withTasks: true);
+
+    $countFor = fn ($team, Deal $deal): int => app(TeamContext::class)->runFor(
+        $team,
+        fn (): int => Task::query()->where('deal_id', $deal->getKey())->count(),
+    );
+
+    expect($countFor($emptyTeam, $emptyDeal))->toBe(0)
+        ->and($countFor($fullTeam, $fullDeal))->toBeGreaterThan(20);
 });
