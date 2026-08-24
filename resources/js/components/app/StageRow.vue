@@ -72,9 +72,22 @@ const props = defineProps<{
 const emit = defineEmits<{
     toggle: [];
     advance: [];
+    /** A task on this stage was ticked, or unticked (S17, #71). */
+    complete: [taskId: string, completed: boolean];
 }>();
 
 const { can } = usePermissions();
+
+/**
+ * Whether the checklist in the expanded card is live.
+ *
+ * The same permission S17's own screen asks for, asked here rather than passed
+ * down: `usePermissions()` reads the shared page props, so a prop threaded
+ * through the page and the rail would be a second answer to a question the
+ * component can ask directly — and the two would disagree the first time
+ * somebody forgot to pass it.
+ */
+const canManageTasks = computed(() => can('deals.manage'));
 
 /**
  * What the rail's *geometry* says, for a reader who cannot see it.
@@ -395,6 +408,21 @@ const footerLine = computed(() => {
                                 No tasks on this stage.
                             </p>
 
+                            <!--
+                                Live since S17 (#71) gave completion an
+                                endpoint. Before that this row was deliberately
+                                inert — a checkbox wired to nothing is the
+                                *"checkbox that selects into nothing"* S13
+                                refused to ship — and what keeps it inert now
+                                is the reader's permission rather than a
+                                missing route: PRD §4.2 F2.2's Read Only role
+                                reads the checklist and does not tick it.
+
+                                The rail stays a **read** screen in the sense
+                                that matters: this posts to the task, not to
+                                the workflow. `AdvanceWorkflow` is still
+                                reached from one place.
+                            -->
                             <TaskItem
                                 v-for="task in stage.tasks.items"
                                 :key="task.id"
@@ -402,7 +430,10 @@ const footerLine = computed(() => {
                                 :completed="task.state === 'completed'"
                                 :due-date="task.dueDate"
                                 :meta="task.isRequired ? 'Required' : null"
-                                readonly
+                                :readonly="!canManageTasks"
+                                @update:completed="
+                                    emit('complete', task.id, $event)
+                                "
                             />
                         </div>
 

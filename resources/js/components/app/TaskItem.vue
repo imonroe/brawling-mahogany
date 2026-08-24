@@ -17,13 +17,15 @@ const props = defineProps<{
     dueDate?: string | number | Date | null;
     assignee?: (NameParts & { name?: string | null }) | null;
     /**
-     * Show the state without offering to change it (S16).
+     * Show the state without offering to change it.
      *
-     * The stage rail lists a stage's tasks so the reader can see what is owed,
-     * and completing one is S17's endpoint, which does not exist yet. A
-     * checkbox wired to nothing is the *"checkbox that selects into nothing"*
-     * S13 refused to ship: it invites a click, does nothing, and teaches the
-     * reader the screen is broken.
+     * S16 shipped this because completing a task was S17's endpoint and S17
+     * did not exist — a checkbox wired to nothing is the *"checkbox that
+     * selects into nothing"* S13 refused to ship. The endpoint exists now
+     * (#71), so what this carries is the other half of the same rule:
+     * **somebody without `deals.manage` may read the checklist and not tick
+     * it** (PRD §4.2 F2.2's Read Only role), and the client status page will
+     * render tasks it must never be able to complete.
      *
      * Disabled rather than replaced by an icon, so the row keeps one anatomy
      * and the tick still means what it means everywhere else.
@@ -58,7 +60,9 @@ defineEmits<{ 'update:completed': [value: boolean] }>();
             :aria-label="
                 readonly
                     ? `${title}: ${completed ? 'complete' : 'not complete'}`
-                    : `Complete ${title}`
+                    : completed
+                      ? `Reopen ${title}`
+                      : `Complete ${title}`
             "
             @change="
                 $emit(
@@ -95,5 +99,14 @@ defineEmits<{ 'update:completed': [value: boolean] }>();
             :size="24"
             class="shrink-0"
         />
+
+        <!--
+            Row actions, after the avatar (S17). A slot rather than props,
+            because §7.3 fixes this row's four cells and Edit/Delete are not a
+            fifth one — they are what the screen that owns the row wants to
+            hang on it. The stage rail passes nothing and keeps §7.3's anatomy
+            exactly.
+        -->
+        <slot name="actions" />
     </div>
 </template>

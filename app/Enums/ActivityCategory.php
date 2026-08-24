@@ -11,9 +11,10 @@ use App\Enums\Concerns\ProvidesOptions;
  *
  * A filter over `event_type`, grouped by its prefix. Event types are open —
  * every slice adds a few — so the filter groups by the half before the dot
- * rather than listing the twenty-odd values, which means a new
- * `task.completed` in Slice 3 lands in the right group without this file
- * changing.
+ * rather than listing the twenty-odd values — so a new `stage.reopened` lands
+ * in the right group without this file changing. A new *prefix* does not:
+ * `task` had to be added here when S17 (#71) started emitting `task.completed`,
+ * because a prefix no category claims is what the test below fails on.
  *
  * `tests/Unit/ActivityCategoryTest.php` reads every `eventType:` literal in
  * `app/` and fails when one carries a prefix no category claims — because a
@@ -57,9 +58,16 @@ enum ActivityCategory: string implements HasLabel
             self::All => [],
             self::ContactLog => ['contact'],
             // A workflow, its stages, the gates on them, the moments they
-            // announce, and who is on the deal are all one story to somebody
-            // scanning a feed.
-            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant'],
+            // announce, the tasks under them, and who is on the deal are all
+            // one story to somebody scanning a feed.
+            //
+            // `task` was added with S17 (#71), and the docblock above used to
+            // claim a new `task.completed` would *"land in the right group
+            // without this file changing"*. It would not have: grouping by
+            // prefix only helps once the prefix is claimed, and an unclaimed
+            // one fails `ActivityCategoryTest` — which is the test working,
+            // and the comment having promised something it could not do.
+            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task'],
             self::People => ['person'],
             self::Properties => ['property'],
         };
@@ -86,7 +94,7 @@ enum ActivityCategory: string implements HasLabel
         return match ($this) {
             self::All => 'Nothing has happened yet. Every advance, every logged call, and every person added shows up here.',
             self::ContactLog => 'No contact logged yet. Log a call, a text, or a showing and it appears here.',
-            self::Deals => 'Nothing on a deal yet. Advancing a stage or adding a participant shows up here.',
+            self::Deals => 'Nothing on a deal yet. Advancing a stage, completing a task, or adding a participant shows up here.',
             self::People => 'Nobody added yet. Adding or importing a person shows up here.',
             self::Properties => 'No property activity yet. Adding a property or linking one to a deal shows up here.',
         };

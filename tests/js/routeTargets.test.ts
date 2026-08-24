@@ -1,11 +1,11 @@
 /**
  * No screen links to a route that does not exist.
  *
- * S15's `linkFor()` mapped an unmet tasks gate to `/deals/{deal}/tasks` — S17
- * is unbuilt, there is no such route, and `DealHeader` already draws that tab
+ * S15's `linkFor()` mapped an unmet tasks gate to `/deals/{deal}/tasks` when
+ * S17 was unbuilt, there was no such route, and `DealHeader` drew that tab
  * inert for exactly that reason. So the hub rendered "Go and clear it" over a
  * 404, three lines under its own comment saying a dead link is worse than a
- * sentence.
+ * sentence. (S17 shipped in #71; the list below is what moved.)
  *
  * Held by reading the source rather than by a mount, for the reason
  * `boundControls.test.ts` gives: the mistake is not in one component's
@@ -38,9 +38,15 @@ import { describe, expect, it } from 'vitest';
 /**
  * Segments under `/deals/{deal}/…` whose screens have not been built.
  *
- * `timeline` left this list when S16 landed (#76) — it is a route now, and a
- * link to it is a link. The list shrinks one entry per slice; what it protects
- * is the ones still unbuilt.
+ * `timeline` left this list when S16 landed (#76), and `tasks` when S17 did
+ * (#71) — both are routes now, and a link to one is a link. The list shrinks
+ * one entry per slice; what it protects is the ones still unbuilt.
+ *
+ * `tasks` leaving is the case the test was written for: PRD §5.4 asks that
+ * *"each unmet gate links directly to the thing that clears it"*, and
+ * `required_tasks_complete` is the gate a deal meets most often. The link
+ * could not be written until the screen existed, and the day it did, this line
+ * is what had to change for it to be written.
  *
  * `DealHeader` names the rest, as `segment: 'tasks'` and friends — bare, with
  * no leading slash, because it draws them inert rather than linking them. The
@@ -52,7 +58,7 @@ import { describe, expect, it } from 'vitest';
  * this because the test failed on an import, that is the pattern being blunt
  * rather than your code being wrong — narrow the pattern, do not delete it.
  */
-const UNBUILT_DEAL_TABS = ['tasks', 'dates', 'documents', 'offers'];
+const UNBUILT_DEAL_TABS = ['dates', 'documents', 'offers'];
 
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
@@ -133,8 +139,8 @@ describe('route targets', () => {
      */
     it('recognises a dead link however it was assembled', () => {
         const dead = [
-            'return `${dealUrl.value}/tasks`;',
-            "return dealUrl.value + '/tasks';",
+            'return `${dealUrl.value}/dates`;',
+            "return dealUrl.value + '/dates';",
             "return '/deals/' + deal.id + '/offers';",
             'return `/deals/${deal.id}/dates?filter=all`;',
             'const u = dealUrl.value; return u + "/documents";',
@@ -146,10 +152,12 @@ describe('route targets', () => {
 
         const fine = [
             "const label = 'Dates';",
-            "{ segment: 'tasks', arrivesWith: 'S17' }",
+            "{ segment: 'dates', arrivesWith: 'S18' }",
             "router.visit('/dates-and-deadlines');",
             "fetch('/deals/1/documentsUpload');",
-            '// the deal has no /tasks route yet',
+            '// the deal has no /dates route yet',
+            // Built, so a link to it is a link rather than an offence.
+            'return `${dealUrl}/tasks`;',
         ];
 
         for (const source of fine) {

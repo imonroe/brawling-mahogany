@@ -8,6 +8,7 @@ use App\Models\Deal;
 use App\Models\DealParticipant;
 use App\Models\DealProperty;
 use App\Models\Stage;
+use App\Models\Task;
 use App\Models\Workflow;
 use App\Queries\PropertyDirectory;
 
@@ -64,9 +65,39 @@ final class DealHeader
             'counts' => [
                 'people' => $deal->participants->count(),
                 'properties' => $deal->propertyLinks->count(),
+                'tasks' => self::openTasks($deal),
             ],
             'advance' => self::advanceTarget($deal),
         ];
+    }
+
+    /**
+     * The number on the Tasks tab: what is still **open** (#71).
+     *
+     * The one count in this payload that is not a total, and the difference is
+     * deliberate. People and Properties count what the deal *has*; a checklist
+     * counts what is left, because Emily's listing pack seeds eighty tasks and
+     * a tab reading `80` on a deal where all eighty are done says the opposite
+     * of what happened. It is the same argument §7.4 makes for the stage rail's
+     * counts — the number has to mean what a reader will assume it means.
+     *
+     * Counted from the relation when a screen has already loaded it, and with
+     * a constrained `loadCount` otherwise: one query, whatever the deal holds.
+     * The tabs that do load it (S17) pay nothing for this.
+     */
+    private static function openTasks(Deal $deal): int
+    {
+        if ($deal->relationLoaded('tasks')) {
+            return $deal->tasks->filter(
+                fn (Task $task): bool => ! $task->isComplete(),
+            )->count();
+        }
+
+        $deal->loadCount([
+            'tasks as open_tasks_count' => fn ($query) => $query->whereNull('completed_at'),
+        ]);
+
+        return (int) $deal->getAttribute('open_tasks_count');
     }
 
     /**

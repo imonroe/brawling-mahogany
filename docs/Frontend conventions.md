@@ -48,13 +48,16 @@ chrome by accident:
 | `Admin/*` | `AdminLayout` — visually distinct, so the two are never confused |
 | `Status/*` | none; the page composes `ClientLayout` itself with the team's branding |
 | `System/*` | none; system pages carry their own frame and render for signed-out people |
-| `Deals/Overview`, `Deals/People`, `Deals/Properties` | `AppLayout` + `DealLayout` |
+| `Deals/Overview`, `Deals/Timeline`, `Deals/Tasks`, `Deals/People`, `Deals/Properties` | `AppLayout` + `DealLayout` |
 | everything else | `AppLayout` |
 
 The deal row is a **list of page names, not a prefix**: `Deals/Index` is the
 list of deals and `Deals/Create` is the wizard, and neither is *inside* a deal.
-The list lives in `DEAL_TAB_PAGES` in `app.ts`; adding S16–S22 means adding a
-name there and a tab in `components/app/DealHeader.vue`.
+The list lives in `DEAL_TAB_PAGES` in `app.ts`; adding S18–S22 means adding a
+name there and a tab in `components/app/DealHeader.vue`. A tab whose slice has
+not landed is drawn **inert** rather than omitted, so the shape of a deal is
+honest and nothing offers a route that 404s —
+`tests/js/routeTargets.test.ts` is what stops a link being written to one.
 
 `DealLayout` owns the Design System §8.4 header, the tab row, and the answer to
 an Advance pressed from any of them. It reads a `dealHeader` prop, which every

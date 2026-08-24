@@ -24,11 +24,15 @@
 import {
     Activity,
     ArrowRight,
+    CircleCheck,
     Flag,
     House,
     Import,
     Link2,
     Link2Off,
+    ListChecks,
+    ListPlus,
+    ListX,
     Mail,
     MessageSquare,
     PenLine,
@@ -74,6 +78,12 @@ const CONTACT_ICONS: Record<string, LucideIcon> = {
 const EVENT_TYPES: Record<string, ActivityDescriptor> = {
     // Completions.
     'stage.advanced': { icon: ArrowRight, tone: 'success' },
+    /*
+     * A completed task is a completion, so §7.3's rule gives it `success` —
+     * the same tone as an advance, which is right: on a checklist-driven deal
+     * these are the entries that say work got done.
+     */
+    'task.completed': { icon: CircleCheck, tone: 'success' },
     'milestone.reached': { icon: Flag, tone: 'success' },
     'workflow.completed': { icon: Flag, tone: 'success' },
 
@@ -92,6 +102,17 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
 
     // The rest, neutral by Design System §7.3's own rule.
     'workflow.started': { icon: Activity, tone: 'neutral' },
+    /*
+     * The other three halves of a task's life (S17, #71). Neutral by §7.3's
+     * own rule — only a completion, a message the product sent, and an
+     * override are tinted.
+     *
+     * `task.reopened` exists so the feed cannot go on asserting something the
+     * team has since decided is not true: a completion is already in it.
+     */
+    'task.added': { icon: ListPlus, tone: 'neutral' },
+    'task.reopened': { icon: ListChecks, tone: 'neutral' },
+    'task.deleted': { icon: ListX, tone: 'neutral' },
     'contact.logged': { icon: MessageSquare, tone: 'neutral' },
     'person.added': { icon: UserPlus, tone: 'neutral' },
     'person.imported': { icon: Import, tone: 'neutral' },

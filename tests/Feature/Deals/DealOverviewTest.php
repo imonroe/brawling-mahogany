@@ -785,7 +785,13 @@ it('gives the people and properties tabs the same header the overview has', func
     // could get wrong.
     expect($header($overview)['clientName'])->toBe('Emily Bosart')
         ->and($header($overview)['location']['city'])->toBe('Indianapolis')
-        ->and($header($overview)['counts'])->toBe(['people' => 1, 'properties' => 1]);
+        // `tasks` counts what is **open**, not what the deal holds (#71) — the
+        // one count in this payload that is not a total.
+        ->and($header($overview)['counts'])->toBe([
+            'people' => 1,
+            'properties' => 1,
+            'tasks' => 0,
+        ]);
 
     expect($header($people))->toBe($header($overview))
         ->and($header($properties))->toBe($header($overview));

@@ -21,6 +21,7 @@ const appName = import.meta.env.VITE_APP_NAME || 'Brawling Mahogany';
 const DEAL_TAB_PAGES = [
     'Deals/Overview',
     'Deals/Timeline',
+    'Deals/Tasks',
     'Deals/People',
     'Deals/Properties',
 ];

@@ -20,11 +20,14 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 
 **Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), the create-deal wizard with attach-workflow (S14, S28), **the deal overview (S15)** — which brought with it the deal chrome every tab now wears and the first HTTP route in front of `AdvanceWorkflow` — the team activity feed with the two-click contact log (S12, S26), **the advance and override modals (S23, S24)**, which gave the engine a way past a gate that cannot clear on its own, and **the deals index (S13)** — the screen that finally rendered
 `DealRow` outside the gallery, and where Design System §4.3's twenty-row density
-claim was confirmed by measurement rather than estimate — and **the deal timeline
+claim was confirmed by measurement rather than estimate — **the deal timeline
 (S16)**, the stage rail Screen Inventory calls *"the one interaction with no
 obvious precedent to copy"*, which is where the difference between a state and a
-presentation of one had to be settled. Its remaining screens — tasks, offers, and
-the templates UI — are still open under epic #3.
+presentation of one had to be settled — and **tasks (S17, S27)**, the feature
+both practitioners named independently as the thing their tools lack, and the
+screen that gave `required_tasks_complete` a way to clear that is not an
+override. Its remaining screens — offers, the dashboard, My Work, and the
+templates UI — are still open under epic #3.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -254,6 +257,33 @@ These come from PRD §8 and should guide the eventual build:
   IA §7 calls conflating **Override** with **Skip** legally material, and
   F4.12's skip is still #70's work. Nothing here writes
   `stages.skipped_reason`.
+
+- **A row nothing can reach is a rule nobody is following.** The engine
+  instantiated tasks from `task_templates` for two slices, the
+  `required_tasks_complete` evaluator counted them, and no route, controller or
+  page touched a task. So the only way past that gate was an **override** — the
+  act IA §7 reserves for *"the condition should have been met and was not"*,
+  with an audit entry and a follow-up task each time. The routine path through
+  a gate was the audited exception, and nothing failed: every test passed,
+  because each half worked.
+
+  S17 (#71) closed it, and the shape generalises past tasks. When a gate type,
+  a state or a flag has exactly one way to be satisfied, check that the way is
+  the one somebody would actually take. `DocumentPresentEvaluator` is the next
+  one (#104), and `ApprovalEvaluator` after it.
+
+- **Completing is not editing, and the routes say so.** `POST` and `DELETE` on
+  `deals/{deal}/tasks/{task}/completion`, beside the `PATCH` that edits the
+  task. A boolean inside the edit would make *"I fixed a typo in the title"*
+  and *"the work is done"* the same request — and only one of them writes an
+  activity event, is counted by a gate, and is done fifty times a deal from a
+  checkbox rather than a form. `App\Support\Deals\DealTasks` owns the table
+  for the reason `DealRoster` and `PropertyDeals` own theirs: a controller that
+  wrote `completed_at` and forgot the event would look like it worked.
+
+  **Completion is idempotent, and that is about the event rather than the
+  column.** Writing `completed_at` twice changes nothing; recording the work
+  twice reports it twice and attributes it to whoever was second.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by

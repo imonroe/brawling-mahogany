@@ -626,7 +626,7 @@ Everything in this section is measured from the built designs. Tailwind classes 
 |---|---|---|
 | `StatusBadge` | `components/app/` | **Built in design** |
 | `DealRow` | `components/app/` | **Built in design** |
-| `TaskItem` | `components/app/` | **Built in design** |
+| `TaskItem` | `components/app/` | **Built in code** (S16, S17), with an `actions` slot for the row controls a screen hangs on it |
 | `ActivityItem` | `components/app/` | **Built in code** (S12, S31), with a default slot for a row's supporting lines |
 | `DateChip` | `components/app/` | **Built in design** |
 | `NavItem` | `layouts/` | **Built in design** |
@@ -752,6 +752,18 @@ h-11  px-3  gap-2.5  border-b
 Title `text-sm text-foreground`; completed tasks get `line-through text-muted-foreground` and a filled checkbox. Meta is `text-xs text-muted-foreground` and carries the deal context (`123 Main St · Under Contract`) on cross-deal screens, or the completion attribution (`Completed by Heather`) within a deal.
 
 The assignee avatar is hidden on My Work, where it is always the current user.
+
+> [!note] As built (#71)
+> Two additions, both made when S17 gave the row somewhere to be worked from:
+>
+> - An **`actions` slot** after the avatar. §7.3 fixes four cells and Edit and
+>   Delete are not a fifth — they are what the screen that owns the row wants
+>   to hang on it, so the stage rail passes nothing and keeps the anatomy
+>   exactly. The same argument as `ActivityItem`'s default slot.
+> - A **`readonly`** flag, which is what a screen sets when the *reader* may
+>   not complete the task rather than when the endpoint does not exist. The
+>   checkbox is disabled rather than dropped, because its state is the
+>   information: PRD §4.2 F2.2's Read Only role has to see what is done.
 
 #### ActivityItem
 
@@ -1019,6 +1031,8 @@ Shared by all eight deal tabs (S15–S22).
 
 Tabs, in order: Overview · Timeline · Tasks · Dates · People · Properties · Documents · Offers. Counts appear on Tasks, Dates, People, Documents, Offers. Offers is hidden when the deal type has none.
 
+**The Tasks count is what is open, not what the deal holds** (#71). Every other count is a total; this one is not, because a seeded pack puts eighty tasks on a deal and a tab reading `80` when all eighty are done says the opposite of what happened. Same rule as §7.4's stage-rail counts: the number has to mean what a reader will assume it means.
+
 > [!warning] Three things this table does not settle, found while building S15 (#75)
 > Each is answered in code for now, and each is really a design decision:
 >
@@ -1030,9 +1044,13 @@ Tabs, in order: Overview · Timeline · Tasks · Dates · People · Properties �
 >    Overview's per-workflow cards carry one each. A primary action that
 >    silently picks one of two workflows is worse than none, and there is no
 >    honest label for *"advance one of these"*.
-> 2. **`Log Contact` and `Add Task` are not built.** Contact logging is on the
->    person (S32) and tasks are S17; neither has a deal-level write path yet.
->    The overflow icon button has nothing to put in it either.
+> 2. **`Add Task` is built; `Log Contact` is not.** Tasks landed with S17
+>    (#71), and the button is a **link to the Tasks tab** with `?new` rather
+>    than a dialog opened in place — the form needs this deal's stages and this
+>    team's assignees, and carrying that payload on all eight tabs to save one
+>    navigation is a cost every tab pays for a button most of them never press.
+>    Contact logging is still on the person (S32) and has no deal-level write
+>    path, and the overflow icon button has nothing to put in it either.
 > 3. **There is no `owner`.** The meta row asks for one and `deals` has no
 >    owning-agent column. Nothing is rendered rather than the person who
 >    happens to be looking.
