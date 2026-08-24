@@ -361,6 +361,24 @@ describe('Deals/Tasks', () => {
         vi.restoreAllMocks();
     });
 
+    it('asks before it deletes, and keeps the dialog open if the answer is no', async () => {
+        /*
+         * The dialog's Delete closed the dialog and *then* asked, so cancelling
+         * deleted nothing and threw away whatever the reader had typed — the
+         * worst of both answers. Found by review on #71, in the fix from the
+         * round before.
+         */
+        const wrapper = screen([group([task({ id: 'task-5' })])]);
+
+        vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+        await wrapper.find('[aria-label^="Delete"]').trigger('click');
+
+        expect(routerDelete).not.toHaveBeenCalled();
+
+        vi.restoreAllMocks();
+    });
+
     it('shows the two counts that need chasing, and only when there are any', () => {
         const wrapper = screen([
             group([

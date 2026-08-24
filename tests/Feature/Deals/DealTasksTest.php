@@ -657,6 +657,9 @@ it('records it on the deal when a task moves off the stage its gate counts', fun
 
     expect($event->summary)->toContain('Stage 0')
         ->and($event->summary)->toContain('Stage 1')
+        // The workflow too, because a stage name is not unique on a deal —
+        // see the case below.
+        ->and($event->summary)->toContain('Listing to Close')
         ->and($event->deal_id)->toBe($deal->getKey());
 
     // And the gate really is clear now — which is why the record matters.
@@ -672,6 +675,43 @@ it('records it on the deal when a task moves off the stage its gate counts', fun
     ]);
 
     expect(ActivityEvent::query()->where('event_type', 'task.moved')->count())->toBe(1);
+});
+
+it('tells two workflows apart in the entry, when they share a stage name', function (): void {
+    /*
+     * F4.7 gives a deal concurrent workflows and nothing stops two coming from
+     * the same template, so *Photography* exists twice. Named by stage alone
+     * this entry reads "Moved 'X' from Photography to Photography" — a no-op,
+     * on the one record that exists to make a gate bypass legible.
+     */
+    [$deal, , $stages] = taskDeal(1, 'Pre-listing Improvements');
+
+    $second = Workflow::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+        'name' => 'Listing to Close',
+        'state' => WorkflowState::Active,
+    ]);
+
+    $twin = Stage::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'workflow_id' => $second->getKey(),
+        // The same stage name, under the other workflow.
+        'name' => $stages[0]->name,
+        'sort_order' => 0,
+    ]);
+
+    $task = taskOn($deal, $stages[0], ['title' => 'Book the photographer']);
+
+    $this->patch("/deals/{$deal->getKey()}/tasks/{$task->getKey()}", [
+        'title' => 'Book the photographer',
+        'stage_id' => $twin->getKey(),
+    ])->assertRedirect("/deals/{$deal->getKey()}/tasks");
+
+    $summary = ActivityEvent::query()->where('event_type', 'task.moved')->sole()->summary;
+
+    expect($summary)->toContain('Pre-listing Improvements')
+        ->and($summary)->toContain('Listing to Close');
 });
 
 it('names the absence when a task moves off every stage', function (): void {

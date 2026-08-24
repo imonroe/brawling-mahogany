@@ -9,6 +9,7 @@ use App\Models\Deal;
 use App\Models\Person;
 use App\Models\Stage;
 use App\Models\Task;
+use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -163,7 +164,7 @@ final readonly class DealTasks
              * value that was just written and the move is invisible.
              */
             $movedFrom = $task->isDirty('stage_id')
-                ? $this->stageName($task->getOriginal('stage_id'))
+                ? $this->describeStage($task->getOriginal('stage_id'))
                 : null;
 
             $task->save();
@@ -193,7 +194,7 @@ final readonly class DealTasks
                         'Moved “%s” from %s to %s',
                         $task->title,
                         $movedFrom,
-                        $stage instanceof Stage ? $stage->name : 'no stage',
+                        $this->describeStage($stage),
                     ),
                 );
             }
@@ -303,22 +304,40 @@ final readonly class DealTasks
     }
 
     /**
-     * What a stage the task is leaving was called, for the timeline entry.
+     * Where a task was, or is going, in words a reader can tell apart.
      *
-     * One query, and only when something actually moved. Null `stage_id` is
-     * an ordinary state rather than a missing row — PRD §6.4 makes it nullable
-     * so an ad-hoc job can live on the deal outside any stage — so it has a
-     * name rather than an absence.
+     * **The workflow is named as well as the stage**, because neither is
+     * unique on its own: PRD F4.7 gives a deal concurrent workflows,
+     * `WorkflowAttachmentController` lets two of them come from the same
+     * template, and *Photography* appears in both. Without it this entry reads
+     * *"Moved 'Photography' from Stage 0 to Stage 0"* — a no-op, on the one
+     * record that exists to make a gate bypass legible. Found by review on
+     * #71, in the round that added the entry.
+     *
+     * At most one query, and only when something actually moved. Null
+     * `stage_id` is an ordinary state rather than a missing row — PRD §6.4
+     * makes it nullable so an ad-hoc job can live on the deal outside any
+     * stage — so it is named rather than left blank.
      */
-    private function stageName(mixed $stageId): string
+    private function describeStage(Stage|string|null $stage): string
     {
-        if (! is_string($stageId) || $stageId === '') {
+        if (is_string($stage) && $stage !== '') {
+            $stage = Stage::query()->with('workflow')->whereKey($stage)->first();
+
+            if (! $stage instanceof Stage) {
+                return 'a stage that no longer exists';
+            }
+        }
+
+        if (! $stage instanceof Stage) {
             return 'no stage';
         }
 
-        $stage = Stage::query()->whereKey($stageId)->first();
+        $stage->loadMissing('workflow');
 
-        return $stage instanceof Stage ? $stage->name : 'a stage that no longer exists';
+        return $stage->workflow instanceof Workflow
+            ? "{$stage->workflow->name} · {$stage->name}"
+            : $stage->name;
     }
 
     /** Whether the task is already in the group it is being moved to. */

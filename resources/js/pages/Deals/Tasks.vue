@@ -253,33 +253,40 @@ function editTask(task: TaskRow): void {
  * to survive as — so the copy says delete, and says the recovery window PRD §9
  * gives rather than implying there is none.
  */
-function deleteTask(task: TaskRow): void {
+/** Whether the reader went through with it, so a caller can react. */
+function deleteTask(task: TaskRow): boolean {
     if (
         !window.confirm(
             `Delete “${task.title}”? It leaves this deal’s checklist. Deleted work is recoverable for 30 days.`,
         )
     ) {
-        return;
+        return false;
     }
 
     // `preserveState` for the same reason every other write on this screen
     // carries it: the view above is a local ref, and a remount drops the
     // reader back to Open.
     router.delete(`${props.dealUrl}/tasks/${task.id}`, VISIT);
+
+    return true;
 }
 
-/** The dialog's own Delete, which the row hides below `sm`. */
+/**
+ * The dialog's own Delete, which the row hides below `sm`.
+ *
+ * **Confirm first, close second.** The first version of this closed the dialog
+ * and then asked — so cancelling deleted nothing *and* threw away whatever the
+ * reader had typed, which is the worst of both answers. Found by review on
+ * #71, in the fix from the round before.
+ */
 function deleteFromDialog(id: string): void {
     const task = props.groups
         .flatMap((group) => group.tasks)
         .find((row) => row.id === id);
 
-    if (!task) {
-        return;
+    if (task && deleteTask(task)) {
+        editorOpen.value = false;
     }
-
-    editorOpen.value = false;
-    deleteTask(task);
 }
 
 /**
