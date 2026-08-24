@@ -88,8 +88,11 @@ describe('DealHeader', () => {
         // 404s.
         expect(tabs[0].element.tagName).toBe('A');
         expect(tabs[0].attributes('href')).toBe('/deals/deal-1');
-        expect(tabs[1].element.tagName).toBe('BUTTON');
-        expect(tabs[1].attributes('disabled')).toBeDefined();
+        // Timeline, live since S16 (#76). Tasks is the inert example now.
+        expect(tabs[1].element.tagName).toBe('A');
+        expect(tabs[1].attributes('href')).toBe('/deals/deal-1/timeline');
+        expect(tabs[2].element.tagName).toBe('BUTTON');
+        expect(tabs[2].attributes('disabled')).toBeDefined();
         expect(tabs[4].attributes('href')).toBe('/deals/deal-1/people');
     });
 
@@ -102,6 +105,9 @@ describe('DealHeader', () => {
         // A tab whose slice has not landed has no count to show either — a
         // zero there would read as a fact about this deal.
         expect(tabs[2].text()).toBe('Tasks');
+        // Built and still countless: Timeline is not a list of anything, so it
+        // stays bare now that it is linked rather than gaining a number.
+        expect(tabs[1].text()).toBe('Timeline');
     });
 
     it('marks the active tab and no other', () => {

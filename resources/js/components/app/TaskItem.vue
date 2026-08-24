@@ -16,6 +16,19 @@ const props = defineProps<{
     completed?: boolean;
     dueDate?: string | number | Date | null;
     assignee?: (NameParts & { name?: string | null }) | null;
+    /**
+     * Show the state without offering to change it (S16).
+     *
+     * The stage rail lists a stage's tasks so the reader can see what is owed,
+     * and completing one is S17's endpoint, which does not exist yet. A
+     * checkbox wired to nothing is the *"checkbox that selects into nothing"*
+     * S13 refused to ship: it invites a click, does nothing, and teaches the
+     * reader the screen is broken.
+     *
+     * Disabled rather than replaced by an icon, so the row keeps one anatomy
+     * and the tick still means what it means everywhere else.
+     */
+    readonly?: boolean;
     class?: string;
 }>();
 
@@ -34,9 +47,19 @@ defineEmits<{ 'update:completed': [value: boolean] }>();
     >
         <input
             type="checkbox"
-            class="size-4 shrink-0 rounded-sm border accent-primary"
+            :class="
+                cn(
+                    'size-4 shrink-0 rounded-sm border accent-primary',
+                    readonly && 'cursor-default opacity-70',
+                )
+            "
             :checked="completed"
-            :aria-label="`Complete ${title}`"
+            :disabled="readonly || undefined"
+            :aria-label="
+                readonly
+                    ? `${title}: ${completed ? 'complete' : 'not complete'}`
+                    : `Complete ${title}`
+            "
             @change="
                 $emit(
                     'update:completed',

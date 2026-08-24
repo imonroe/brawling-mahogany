@@ -141,6 +141,23 @@ class DealOverviewController extends Controller
 
         $readiness = $stage instanceof Stage ? $blockers->forStage($stage) : null;
 
+        /*
+         * **The current stage's badge, derived once.**
+         *
+         * This screen draws that stage twice — §9.2's progress strip and the
+         * card under it — and for one round they read different sources, so a
+         * single response carried `active` in one and `blocked` in the other
+         * for the same id. Fixing that by repeating the expression left two
+         * copies of a rule that had *just* been broken by having two copies of
+         * it, plus a `??` fallback in each that cannot fire:
+         * `DescribeBlockers::forStage()` returns a non-nullable
+         * `StageReadiness`, so this is null exactly when `$stage` is, and both
+         * readers are already inside a `$stage instanceof Stage` guard.
+         *
+         * One local, computed where the null actually lives.
+         */
+        $currentState = $readiness?->stageState()->value;
+
         $index = $stage instanceof Stage
             ? $workflow->stages->values()->search(fn (Stage $each): bool => $each->is($stage))
             : false;
@@ -158,13 +175,27 @@ class DealOverviewController extends Controller
             'stages' => $workflow->stages->map(fn (Stage $each): array => [
                 'id' => $each->getKey(),
                 'name' => $each->name,
-                'state' => $each->state->value,
+                // The current stage takes the live verdict; the rest are
+                // history and the column is the fact. See `$currentState`.
+                'state' => $currentState !== null && $each->is($stage)
+                    ? $currentState
+                    : $each->state->value,
                 'isCurrent' => $stage instanceof Stage && $each->is($stage),
             ])->values()->all(),
             'currentStage' => $stage instanceof Stage ? [
                 'id' => $stage->getKey(),
                 'name' => $stage->name,
-                'state' => $stage->state->value,
+                /*
+                 * The live answer, not the cached column — and the *same* live
+                 * answer S16's rail uses, from the same function.
+                 *
+                 * These two screens disagreed: the ordinary stage straight
+                 * after an advance is cached `active` with its gate unmet, so
+                 * this card badged **In Progress** directly above its own
+                 * "1 requirement to clear", while the timeline badged Blocked.
+                 * One of them had to be wrong and it was this one.
+                 */
+                'state' => $currentState,
                 'description' => $stage->description,
                 'plannedEnd' => $stage->planned_end?->toIso8601String(),
                 'position' => is_int($index) ? $index + 1 : null,

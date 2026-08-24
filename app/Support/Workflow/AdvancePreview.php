@@ -61,7 +61,18 @@ final class AdvancePreview
             'stage' => [
                 'id' => $stage->getKey(),
                 'name' => $stage->name,
-                'state' => $stage->state->value,
+                /*
+                 * The live verdict, like S15's card and S16's rail — this was
+                 * the third producer of the same fact and the last one still
+                 * reading `stages.state`, which is a cache only an advance
+                 * attempt refreshes.
+                 *
+                 * Harmless today only because `AdvanceStageDialog` declares the
+                 * field and never renders it, which is a thin reason for a
+                 * screen to disagree with the two beside it. `$readiness` is
+                 * already here and non-nullable.
+                 */
+                'state' => $readiness->stageState()->value,
                 'position' => is_int($position) ? $position + 1 : null,
                 'total' => $workflow->stages->count(),
             ],

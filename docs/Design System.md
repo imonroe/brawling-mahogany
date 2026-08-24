@@ -832,6 +832,51 @@ Overridden a state of its own rather than a kind of Met — so "1 of 1 met" over
 a row badged Overridden says the opposite of what happened.
 
 
+> [!note] Built as `components/app/StageRail.vue` and `StageRow.vue` (#76)
+> Five departures from the anatomy above, each with a reason the spec could not
+> have known:
+>
+> - **Row heights are not hard-coded.** §7.4 fixes them at 58px collapsed and
+>   302px expanded so the connector has something definite to stretch into; the
+>   build gets the same guarantee from `self-stretch` on the rail column and
+>   `flex-1` on the connector, which also survives a stage name wrapping and a
+>   requirements pane of six rows rather than three. A hard 302px would clip
+>   them.
+> - **The two-pane body stacks below `lg`.** The requirements pane is fixed at
+>   340px, and two panes at that width on a phone is two columns of two words.
+> - **The collapsed card and the expanded header band are one `<button>`**,
+>   not two. They are the same control saying the same thing, and a `v-if` pair
+>   dropped keyboard focus to `<body>` on every toggle.
+> - **The meta string is hidden below `sm`.** §7.4's collapsed card carries it
+>   unconditionally — `15 Jul–2 Aug · 18 days · 8 of 8 tasks` — and on a 360px
+>   phone that string plus a stage name, a badge and a chevron does not fit on
+>   one 44px line. §11 floors the row at 44px and the name is what a reader
+>   scans by, so the meta is what gives way. It returns at `sm`.
+> - **The footer has no `[Override]`.** The anatomy above lists one, and it
+>   carries exactly the ambiguity §7.4 already rejects one section down for the
+>   dialog's footer: *"an Override there cannot say which gate it means once
+>   there are two blockers — which is the ordinary case."* The card's
+>   requirement rows are the plain density and carry no actions, so there is
+>   nowhere on the card to put a per-gate Override. Advance opens S23, whose
+>   rows each carry their own.
+>
+> Two rules it settles that the anatomy does not:
+>
+> - **The Overridden marker is a presentation, not a sixth stage state.** IA §8
+>   lists five and `lib/states.ts` throws on a sixth; a stage that completed over
+>   an overridden gate *is* `complete`, and carries `hasOverride` beside its
+>   state. The marker takes `shield-alert` and the badge goes on saying Complete
+>   — they disagree on purpose. **And only once the stage is finished**: an
+>   override does not advance, so an *active* stage can carry a waived gate while
+>   still blocked by two others, and marking that one Overridden would replace
+>   the live "something is still in your way" with a historical note.
+> - **The current stage is badged from the live verdict, not `stages.state`.**
+>   That column is a cache only an advance attempt refreshes, so the ordinary
+>   stage straight after an advance is cached `active` with its gate unmet.
+>   `StageReadiness::stageState()` is the one place that decides, and S15's
+>   overview reads it too — the two screens badged the same stage differently
+>   until they did.
+
 #### Requirement (gate) row
 
 Used in the stage card, the deal overview, and the advance dialog. Three densities, one anatomy.

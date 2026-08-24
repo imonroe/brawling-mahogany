@@ -18,7 +18,13 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 > Obsidian vault paths inside `[[wikilinks]]` also still read
 > `brawling mahogany` and must stay that way or the links break.
 
-**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), the create-deal wizard with attach-workflow (S14, S28), **the deal overview (S15)** — which brought with it the deal chrome every tab now wears and the first HTTP route in front of `AdvanceWorkflow` — the team activity feed with the two-click contact log (S12, S26), **the advance and override modals (S23, S24)**, which gave the engine a way past a gate that cannot clear on its own, and **the deals index (S13)** — the screen that finally rendered `DealRow` outside the gallery, and where Design System §4.3's twenty-row density claim was confirmed by measurement rather than estimate. Its remaining screens — the timeline, tasks, offers, and the templates UI — are still open under epic #3.
+**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), the create-deal wizard with attach-workflow (S14, S28), **the deal overview (S15)** — which brought with it the deal chrome every tab now wears and the first HTTP route in front of `AdvanceWorkflow` — the team activity feed with the two-click contact log (S12, S26), **the advance and override modals (S23, S24)**, which gave the engine a way past a gate that cannot clear on its own, and **the deals index (S13)** — the screen that finally rendered
+`DealRow` outside the gallery, and where Design System §4.3's twenty-row density
+claim was confirmed by measurement rather than estimate — and **the deal timeline
+(S16)**, the stage rail Screen Inventory calls *"the one interaction with no
+obvious precedent to copy"*, which is where the difference between a state and a
+presentation of one had to be settled. Its remaining screens — tasks, offers, and
+the templates UI — are still open under epic #3.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -123,6 +129,51 @@ These come from PRD §8 and should guide the eventual build:
   `created_at` would delete work in progress. #61 shipped this hole for
   `external_links` and had it found in review; the rule is the generalisation,
   and choosing the column deliberately is half of it.
+
+- **A presentation table is not a vocabulary.** Design System §7.4's stage-rail
+  marker table has seven rows; IA §8's stage vocabulary has five states, and
+  `lib/states.ts` throws on a sixth rather than render an unstyled badge. Both
+  are right, because they answer different questions — and the row that exists
+  in one and not the other is **Overridden**.
+
+  A stage that completed over an overridden gate *is* `complete`. How it got
+  there is a second fact, carried as `hasOverride` and drawn as a different
+  marker over the same badge. IA §8 insists an override is not a kind of Met;
+  this is that insistence one level up, so it is not a kind of *state* either
+  and does not belong in the table that enumerates them. The counts follow the
+  same rule and §7.4 says so outright: *"cleared", not "met"* — the count is met
+  **plus** overridden, because "1 of 1 met" over a row badged Overridden says
+  the opposite of what happened.
+
+  Before adding a state to render something, ask whether it is a state or a
+  presentation of one. Built in Slice 2 (#76).
+
+  The presentation has its own boundary, too: the override marker applies only
+  to a **completed** stage. Overriding does not advance, so an active stage can
+  carry a waived gate while two others still block it — and marking that one
+  Overridden would replace the live "something is still in your way" with a
+  historical note, on the one row the reader is there to act on. A **skipped**
+  stage is excluded for a different and sharper reason: IA §7 calls conflating
+  Skip with Override legally material, so the one row that earns the shield is a
+  stage somebody advanced *through* by waiving a condition.
+
+- **A cache is only true at the moment something refreshed it.** `stages.state`
+  is written by an advance attempt and by nothing else, so a stage cached
+  `blocked` whose gate somebody has since satisfied goes on badging Blocked
+  until the next attempt. On a hub that is a stale badge; on S16's expanded card
+  it is incoherent *within one card*, because the requirements pane beside the
+  badge shows nothing in the way.
+
+  So S16 badges the **active** stage from `DescribeBlockers` — the live answer,
+  which writes nothing — and every other stage from the record. **Both screens
+  that draw a current stage read the same function**, `StageReadiness::stageState()`:
+  S15 and S16 derived it separately for one round and disagreed on the ordinary
+  stage straight after an advance, which is cached `active` with its gate unmet.
+  One screen said In Progress directly above its own "1 requirement to clear". That split is
+  not squeamishness about the cache: a complete stage's gates are what happened,
+  not a question still open, and re-evaluating twenty of them per render to
+  re-derive a fact that cannot change is work with no reader. The same split
+  decides which gates each row carries.
 
 - **An eager-load is a claim that a row needs the relation, and the check is
   the row.** S13's deals index eager-loaded `propertyLinks` with a nested

@@ -85,7 +85,7 @@ type TabSpec = {
  */
 const tabs = computed<TabSpec[]>(() => [
     { label: 'Overview', segment: null, count: null, arrivesWith: null },
-    { label: 'Timeline', segment: 'timeline', count: null, arrivesWith: 'S16' },
+    { label: 'Timeline', segment: 'timeline', count: null, arrivesWith: null },
     { label: 'Tasks', segment: 'tasks', count: null, arrivesWith: 'S17' },
     { label: 'Dates', segment: 'dates', count: null, arrivesWith: 'S18' },
     {
