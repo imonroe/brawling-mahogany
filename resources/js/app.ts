@@ -18,7 +18,12 @@ const appName = import.meta.env.VITE_APP_NAME || 'Brawling Mahogany';
  * under the same folder and are not inside a deal. Adding S16–S22 means adding
  * a line here and a tab in `DealHeader`.
  */
-const DEAL_TAB_PAGES = ['Deals/Overview', 'Deals/People', 'Deals/Properties'];
+const DEAL_TAB_PAGES = [
+    'Deals/Overview',
+    'Deals/Timeline',
+    'Deals/People',
+    'Deals/Properties',
+];
 
 createInertiaApp({
     /**

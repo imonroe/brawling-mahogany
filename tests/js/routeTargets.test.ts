@@ -38,7 +38,11 @@ import { describe, expect, it } from 'vitest';
 /**
  * Segments under `/deals/{deal}/…` whose screens have not been built.
  *
- * `DealHeader` names all five, as `segment: 'tasks'` and friends — bare, with
+ * `timeline` left this list when S16 landed (#76) — it is a route now, and a
+ * link to it is a link. The list shrinks one entry per slice; what it protects
+ * is the ones still unbuilt.
+ *
+ * `DealHeader` names the rest, as `segment: 'tasks'` and friends — bare, with
  * no leading slash, because it draws them inert rather than linking them. The
  * slash is what separates a tab's name from a path to it.
  *
@@ -48,7 +52,7 @@ import { describe, expect, it } from 'vitest';
  * this because the test failed on an import, that is the pattern being blunt
  * rather than your code being wrong — narrow the pattern, do not delete it.
  */
-const UNBUILT_DEAL_TABS = ['tasks', 'dates', 'documents', 'offers', 'timeline'];
+const UNBUILT_DEAL_TABS = ['tasks', 'dates', 'documents', 'offers'];
 
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
@@ -132,7 +136,7 @@ describe('route targets', () => {
             'return `${dealUrl.value}/tasks`;',
             "return dealUrl.value + '/tasks';",
             "return '/deals/' + deal.id + '/offers';",
-            'return `/deals/${deal.id}/timeline?filter=all`;',
+            'return `/deals/${deal.id}/dates?filter=all`;',
             'const u = dealUrl.value; return u + "/documents";',
         ];
 

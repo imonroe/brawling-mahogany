@@ -7,6 +7,7 @@ use App\Http\Controllers\Deals\AdvanceWorkflowController;
 use App\Http\Controllers\Deals\DealIndexController;
 use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
+use App\Http\Controllers\Deals\DealTimelineController;
 use App\Http\Controllers\Deals\DealWizardController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
@@ -228,6 +229,19 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::post('deals/{deal}/workflows/{workflow}/override', [OverrideGateController::class, 'store'])
             ->name('deals.workflows.override');
+
+        /*
+         * S16 — the stage rail (#76).
+         *
+         * A GET and nothing else. Every action the screen offers already has
+         * its own route — both of the POSTs directly above — and the rail
+         * reaches them through `useAdvanceDialog`, the same way every other
+         * deal tab does. A timeline that could be posted to would be a second
+         * way into `AdvanceWorkflow`, which is the one thing this codebase
+         * keeps single.
+         */
+        Route::get('deals/{deal}/timeline', [DealTimelineController::class, 'index'])
+            ->name('deals.timeline');
 
         Route::get('deals/{deal}/people', [ParticipantController::class, 'index'])
             ->name('deals.people.index');
