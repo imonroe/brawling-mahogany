@@ -393,15 +393,24 @@ onMounted(() => {
                         :readonly="!canManage"
                         @update:completed="setCompleted(task, $event)"
                     >
+                        <!--
+                            The label names the task, because it is the
+                            accessible name of the control and there are forty
+                            of these on the page: "Edit task" forty times over
+                            tells a screen-reader user which button they are on
+                            and nothing about which task. `IconButton` puts the
+                            same string in `title`, so the pointer tooltip
+                            gains it too.
+                        -->
                         <template v-if="canManage" #actions>
                             <IconButton
                                 :icon="Pencil"
-                                label="Edit task"
+                                :label="`Edit ${task.title}`"
                                 @click="editTask(task)"
                             />
                             <IconButton
                                 :icon="Trash2"
-                                label="Delete task"
+                                :label="`Delete ${task.title}`"
                                 @click="deleteTask(task)"
                             />
                         </template>

@@ -310,8 +310,28 @@ describe('Deals/Tasks', () => {
             wrapper.find('input[type="checkbox"]').attributes('disabled'),
         ).toBeDefined();
         expect(wrapper.text()).not.toContain('Add task');
-        expect(wrapper.find('[aria-label="Edit task"]').exists()).toBe(false);
-        expect(wrapper.find('[aria-label="Delete task"]').exists()).toBe(false);
+        expect(wrapper.find('[aria-label^="Edit"]').exists()).toBe(false);
+        expect(wrapper.find('[aria-label^="Delete"]').exists()).toBe(false);
+    });
+
+    it('names the task in every row control, not just the action', () => {
+        /*
+         * Forty rows means forty buttons, and "Edit task" repeated forty times
+         * is an accessible name that says which control you are on and nothing
+         * about which task. The checkbox has carried the title since S16; the
+         * row actions do now too.
+         */
+        const wrapper = screen([group([task({ title: 'Order the sign' })])]);
+
+        expect(
+            wrapper.find('[aria-label="Edit Order the sign"]').exists(),
+        ).toBe(true);
+        expect(
+            wrapper.find('[aria-label="Delete Order the sign"]').exists(),
+        ).toBe(true);
+        expect(
+            wrapper.find('input[type="checkbox"]').attributes('aria-label'),
+        ).toBe('Complete Order the sign');
     });
 
     it('shows the two counts that need chasing, and only when there are any', () => {
