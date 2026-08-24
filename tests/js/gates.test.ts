@@ -2,12 +2,7 @@ import { CircleAlert, CircleCheck, ShieldAlert } from '@lucide/vue';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import GateRow from '@/components/app/GateRow.vue';
-import {
-    blockingGateCount,
-    gateAppearance,
-    gateResolutionLink,
-    isOverridable,
-} from '@/lib/gates';
+import { gateAppearance, gateResolutionLink, isOverridable } from '@/lib/gates';
 import type { GateSummary } from '@/lib/gates';
 
 /**
@@ -69,35 +64,6 @@ describe('gateAppearance', () => {
             gateAppearance(gate({ isBlocking: false, blocksAdvance: false }))
                 .tone,
         ).toBe('neutral');
-    });
-});
-
-describe('blockingGateCount', () => {
-    /*
-     * The count behind S15's warning triangle, and S23's heading.
-     *
-     * Every combination, because the three that are not "some blockers" are
-     * the ones that read wrong: a list of pure advisories is not a stage held
-     * up, and a waived blocker is the case the whole override feature creates.
-     * Counting `gates.length` — which is what S15 did until round 2 — puts
-     * "2 gates to clear" over a list where one is badged Overridden.
-     */
-    it('counts only the gates that actually stand in the way', () => {
-        const blocking = gate({ isBlocking: true, blocksAdvance: true });
-        const advisory = gate({ isBlocking: false, blocksAdvance: false });
-        const waived = gate({
-            gateState: 'overridden',
-            isBlocking: true,
-            blocksAdvance: false,
-        });
-
-        expect(blockingGateCount([])).toBe(0);
-        expect(blockingGateCount([advisory])).toBe(0);
-        expect(blockingGateCount([waived])).toBe(0);
-        expect(blockingGateCount([advisory, waived])).toBe(0);
-        expect(blockingGateCount([blocking])).toBe(1);
-        expect(blockingGateCount([blocking, advisory, waived])).toBe(1);
-        expect(blockingGateCount([blocking, blocking])).toBe(2);
     });
 });
 

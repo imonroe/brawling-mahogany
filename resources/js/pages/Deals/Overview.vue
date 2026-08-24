@@ -65,7 +65,7 @@ import {
     formatDateTime,
     formatLocality,
 } from '@/lib/formatters';
-import { blockingGateCount, gateResolutionLink } from '@/lib/gates';
+import { gateResolutionLink } from '@/lib/gates';
 import type { GateSummary } from '@/lib/gates';
 import { stateTone } from '@/lib/states';
 import type { Tone } from '@/lib/states';
@@ -94,6 +94,7 @@ type WorkflowCard = {
         total: number;
     } | null;
     gates: GateSummary[];
+    blockingCount: number;
     canAdvance: boolean;
 };
 
@@ -325,10 +326,7 @@ function advance(workflow: WorkflowCard): void {
                                     class="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground uppercase"
                                 >
                                     <TriangleAlert
-                                        v-if="
-                                            blockingGateCount(workflow.gates) >
-                                            0
-                                        "
+                                        v-if="workflow.blockingCount > 0"
                                         class="size-3.5 text-state-warning"
                                         aria-hidden="true"
                                     />
@@ -350,17 +348,10 @@ function advance(workflow: WorkflowCard): void {
                                         this card name the same thing the same
                                         way.
                                     -->
-                                    <template
-                                        v-if="
-                                            blockingGateCount(workflow.gates) >
-                                            0
-                                        "
-                                    >
+                                    <template v-if="workflow.blockingCount > 0">
                                         {{
                                             formatCount(
-                                                blockingGateCount(
-                                                    workflow.gates,
-                                                ),
+                                                workflow.blockingCount,
                                                 'requirement',
                                             )
                                         }}

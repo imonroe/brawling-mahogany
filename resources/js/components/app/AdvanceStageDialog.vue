@@ -217,11 +217,22 @@ async function load(): Promise<void> {
             return;
         }
 
-        preview.value = body;
+        /*
+         * A failed *refresh* keeps what it had.
+         *
+         * `preview` gates the override dialog (`v-if="target && preview?.stage"`),
+         * so blanking it on a failure unmounts that dialog — including the
+         * refusal message a refusal just put there, which is the one case that
+         * reloads while something else is on screen. On the first load there
+         * is nothing to keep and the behaviour is unchanged.
+         */
+        if (body !== null) {
+            preview.value = body;
+        }
+
         failed.value = body === null;
     } catch {
         if (props.target?.workflowId === target.workflowId) {
-            preview.value = null;
             failed.value = true;
         }
     } finally {

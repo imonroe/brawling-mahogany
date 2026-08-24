@@ -253,7 +253,7 @@ function touchesWorkflowState(string $contents): bool
      * here as well.**
      */
     foreach ([
-        '/\b(?:Stage|Workflow|Gate)(?:::class|\s*\$|::query)/',
+        '/\b(?:Stage|Workflow|Gate)(?:::|\s*\$)/',
         '/[\'"](?:stages|workflows|gates)[\'"]/',
         '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows|gates)\b/i',
     ] as $pattern) {
@@ -404,6 +404,12 @@ it('reads a file whose only signal is the write itself', function (string $shape
     'stage, eloquent mass update' => ['Stage::query()->whereKey($id)->update([\'state\' => \'complete\']);'],
     'stage, query builder' => ['DB::table(\'stages\')->whereKey($id)->update([\'state\' => \'complete\']);'],
     'stage, raw sql' => ['DB::statement(\'UPDATE stages SET state = \\\'complete\\\'\');'],
+    /*
+     * A static call on the model, which is what holds each alternative of the
+     * filter's *model* pattern. `Workflow` had only table shapes here, so
+     * dropping it from that pattern failed nothing.
+     */
+    'workflow, eloquent mass update' => ['Workflow::query()->whereKey($id)->update([\'state\' => \'completed\']);'],
     'workflow, query builder' => ['DB::table(\'workflows\')->whereKey($id)->update([\'state\' => \'completed\']);'],
     'workflow, raw sql' => ['DB::statement(\'UPDATE workflows SET state = \\\'completed\\\'\');'],
 ]);
@@ -413,9 +419,15 @@ it('reads a file whose only signal is the write itself', function (string $shape
  *
  * `$gate->overridden = true;` carries no signal of its own: the variable could
  * be anything. The filter cannot read every file in `app/` — that is the point
- * of having a filter — so these are held only against a file that mentions the
- * model, which every real one does, because `$gate` came from a type hint, a
- * `Gate::query()`, or a relation.
+ * of having a filter — so these are held only against a file that names the
+ * model: a type hint, or any static call on it (`::query`, `::find`,
+ * `::findOrFail`, `::class`).
+ *
+ * **Not a relation.** `foreach ($deal->workflows as $w)` down to a gate names
+ * no guarded model anywhere, and the filter does not see it. An earlier
+ * version of this paragraph claimed relations were covered; they are not, and
+ * `Gate::findOrFail($id)->update([...])` was not covered either until the
+ * model pattern stopped insisting on `::query` or `::class` specifically.
  *
  * **So this asserts the pattern half only.** Asserting the filter half here
  * would be asserting the type hint, which is the trap above. The limit is

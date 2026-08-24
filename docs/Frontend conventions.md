@@ -287,6 +287,16 @@ where both live so S15, S16 and S23 cannot disagree about either.
 `components/app/GateRow.vue` renders the row itself, `boxed` selecting §7.4's
 advance-dialog density.
 
+**How many gates are blocking is not in here, and the reason is worth keeping.**
+A gate list carries every unmet gate — advisories, and overridden ones, both
+shown deliberately — so `gates.length` is never the number of things to go and
+do. S15 counted it that way, a shared TypeScript helper was written to fix it,
+and the helper was then reverted at its call site on a green build: the
+function was tested, the caller was not. The count is sent from the server
+now, off the same `StageReadiness` bucketing that answers S23, so there is one
+computation rather than one per screen. Ask the payload; do not count the
+array.
+
 ### `composables/useAdvanceDialog.ts`
 
 Module state rather than a prop, and the reason is structural. §8.4 puts

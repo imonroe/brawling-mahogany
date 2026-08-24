@@ -863,7 +863,16 @@ it('stops an overridden gate blocking without calling it an advisory', function 
             ->where('workflows.0.gates.1.id', $waived->getKey())
             ->where('workflows.0.gates.1.isBlocking', true)
             ->where('workflows.0.gates.1.blocksAdvance', false)
-            ->where('workflows.0.gates.1.gateState', 'overridden'));
+            ->where('workflows.0.gates.1.gateState', 'overridden')
+            /*
+             * And the count the card renders behind its warning triangle.
+             *
+             * Two gates are listed and one of them is waived, so there is one
+             * requirement to clear. Counting the list — which is what the page
+             * did until this was sent from here — put "2 requirements to
+             * clear" over a row badged Overridden.
+             */
+            ->where('workflows.0.blockingCount', 1));
 });
 
 it('lets an advance through once its only blocker is overridden', function (): void {

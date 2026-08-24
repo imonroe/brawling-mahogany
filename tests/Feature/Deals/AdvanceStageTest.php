@@ -183,7 +183,7 @@ it('renders the all-gates-met state, with what advancing will do', function (): 
         ->and($preview['stage']['total'])->toBe(2)
         ->and($preview['nextStage']['id'])->toBe($second->getKey())
         // A met gate is still on the checklist. §7.4's pane carries a count
-        // ("2 of 3 met") that a reader has to be able to check against rows.
+        // ("2 of 3 cleared") that a reader has to be able to check against rows.
         ->and($preview['gates'])->toHaveCount(1)
         ->and($preview['gates'][0]['met'])->toBeTrue()
         ->and($preview['gates'][0]['blocksAdvance'])->toBeFalse()

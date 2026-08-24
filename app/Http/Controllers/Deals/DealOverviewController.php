@@ -172,6 +172,25 @@ class DealOverviewController extends Controller
             ] : null,
             'gates' => $readiness?->toArray() ?? [],
             /*
+             * How many of those actually stand in the way.
+             *
+             * Sent rather than counted on the page. `gates` carries every
+             * unmet gate — advisories are shown because #75's standard is that
+             * the screen says what is going on without a click, and an
+             * overridden gate is shown because hiding it would hide a decision
+             * somebody signed for — so `gates.length` is not the number of
+             * things to go and do. The overview counted it that way until
+             * round 2, and a JavaScript helper written to fix it was reverted
+             * on a green build in round 4, because the *caller* was held by
+             * nothing.
+             *
+             * `StageReadiness` has already bucketed them to answer S23. One
+             * computation, in the place that did the bucketing, and S16's
+             * stage card reads the same field rather than counting a third
+             * time.
+             */
+            'blockingCount' => $readiness?->counts()['blocking'] ?? 0,
+            /*
              * Whether to offer the button, not a promise that it will work —
              * `StageReadiness::canAdvance()` says why the two differ.
              */
