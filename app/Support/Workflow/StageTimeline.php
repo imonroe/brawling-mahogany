@@ -289,10 +289,11 @@ final readonly class StageTimeline
          *
          * The skipped arm says what was **recorded**, not what was required.
          * It read *"not required, because this stage was skipped"* for a round,
-         * on a row whose own `isBlocking` makes `GateRow` badge it as
-         * required — a sub-line contradicting the badge eight pixels above it.
-         * Skipping a stage does not retroactively make its conditions optional;
-         * it means nobody evaluated them.
+         * on a row `GateRow` badges **Not Met** and draws in `state-warning`
+         * because `is_blocking` is true — a sub-line telling the reader the
+         * condition did not apply, eight pixels under a row styled as one that
+         * did. Skipping a stage does not retroactively make its conditions
+         * optional; it means nobody evaluated them.
          */
         return match ($stage->state) {
             StageState::Complete => "{$type} · not recorded as met before this stage ended",

@@ -194,7 +194,11 @@ describe('StageRow', () => {
          */
         const wrapper = mount(StageRow, {
             props: {
-                stage: stage({ position: 3, name: 'Under Contract' }),
+                stage: stage({
+                    position: 3,
+                    name: 'Under Contract',
+                    state: 'blocked',
+                }),
                 total: 20,
                 isLast: false,
                 expanded: false,
@@ -203,9 +207,23 @@ describe('StageRow', () => {
             },
         });
 
-        expect(wrapper.get('button').attributes('aria-label')).toBe(
-            'Stage 3 of 20: Under Contract',
+        /*
+         * The sequence is **added** to the accessible name, not substituted for
+         * it. An `aria-label` here replaced four pieces of visible text — the
+         * stage name, the milestone pill, the meta string and the state badge —
+         * so a screen reader heard the position and never heard **Blocked**,
+         * the one fact this screen exists to show. §11 requires every badge to
+         * carry a word.
+         */
+        const button = wrapper.get('button');
+
+        expect(button.attributes('aria-label')).toBeUndefined();
+        expect(button.get('[data-slot="stage-sequence"]').text()).toBe(
+            'Stage 3 of 20',
         );
+        // Everything visible is still part of what the button is called.
+        expect(button.text()).toContain('Under Contract');
+        expect(button.text()).toContain('Blocked');
 
         const current = mount(StageRow, {
             props: {
@@ -223,7 +241,7 @@ describe('StageRow', () => {
         });
 
         // Which one is current is a fact the rail draws with a bigger marker.
-        expect(current.get('button').attributes('aria-label')).toContain(
+        expect(current.get('[data-slot="stage-sequence"]').text()).toContain(
             'current stage',
         );
     });
@@ -587,6 +605,19 @@ describe('StageRail', () => {
             true,
             false,
         ]);
+    });
+
+    it('tells each row how long the rail is', () => {
+        /*
+         * Unheld until now: hard-coding `of 20` in the row passed every test,
+         * and passing `:total="1"` from the rail passed all 190. The value was
+         * correct by construction and by nothing else.
+         */
+        const rows = mount(StageRail, {
+            props: { workflow: workflow() },
+        }).findAllComponents(StageRow);
+
+        expect(rows.map((each) => each.props('total'))).toEqual([3, 3, 3]);
     });
 
     it('marks only the final row as last', () => {

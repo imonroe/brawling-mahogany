@@ -692,11 +692,11 @@ it('does not tell a skipped stage it fell short', function (): void {
                 ->and($explanation)->not->toContain('this stage ended')
                 /*
                  * And it says what was **recorded**, not what was required. The
-                 * first wording said "not required", on a row whose own
-                 * `isBlocking` makes `GateRow` badge it Required — a sub-line
-                 * contradicting the badge eight pixels above it. Skipping a
-                 * stage does not make its conditions optional; it means nobody
-                 * evaluated them.
+                 * first wording said "not required", on a row `GateRow` badges
+                 * **Not Met** and tints `state-warning` because `is_blocking`
+                 * is true — a sub-line saying the condition did not apply,
+                 * under a row styled as one that did. Skipping a stage does not
+                 * make its conditions optional; it means nobody evaluated them.
                  */
                 ->and($explanation)->not->toContain('not required');
         });

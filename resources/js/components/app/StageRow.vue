@@ -77,17 +77,29 @@ const emit = defineEmits<{
 const { can } = usePermissions();
 
 /**
- * What the toggle is called when you cannot see the rail.
+ * What the rail's *geometry* says, for a reader who cannot see it.
  *
  * The marker, the connector and the row's position down the page are the whole
  * argument for a rail over a list — a stage is legible **in its sequence** —
  * and every one of them is visual. A screen reader otherwise hears twenty
  * buttons named after twenty stages, in no stated order, with nothing saying
  * which one is current.
+ *
+ * **An `sr-only` span, not an `aria-label`.** A label *replaces* the accessible
+ * name, and this button already carries four pieces of visible text: the stage
+ * name, the milestone pill, the meta string and the state badge. Labelling it
+ * announced *"Stage 3 of 20: Under Contract, current stage"* and silenced
+ * **Blocked** — the marker icon is `aria-hidden`, `data-marker-state` is not
+ * exposed, and the footer line exists only inside the expanded card, so the one
+ * fact the screen is for was announced nowhere. §11 requires every badge to
+ * carry a word; an override takes the word away.
+ *
+ * Inside the button, the visible text stays part of the name and this is added
+ * to it.
  */
-const accessibleName = computed(
+const sequenceLabel = computed(
     () =>
-        `Stage ${props.stage.position} of ${props.total}: ${props.stage.name}` +
+        `Stage ${props.stage.position} of ${props.total}` +
         (props.stage.isActive ? ', current stage' : ''),
 );
 
@@ -277,9 +289,12 @@ const footerLine = computed(() => {
                         )
                     "
                     :aria-expanded="expanded"
-                    :aria-label="accessibleName"
                     @click="emit('toggle')"
                 >
+                    <span class="sr-only" data-slot="stage-sequence">{{
+                        sequenceLabel
+                    }}</span>
+
                     <span
                         :class="
                             cn(
