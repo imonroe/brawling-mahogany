@@ -604,6 +604,86 @@ it('leaves a client a client when they are given a status page login', function 
         });
 });
 
+it('gives a client a lifecycle when the invitation is their first record', function (): void {
+    /*
+     * The same hole one step further out, found by review on #162.
+     *
+     * Round 3 stopped the clear from erasing an *existing* lifecycle, but the
+     * `firstOrCreate` insert had already lost the `active` it used to write —
+     * so a client who was not already in the directory arrived with no
+     * lifecycle at all, and no roles to draw instead, and their row said
+     * nothing whatsoever about somebody the team had just invited. The whole
+     * suite was green with that in place.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::StatusViewer->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'new-client@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Nadia',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect();
+
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['new-client@example.test'])
+        ->sole();
+
+    expect($membership->status)->toBe(App\Enums\PersonLifecycleState::Active)
+        ->and($membership->carriesAccess())->toBeFalse();
+});
+
+it('does not die accepting an invitation to a role that has since been archived', function (): void {
+    /*
+     * `$invitation->role` is null for a soft-deleted role, so asking it
+     * anything is fatal. Unreachable until S75 makes roles archivable, which
+     * is exactly when nobody will be looking here — so the question is asked
+     * `withTrashed()`, the way the accept path already reads role keys for
+     * its audit entry.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    $role->delete();
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Heather',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect();
+
+    expect(TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['heather@example.test'])
+        ->exists())->toBeTrue();
+});
+
 it('keeps a former colleague off the Leads tab they were once on', function (): void {
     /*
      * The other end of the same path, found by review on #162 and measured

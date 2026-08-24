@@ -72,6 +72,19 @@ class Role extends Model
      */
     public function grantsTeamAccess(): bool
     {
+        return Permissions::grantTeamAccess($this->permissionKeys());
+    }
+
+    /**
+     * Every permission this role carries, deduplicated.
+     *
+     * `TeamMembership::permissionKeys()` is the same walk one level up and
+     * calls this rather than repeating the loop.
+     *
+     * @return list<string>
+     */
+    public function permissionKeys(): array
+    {
         $this->loadMissing('permissions');
 
         $keys = [];
@@ -80,7 +93,7 @@ class Role extends Model
             $keys[$permission->key] = true;
         }
 
-        return Permissions::grantTeamAccess(array_keys($keys));
+        return array_keys($keys);
     }
 
     /**

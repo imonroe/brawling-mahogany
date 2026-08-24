@@ -284,6 +284,25 @@ describe('a colleague in the People directory', () => {
         expect(badges).toEqual(['Team Member']);
     });
 
+    it('never draws one on the person record either', () => {
+        // Both screens, or the guard is on whichever one review looked at.
+        // Reverting Show.vue's half alone kept Vitest green for a round.
+        permissions = ['people.view', 'people.manage', 'team.members.manage'];
+
+        const badges = record(
+            detail({
+                status: 'active',
+                carriesAccess: true,
+                isColleague: true,
+                roles: ['Team Member'],
+            }),
+        )
+            .findAll('[data-slot="status-badge"]')
+            .map((badge) => badge.text());
+
+        expect(badges).toEqual(['Team Member']);
+    });
+
     it('draws the lifecycle a team records for a former colleague', () => {
         // The other half: once somebody says what they are now, the row says
         // it — beside the roles, not instead of them.

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\PersonLifecycleState;
-use App\Support\Permissions;
+use App\Models\TeamMembership;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -41,24 +41,21 @@ return new class extends Migration
          * Every colleague's value was written by `AcceptInvitation` or
          * `ProvisionTeam`, never by a human — the form that offered the choice
          * is the bug in #162 — so clearing it loses no classification anybody
-         * made. It is scoped by the same question `carriesAccess()` asks, in
-         * SQL: at least one permission on the team surface.
+         * made.
+         *
+         * Through the model's own scope rather than hand-written SQL. The
+         * first version rebuilt the join and left out `roles.deleted_at`,
+         * which `holdsATeamSurfacePermission()` has: a membership whose only
+         * role is archived is a contact to the application and was a colleague
+         * to the migration, so the backfill would have cleared a lifecycle the
+         * team chose. Review on #162 found it. Asking the scope means the two
+         * cannot disagree at all, rather than agreeing until somebody edits
+         * one of them.
          */
-        DB::table('team_memberships')
-            ->whereExists(fn ($query) => $query
-                ->select(DB::raw(1))
-                ->from('membership_role')
-                ->join('roles', 'roles.id', '=', 'membership_role.role_id')
-                ->join('role_permission', 'role_permission.role_id', '=', 'membership_role.role_id')
-                ->join('permissions', 'permissions.id', '=', 'role_permission.permission_id')
-                ->whereColumn('membership_role.team_membership_id', 'team_memberships.id')
-                // `roles` soft-deletes, and `holdsATeamSurfacePermission()`
-                // excludes an archived one — so without this the migration and
-                // the application would disagree about who is a colleague, and
-                // the backfill would clear a lifecycle the team chose.
-                ->whereNull('roles.deleted_at')
-                ->whereIn('permissions.key', Permissions::teamSurfaceKeys()))
+        TeamMembership::withoutTeamScope()
+            ->carryingAccess()
             ->update(['status' => null]);
+
     }
 
     public function down(): void

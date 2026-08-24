@@ -194,8 +194,8 @@ class TeamMembership extends Model
         $keys = [];
 
         foreach ($this->roles as $role) {
-            foreach ($role->permissions as $permission) {
-                $keys[$permission->key] = true;
+            foreach ($role->permissionKeys() as $key) {
+                $keys[$key] = true;
             }
         }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Teams;
 
+use App\Enums\PersonLifecycleState;
 use App\Models\Person;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
@@ -234,6 +235,16 @@ final class AcceptInvitation
         ?string $lastName,
         bool $nameIsAuthoritative,
     ): TeamMembership {
+        /*
+         * Which kind of invitation this is, asked once (#162).
+         *
+         * `Contact` and `Status Viewer` are roles a **client** holds — they
+         * carry no team-surface permission — so accepting one is not somebody
+         * joining the team, and the lifecycle is theirs to keep. Only a role
+         * that grants team access clears it.
+         */
+        $joinsTheTeam = $invitation->role()->withTrashed()->first()?->grantsTeamAccess() ?? false;
+
         // The name goes in the insert, not a follow-up write: `first_name` is
         // not nullable, so a membership cannot exist for a moment without one.
         $membership = TeamMembership::query()->firstOrCreate(
@@ -295,17 +306,25 @@ final class AcceptInvitation
          * somebody who had worked here. Null is what a colleague's lifecycle
          * is; if they leave, the team records what they are then.
          *
-         * **Only for a role that grants team access.** The members screen also
-         * invites `Contact` and `Status Viewer` — roles a *client* holds — and
-         * clearing the lifecycle for those erased a typed **Client** the
-         * moment somebody was given a status-page login, leaving a row that
-         * said nothing at all about a person the team had classified. Review
-         * on #162 measured it through the routes.
+         * **Only for a role that grants team access**, and a client keeps a
+         * lifecycle either way. Clearing it for `Contact` and `Status Viewer`
+         * erased a typed **Client** the moment somebody was given a
+         * status-page login; and a client who was **not** already in the
+         * directory arrived with no lifecycle at all, no roles to draw
+         * instead, and a row that said nothing whatsoever about somebody the
+         * team had just invited. Both were measured through the routes, in
+         * successive rounds of review on #162.
+         *
+         * The `??` is what covers the second, and it covers a third with it: a
+         * **revoked colleague** re-invited as a client already holds a null.
+         * One expression rather than a default in the insert as well — the
+         * insert is followed unconditionally by this write, so a second copy
+         * is one no test can tell from a typo.
          */
-        $joinsTheTeam = $invitation->role->grantsTeamAccess();
-
         $membership->forceFill([
-            'status' => $joinsTheTeam ? null : $membership->status,
+            'status' => $joinsTheTeam
+                ? null
+                : ($membership->status ?? PersonLifecycleState::Active),
             'first_name' => $nameIsAuthoritative || $membership->first_name === ''
                 ? $firstName
                 : $membership->first_name,
