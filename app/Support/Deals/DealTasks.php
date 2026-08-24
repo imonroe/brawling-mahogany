@@ -10,6 +10,7 @@ use App\Models\Person;
 use App\Models\Stage;
 use App\Models\Task;
 use App\Support\Activity\RecordActivity;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -151,7 +152,15 @@ final readonly class DealTasks
         }
 
         return DB::transaction(function () use ($deal, $task, $actor): Task {
-            $task->completed_at = now();
+            /*
+             * `Carbon::now()`, not `now()`. The helper returns a
+             * `CarbonImmutable` in this application, and `completed_at` is
+             * typed `Illuminate\Support\Carbon` — a direct property
+             * assignment is the one place that difference is visible, which is
+             * why the timestamps written through `forceFill()` elsewhere use
+             * the helper happily.
+             */
+            $task->completed_at = Carbon::now();
             $task->completedBy()->associate($actor);
             $task->save();
 

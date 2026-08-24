@@ -255,7 +255,11 @@ class TaskController extends Controller
             ];
         }
 
-        return array_values($groups);
+        /*
+         * No `array_values()` here, unlike the other two: this one is built by
+         * appending, so it is a list already and PHPStan says so.
+         */
+        return $groups;
     }
 
     /**
