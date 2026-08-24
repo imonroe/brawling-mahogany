@@ -27,7 +27,7 @@
  * - The rail scrolls that row into view on mount, once, so arriving at stage
  *   seventeen of twenty does not begin with a thousand pixels of history.
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import StageRow from './StageRow.vue';
 import type { TimelineStage } from './StageRow.vue';
 import StatusBadge from './StatusBadge.vue';
@@ -63,6 +63,35 @@ const opened = ref(
     ),
 );
 
+/**
+ * **The rail follows the workflow when it moves.**
+ *
+ * `AdvanceStageDialog` posts with `preserveState: true`, and Inertia only
+ * re-keys the page component when state is *not* preserved — so advancing does
+ * not remount this rail. Seeding `opened` in `setup()` and stopping there left
+ * the **just-completed** stage expanded and the new active one shut, with no
+ * scroll: exactly the "lose your place" failure #76 asks the screen to avoid,
+ * arriving at the one moment the reader has most reason to look.
+ *
+ * Opening rather than replacing, because a row the reader opened themselves is
+ * theirs. Advancing adds the new current stage to whatever they had open; it
+ * does not tidy the screen up behind them.
+ */
+watch(
+    () => props.workflow.activeStageId,
+    (stageId, previous) => {
+        if (stageId === null || stageId === previous) {
+            return;
+        }
+
+        opened.value = new Set(opened.value).add(stageId);
+
+        // After the row has actually rendered expanded, or the scroll measures
+        // a 58px row and lands short of it.
+        void nextTick(() => scrollToActive());
+    },
+);
+
 function toggle(stageId: string): void {
     const next = new Set(opened.value);
 
@@ -90,7 +119,7 @@ function captureActive(element: unknown, stageId: string): void {
     }
 }
 
-onMounted(() => {
+function scrollToActive(): void {
     /*
      * `block: 'center'` rather than the default `start`, so the active stage
      * arrives with the stages either side of it visible. The whole argument
@@ -108,7 +137,9 @@ onMounted(() => {
      * scrolls has traded the wrong thing away.
      */
     activeRow.value?.scrollIntoView?.({ block: 'center', behavior: 'auto' });
-});
+}
+
+onMounted(scrollToActive);
 
 const total = computed(() => props.workflow.stages.length);
 </script>

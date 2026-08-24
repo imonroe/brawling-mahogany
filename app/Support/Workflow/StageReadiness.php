@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Workflow;
 
+use App\Enums\StageState;
 use App\Models\Gate;
 use App\Support\Workflow\Gates\GateVerdict;
 
@@ -92,6 +93,31 @@ final readonly class StageReadiness
             ...$this->describe($this->advisories),
             ...$this->describe($this->met),
         ];
+    }
+
+    /**
+     * The badge this stage should wear, given what is actually in its way.
+     *
+     * **`stages.state` is a cache that only an advance attempt refreshes.** So
+     * a stage cached `blocked`, whose gate somebody has since satisfied, goes
+     * on badging Blocked until the next attempt — and the screen showing that
+     * badge is usually showing the cleared checklist beside it, which is one
+     * card disagreeing with itself.
+     *
+     * Both S15 and S16 badge their current stage from here rather than from the
+     * column, because two screens deriving it separately is how they came to
+     * disagree in the first place: S16 read the live answer, S15 read the
+     * cache, and the ordinary stage immediately after an advance (cached
+     * `active`, gate unmet) said *In Progress* on one and *Blocked* on the
+     * other.
+     *
+     * Only ever asked about a stage that is in progress — readiness is computed
+     * for the active stage and no other — so `active` and `blocked` are the
+     * only two answers there are.
+     */
+    public function stageState(): StageState
+    {
+        return $this->canAdvance() ? StageState::Active : StageState::Blocked;
     }
 
     /**

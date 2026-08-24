@@ -461,3 +461,128 @@ it('refuses a deal belonging to another team', function (): void {
     // 404, not 403 — ADR 0002: a tenant must not learn that a record exists.
     $this->get("/deals/{$deal->getKey()}/timeline")->assertNotFound();
 });
+
+it('badges the same stage the same way as the deal overview', function (): void {
+    /*
+     * The two screens disagreed, and this is the fixture they disagreed on —
+     * the **ordinary** stage straight after an advance.
+     *
+     * `AdvanceWorkflow` sets the incoming stage to `active`, so a gate that is
+     * unmet leaves the cache saying `active` while the evaluator says blocked.
+     * The overview read the column and the timeline read the evaluator, so one
+     * card badged *In Progress* directly above its own "1 requirement to
+     * clear" while the other badged Blocked. Both now ask
+     * `StageReadiness::stageState()`.
+     *
+     * Asserted as an equality between the two payloads rather than as two
+     * literals, because what matters is that they cannot drift apart — a test
+     * naming `blocked` twice would pass just as well with the derivation
+     * duplicated, which is the arrangement that produced the bug.
+     */
+    [$deal, $workflow, $stages] = timelineDeal(3);
+
+    timelineGate($stages->first(), 'Seller has signed');
+
+    // The cache says `active`, as it does for every stage an advance just
+    // moved into.
+    expect($stages->first()->fresh()->state)->toBe(StageState::Active);
+
+    $timeline = $this->get("/deals/{$deal->getKey()}/timeline")
+        ->assertOk()
+        ->viewData('page')['props']['workflows'][0]['stages'][0]['state'];
+
+    $overview = $this->get("/deals/{$deal->getKey()}")
+        ->assertOk()
+        ->viewData('page')['props']['workflows'][0]['currentStage']['state'];
+
+    expect($timeline)->toBe($overview)
+        // And the shared answer is the live one, not the cache.
+        ->and($timeline)->toBe(StageState::Blocked->value);
+});
+
+it('does not re-evaluate a finished stage’s gates, even when the record has gone stale', function (): void {
+    /*
+     * The fixture is the whole test: the record and the evaluator **disagree**.
+     *
+     * A `manual_confirmation` gate is met only when `is_met` says so, so a
+     * complete stage carrying an unmet gate is what a live evaluation would
+     * call blocking — and a stage finished in June growing an amber "still to
+     * clear" is the screen inventing an obligation nobody owes.
+     *
+     * An earlier version of this case used a stage whose gates were met, where
+     * evaluating and reading the record give the same answer. Replacing both
+     * recorded branches with live evaluation left it green, which is to say it
+     * held nothing.
+     */
+    [$deal, $workflow, $stages] = timelineDeal(3);
+
+    $done = $stages->get(1);
+
+    // Unmet, blocking — and the stage is complete anyway, which is exactly
+    // what an override or a since-changed condition leaves behind.
+    timelineGate($done, 'Survey returned');
+
+    app(TeamContext::class)->runFor($this->team, function () use ($done): void {
+        DB::table('stages')->where('id', $done->getKey())->update([
+            'state' => StageState::Complete->value,
+        ]);
+    });
+
+    $this->get("/deals/{$deal->getKey()}/timeline")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('workflows.0.stages.1.state', StageState::Complete->value)
+            // Recorded: unmet. Live evaluation would agree it is unmet — but
+            // would also call it blocking, and nothing on a stage nobody is
+            // advancing is in the way right now.
+            ->where('workflows.0.stages.1.gates.0.gateState', 'unmet')
+            ->where('workflows.0.stages.1.gates.0.blocksAdvance', false)
+            ->where('workflows.0.stages.1.gateCounts.blocking', 0));
+});
+
+it('never leaves a requirement row without its sub-line', function (): void {
+    /*
+     * §7.4: the sub-line *"always states the gate type and its evidence"*, and
+     * it is *"what makes a refusal actionable"*. Recorded gates shipped an
+     * empty string, which renders as a blank line under every gate on every
+     * finished stage.
+     *
+     * An overridden one says who decided and why, because F4.9 requires the
+     * reason to be captured and this is the screen showing the stage it was
+     * captured on.
+     */
+    [$deal, $workflow, $stages] = timelineDeal(3);
+
+    $done = $stages->get(1);
+
+    $met = timelineGate($done, 'Survey returned', ['is_met' => true, 'met_at' => now()]);
+    $waived = timelineGate($done, 'Inspection waived', ['sort_order' => 1]);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($done, $waived): void {
+        DB::table('gates')->where('id', $waived->getKey())->update([
+            'overridden' => true,
+            'override_reason' => 'Buyer waived in writing, scanned copy on file.',
+        ]);
+
+        DB::table('stages')->where('id', $done->getKey())->update([
+            'state' => StageState::Complete->value,
+        ]);
+    });
+
+    $this->get("/deals/{$deal->getKey()}/timeline")
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $gates = $page->toArray()['props']['workflows'][0]['stages'][1]['gates'];
+
+            foreach ($gates as $gate) {
+                expect($gate['explanation'])->not->toBe('');
+            }
+
+            expect($gates[0]['explanation'])->toContain('Manual confirmation')
+                ->and($gates[0]['explanation'])->toContain('met');
+
+            // The reason, not just the fact.
+            expect($gates[1]['explanation'])
+                ->toContain('Buyer waived in writing');
+        });
+});

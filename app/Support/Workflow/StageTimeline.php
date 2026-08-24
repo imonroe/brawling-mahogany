@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Support\Workflow;
 
-use App\Enums\StageState;
 use App\Models\Gate;
 use App\Models\Stage;
 use App\Models\Task;
@@ -125,7 +124,7 @@ final readonly class StageTimeline
              * so this is a *rendering* of the live answer and not a transition.
              */
             'state' => $isActive
-                ? ($readiness->canAdvance() ? StageState::Active->value : StageState::Blocked->value)
+                ? $readiness->stageState()->value
                 : $stage->state->value,
 
             'isMilestone' => $stage->is_milestone,
@@ -195,11 +194,20 @@ final readonly class StageTimeline
      * one component draws either — `GateRow` takes a `GateSummary` and does not
      * care which question produced it.
      *
-     * `explanation` is empty and `linkTarget` is empty, because only an
-     * evaluator can say why a gate is in the state it is in, and running one
-     * here is the re-evaluation this class exists to avoid. A row that is not
-     * a live question does not need a resolution link: there is nothing to go
-     * and clear.
+     * `linkTarget` is empty because a row that is not a live question has
+     * nothing to go and clear.
+     *
+     * **`explanation` is not empty**, though, and it cannot be: §7.4 says the
+     * sub-line *"always states the gate type and its evidence"*, and that it is
+     * *"what makes a refusal actionable"*. An empty one renders as a blank line
+     * under every gate on every finished stage. What it says here is what was
+     * **recorded** rather than what an evaluator would find — which is the
+     * honest thing to say about a stage that is over, and needs no evaluation
+     * to say it.
+     *
+     * An overridden gate says who decided and why, because F4.9 requires the
+     * reason to be captured and this is the one screen that shows the stage it
+     * was captured on.
      *
      * @return list<array<string, mixed>>
      */
@@ -214,9 +222,35 @@ final readonly class StageTimeline
             'blocksAdvance' => false,
             'gateState' => $gate->state()->value,
             'met' => $gate->is_met,
-            'explanation' => '',
+            'explanation' => self::recordedExplanation($gate),
             'linkTarget' => [],
         ])->all());
+    }
+
+    /**
+     * What the record says about a gate, in §7.4's sub-line shape.
+     *
+     * The gate type first, because that is what the sub-line leads with
+     * everywhere else — `Manual confirmation · Heather Nguyen, 12 Aug` — and a
+     * reader comparing a finished stage with the current one should not have to
+     * change how they read the line halfway down the page.
+     */
+    private static function recordedExplanation(Gate $gate): string
+    {
+        $type = str_replace('_', ' ', $gate->gate_type);
+        $type = ucfirst($type);
+
+        if ($gate->overridden) {
+            $reason = trim((string) $gate->override_reason);
+
+            return $reason === ''
+                ? "{$type} · overridden, with no reason recorded"
+                : "{$type} · overridden: {$reason}";
+        }
+
+        return $gate->is_met
+            ? "{$type} · recorded as met"
+            : "{$type} · never met on this stage";
     }
 
     /**

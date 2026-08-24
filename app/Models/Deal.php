@@ -245,7 +245,20 @@ class Deal extends Model
      */
     public function workflows(): HasMany
     {
-        return $this->hasMany(Workflow::class);
+        /*
+         * Ordered, because two of them is the ordinary case (F4.7) and both
+         * screens that draw them draw them in a list.
+         *
+         * Postgres gives no stable order among equal keys, so without this the
+         * overview's cards and the timeline's rails could swap position between
+         * two renders of the same deal — and a test asserting "the first
+         * workflow is the sale" was latently flaky rather than wrong. `id` is
+         * the tiebreaker for the same reason the deals index has one: ULIDs are
+         * time-ordered, so it agrees with `created_at` instead of fighting it.
+         */
+        return $this->hasMany(Workflow::class)
+            ->orderBy('created_at')
+            ->orderBy('id');
     }
 
     /**

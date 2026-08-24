@@ -1,11 +1,25 @@
 import { Check, Circle, Flag, Loader, Minus, ShieldAlert } from '@lucide/vue';
 import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MARKER_TONE, stageMarker } from '@/components/app/stageRail';
-import StageRail from '@/components/app/StageRail.vue';
-import type { TimelineWorkflow } from '@/components/app/StageRail.vue';
-import StageRow from '@/components/app/StageRow.vue';
-import type { TimelineStage } from '@/components/app/StageRow.vue';
+
+/*
+ * Inertia is mocked rather than installed, the way `dealHeader.test.ts` does
+ * it: `usePage` is what `usePermissions()` reads, and the Advance button on the
+ * stage card is guarded by `workflow.advance` — so the mock is not scaffolding
+ * here, it is the thing one of these cases is about.
+ */
+const permissions = { value: ['workflow.advance'] as string[] };
+
+vi.mock('@inertiajs/vue3', () => ({
+    usePage: () => ({ props: { auth: { permissions: permissions.value } } }),
+}));
+
+const StageRail = (await import('@/components/app/StageRail.vue')).default;
+const StageRow = (await import('@/components/app/StageRow.vue')).default;
+
+type TimelineWorkflow = InstanceType<typeof StageRail>['$props']['workflow'];
+type TimelineStage = InstanceType<typeof StageRow>['$props']['stage'];
 
 /**
  * The stage rail (S16 · Design System §7.4 · #76).
@@ -103,6 +117,29 @@ describe('stageMarker', () => {
             icon: ShieldAlert,
             tone: 'warning',
         });
+    });
+
+    it('leaves an unfinished stage showing what it is doing now', () => {
+        /*
+         * Overriding does not advance — clearing one of three blockers must not
+         * move the deal past the other two — so a stage can be active, still
+         * blocked, and carrying an overridden gate. That is the ordinary state
+         * of a stage midway through being unstuck, and marking it Overridden
+         * would replace the live "something is still in your way" with a
+         * historical note on the one row the reader is there to act on.
+         */
+        expect(
+            stageMarker(stage({ state: 'blocked', hasOverride: true })),
+        ).toEqual({ icon: Loader, tone: 'warning' });
+
+        expect(
+            stageMarker(stage({ state: 'active', hasOverride: true })).icon,
+        ).toBe(Loader);
+
+        // A skipped stage is finished, so the override still shows there.
+        expect(
+            stageMarker(stage({ state: 'skipped', hasOverride: true })).icon,
+        ).toBe(ShieldAlert);
     });
 
     it('uses no raw colour anywhere in the marker table', () => {
@@ -250,6 +287,27 @@ describe('StageRow', () => {
         );
     });
 
+    it('hides Advance from somebody who may not advance', () => {
+        /*
+         * §7.3: **hidden, not disabled**. `DealHeader` and the overview's
+         * workflow cards both guard this with `can('workflow.advance')`, and a
+         * third caller written without it was offering an act the server
+         * answers 403 to — a button that confirms an action nobody can perform.
+         */
+        permissions.value = ['deals.view'];
+
+        try {
+            expect(row({ isActive: true }, true).text()).not.toContain(
+                'Advance stage',
+            );
+        } finally {
+            permissions.value = ['workflow.advance'];
+        }
+
+        // And it is back for somebody who may.
+        expect(row({ isActive: true }, true).text()).toContain('Advance stage');
+    });
+
     it('replaces Advance with the workflow’s own refusal when it is not running', () => {
         const wrapper = mount(StageRow, {
             props: {
@@ -273,6 +331,40 @@ describe('StageRow', () => {
         expect(wrapper.find('[data-slot="skip-reason"]').text()).toContain(
             'No reason was recorded',
         );
+    });
+
+    it('keeps keyboard focus on the control that was pressed', async () => {
+        /*
+         * The collapsed card and the expanded header band are the same control
+         * saying the same thing, so they are the same element. Two of them — a
+         * `v-if` pair in different parents — meant every toggle destroyed the
+         * focused node and dropped focus to `<body>`, which turns "open a
+         * stage" into "start again from the top of the page". Twenty rows makes
+         * that expensive.
+         */
+        const wrapper = mount(StageRow, {
+            props: {
+                stage: stage(),
+                isLast: false,
+                expanded: false,
+                canAdvance: false,
+                advanceRefusal: null,
+            },
+            attachTo: document.body,
+        });
+
+        const button = wrapper.get('button');
+
+        button.element.focus();
+        expect(document.activeElement).toBe(button.element);
+
+        await wrapper.setProps({ expanded: true });
+
+        // Same element, still focused — and now describing itself as open.
+        expect(document.activeElement).toBe(wrapper.get('button').element);
+        expect(wrapper.get('button').attributes('aria-expanded')).toBe('true');
+
+        wrapper.unmount();
     });
 
     it('drops the connector on the last row only', () => {
@@ -400,6 +492,49 @@ describe('StageRail', () => {
             expect(rows[0].props('expanded')).toBe(true);
             expect(rows[1].props('expanded')).toBe(true);
         });
+    });
+
+    it('follows the workflow when an advance moves it on', async () => {
+        /*
+         * `AdvanceStageDialog` posts with `preserveState: true`, and Inertia
+         * only re-keys the page component when state is **not** preserved — so
+         * advancing does not remount this rail. Seeding the open set once left
+         * the *just-completed* stage expanded and the new current one shut, at
+         * the one moment the reader has most reason to look at it: precisely
+         * the "lose your place" failure #76 asks the screen to avoid.
+         */
+        const wrapper = mount(StageRail, { props: { workflow: workflow() } });
+
+        expect(
+            wrapper.findAllComponents(StageRow).map((r) => r.props('expanded')),
+        ).toEqual([false, true, false]);
+
+        // The advance lands: stage two completed, stage three is current.
+        await wrapper.setProps({
+            workflow: workflow({
+                activeStageId: 'stage-3',
+                stages: [
+                    stage({ id: 'stage-1', state: 'complete', position: 1 }),
+                    stage({ id: 'stage-2', state: 'complete', position: 2 }),
+                    stage({
+                        id: 'stage-3',
+                        state: 'active',
+                        isActive: true,
+                        position: 3,
+                    }),
+                ],
+            }),
+        });
+
+        const expanded = wrapper
+            .findAllComponents(StageRow)
+            .map((r) => r.props('expanded'));
+
+        // The new current stage is open …
+        expect(expanded[2]).toBe(true);
+        // … and the row the reader already had open is still theirs. Advancing
+        // adds; it does not tidy the screen up behind them.
+        expect(expanded[1]).toBe(true);
     });
 
     it('says once why a stopped workflow has no Advance', () => {

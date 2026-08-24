@@ -148,6 +148,12 @@ These come from PRD §8 and should guide the eventual build:
   Before adding a state to render something, ask whether it is a state or a
   presentation of one. Built in Slice 2 (#76).
 
+  The presentation has its own boundary, too: the override marker applies only
+  to a **finished** stage. Overriding does not advance, so an active stage can
+  carry a waived gate while two others still block it — and marking that one
+  Overridden would replace the live "something is still in your way" with a
+  historical note, on the one row the reader is there to act on.
+
 - **A cache is only true at the moment something refreshed it.** `stages.state`
   is written by an advance attempt and by nothing else, so a stage cached
   `blocked` whose gate somebody has since satisfied goes on badging Blocked
@@ -156,7 +162,11 @@ These come from PRD §8 and should guide the eventual build:
   badge shows nothing in the way.
 
   So S16 badges the **active** stage from `DescribeBlockers` — the live answer,
-  which writes nothing — and every other stage from the record. That split is
+  which writes nothing — and every other stage from the record. **Both screens
+  that draw a current stage read the same function**, `StageReadiness::stageState()`:
+  S15 and S16 derived it separately for one round and disagreed on the ordinary
+  stage straight after an advance, which is cached `active` with its gate unmet.
+  One screen said In Progress directly above its own "1 requirement to clear". That split is
   not squeamishness about the cache: a complete stage's gates are what happened,
   not a question still open, and re-evaluating twenty of them per render to
   re-derive a fact that cannot change is work with no reader. The same split

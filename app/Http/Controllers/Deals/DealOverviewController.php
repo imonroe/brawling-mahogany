@@ -164,7 +164,17 @@ class DealOverviewController extends Controller
             'currentStage' => $stage instanceof Stage ? [
                 'id' => $stage->getKey(),
                 'name' => $stage->name,
-                'state' => $stage->state->value,
+                /*
+                 * The live answer, not the cached column — and the *same* live
+                 * answer S16's rail uses, from the same function.
+                 *
+                 * These two screens disagreed: the ordinary stage straight
+                 * after an advance is cached `active` with its gate unmet, so
+                 * this card badged **In Progress** directly above its own
+                 * "1 requirement to clear", while the timeline badged Blocked.
+                 * One of them had to be wrong and it was this one.
+                 */
+                'state' => $readiness?->stageState()->value ?? $stage->state->value,
                 'description' => $stage->description,
                 'plannedEnd' => $stage->planned_end?->toIso8601String(),
                 'position' => is_int($index) ? $index + 1 : null,

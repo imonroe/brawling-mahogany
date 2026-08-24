@@ -832,6 +832,42 @@ Overridden a state of its own rather than a kind of Met — so "1 of 1 met" over
 a row badged Overridden says the opposite of what happened.
 
 
+> [!note] Built as `components/app/StageRail.vue` and `StageRow.vue` (#76)
+> Four departures from the anatomy above, each with a reason the spec could not
+> have known:
+>
+> - **Row heights are not hard-coded.** §7.4 fixes them at 58px collapsed and
+>   302px expanded so the connector has something definite to stretch into; the
+>   build gets the same guarantee from `self-stretch` on the rail column and
+>   `flex-1` on the connector, which also survives a stage name wrapping and a
+>   requirements pane of six rows rather than three. A hard 302px would clip
+>   them.
+> - **The two-pane body stacks below `lg`.** The requirements pane is fixed at
+>   340px, and two panes at that width on a phone is two columns of two words.
+> - **The milestone pill is on the collapsed row only.** §7.4's expanded header
+>   band is `[name] [StatusBadge] [flex-1] [meta] [chevron-up]` and has no pill
+>   in it.
+> - **The collapsed card and the expanded header band are one `<button>`**,
+>   not two. They are the same control saying the same thing, and a `v-if` pair
+>   dropped keyboard focus to `<body>` on every toggle.
+>
+> Two rules it settles that the anatomy does not:
+>
+> - **The Overridden marker is a presentation, not a sixth stage state.** IA §8
+>   lists five and `lib/states.ts` throws on a sixth; a stage that completed over
+>   an overridden gate *is* `complete`, and carries `hasOverride` beside its
+>   state. The marker takes `shield-alert` and the badge goes on saying Complete
+>   — they disagree on purpose. **And only once the stage is finished**: an
+>   override does not advance, so an *active* stage can carry a waived gate while
+>   still blocked by two others, and marking that one Overridden would replace
+>   the live "something is still in your way" with a historical note.
+> - **The current stage is badged from the live verdict, not `stages.state`.**
+>   That column is a cache only an advance attempt refreshes, so the ordinary
+>   stage straight after an advance is cached `active` with its gate unmet.
+>   `StageReadiness::stageState()` is the one place that decides, and S15's
+>   overview reads it too — the two screens badged the same stage differently
+>   until they did.
+
 #### Requirement (gate) row
 
 Used in the stage card, the deal overview, and the advance dialog. Three densities, one anatomy.

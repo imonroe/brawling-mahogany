@@ -56,14 +56,28 @@ export type StageMarker = {
 /**
  * §7.4's table, read top to bottom — the order matters.
  *
- * Override is tested **before** completion and before milestone, because a
- * stage can be all three and only one glyph fits. §7.4 lists Overridden above
- * In Progress for the same reason, and F4.9 makes it the one that must survive:
- * a milestone flag over a forced advance would announce the moment and hide how
- * it was reached.
+ * Override beats completion and beats the milestone flag, because a stage can
+ * be all three and only one glyph fits. F4.9 makes it the one that must
+ * survive: a milestone flag over a forced advance would announce the moment and
+ * hide how it was reached, and a green tick would agree with the badge and lose
+ * the only fact the marker was added to carry.
+ *
+ * **But only once the stage is finished**, and that is not a detail. Overriding
+ * does not advance — `AdvanceWorkflow::override()` is emphatic that clearing
+ * one of three blockers must not move the deal past the other two — so a stage
+ * can be *active and blocked* with an overridden gate on it, which is the
+ * ordinary state of a stage midway through being unstuck. Marking that one
+ * Overridden would replace the live "something is still in your way" with a
+ * historical note, on the one row the reader is there to act on.
+ *
+ * So an unfinished stage shows what it is doing now, and the override shows up
+ * where it belongs: on the gate's own row, which `GateRow` already draws with
+ * this same glyph.
  */
+const FINISHED = ['complete', 'skipped'];
+
 export function stageMarker(stage: StageMarkerInput): StageMarker {
-    if (stage.hasOverride) {
+    if (stage.hasOverride && FINISHED.includes(stage.state)) {
         return { icon: ShieldAlert, tone: 'warning' };
     }
 
