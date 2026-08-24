@@ -17,6 +17,7 @@ use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Queries\DealDirectory;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\DB;
 
 /**
  * S13 — the deals index (PRD §4.9 F9.1 · issue #78).
@@ -291,17 +292,46 @@ it('sorts by the name the row displays, both ways', function (): void {
     indexDeal(attributes: ['name' => null, 'generated_name' => 'Middle Road']);
     indexDeal(attributes: ['name' => 'Zebra typed', 'generated_name' => '1 Aardvark Ave']);
 
-    $this->get('/deals?sort=name&direction=asc')
+    $this->get('/deals?sort=primary&direction=asc')
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->where('deals.data.0.name', 'Aardvark typed')
             ->where('deals.data.2.name', 'Zebra typed'));
 
-    $this->get('/deals?sort=name&direction=desc')
+    $this->get('/deals?sort=primary&direction=desc')
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->where('deals.data.0.name', 'Zebra typed')
             ->where('deals.data.2.name', 'Aardvark typed'));
+});
+
+/**
+ * A blank name is not a name, and `coalesce` alone disagrees.
+ *
+ * `displayName()` falls back on **blank** — it `trim()`s the typed name and
+ * moves on if nothing is left — while `coalesce` falls back on **null**. So a
+ * `name` of `''` is a value `coalesce` keeps and sorts by, and the row
+ * alphabetises under an empty string while displaying its generated name.
+ *
+ * Nothing writes a blank name today: `DealDraft::text()` normalises it and
+ * `CreateDealFromDraft` is the only writer. But `name` is fillable, and the
+ * first rename endpoint that trusts `nullable|string` reintroduces it — which
+ * is the whole reason the sort expression, not the writer, is where this is
+ * settled.
+ */
+it('treats a blank name the way the row does, as no name', function (): void {
+    $blank = indexDeal(attributes: ['name' => 'placeholder', 'generated_name' => 'ZZZ generated']);
+    $nulled = indexDeal(attributes: ['name' => null, 'generated_name' => 'MMM generated']);
+
+    // Straight to the column, because every writer normalises this away.
+    DB::table('deals')->where('id', $blank->getKey())->update(['name' => '   ']);
+
+    $this->get('/deals?sort=primary&direction=asc')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            // M before Z, because both rows sort by what they show.
+            ->where('deals.data.0.id', $nulled->getKey())
+            ->where('deals.data.1.id', $blank->getKey()));
 });
 
 /**
@@ -317,11 +347,97 @@ it('sorts a nameless deal last however the arrow points', function (): void {
     $nameless = indexDeal(attributes: ['name' => null, 'generated_name' => null]);
 
     foreach (['asc', 'desc'] as $direction) {
-        $this->get("/deals?sort=name&direction={$direction}")
+        $this->get("/deals?sort=primary&direction={$direction}")
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('deals.data.1.id', $nameless->getKey()));
     }
+});
+
+/**
+ * Every column the table offers to sort is a column the server sorts by.
+ *
+ * These are two vocabularies that were never introduced. `dealRow.ts` names
+ * the deal column `primary`; `DealDirectory::SORTS` said `name`. `Table`
+ * emits `column.key`, the page puts it straight into the query string, and
+ * the allowlist rejected it — so pressing **Deal** fell to the default
+ * ordering, and the branch that exists for hand-typed junk swallowed the
+ * app's own button. `date` worked only because both lists happen to spell it
+ * the same way.
+ *
+ * Read out of the TypeScript rather than restated here, because a copy of the
+ * list is a third vocabulary. Adding `sortable: true` to a column now fails
+ * the build until the server can sort by it.
+ */
+it('sorts by every column key the table offers', function (): void {
+    $source = (string) file_get_contents(base_path('resources/js/components/app/dealRow.ts'));
+
+    // The `key: '…'` of every entry carrying `sortable: true`.
+    preg_match_all("/\\{\\s*key:\\s*'([a-z0-9]+)'[^}]*sortable:\\s*true/i", $source, $matches);
+
+    $offered = $matches[1];
+
+    // A floor, because a regex that matches nothing would pass silently.
+    expect($offered)->toHaveCount(2)
+        ->and($offered)->toEqualCanonicalizing(DealDirectory::SORTS);
+});
+
+/**
+ * The date sort, end to end — the key the UI actually sends for that column,
+ * and the branch whose `nulls last` nothing was checking.
+ *
+ * A deal with nothing due sorts last either way round: an empty cell is not
+ * "soonest", and it is not "latest" either. Postgres defaults to NULLS FIRST
+ * on a descending sort, so without the clause the empty one heads the list on
+ * one of the two presses.
+ */
+it('sorts by the next date, with the empty ones last either way', function (): void {
+    $soon = indexDeal(attributes: ['name' => 'Due soon']);
+    $later = indexDeal(attributes: ['name' => 'Due later']);
+    $never = indexDeal(attributes: ['name' => 'Nothing due']);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($soon, $later): void {
+        Task::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $soon->getKey(),
+            'due_date' => now()->addDays(2)->toDateString(),
+        ]);
+
+        Task::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $later->getKey(),
+            'due_date' => now()->addDays(30)->toDateString(),
+        ]);
+    });
+
+    $this->get('/deals?sort=date&direction=asc')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('deals.data.0.id', $soon->getKey())
+            ->where('deals.data.2.id', $never->getKey()));
+
+    $this->get('/deals?sort=date&direction=desc')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('deals.data.0.id', $later->getKey())
+            // Still last. This is the assertion the `nulls last` exists for.
+            ->where('deals.data.2.id', $never->getKey()));
+});
+
+/**
+ * A junk sort key is not echoed back, because the header draws itself from it.
+ *
+ * `Table` tints a chevron and sets `aria-sort` when `sort` equals a column's
+ * key. Echoing an unvalidated key lit the Deal header, flipped its arrow on a
+ * second press, and announced "ascending" over rows the server had left in
+ * `opened_at` order — a control confirming an action nobody performed.
+ */
+it('does not echo back a sort key it refused to use', function (): void {
+    indexDeal();
+
+    $this->get('/deals?sort=primary%20--&direction=asc')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('sort', ''));
 });
 
 /**
@@ -402,7 +518,13 @@ it('orders by something unique, so a page cannot repeat a row', function (): voi
      * Every ordering call is found instead, and the last one has to be the
      * tiebreaker.
      */
-    preg_match_all('/->order[A-Za-z]*\(/', $source, $matches, PREG_OFFSET_CAPTURE);
+    preg_match_all(
+        // `latest`, `oldest` and `inRandomOrder` order without saying "order".
+        '/->(?:order[A-Za-z]*|latest|oldest|inRandomOrder)\(/',
+        $source,
+        $matches,
+        PREG_OFFSET_CAPTURE,
+    );
 
     $offsets = array_column($matches[0], 1);
 

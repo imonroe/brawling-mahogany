@@ -38,15 +38,21 @@ final class DealDirectory
      * ordinary reason: `orderBy($request->input('sort'))` is an injection
      * hole, and a typo would be a 500 rather than a screen.
      *
-     * `dealRow.ts` marks exactly two columns sortable — the deal and the next
-     * date — so exactly two are here. A third would be a column header that
-     * offers something the table cannot do.
+     * **These are `dealRow.ts`'s column keys**, which is the vocabulary the UI
+     * speaks: `Table` emits `column.key` and the page puts it straight into
+     * the query string. This list first said `'name'` where the column is
+     * called `'primary'`, so pressing **Deal** sent a key the allowlist did
+     * not contain, the request fell to the default ordering, and the branch
+     * that exists for hand-typed junk swallowed the app's own button. `date`
+     * worked only because the two vocabularies happen to spell it the same.
      *
-     * Keys rather than key => column, because neither sort is one column:
-     * the deal sorts by the string `displayName()` produces, and the date by
-     * a subquery result.
+     * Keys rather than key => column, because neither sort *is* a column: the
+     * deal sorts by the string `displayName()` produces and the date by a
+     * subquery result. `DealsIndexTest` reads the `sortable` entries out of
+     * `dealRow.ts` and checks every one of them is here, so the two lists
+     * cannot drift apart again.
      */
-    private const SORTS = ['name', 'date'];
+    public const SORTS = ['primary', 'date'];
 
     /**
      * @return LengthAwarePaginator<int, array<string, mixed>>
@@ -305,11 +311,23 @@ final class DealDirectory
              * "Aardvark" with a generated name of "9 Zoo Lane" sorted last
              * under an ascending Deal header.
              *
-             * `nulls last` for the same reason as the date, and because
-             * `generated_name` is nullable: Postgres defaults to NULLS FIRST
-             * on a descending sort, so a nameless deal would head the list.
+             * `nullif(btrim(...), '')` rather than a bare `coalesce`, because
+             * `displayName()` falls back on **blank** and `coalesce` falls
+             * back on null. A `name` of `''` is a value `coalesce` keeps and
+             * sorts by, so a deal displaying its generated name would sort as
+             * though it had none. Nothing writes a blank name today —
+             * `DealDraft::text()` normalises it — but `name` is fillable, and
+             * the first rename endpoint trusting `nullable|string` would
+             * reintroduce this quietly.
+             *
+             * `nulls last` in both directions: Postgres defaults to NULLS
+             * FIRST on a descending sort, and a deal with no name at all
+             * heading the list on one of the two presses is not an order
+             * anybody asked for. It is what puts "Untitled deal" last.
              */
-            $query->orderByRaw("coalesce(deals.name, deals.generated_name) {$direction} nulls last");
+            $query->orderByRaw(
+                "coalesce(nullif(btrim(deals.name), ''), nullif(btrim(deals.generated_name), '')) {$direction} nulls last",
+            );
         }
 
         /*

@@ -120,10 +120,17 @@ function ariaSort(
                                 @click="emit('sort', column.key)"
                             >
                                 {{ column.label }}
+                                <!--
+                                    Point-up for ascending, which is the way
+                                    round every table the reader has ever used
+                                    does it. The unsorted state keeps the
+                                    down-chevron §8.8 specifies, at 40% — an
+                                    invitation rather than a claim.
+                                -->
                                 <component
                                     :is="
                                         sort === column.key &&
-                                        direction === 'desc'
+                                        direction === 'asc'
                                             ? ChevronUp
                                             : ChevronDown
                                     "

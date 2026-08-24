@@ -28,7 +28,7 @@
  */
 import { Head, router } from '@inertiajs/vue3';
 import { Plus } from '@lucide/vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
@@ -91,14 +91,34 @@ watch(search, (value) => {
     }, 250);
 });
 
+/*
+ * The timer does not outlive the page.
+ *
+ * Typing and then clicking straight through to a deal used to yank the reader
+ * back to `/deals` 250ms later, because the pending visit fired after the
+ * component was gone.
+ */
+onBeforeUnmount(() => {
+    clearTimeout(debounce);
+});
+
 /**
  * One place that builds the query string, so a filter can never drop another.
  *
  * Every control passes only what it changes; everything else is read from the
- * props, which are what the server last resolved. Changing the segment while a
- * search is typed used to be how a screen quietly clears its own filters.
+ * props, which are what the server last resolved.
+ *
+ * **Cancelling the pending search is part of that guarantee, not tidiness.**
+ * The debounce closure reads `props.search` and `props.segment` — the values
+ * the *server* last resolved — so a search typed at t=0 and a segment clicked
+ * at t=100ms would fire at t=250ms still reading the old segment, because the
+ * segment's own response had not landed. It would then navigate back to the
+ * segment the reader had just left. Without this line the sentence above is
+ * a claim the code does not make good on.
  */
 function visit(changes: Record<string, string | undefined>): void {
+    clearTimeout(debounce);
+
     router.get(
         '/deals',
         {
@@ -171,8 +191,19 @@ const isFiltered = computed(
         hasAnyDeals.value,
 );
 
+/**
+ * "See everything", which is what the sentence beside this button promises.
+ *
+ * `/deals` with no query string **is** `segment=open`, so clearing to it left
+ * a closed-only team on the identical empty screen — the right sentence
+ * attached to a button that did nothing. `segment=all` is the only clearing
+ * that shows a team all of its deals.
+ */
 function clearFilters(): void {
-    router.get('/deals', {}, { preserveState: true, replace: true });
+    router.get('/deals', hasAnyDeals.value ? { segment: 'all' } : {}, {
+        preserveState: true,
+        replace: true,
+    });
 }
 </script>
 
@@ -234,7 +265,11 @@ function clearFilters(): void {
             :sort="sort || null"
             :direction="direction === 'desc' ? 'desc' : 'asc'"
             @sort="sortBy"
-            :footer-note="`Page ${deals.current_page} of ${deals.last_page}`"
+            :footer-note="
+                deals.total > 0
+                    ? `Page ${deals.current_page} of ${deals.last_page}`
+                    : null
+            "
             class="flex-1"
         >
             <DealRow

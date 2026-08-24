@@ -56,6 +56,17 @@ describe('Table sorting', () => {
         expect(wrapper.emitted('sort')).toEqual([['primary']]);
     });
 
+    it('points the chevron up for ascending, the way every table does', () => {
+        const ascending = headers(true, 'primary', 'asc');
+        const descending = headers(true, 'primary', 'desc');
+
+        // The component name is the only thing distinguishing them once
+        // rendered, and it is what a reader reads as direction.
+        expect(ascending.findAll('thead button svg')[0].html()).not.toBe(
+            descending.findAll('thead button svg')[0].html(),
+        );
+    });
+
     it('tells a screen reader which column is sorted and which way', () => {
         const sorted = headers(true, 'primary', 'desc');
         const cells = sorted.findAll('thead th');
