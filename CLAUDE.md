@@ -124,6 +124,27 @@ These come from PRD §8 and should guide the eventual build:
   `external_links` and had it found in review; the rule is the generalisation,
   and choosing the column deliberately is half of it.
 
+- **An eager-load is a claim that a row needs the relation, and the check is
+  the row.** S13's deals index eager-loaded `propertyLinks` with a nested
+  `property`, selecting a `state` column `properties` does not have — it has
+  `state_code`; `state` is what `deals` calls its lifecycle. So `/deals`
+  answered *SQLSTATE[42703]* for any team whose deals had a property linked:
+  a 500 on the primary list screen, for the ordinary case of a deal with a
+  subject property.
+
+  **Five review rounds went past it, and the reason generalises: a relation
+  nothing renders is a relation nothing thinks to seed.** Every fixture on that
+  screen seeded participants, workflows, stages and tasks — the four cells the
+  row draws — so the broken select list never executed. It read as a wasted
+  query right up until something had a property on it.
+
+  A query-count budget will not find this either. `DealsIndexBudgetTest`
+  asserts 25 deals cost what 2 deals cost, which is the right shape for an N+1
+  and blind to a fixed cost paid once per page. The guard that works holds two
+  **same-sized** fixtures differing only in whether the relation is populated.
+  Before adding a `with()`, name the cell that reads it; if there isn't one,
+  that is the finding.
+
 - **Reading is not advancing, and the read path writes nothing.** `AdvanceWorkflow`
   answers *"what is blocking this stage"* by **attempting the advance**, which
   writes `stages.state = blocked` and refreshes the `gates.is_met` cache. A hub
