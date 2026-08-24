@@ -218,9 +218,16 @@ describe('StageRow', () => {
         const button = wrapper.get('button');
 
         expect(button.attributes('aria-label')).toBeUndefined();
-        expect(button.get('[data-slot="stage-sequence"]').text()).toBe(
-            'Stage 3 of 20',
-        );
+
+        const sequence = button.get('[data-slot="stage-sequence"]');
+
+        expect(sequence.text()).toBe('Stage 3 of 20');
+        /*
+         * And it is *hidden*. Without `sr-only` this renders as visible text on
+         * every row of every rail — worse than the bug it replaced, and passing
+         * all 191 tests, because nothing asserted the class.
+         */
+        expect(sequence.classes()).toContain('sr-only');
         // Everything visible is still part of what the button is called.
         expect(button.text()).toContain('Under Contract');
         expect(button.text()).toContain('Blocked');
@@ -609,15 +616,25 @@ describe('StageRail', () => {
 
     it('tells each row how long the rail is', () => {
         /*
-         * Unheld until now: hard-coding `of 20` in the row passed every test,
-         * and passing `:total="1"` from the rail passed all 190. The value was
-         * correct by construction and by nothing else.
+         * Both halves, and the first attempt only held one.
+         *
+         * Asserting `props('total')` holds the rail *passing* the value and
+         * says nothing about the row *using* it — hard-coding `of 20` in the
+         * row passed all 191, because the other test's fixture happens to have
+         * twenty stages. So this reads the rendered sequence text instead, off
+         * a rail with three.
          */
-        const rows = mount(StageRail, {
-            props: { workflow: workflow() },
-        }).findAllComponents(StageRow);
+        const wrapper = mount(StageRail, { props: { workflow: workflow() } });
 
-        expect(rows.map((each) => each.props('total'))).toEqual([3, 3, 3]);
+        expect(
+            wrapper
+                .findAll('[data-slot="stage-sequence"]')
+                .map((each) => each.text()),
+        ).toEqual([
+            'Stage 1 of 3',
+            'Stage 2 of 3, current stage',
+            'Stage 3 of 3',
+        ]);
     });
 
     it('marks only the final row as last', () => {
