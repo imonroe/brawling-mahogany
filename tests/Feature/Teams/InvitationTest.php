@@ -515,16 +515,85 @@ it('lets a contact in the directory accept an invitation', function (): void {
         'password_confirmation' => 'a-long-enough-password',
     ])->assertRedirect(route('dashboard'));
 
-    // One membership, upgraded rather than duplicated — so her notes and her
-    // lifecycle history survive her getting a login, which is what the team
-    // expects and the only reason the row was worth keeping.
+    // One membership, upgraded rather than duplicated — so her notes survive
+    // her getting a login, which is what the team expects and the only reason
+    // the row was worth keeping.
     $membership = TeamMembership::withoutTeamScope()
         ->where('team_id', $this->team->getKey())
         ->whereRaw('lower(email) = ?', ['claire@example.test'])
         ->sole();
 
     expect($membership->notes)->toBe('Met at the open house.')
-        ->and($membership->person->hasCredentials())->toBeTrue();
+        ->and($membership->person->hasCredentials())->toBeTrue()
+        /*
+         * **Her lifecycle does not survive, and that is the point** (#162).
+         *
+         * `firstOrCreate` reuses the row and its insert half never runs, so
+         * Claire's `lead` was carried onto a colleague — where IA §8 has
+         * nothing to say about her, and where S32 refuses the field, so
+         * nobody could clean it up. It stayed invisible while she held access
+         * and came back as a blue **Lead** pill the day it was revoked, on a
+         * row the Leads tab excludes. Joining the team ends being a prospect.
+         */
+        ->and($membership->status)->toBeNull();
+});
+
+it('keeps a former colleague off the Leads tab they were once on', function (): void {
+    /*
+     * The other end of the same path, found by review on #162 and measured
+     * end to end: create a lead, invite her, revoke her. Before the lifecycle
+     * became nullable, the stale `lead` resurfaced on revocation.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'lead',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    $token = $this->token;
+    $owner = auth()->user();
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$token}", [
+        'first_name' => 'Claire',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect(route('dashboard'));
+
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['claire@example.test'])
+        ->sole();
+
+    $membership->revoke();
+
+    $this->actingAs($owner);
+    app(TeamContext::class)->set($this->team);
+
+    $this->get('/people?segment=leads')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $rows = collect($page->toArray()['props']['people']['data']);
+
+            expect($rows->firstWhere('id', $membership->getKey()))->toBeNull();
+        });
+
+    expect($membership->refresh()->status)->toBeNull();
 });
 
 /**

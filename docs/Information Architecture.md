@@ -299,31 +299,36 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 `lead` → Lead · `active` → Client · `past_client` → Past Client · `archived` → Archived
 
 > [!warning] This describes a **contact**, not a colleague
-> Every value in it is a stage of a client relationship, so somebody on the
-> team has no honest answer here — their membership holds `active` only
-> because `AcceptInvitation` has to write something, and `active` reads as
-> *Client*. Drawing it unconditionally told a team that their own assistant
-> was a client of theirs (#162).
+> Every value here is a stage of a client relationship, so somebody on the team
+> has no honest answer in it. `team_memberships.status` is therefore
+> **nullable**, and null is not "unknown" — it is *this person has no place on
+> the client lifecycle*. It is what a colleague holds, and what a former
+> colleague holds until the team says what they are now.
 >
-> So a membership that is a **colleague's** is not described by this table at
-> all: the directory badges it with the team's own name for them — their
-> role, one badge each, the same shape `/settings/members` and the console
-> use — and S32 does not offer the lifecycle for editing, because what decides
-> a colleague's standing is their role and their access, both managed on the
-> members screen.
+> That column used to be `NOT NULL`, so `AcceptInvitation` wrote `active` for
+> want of something to write, and `active` reads as *Client* — a team's own
+> assistant badged as their client (#162). The fix that hid the badge for
+> anybody carrying access only moved the problem: revoke that access and the
+> row fell back to the same value nobody had chosen. The question
+> *"was `active` typed or defaulted?"* has no answer in a column that cannot be
+> empty.
 >
 > **Colleague means team access *and* not revoked.**
 > `TeamMembership::carriesAccess()` is the one definition of team access (§2's
 > note above, and issue #142) and deliberately says nothing about revocation —
-> a revoked Team Owner's membership is still an access membership, which is
-> why removing somebody revokes rather than deletes. `isColleague()` is the
-> question a **screen** asks, and the difference is not academic: badging a
-> revoked colleague as a current one, and refusing to let anybody reclassify
-> them, left somebody who had left the team unable to be recorded as the past
-> client they now are.
+> a revoked Team Owner's membership is still an access membership, which is why
+> removing somebody revokes rather than deletes. `isColleague()` adds the
+> revocation, and `scopeNotColleagues()` is the same question in SQL, so the
+> **Leads** and **Clients** segments of S30 filter on exactly what the badge
+> beside the row draws. They asked two different questions for one round, and a
+> former colleague recorded as a past client was then visible on no segment but
+> All.
 >
-> The same rule governs the **Leads** and **Clients** segments of S30, both of
-> which narrow to memberships carrying no access.
+> A screen draws three independent facts, each when it is true: the roles the
+> team calls them by (whenever the membership carries access, revoked or not,
+> so S30 agrees with `/settings/members` and the console), the lifecycle
+> (whenever it is not null), and **Revoked**. S32 offers the lifecycle for a
+> contact, refuses it for a colleague, and makes it optional for a former one.
 
 ### Automation / message
 

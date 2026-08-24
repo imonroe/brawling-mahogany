@@ -42,22 +42,32 @@ const editing = computed(() => Boolean(props.membership));
 /**
  * Whether this person is a colleague rather than a contact (#162).
  *
- * The status field is a **client** lifecycle — Lead, Client, Past Client,
- * Archived — and offering it for somebody on the team invited exactly the
- * confusion the issue reports: the four options make no sense for an
- * assistant, and picking one used to move them into the Leads segment. What
- * decides a colleague's standing is their **role**, which lives on
- * Settings → Members, and the server refuses a lifecycle change on this
- * membership either way.
+ * IA §8 holds the rule; what it means here is that the lifecycle select is not
+ * theirs. What decides a colleague's standing is their **role**, which lives
+ * on Settings → Members, and the server refuses the field either way.
  */
 const isColleague = computed(() => props.membership?.isColleague === true);
+
+/**
+ * A former colleague, whose lifecycle is optional rather than refused.
+ *
+ * Revocation ends being a colleague, so the lifecycle is theirs to set — but
+ * nobody should be made to classify a person they came here to give a phone
+ * number to. `PersonRules` matches: prohibited for a colleague, nullable
+ * here, required for a contact.
+ */
+const wasColleague = computed(
+    () => props.membership?.carriesAccess === true && !isColleague.value,
+);
 
 const form = useForm({
     first_name: props.membership?.firstName ?? '',
     last_name: props.membership?.lastName ?? '',
     email: props.membership?.email ?? '',
     phone: props.membership?.phone ?? '',
-    status: props.membership?.status ?? 'lead',
+    // Null is a value here, not a missing one: it is what a membership with
+    // no place on the client lifecycle holds (#162).
+    status: props.membership ? props.membership.status : 'lead',
     notes: props.membership?.notes ?? '',
     is_vendor: props.membership?.isVendor ?? false,
     vendor_specialties: props.membership?.vendor.specialties ?? [],
@@ -134,17 +144,13 @@ function submit(): void {
          * refuses it outright rather than ignoring it, so a stale tab is told
          * what happened instead of silently having half its edit dropped.
          */
-        form.transform((data) => {
-            if (!isColleague.value) {
-                return data;
-            }
-
-            const { status, ...rest } = data;
-
-            void status;
-
-            return rest;
-        });
+        form.transform((data) =>
+            isColleague.value
+                ? Object.fromEntries(
+                      Object.entries(data).filter(([key]) => key !== 'status'),
+                  )
+                : data,
+        );
 
         form.patch(`/people/${props.membership.id}`, {
             onSuccess: () => emit('update:open', false),
@@ -247,6 +253,15 @@ function submit(): void {
                             v-model="form.status"
                             class="h-11 rounded-md border bg-background px-3 text-base md:h-10 md:text-sm"
                         >
+                            <!--
+                                Somebody who has left the team has no lifecycle
+                                until the team gives them one, and this is how
+                                they say so. A contact does not get the option:
+                                the server requires a value there.
+                            -->
+                            <option v-if="wasColleague" :value="null">
+                                Not on the lifecycle
+                            </option>
                             <option
                                 v-for="(label, value) in lifecycleStates"
                                 :key="value"
@@ -255,6 +270,12 @@ function submit(): void {
                                 {{ label }}
                             </option>
                         </select>
+                        <p
+                            v-if="form.errors.status"
+                            class="text-[11px] text-state-danger"
+                        >
+                            {{ form.errors.status }}
+                        </p>
                     </div>
                     <div v-else class="flex flex-col gap-1.5">
                         <Label>Status</Label>

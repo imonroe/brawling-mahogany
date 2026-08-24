@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Actions\Teams;
 
-use App\Enums\PersonLifecycleState;
 use App\Enums\SystemRole;
 use App\Models\Person;
 use App\Models\Role;
@@ -84,7 +83,8 @@ final class ProvisionTeam
             'last_name' => $details['last_name'] ?? null,
             'email' => $details['email'] ?? $owner->email,
             'phone' => $details['phone'] ?? null,
-            'status' => PersonLifecycleState::Active,
+            // No lifecycle: IA §8 describes a contact, and an owner is not one
+            // (#162). The column is nullable so a colleague can say so.
             'joined_at' => now(),
         ]);
 

@@ -44,7 +44,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $last_name
  * @property string|null $email
  * @property string|null $phone
- * @property PersonLifecycleState $status
+ * @property ?PersonLifecycleState $status
  * @property bool $is_vendor
  * @property array<int, string>|null $vendor_specialties
  * @property int|null $vendor_typical_cost
@@ -247,22 +247,13 @@ class TeamMembership extends Model
     }
 
     /**
-     * Somebody the team **works with now** — the question the directory asks.
+     * Somebody the team **works with now** — the question every screen asks.
      *
-     * `carriesAccess()` says nothing about revocation on purpose, and that is
-     * right for the question it answers: a revoked Team Owner's membership is
-     * still an access membership, which is why `destroy()` revokes it rather
-     * than deleting it. It is the wrong question for a screen, though, and
-     * review on #162 proved the difference is not academic. A revoked
-     * colleague was badged **Team Member** with nothing saying otherwise, and
-     * the lifecycle rule that protects a colleague from being called a client
-     * refused to let anybody reclassify them — so somebody who had left the
-     * team could not be recorded as the past client they now are, and
-     * `destroy()` only revokes them again. A dead end, in the same shape as
-     * the bug this all started with.
-     *
-     * Revocation ends being a colleague. What is left is a person the team
-     * knows, which is exactly what the lifecycle describes.
+     * `carriesAccess()` deliberately says nothing about revocation, which is
+     * right for authorization and wrong for a directory: a revoked Team Owner
+     * still holds an access membership, and is no longer a colleague. IA §8 is
+     * where the rule is written down; this is the one place it is expressed in
+     * code, and `scopeNotColleagues()` below is the same question in SQL.
      */
     public function isColleague(): bool
     {
@@ -305,6 +296,40 @@ class TeamMembership extends Model
     public function scopeNotCarryingAccess(Builder $query): Builder
     {
         return $query->whereDoesntHave('roles', self::holdsATeamSurfacePermission());
+    }
+
+    /**
+     * `isColleague()`, asked of a query rather than of a loaded row.
+     *
+     * The two scopes below are the pair the People index segments use, and
+     * they exist because the badge and the segment beside it were asking
+     * different questions. The badge asked `isColleague()`; Clients and Leads
+     * asked `notCarryingAccess()`, which revocation does not enter — so a
+     * former colleague recorded as the past client they now are was drawn as a
+     * contact and filtered as a colleague, and appeared on no segment but All.
+     * Review on #162 measured it through the routes.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeColleagues(Builder $query): Builder
+    {
+        return $query->whereNull('team_memberships.revoked_at')->carryingAccess();
+    }
+
+    /**
+     * Everybody the lifecycle can honestly describe: a contact of this team,
+     * or somebody who used to be a colleague and is one of those two things
+     * now.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeNotColleagues(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $inner): Builder => $inner
+            ->whereNotNull('team_memberships.revoked_at')
+            ->orWhere(fn (Builder $access): Builder => $access->notCarryingAccess()));
     }
 
     /**

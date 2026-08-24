@@ -80,11 +80,9 @@ const gate: StateTable = {
 /**
  * IA §8's person lifecycle — which describes a **contact**.
  *
- * A colleague has no honest value in it: their membership holds `active`
- * because something had to be written, and `active` reads as *Client*. A
- * screen asks `isColleague` first — team access **and** not revoked — and
- * draws the person's roles instead (issue 162); this table is what a contact
- * gets, and a revoked colleague is one.
+ * A colleague has no place in it, which the payload now says by sending
+ * `status: null` rather than by a screen deducing it (#162). Nothing here
+ * renders for a null.
  */
 const person: StateTable = {
     lead: { label: 'Lead', tone: 'info', clientLabel: null },

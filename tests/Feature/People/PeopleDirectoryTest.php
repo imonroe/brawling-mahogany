@@ -603,7 +603,9 @@ it('refuses a lifecycle change on somebody who is on the team', function (): voi
         'status' => PersonLifecycleState::Lead->value,
     ])->assertSessionHasErrors('status');
 
-    expect($membership->refresh()->status)->toBe(PersonLifecycleState::Active);
+    // Null, because a colleague has no place on the client lifecycle — and
+    // that is a value the column can hold now rather than one it fakes.
+    expect($membership->refresh()->status)->toBeNull();
 });
 
 it('lets a colleague’s other details be edited without a lifecycle', function (): void {
@@ -621,7 +623,7 @@ it('lets a colleague’s other details be edited without a lifecycle', function 
     expect($membership->refresh()->phone)->toBe('+1 303 555 0199')
         ->and($membership->last_name)->toBe('Assistant')
         // Untouched, rather than reset by an absent field.
-        ->and($membership->status)->toBe(PersonLifecycleState::Active);
+        ->and($membership->status)->toBeNull();
 });
 
 it('lets a revoked colleague be recorded as the past client they now are', function (): void {
@@ -649,7 +651,6 @@ it('lets a revoked colleague be recorded as the past client they now are', funct
             'person_id' => $person->getKey(),
             'first_name' => 'Gone',
             'last_name' => 'Away',
-            'status' => PersonLifecycleState::Active,
             'joined_at' => now(),
         ]);
 
@@ -673,7 +674,19 @@ it('lets a revoked colleague be recorded as the past client they now are', funct
                 // The roles survive until somebody tidies up, which is why the
                 // screen has to say Revoked beside them.
                 ->and($row['isRevoked'])->toBeTrue()
-                ->and($row['roles'])->toContain('Team Member');
+                ->and($row['carriesAccess'])->toBeTrue()
+                ->and($row['roles'])->toContain('Team Member')
+                /*
+                 * **No lifecycle at all**, which is the whole reason the
+                 * column is nullable (#162).
+                 *
+                 * Round 1 of this fix left the value `AcceptInvitation` wrote
+                 * — `active`, label *Client*, tone success — and sent the row
+                 * to the lifecycle badge the moment `isColleague` went false.
+                 * Somebody who had never been a client of this team was drawn
+                 * in green as one.
+                 */
+                ->and($row['status'])->toBeNull();
         });
 
     $this->patch("/people/{$membership->getKey()}", [
@@ -684,6 +697,23 @@ it('lets a revoked colleague be recorded as the past client they now are', funct
     ])->assertRedirect();
 
     expect($membership->refresh()->status)->toBe(PersonLifecycleState::PastClient);
+
+    /*
+     * And somebody can find them. Review on #162 measured the round-1 fix:
+     * the reclassification was editable, audited — and invisible, because
+     * `Clients` narrowed with `notCarryingAccess()`, which revocation does not
+     * enter, while the badge beside it asked `isColleague()`. A former
+     * colleague recorded as a past client appeared on no segment but All.
+     */
+    $this->get('/people?segment=clients')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('id', $membership->getKey());
+
+            expect($row)->not->toBeNull()
+                ->and($row['status'])->toBe('past_client');
+        });
 });
 
 it('keeps a colleague out of the Leads segment', function (): void {
@@ -703,4 +733,64 @@ it('keeps a colleague out of the Leads segment', function (): void {
         ->assertInertia(function ($page): void {
             expect(collect($page->toArray()['props']['people']['data']))->toHaveCount(0);
         });
+});
+
+it('does not revoke somebody twice', function (): void {
+    /*
+     * Found by review on #162. `RevokeMembership::handle()` stamped
+     * `revoked_at` with *now* unconditionally, and both callers reach it from
+     * a button that is still on screen afterwards — so a second press moved
+     * the date the person record displays onto today and wrote a second
+     * `membership.revoked` entry. An audit log saying access was taken away
+     * twice, and the loss of when it actually happened.
+     */
+    $person = Person::factory()->create();
+
+    $membership = app(TeamContext::class)->runFor($this->team, function () use ($person): TeamMembership {
+        $created = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'Gone',
+            'joined_at' => now(),
+        ]);
+
+        $created->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', SystemRole::TeamMember->value)->sole()->getKey(),
+        );
+
+        return $created;
+    });
+
+    /*
+     * As the owner: revoking is `team.members.manage`, which a Team Member
+     * does not hold. That is why S31 offers this control only to somebody who
+     * can carry it out, and calls it **Revoke access** rather than promising a
+     * removal that PRD F1.3 forbids — the membership carries the name on
+     * every event this person authored (#140), so it is never deleted.
+     */
+    $owner = TeamMembership::query()
+        ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
+        ->sole();
+
+    // Two-factor is mandatory for an owner, and an un-enrolled one is
+    // redirected to the enrolment screen — so every assertion about a route
+    // becomes a 302 that did nothing.
+    $this->actingAsPerson($this->enrollTwoFactor($owner->person), $this->team);
+
+    $this->travelTo(now()->subDays(3));
+    $this->delete("/people/{$membership->getKey()}")->assertRedirect();
+    $this->travelBack();
+
+    $revokedAt = $membership->refresh()->revoked_at;
+
+    // The second press, on a button that is still on screen.
+    $this->delete("/people/{$membership->getKey()}")->assertRedirect();
+
+    expect($membership->refresh()->revoked_at?->toIso8601String())
+        ->toBe($revokedAt?->toIso8601String())
+        ->and(DB::table('audit_log')
+            ->where('auditable_id', $membership->getKey())
+            ->where('action', 'membership.revoked')
+            ->count())->toBe(1);
 });

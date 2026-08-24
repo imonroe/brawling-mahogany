@@ -139,7 +139,7 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                 >
                     <Link
                         :href="`/people/${person.id}`"
-                        class="flex min-h-11 items-center gap-3 px-4 py-2.5 transition-colors duration-150 ease-out hover:bg-accent/60"
+                        class="flex min-h-11 flex-wrap items-center gap-3 px-4 py-2.5 transition-colors duration-150 ease-out hover:bg-accent/60"
                     >
                         <PersonAvatar :person="person" :size="30" />
                         <span class="flex min-w-0 flex-1 flex-col">
@@ -163,20 +163,21 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                             dotless
                         />
                         <!--
-                            The lifecycle badge is for a **contact** (#162).
-                            `active`'s label is *Client*, so drawing it
-                            unconditionally told a team that their own
-                            assistant was a client of theirs.
+                            Three facts, each drawn when it is true (#162).
 
-                            A colleague gets what the team calls them, in the
-                            **same shape** `/settings/members` and the console
-                            already use: one neutral badge per role, and a
-                            danger *Revoked* when their access has ended.
-                            Three screens describing a colleague three ways is
-                            how they drift, and review on #162 caught this one
-                            inventing a fourth.
+                            The first fix made these one badge with an
+                            `v-else`, and the fallback branch drew a lifecycle
+                            value nobody had chosen: a revoked colleague came
+                            back as a green *Client*, which is the bug this
+                            issue reported. `status` is nullable now, so a
+                            person the lifecycle does not describe simply has
+                            no lifecycle badge.
+
+                            The roles hang on `carriesAccess`, so this row
+                            says what `/settings/members` and the console say
+                            about the same person, revoked or not.
                         -->
-                        <template v-if="person.isColleague">
+                        <template v-if="person.carriesAccess">
                             <StatusBadge
                                 v-for="role in person.roles"
                                 :key="role"
@@ -186,16 +187,10 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                             />
                         </template>
                         <StatusBadge
-                            v-else
+                            v-if="person.status"
                             domain="person"
                             :state="person.status"
                         />
-                        <!--
-                            A revoked colleague is not a current one, and the
-                            row has to say so — they keep their roles until
-                            somebody tidies up, so the roles alone read as
-                            though they still work here.
-                        -->
                         <StatusBadge
                             v-if="person.isRevoked"
                             tone="danger"

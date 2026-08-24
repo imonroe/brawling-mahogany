@@ -117,31 +117,27 @@ trait PersonRules
             ],
             'phone' => ['nullable', 'string', 'max:50'],
             /*
-             * **A colleague has no lifecycle** (#162).
+             * **A colleague has no lifecycle** (#162), which the column now
+             * says outright: `status` is nullable, and null is what a
+             * membership carrying team access holds.
              *
-             * `PersonLifecycleState` describes a contact — Lead, Client, Past
-             * Client, Archived — and S32 offered all four for anybody,
-             * including somebody on the team. Picking one moved an assistant
-             * into the Leads segment, which is the list a team works to decide
-             * who to chase.
+             * Three cases, and the middle one is the one review found:
              *
-             * Refused rather than ignored. A rule that quietly dropped the
-             * field would leave a stale tab believing it had changed something
-             * it had not, which is the failure mode this codebase keeps
-             * finding in "we'll just not save it" — and the form does not send
-             * it, so the only requests that hit this are a stale tab or
-             * something written against the API by hand.
-             *
-             * Asked through `isColleague()` — team access (#142) **and** not
-             * revoked. Review on #162 found the first version refusing the
-             * field for somebody whose access had ended, so a colleague who
-             * left could never be recorded as the past client they now are,
-             * and `destroy()` only revokes them again. A dead end, in the
-             * shape of the bug this fix is for.
+             *  - A current colleague: **prohibited**. S32 offered all four
+             *    states for anybody, and picking one moved an assistant into
+             *    the Leads segment — the list a team works to decide who to
+             *    chase. Refused rather than ignored, so a stale tab is told
+             *    its change did not happen instead of believing it did.
+             *  - Somebody whose access has been revoked: **nullable**. They
+             *    are a person the team knows now, and the team may record
+             *    which — but a phone-number edit must not force the question.
+             *  - A contact: **required**, as it always was.
              */
-            'status' => $ignoring?->isColleague() === true
-                ? ['prohibited']
-                : ['required', Rule::enum(PersonLifecycleState::class)],
+            'status' => match (true) {
+                $ignoring?->isColleague() === true => ['prohibited'],
+                $ignoring?->carriesAccess() === true => ['nullable', Rule::enum(PersonLifecycleState::class)],
+                default => ['required', Rule::enum(PersonLifecycleState::class)],
+            },
             'notes' => ['nullable', 'string', 'max:10000'],
 
             'is_vendor' => ['boolean'],

@@ -83,27 +83,35 @@ final class PeopleDirectory
 
         $query = match ($segment) {
             PersonSegment::All => $query,
+            /*
+             * `notColleagues()`, which is `isColleague()` in SQL — the same
+             * question the badge beside the row asks (#162).
+             *
+             * This used to be `notCarryingAccess()`, which revocation does not
+             * enter. So a former colleague recorded as the past client they
+             * now are was drawn as a contact and filtered as a colleague, and
+             * appeared on no segment but All: the reclassification was
+             * editable, audited, and invisible.
+             *
+             * The lifecycle filter alone would very nearly do it now that a
+             * colleague's `status` is null. Very nearly is the problem: it
+             * would put anybody whose row predates the backfill, or whose
+             * roles were attached by something that did not think about the
+             * column, back on the Clients tab.
+             */
             PersonSegment::Clients => $query
                 ->whereIn('team_memberships.status', [
                     PersonLifecycleState::Active->value,
                     PersonLifecycleState::PastClient->value,
                 ])
-                ->notCarryingAccess(),
+                ->notColleagues(),
             PersonSegment::Vendors => $query->where('team_memberships.is_vendor', true),
-            /*
-             * `notCarryingAccess()` here for the same reason Clients carries
-             * it: the lifecycle describes a **contact**, and a colleague's
-             * membership holds a value from it only because the column has to
-             * hold something. Without this, one edit setting a team member to
-             * Lead — which S32's form used to offer (#162) — put them in this
-             * segment, and the segment is how a team decides who to chase.
-             */
+            // Same pair, same reason. The segment is how a team decides who
+            // to chase, and a colleague is not on that list.
             PersonSegment::Leads => $query
                 ->where('team_memberships.status', PersonLifecycleState::Lead->value)
-                ->notCarryingAccess(),
-            PersonSegment::Team => $query
-                ->whereNull('team_memberships.revoked_at')
-                ->carryingAccess(),
+                ->notColleagues(),
+            PersonSegment::Team => $query->colleagues(),
         };
 
         if ($search !== '') {
@@ -135,24 +143,27 @@ final class PeopleDirectory
             'lastName' => $membership->last_name,
             'email' => $membership->email,
             'phone' => $membership->phone,
-            'status' => $membership->status->value,
             /*
-             * Whether the lifecycle above describes this person at all (#162).
-             *
-             * `PersonLifecycleState` is a **client** lifecycle — Lead, Client,
-             * Past Client, Archived — and a colleague has no honest value in
-             * it. Their membership holds `active` because `AcceptInvitation`
-             * has to write something, and `active`'s label is *Client*, so
-             * every screen drawing the badge unconditionally told a team that
-             * their own assistant was a client of theirs.
-             *
-             * Asked through `isColleague()` — `carriesAccess()`, which is the
-             * one definition of team access (#142), **and** not revoked.
-             * Revocation ends being a colleague, and a revoked person is
-             * exactly what the lifecycle describes: somebody the team knows.
-             * Review on #162 found the first version badging a revoked
-             * colleague as a current one, with no way back.
+             * Nullable, and null is not "unknown" — it is *this person has no
+             * place on the client lifecycle* (#162). A colleague holds it; so
+             * does a former colleague nobody has reclassified yet. A screen
+             * with nothing to say about somebody says nothing.
              */
+            'status' => $membership->status?->value,
+            /*
+             * Three independent facts, each drawn when it is true, rather than
+             * one badge standing in for all of them (#162).
+             *
+             * `carriesAccess` is what the role badges hang on, so the People
+             * row says what `/settings/members` says about the same person —
+             * including after revocation, where the first fix swapped the
+             * roles out for a lifecycle nobody had chosen and reproduced the
+             * original bug on a different row.
+             *
+             * `isColleague` is `carriesAccess` **and** not revoked, and is the
+             * question the form asks: whether the lifecycle is theirs to set.
+             */
+            'carriesAccess' => $membership->carriesAccess(),
             'isColleague' => $membership->isColleague(),
             /*
              * What the team calls them, for the badge a colleague gets

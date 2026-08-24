@@ -119,11 +119,15 @@ const UI_ALLOWED = new Map<string, string[]>([
  *
  * The rule itself is untouched: a raw colour anywhere in code still fails.
  */
-function codeIn(file: string): string {
-    return readFileSync(file, 'utf8')
+function stripCommentary(source: string): string {
+    return source
         .replace(/\/\*[\s\S]*?\*\//g, ' ')
         .replace(/<!--[\s\S]*?-->/g, ' ')
         .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
+function codeIn(file: string): string {
+    return stripCommentary(readFileSync(file, 'utf8'));
 }
 
 function sourceFiles(directory: string): string[] {
@@ -211,13 +215,13 @@ describe('token discipline', () => {
      * failure mode `routeTargets.test.ts` records twice over. Stripping
      * comments is one edit away from stripping everything, so both halves are
      * pinned here: what must survive the strip, and what must not.
+     *
+     * Against the real `stripCommentary`, not a copy of it. Review on #162
+     * found this asserting about an inline duplicate, which cannot fail for
+     * the edit it exists to catch.
      */
     it('drops commentary and keeps code', () => {
-        const stripped = (source: string): string =>
-            source
-                .replace(/\/\*[\s\S]*?\*\//g, ' ')
-                .replace(/<!--[\s\S]*?-->/g, ' ')
-                .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+        const stripped = stripCommentary;
 
         // Prose about the rule, and an issue reference, are not colours.
         expect(

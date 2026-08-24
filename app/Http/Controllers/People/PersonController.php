@@ -141,9 +141,17 @@ class PersonController extends Controller
         if ($membership->carriesAccess()) {
             $this->authorize('manageAccess', $membership);
 
+            // Already revoked: `handle()` is idempotent, so nothing is
+            // re-stamped and nothing is audited twice. Say which happened
+            // rather than reporting an act that did not take place.
+            $alreadyRevoked = $membership->isRevoked();
+
             $revoke->handle($membership);
 
-            Inertia::flash('toast', ['type' => 'success', 'message' => __('Access revoked.')]);
+            Inertia::flash('toast', [
+                'type' => 'success',
+                'message' => $alreadyRevoked ? __('Access was already revoked.') : __('Access revoked.'),
+            ]);
 
             return to_route('people.index');
         }

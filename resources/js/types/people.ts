@@ -13,21 +13,18 @@ export type PersonRow = {
     lastName: string | null;
     email: string | null;
     phone: string | null;
-    status: string;
     /**
-     * Whether `status` describes this person at all (#162).
+     * IA §8's lifecycle, or **null** where it does not apply (#162).
      *
-     * `status` is a **client** lifecycle — Lead, Client, Past Client,
-     * Archived — and a colleague has no honest value in it: their membership
-     * holds `active` because something had to be written, and `active` reads
-     * as *Client*. A screen draws the lifecycle badge only when this is false,
-     * and the person's roles when it is true.
-     *
-     * Access **and not revoked**: revocation ends being a colleague, and what
-     * is left is a person the team knows — which is what the lifecycle is for.
-     * They keep `roles` until somebody tidies up, so `isRevoked` is what the
-     * screen says beside them.
+     * Null is not "unknown": it is *this person has no place on the client
+     * lifecycle*, which is what a colleague holds and what a former colleague
+     * holds until the team says what they are now. A screen with nothing to
+     * say about somebody says nothing.
      */
+    status: string | null;
+    /** Whether the role badges apply — team access, revoked or not (#162). */
+    carriesAccess: boolean;
+    /** `carriesAccess` and not revoked: whether the lifecycle is theirs to set. */
     isColleague: boolean;
     /** What the team calls them, when they are on it. Empty for a contact. */
     roles: string[];
