@@ -324,6 +324,11 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 > former colleague recorded as a past client was then visible on no segment but
 > All.
 >
+> Accepting an invitation clears the lifecycle **only for a role that grants
+> team access**. `Contact` and `Status Viewer` are roles a client holds, and
+> giving somebody a status-page login is not them joining the team — clearing
+> it there erased a classification the team had typed.
+>
 > A screen draws three independent facts, each when it is true: the roles the
 > team calls them by (whenever the membership carries access, revoked or not,
 > so S30 agrees with `/settings/members` and the console), the lifecycle

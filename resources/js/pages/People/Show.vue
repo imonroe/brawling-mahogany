@@ -135,7 +135,10 @@ function remove(): void {
                                     />
                                 </template>
                                 <StatusBadge
-                                    v-if="membership.status"
+                                    v-if="
+                                        membership.status &&
+                                        !membership.isColleague
+                                    "
                                     domain="person"
                                     :state="membership.status"
                                 />

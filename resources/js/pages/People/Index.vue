@@ -187,7 +187,7 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                             />
                         </template>
                         <StatusBadge
-                            v-if="person.status"
+                            v-if="person.status && !person.isColleague"
                             domain="person"
                             :state="person.status"
                         />

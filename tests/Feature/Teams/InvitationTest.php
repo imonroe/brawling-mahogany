@@ -538,6 +538,72 @@ it('lets a contact in the directory accept an invitation', function (): void {
         ->and($membership->status)->toBeNull();
 });
 
+it('leaves a client a client when they are given a status page login', function (): void {
+    /*
+     * Found by review on #162, and a regression the fix itself introduced.
+     *
+     * Clearing the lifecycle on accept is right for somebody **joining the
+     * team**. The members screen also invites `Contact` and `Status Viewer` —
+     * roles a *client* holds, carrying no team-surface permission — and
+     * clearing it for those erased a classification a human typed. The row
+     * that came back drew no badge at all (`carriesAccess` false, so no roles;
+     * `status` null, so no lifecycle) and left the Clients tab, for the
+     * ordinary act of giving a client access to their own status page.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::StatusViewer->value)->sole();
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'active',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    $token = $this->token;
+    $owner = auth()->user();
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$token}", [
+        'first_name' => 'Claire',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect();
+
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['claire@example.test'])
+        ->sole();
+
+    expect($membership->status)->toBe(App\Enums\PersonLifecycleState::Active)
+        ->and($membership->carriesAccess())->toBeFalse();
+
+    $this->actingAs($owner);
+    app(TeamContext::class)->set($this->team);
+
+    // And still findable where a team looks for their clients.
+    $this->get('/people?segment=clients')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('id', $membership->getKey());
+
+            expect($row)->not->toBeNull()
+                ->and($row['status'])->toBe('active');
+        });
+});
+
 it('keeps a former colleague off the Leads tab they were once on', function (): void {
     /*
      * The other end of the same path, found by review on #162 and measured

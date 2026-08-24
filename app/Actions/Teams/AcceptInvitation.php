@@ -285,7 +285,7 @@ final class AcceptInvitation
          * name is not authoritative, what the team already recorded stands.
          */
         /*
-         * Joining the team ends the contact lifecycle (#162).
+         * Joining **the team** ends the contact lifecycle (#162).
          *
          * `firstOrCreate` reuses an existing row, and the insert half never
          * runs for one — so inviting somebody already in the directory carried
@@ -294,9 +294,18 @@ final class AcceptInvitation
          * and reappeared the day it was revoked, as a blue **Lead** pill on
          * somebody who had worked here. Null is what a colleague's lifecycle
          * is; if they leave, the team records what they are then.
+         *
+         * **Only for a role that grants team access.** The members screen also
+         * invites `Contact` and `Status Viewer` — roles a *client* holds — and
+         * clearing the lifecycle for those erased a typed **Client** the
+         * moment somebody was given a status-page login, leaving a row that
+         * said nothing at all about a person the team had classified. Review
+         * on #162 measured it through the routes.
          */
+        $joinsTheTeam = $invitation->role->grantsTeamAccess();
+
         $membership->forceFill([
-            'status' => null,
+            'status' => $joinsTheTeam ? null : $membership->status,
             'first_name' => $nameIsAuthoritative || $membership->first_name === ''
                 ? $firstName
                 : $membership->first_name,

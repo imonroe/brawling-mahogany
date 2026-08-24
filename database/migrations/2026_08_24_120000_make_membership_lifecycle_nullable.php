@@ -48,9 +48,15 @@ return new class extends Migration
             ->whereExists(fn ($query) => $query
                 ->select(DB::raw(1))
                 ->from('membership_role')
+                ->join('roles', 'roles.id', '=', 'membership_role.role_id')
                 ->join('role_permission', 'role_permission.role_id', '=', 'membership_role.role_id')
                 ->join('permissions', 'permissions.id', '=', 'role_permission.permission_id')
                 ->whereColumn('membership_role.team_membership_id', 'team_memberships.id')
+                // `roles` soft-deletes, and `holdsATeamSurfacePermission()`
+                // excludes an archived one — so without this the migration and
+                // the application would disagree about who is a colleague, and
+                // the backfill would clear a lifecycle the team chose.
+                ->whereNull('roles.deleted_at')
                 ->whereIn('permissions.key', Permissions::teamSurfaceKeys()))
             ->update(['status' => null]);
     }

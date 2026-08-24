@@ -237,9 +237,14 @@ describe('a colleague in the People directory', () => {
          * Round 1 sent a revoked colleague down the `v-else` to the lifecycle
          * badge, and the value a colleague's membership held was `active` —
          * label **Client**, tone success. Somebody who had never been a client
-         * of the team was drawn in green as one, which is #162 verbatim on a
-         * different row. Round 1's own test missed it by seeding `past_client`,
-         * the one value nothing in the product writes onto a colleague.
+         * of the team was drawn in green as one. Round 1's own test missed it
+         * by seeding `past_client`, the one value nothing in the product
+         * writes onto a colleague.
+         *
+         * Asserted as the **exact** set, so an extra badge fails rather than
+         * an absent one passing. (Restoring the `v-else` fails it twice over:
+         * `stateLabel` throws on a null rather than rendering an unstyled
+         * badge, so the mount itself dies.)
          */
         const badges = directory([
             person({
@@ -253,10 +258,30 @@ describe('a colleague in the People directory', () => {
             .findAll('[data-slot="status-badge"]')
             .map((badge) => badge.text());
 
-        expect(badges).not.toContain('Client');
-        expect(badges).not.toContain('Lead');
-        expect(badges).not.toContain('Past Client');
-        expect(badges).not.toContain('Archived');
+        expect(badges).toEqual(['Team Member', 'Revoked']);
+    });
+
+    it('never draws a lifecycle on somebody currently on the team', () => {
+        /*
+         * Defence in depth for a row the migration has not reached — one
+         * written before the backfill, or by a fixture that attaches a role
+         * without clearing the column. Review on #162 mounted exactly that and
+         * got `["Team Member", "Client"]`: the reported symptom beside the
+         * role that disproves it. A current colleague's lifecycle is not shown
+         * for the same reason the form will not let them set one.
+         */
+        const badges = directory([
+            person({
+                status: 'active',
+                carriesAccess: true,
+                isColleague: true,
+                roles: ['Team Member'],
+            }),
+        ])
+            .findAll('[data-slot="status-badge"]')
+            .map((badge) => badge.text());
+
+        expect(badges).toEqual(['Team Member']);
     });
 
     it('draws the lifecycle a team records for a former colleague', () => {
