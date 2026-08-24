@@ -101,3 +101,93 @@ it('indexes the two queries that matter', function (): void {
     expect($indexes)->toContain(['team_id', 'subject_type', 'subject_id', 'occurred_at'])
         ->and($indexes)->toContain(['team_id', 'occurred_at']);
 });
+
+/**
+ * The deal an event belongs on (issue #81).
+ *
+ * `subject` answers *what this happened to* and `deal_id` answers *which deal
+ * this belongs on*, and S26 is where the two come apart: a logged contact's
+ * subject is the person and its deal is context. Every event with a deal
+ * behind it has to carry it, or the deal's own timeline is missing whichever
+ * ones somebody forgot.
+ */
+it('derives the deal from a subject that is one', function (): void {
+    [$team, $member] = $this->teamWithMember();
+
+    $this->withTeam($team);
+
+    $deal = App\Models\Deal::factory()->create(['team_id' => $team->getKey()]);
+
+    $event = app(RecordActivity::class)->record(
+        subject: $deal,
+        eventType: 'participant.added',
+        summary: 'Added Emily as Seller',
+    );
+
+    // Not passed in. Seven of the nine deal-context call sites hand the deal
+    // over as the subject already, and asking each of them to repeat it is the
+    // shape of rule the next caller gets written without.
+    expect($event->deal_id)->toBe($deal->getKey());
+
+    unset($member);
+});
+
+it('carries the deal on an event whose subject is the workflow', function (): void {
+    [$team, $member] = $this->teamWithMember();
+
+    $this->actingAsPerson($member, $team);
+
+    $deal = App\Models\Deal::factory()->create(['team_id' => $team->getKey()]);
+
+    $workflow = App\Models\Workflow::factory()->create([
+        'team_id' => $team->getKey(),
+        'deal_id' => $deal->getKey(),
+        'state' => App\Enums\WorkflowState::Active,
+    ]);
+
+    $first = App\Models\Stage::factory()->active()->create([
+        'team_id' => $team->getKey(),
+        'workflow_id' => $workflow->getKey(),
+        'name' => 'Listing Preparation',
+        'sort_order' => 0,
+    ]);
+
+    App\Models\Stage::factory()->create([
+        'team_id' => $team->getKey(),
+        'workflow_id' => $workflow->getKey(),
+        'name' => 'Go Live',
+        'sort_order' => 1,
+    ]);
+
+    $workflow->forceFill(['current_stage_id' => $first->getKey()])->save();
+
+    app(App\Support\Workflow\AdvanceWorkflow::class)->handle($workflow->fresh(), $member);
+
+    // One deal runs several workflows at once (F4.7). An advance subjected to
+    // the workflow with no `deal_id` is an event the deal's own timeline and
+    // the feed's deal filter cannot find.
+    $event = ActivityEvent::query()->where('event_type', 'stage.advanced')->sole();
+
+    expect($event->deal_id)->toBe($deal->getKey())
+        ->and(ActivityEvent::query()->forDeal($deal)->pluck('id'))->toContain($event->getKey());
+});
+
+it('leaves the deal empty on an event that has nothing to do with one', function (): void {
+    [$team, $member] = $this->teamWithMember();
+
+    $this->withTeam($team);
+
+    $event = app(RecordActivity::class)->record(
+        subject: $member,
+        eventType: 'person.added',
+        summary: 'Added to the team directory',
+    );
+
+    expect($event->deal_id)->toBeNull();
+});
+
+it('indexes one deal’s timeline too', function (): void {
+    $indexes = collect(Schema::getIndexes('activity_events'))->pluck('columns');
+
+    expect($indexes)->toContain(['team_id', 'deal_id', 'occurred_at']);
+});

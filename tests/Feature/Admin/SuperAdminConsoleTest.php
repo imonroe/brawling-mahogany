@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\AuditEntry;
 use App\Models\Person;
+use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
@@ -192,15 +193,147 @@ it('ends a support session when its clock runs out', function (): void {
     expect(AuditEntry::query()->where('action', 'impersonation.expired')->exists())->toBeTrue();
 });
 
-it('refuses to impersonate somebody who cannot sign in', function (): void {
+/**
+ * Somebody the team knows, holding a client-surface role and a real password.
+ *
+ * Slice 4 gives every client a reason to have one (#110), so this is the
+ * membership the console must not offer: a password is not access, and
+ * `activeTeams()` correctly says they can act in nothing.
+ */
+function statusViewerWithAPassword(Team $team): Person
+{
+    $person = Person::factory()->create(['password' => 'password']);
+
+    app(TeamContext::class)->runFor($team, function () use ($team, $person): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'Client',
+            'last_name' => 'Withapassword',
+            'status' => App\Enums\PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        $membership->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', App\Enums\SystemRole::StatusViewer->value)
+                ->sole()->getKey(),
+        );
+    });
+
+    return $person;
+}
+
+it('keeps somebody who holds no team access out of the impersonation picker', function (): void {
+    /*
+     * The password check alone let this through. It is a separate test from
+     * the one below because the two rules have to be isolated: a probe with no
+     * roles at all is excluded by *both*, so a single fixture cannot tell you
+     * which one is doing the work — which is how deleting either check left the
+     * suite green.
+     */
+    [$team] = $this->teamWithMember();
+
+    $client = statusViewerWithAPassword($team);
+
+    $this->actingAs($this->admin);
+
+    $this->get("/admin/teams/{$team->getKey()}/impersonate")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where(
+            'people',
+            fn ($people) => collect($people)->doesntContain('personId', $client->getKey())
+                // The control: somebody *is* offered, so this is not passing
+                // on an empty list.
+                && collect($people)->isNotEmpty(),
+        ));
+});
+
+it('refuses to start a session for somebody who holds no team access', function (): void {
+    /*
+     * The picker is a convenience; this is the check. Narrowing only the list
+     * left the door behind it open — a POST naming this person started an
+     * audited session and landed the operator on `/no-team`.
+     */
+    [$team] = $this->teamWithMember();
+
+    $client = statusViewerWithAPassword($team);
+
+    $this->actingAs($this->admin);
+
+    $this->post("/admin/teams/{$team->getKey()}/impersonate", [
+        'person_id' => $client->getKey(),
+        'reason' => 'Investigating a support ticket about their status page.',
+        'minutes' => 15,
+    ])->assertNotFound();
+
+    expect(AuditEntry::query()->where('action', 'impersonation.started')->count())->toBe(0);
+});
+
+it('refuses to start a session for somebody who cannot sign in', function (): void {
+    /*
+     * `store()`'s password check, which nothing held. Round 2 found the access
+     * rule tested on the picker and not the endpoint; this is the same gap one
+     * condition over — `store()` got both checks and only one of them got a
+     * test.
+     *
+     * A **Team Member** without a password, so `carryingAccess()` passes and
+     * only the password check can refuse.
+     */
     [$team] = $this->teamWithMember();
 
     $contact = Person::factory()->contactOnly()->create();
 
-    app(TeamContext::class)->runFor($team, fn () => TeamMembership::factory()->create([
-        'team_id' => $team->getKey(),
+    app(TeamContext::class)->runFor($team, function () use ($team, $contact): void {
+        $membership = TeamMembership::factory()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $contact->getKey(),
+        ]);
+
+        $membership->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', App\Enums\SystemRole::TeamMember->value)
+                ->sole()->getKey(),
+        );
+    });
+
+    $this->actingAs($this->admin);
+
+    $this->post("/admin/teams/{$team->getKey()}/impersonate", [
         'person_id' => $contact->getKey(),
-    ]));
+        'reason' => 'Checking what they see on the dashboard this morning.',
+        'minutes' => 15,
+    ])->assertNotFound();
+
+    expect(AuditEntry::query()->where('action', 'impersonation.started')->count())->toBe(0);
+});
+
+it('refuses to impersonate somebody who cannot sign in', function (): void {
+    /*
+     * A **Team Member** without a password, so `carriesAccess()` says yes and
+     * only the password check can exclude them.
+     *
+     * The earlier fixture was a contact with no roles at all, which both rules
+     * refuse — so deleting the password check left this test green while it
+     * went on claiming to hold it. A test that two rules can satisfy isolates
+     * neither.
+     */
+    [$team] = $this->teamWithMember();
+
+    $contact = Person::factory()->contactOnly()->create();
+
+    app(TeamContext::class)->runFor($team, function () use ($team, $contact): void {
+        $membership = TeamMembership::factory()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $contact->getKey(),
+        ]);
+
+        $membership->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', App\Enums\SystemRole::TeamMember->value)
+                ->sole()->getKey(),
+        );
+    });
 
     $this->actingAs($this->admin);
 

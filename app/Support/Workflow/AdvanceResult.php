@@ -113,6 +113,21 @@ final readonly class AdvanceResult
     /**
      * The sentences to show, in the order a person should read them.
      *
+     * **Each one names its gate.** An evaluator writes a sentence about a
+     * *kind* of gate, not about the particular one: `ActionCompletedEvaluator`
+     * takes no configuration at all, so every instance of it produces a
+     * byte-identical string, and two document gates collide whenever they ask
+     * for the same category. A stage held by three of them refuses with the
+     * same sentence three times.
+     *
+     * A caller that shows these as a list can either repeat itself or
+     * deduplicate, and both are wrong: the repetition reads as a bug, and the
+     * deduplication silently reports one blocker where there are three. The
+     * label is what tells them apart, so it goes in the sentence rather than
+     * being left for a screen to add — the deal overview lists every gate
+     * beside its label, but the People and Properties tabs advance from the
+     * same endpoint and render nothing but this text.
+     *
      * @return list<string>
      */
     public function reasons(): array
@@ -121,10 +136,46 @@ final readonly class AdvanceResult
             return [$this->refusal];
         }
 
-        return array_values(array_map(
-            fn (GateVerdict $verdict): string => $verdict->explanation,
-            $this->blockedBy,
-        ));
+        $labels = $this->gateLabels();
+
+        // `array_keys` already produces a list, so `array_map` over it does too.
+        return array_map(
+            fn (string $gateId): string => array_key_exists($gateId, $labels)
+                ? $labels[$gateId].': '.$this->blockedBy[$gateId]->explanation
+                : $this->blockedBy[$gateId]->explanation,
+            array_keys($this->blockedBy),
+        );
+    }
+
+    /**
+     * Gate id => label, read off the stage the result already carries.
+     *
+     * No query in practice: `blocked()` is only ever built after
+     * `AdvanceWorkflow` has walked `$stage->gates` to evaluate them, so the
+     * rows are already in memory by the time this asks for them.
+     *
+     * An earlier version guarded that with `relationLoaded('gates')` and
+     * returned `[]` otherwise. The branch was unreachable, and a docblock
+     * arguing for a branch nothing can enter is worse than no branch: it reads
+     * as a considered fallback and is really just an untested path. Reading
+     * the relation plainly costs one query in the case that cannot currently
+     * happen, and returns the right answer if it ever does.
+     *
+     * @return array<string, string>
+     */
+    private function gateLabels(): array
+    {
+        if (! $this->activatedStage instanceof Stage) {
+            return [];
+        }
+
+        $labels = [];
+
+        foreach ($this->activatedStage->gates as $gate) {
+            $labels[(string) $gate->getKey()] = $gate->label;
+        }
+
+        return $labels;
     }
 
     /**

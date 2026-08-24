@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Enums\ContactType;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
@@ -89,6 +90,15 @@ class HandleInertiaRequests extends Middleware
             'invitations' => Impersonation::isActive($request)
                 ? []
                 : PendingInvitations::propsFor($person),
+            /*
+             * PRD §6.3 lookups the shell itself renders, and only those.
+             *
+             * S26's Log contact button is in the top bar (issue #81), so its
+             * modal is mounted by `AppLayout` and no page controller supplies
+             * it props. Six labels, and only once a team is resolved — an auth
+             * screen has no shell and no use for them.
+             */
+            'lookups' => $team instanceof Team ? ['contactTypes' => ContactType::options()] : null,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

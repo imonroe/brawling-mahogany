@@ -144,7 +144,7 @@ Written after the fact, so the ADR describes the code rather than the plan.
 |---|---|
 | 1. Global scope | `App\Models\Concerns\BelongsToTeam` and `TeamScope`. `App\Support\Tenancy\TeamContext` holds the one resolved team |
 | 2. Database | `productDefaults()`'s foreign key and `(team_id, id)` unique index; `teamScopedForeign()` for composite child keys |
-| 3. Middleware | `ResolveCurrentTeam` (session first, route second) and `EnsureTeamContext` |
+| 3. Middleware | `ResolveCurrentTeam` (session first, route second) and `EnsureTeamContext`, both ordered ahead of `SubstituteBindings` in `bootstrap/app.php` |
 | 4. Policies | `App\Policies\*`, all using `ChecksTeamPermissions`, all denying by default |
 | 5. Tests | `tests/Isolation/` — `CrossTenantAccessTest` for the vectors, `ModelTenancyConventionTest` for the models |
 
@@ -159,6 +159,29 @@ Two things the implementation added that the decision did not name:
   said "every controller action is gated"; this is what holds it.
 
 ## Decided since
+
+- **Layer 3 has to run before route model binding** (issue #156). Appending
+  the tenancy middleware to the web group is not enough to place them:
+  `SubstituteBindings` is in Laravel's middleware priority list and the
+  appended middleware were not, so the binding ran first. It queried a
+  team-scoped table with no team established, layer 1 threw
+  `MissingTeamContextException` exactly as designed, and every screen that
+  binds a team-scoped model answered 500 — `/people/{membership}`,
+  `/properties/{property}`, and the redirect a store lands on — while the
+  index beside it, binding nothing, was fine.
+
+  So the order is declared rather than assumed:
+  `prependToPriorityList()` puts `HandleImpersonation`, `ResolveCurrentTeam`
+  and `EnsureTeamContext` ahead of `SubstituteBindings`, in that order — who
+  the person is, which team they are standing in, and a refusal when the
+  answer is none, all settled before a binding may touch a scoped table.
+
+  **The suite could not see it, and that is the part worth remembering.**
+  `TestCase::withTeam()` sets the context in the container before the request
+  is made, so a feature test has a team whatever order the middleware are in.
+  Only a session-backed request asks `ResolveCurrentTeam` for the answer.
+  `tests/Feature/Tenancy/TeamResolutionTest.php` now holds three that do,
+  giving the request nothing but a session — which is all a browser has.
 
 - **`people` is the login, and nothing else** (issues #18 and #140, PRD
   decision log 2026-08-22). Slice 1 shared one row per human across teams with
@@ -175,6 +198,37 @@ Two things the implementation added that the decision did not name:
   and the four `*_template` tables — where a null `team_id` means a system row
   every team can see. **None of the twelve holds customer data**, which is the
   property that makes them safe and the one `people` used to break.
+- **Which teams a person may resolve is one question with one answer**
+  (issue #142). Layer 3 asks `Person::activeTeams()` before it will resolve a
+  team from a session, so "is this person on the team" is a tenancy decision
+  and not only a UI one: it is what stands between somebody a team merely
+  *knows* — a client, a vendor, an opposing agent, all of whom hold a
+  `team_memberships` row by design — and the tenant itself.
+
+  Slice 1 answered it two ways. `carriesAccess()` and `activeTeams()` asked
+  whether any role carried any permission; `/settings/members`, the People
+  index's Team segment, and the console's team detail each named
+  `['team_owner', 'team_member']`. The lists agreed by coincidence, and the
+  coincidence had two expiry dates: a team composing its own role (PRD F2.3),
+  and Status Viewer gaining its first permission in #110 — which would have
+  made every client a member, and quietly turned removing one from the
+  directory into an access operation needing `team.members.manage`.
+
+  The answer now comes from the **permission**, not the role:
+  `App\Enums\PermissionSurface` says whether a permission is a capability of
+  the team app, the client status page, or the platform console, and team
+  access means holding at least one on the team surface. A role — including
+  one a customer composed — inherits its answer from what it is made of, which
+  is why there is no list of keys to keep in step.
+
+  Not a `grants_team_access` column on `roles`, for the reason this ADR gives
+  about `people`: **the layers key on the tables, and `roles` is a table a
+  customer writes.** A security-relevant flag there needs a default, and both
+  defaults are wrong. The permission catalogue is product data — flat, finite,
+  seeded in code — so classifying it is a decision the build can force.
+  `tests/Isolation/TeamAccessConventionTest.php` is that build failure: a role
+  with no recorded decision, a permission with no surface, or a new file
+  deciding team membership by naming role keys.
 - **`withoutTeamScope()` is not a list of callers, it is a rule.** This ADR
   said two callers, then three. The code had thirteen, and the commit that
   raised the count was editing a different paragraph of this file at the time.
@@ -388,6 +442,66 @@ types, guard on the model with the scope *on*, and write the isolation test
 for the update path as well as the insert. If any of those four feels like
 too much for what the table is worth, the table probably wants a plain
 `teamScopedForeign()` and a second column instead.
+
+### A record that is one person's, inside a team (#74)
+
+`deal_drafts` is the one table here whose rows are **not** shared by the team
+that owns them. Every other `team_id` in this schema means "everybody in this
+team may see this"; a wizard draft adds "and only the person who started it".
+
+The reason is not privacy, it is loss. Two agents creating deals at the same
+time are doing two different things, and a resume that landed in a colleague's
+half-typed address would destroy their work rather than share it. So
+`DealDraftPolicy` asks `created_by_person_id === $person->getKey()` on top of
+the usual team check, and the wizard resolves the draft **from the actor** —
+there is no draft id in any URL, which is what makes the policy a second line
+rather than the only one.
+
+**This is not a precedent for narrowing other tables.** A note, a document, a
+deal is the team's by design, and PRD §4.2's whole argument for a shared
+workspace depends on that. What makes a draft different is that it is a *form
+in progress* rather than a record — and the moment it becomes a record, it
+becomes the team's like everything else.
+
+### A `teamScopedForeign` that means *context* still cascades (#81)
+
+`teamScopedForeign()` always writes `cascadeOnDelete()`, and that is the right
+default: a stage belongs to its workflow, a gate to its stage, and a parent
+that goes should take its children with it.
+
+**But the macro cannot tell ownership from context.** `activity_events.deal_id`
+is the first column here that means the second thing. An event whose subject
+*is* the deal — a stage advanced, a workflow attached — is the deal's own
+record and should go when the deal is finally purged. An event whose subject is
+a **person**, with the deal only as context, is not: PRD F2.5 logs a contact
+*"against a person and optionally a deal"*, the person is still in the
+directory, and the call still happened. Left to the cascade, a client's contact
+history quietly lost entries thirty days after an unrelated deal was purged.
+
+`nullOnDelete` cannot express it either. The key is composite over
+`(team_id, deal_id)`, so Postgres would null `team_id` along with it — and
+`team_id` is `NOT NULL` precisely so layer 1 can never be evaded.
+
+So the rule, for the next column of this shape:
+
+> **A `teamScopedForeign` that expresses context rather than ownership still
+> cascades, and the purge has to step around it.** Detach the rows that only
+> reference the parent *before* the parent is deleted, in the same command that
+> deletes it.
+
+`PurgeSoftDeletedRecords::detachActivityFromExpiringDeals()` is the
+implementation. Two properties of it are load-bearing and were both got wrong
+first:
+
+- **It runs before the delete, not after.** After is too late — the rows are
+  gone.
+- **It names the subject types it detaches, rather than the ones it spares.**
+  The first version excluded deal subjects and detached everything else, which
+  fails *open*: a subject type added later is detached by default, so a
+  workflow's own events survived their deal as orphans — and, because
+  `ActivityFeed` treats a null `deal_id` as "not deal context", surfaced to
+  readers without `deals.view`. An allowlist fails closed: a new subject type
+  cascades until somebody decides otherwise.
 
 ## Not decided here
 

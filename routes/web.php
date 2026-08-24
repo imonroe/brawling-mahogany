@@ -2,7 +2,16 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Activity\ActivityController;
+use App\Http\Controllers\Deals\AdvanceWorkflowController;
+use App\Http\Controllers\Deals\DealIndexController;
+use App\Http\Controllers\Deals\DealOverviewController;
+use App\Http\Controllers\Deals\DealPropertyController;
+use App\Http\Controllers\Deals\DealTimelineController;
+use App\Http\Controllers\Deals\DealWizardController;
+use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
+use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
@@ -88,9 +97,26 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
 
     Route::put('teams/current', [TeamSwitchController::class, 'update'])->name('teams.switch');
 
+    /*
+     * S12 — the team activity feed.
+     *
+     * One route, no `store`: nothing writes to `activity_events` through a
+     * screen. `RecordActivity` owns the table, and the one human-initiated
+     * write the product has — logging a contact — goes through
+     * `people/{membership}/contact-log` below, because F2.5 logs a contact
+     * *against a person* and the person is what the URL has to carry.
+     */
+    Route::get('activity', [ActivityController::class, 'index'])->name('activity.index');
+
     // S30, S31, S32 — the people directory.
     Route::get('people', [PersonController::class, 'index'])->name('people.index');
     Route::get('people/lookup', [PersonController::class, 'lookup'])->name('people.lookup');
+    /*
+     * S26's person search, for the one entry point that has no person yet —
+     * the shell's Log contact button. Registered here, before the wildcard
+     * show route, so `/people/candidates` is never read as a membership id.
+     */
+    Route::get('people/candidates', [PersonController::class, 'candidates'])->name('people.candidates');
     Route::post('people', [PersonController::class, 'store'])->name('people.store');
 
     // S33 — contact import. Registered before the wildcard show route so
@@ -115,7 +141,108 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * would agree. The tenancy layers answer "whose team", and only the
      * nesting answers "whose deal".
      */
+    /*
+     * S14 — create a deal.
+     *
+     * Every step posts, because the draft is the point: issue #74 requires a
+     * half-finished deal to survive a dropped connection, so nothing lives in
+     * component state. The draft is resolved from the **actor**, never from an
+     * id in the URL — which is why none of these carries one, and why a draft
+     * cannot be reached by guessing.
+     *
+     * **That day is #75.** `deals/create` was two segments and `deals/{deal}/…`
+     * was three, so nothing could be read as a deal id; S15 added the
+     * two-segment `deals/{deal}`, and the only thing keeping `/deals/create`
+     * off it now is that these are registered first. Laravel matches in
+     * registration order, so moving the wizard below the overview would turn
+     * "New deal" into a 404 for a deal whose id is the word `create`.
+     * `DealOverviewTest` holds it.
+     */
+    // S13 (#78). Registered before `deals/{deal}` for the reason above.
+    Route::get('deals', [DealIndexController::class, 'index'])->name('deals.index');
+
+    Route::get('deals/create', [DealWizardController::class, 'create'])->name('deals.create');
+    Route::patch('deals/create', [DealWizardController::class, 'update'])->name('deals.draft.update');
+    Route::post('deals/create', [DealWizardController::class, 'store'])->name('deals.draft.store');
+    Route::delete('deals/create', [DealWizardController::class, 'destroy'])->name('deals.draft.destroy');
+    Route::get('deals/create/clients', [DealWizardController::class, 'clients'])->name('deals.draft.clients');
+    Route::post('deals/create/clients', [DealWizardController::class, 'storeClient'])
+        ->name('deals.draft.clients.store');
+    Route::get('deals/create/properties', [DealWizardController::class, 'properties'])
+        ->name('deals.draft.properties');
+    Route::post('deals/create/properties', [DealWizardController::class, 'storeProperty'])
+        ->name('deals.draft.properties.store');
+
+    /*
+     * S28 — attach a workflow to a live deal (F4.7).
+     *
+     * Separate from the wizard because workflows arrive at different times:
+     * the *Under Contract* one attaches when the offer is accepted, weeks
+     * after the deal was created.
+     */
+    Route::get('deals/{deal}/workflows/available', [WorkflowAttachmentController::class, 'index'])
+        ->name('deals.workflows.available');
+    Route::post('deals/{deal}/workflows', [WorkflowAttachmentController::class, 'store'])
+        ->name('deals.workflows.store');
+
     Route::scopeBindings()->group(function (): void {
+        /*
+         * S15 — the deal overview, and the deal's default landing (IA §5.2).
+         *
+         * Registered after `deals/create` and after the wizard's other
+         * two-segment routes, which is what stops `create` binding as a deal
+         * id. Inside `scopeBindings()` so the advance route below resolves its
+         * `{workflow}` *through* `{deal}`: the tenancy layers answer "whose
+         * team", and only the nesting answers "whose deal".
+         */
+        Route::get('deals/{deal}', [DealOverviewController::class, 'show'])
+            ->name('deals.show');
+
+        /*
+         * F4.8 — the first HTTP caller `AdvanceWorkflow` has ever had.
+         *
+         * A POST rather than a PATCH on the workflow: advancing is an act with
+         * consequences the client can see (a timeline entry, an audit row, and
+         * in Slice 3 a message to a client), not an edit of a field.
+         */
+        Route::post('deals/{deal}/workflows/{workflow}/advance', [AdvanceWorkflowController::class, 'store'])
+            ->name('deals.workflows.advance');
+
+        /*
+         * S23's own payload (#77).
+         *
+         * The same URI as the POST above, read rather than written — what
+         * advancing *would* do. A modal opened from any of the eight deal tabs
+         * cannot read it off a page prop, and it has to be current: the whole
+         * value of the screen is that its refusal describes this minute.
+         */
+        Route::get('deals/{deal}/workflows/{workflow}/advance', [AdvanceWorkflowController::class, 'show'])
+            ->name('deals.workflows.advance.preview');
+
+        /*
+         * S24 — override one gate with a reason (F4.9, #69).
+         *
+         * A separate route from advance because it is a separate permission
+         * (`workflow.override`) and a separate act in the audit log. IA §7
+         * calls conflating the two legally material, and a shared endpoint
+         * with a mode flag is exactly that conflation in URL form.
+         */
+        Route::post('deals/{deal}/workflows/{workflow}/override', [OverrideGateController::class, 'store'])
+            ->name('deals.workflows.override');
+
+        /*
+         * S16 — the stage rail (#76).
+         *
+         * A GET and nothing else. Every action the screen offers already has
+         * its own route — both of the POSTs directly above — and the rail
+         * reaches them through `useAdvanceDialog`, the same way every other
+         * deal tab does. A timeline that could be posted to would be a second
+         * way into `AdvanceWorkflow`, which is the one thing this codebase
+         * keeps single.
+         */
+        Route::get('deals/{deal}/timeline', [DealTimelineController::class, 'index'])
+            ->name('deals.timeline');
+
         Route::get('deals/{deal}/people', [ParticipantController::class, 'index'])
             ->name('deals.people.index');
         Route::get('deals/{deal}/people/candidates', [ParticipantController::class, 'candidates'])
@@ -126,6 +253,34 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.people.update');
         Route::delete('deals/{deal}/people/{participant}', [ParticipantController::class, 'remove'])
             ->name('deals.people.remove');
+
+        /*
+         * S20 — deal properties.
+         *
+         * `{propertyLink}`, because scoped binding resolves the child through
+         * a relation named for the parameter (`Str::plural(Str::camel(...))`),
+         * and `Deal::propertyLinks()` is that relation. The nesting is what
+         * answers "whose deal" — the tenancy layers only answer "whose team",
+         * and a link row from another deal in the same team would bind
+         * happily without it.
+         *
+         * `candidates` and `order` are registered before the wildcard so
+         * neither is ever read as a link id.
+         */
+        Route::get('deals/{deal}/properties', [DealPropertyController::class, 'index'])
+            ->name('deals.properties.index');
+        Route::get('deals/{deal}/properties/candidates', [DealPropertyController::class, 'candidates'])
+            ->name('deals.properties.candidates');
+        Route::put('deals/{deal}/properties/order', [DealPropertyController::class, 'rank'])
+            ->name('deals.properties.rank');
+        Route::post('deals/{deal}/properties', [DealPropertyController::class, 'store'])
+            ->name('deals.properties.store');
+        Route::patch('deals/{deal}/properties/{propertyLink}', [DealPropertyController::class, 'update'])
+            ->name('deals.properties.update');
+        Route::post('deals/{deal}/properties/{propertyLink}/subject', [DealPropertyController::class, 'promote'])
+            ->name('deals.properties.promote');
+        Route::delete('deals/{deal}/properties/{propertyLink}', [DealPropertyController::class, 'remove'])
+            ->name('deals.properties.remove');
     });
 
     /*
@@ -167,7 +322,6 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      */
     $placeholders = [
         'work' => ['My Work', 'S11', 2],
-        'deals' => ['Deals', 'S13', 2],
         'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
         'templates' => ['Templates', 'S40', 2],

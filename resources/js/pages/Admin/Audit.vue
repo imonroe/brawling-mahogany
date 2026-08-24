@@ -9,8 +9,9 @@
  * so there is nothing here to leak by rendering.
  */
 import { Head, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
@@ -34,6 +35,15 @@ const props = defineProps<{
 
 const action = ref(props.action);
 
+/**
+ * `AppSelect` takes value → label, the shape every `Enum::options()` returns.
+ * An audit action key is its own label — `deal_type.archived` is what the
+ * operator is looking for, and prettifying it would make it unsearchable.
+ */
+const actionOptions = computed(() =>
+    Object.fromEntries(props.actions.map((value) => [value, value])),
+);
+
 watch(action, (value) => {
     router.get(
         '/admin/audit',
@@ -52,16 +62,14 @@ watch(action, (value) => {
             :subtitle="`${entries.total} entries, newest first`"
         />
 
-        <select
-            v-model="action"
-            class="h-8 w-full rounded-md border bg-background px-2 text-xs sm:w-72"
+        <AppSelect
+            :model-value="action || null"
+            :options="actionOptions"
+            placeholder="Every action"
+            class="w-full sm:w-72"
             aria-label="Filter by action"
-        >
-            <option value="">Every action</option>
-            <option v-for="value in actions" :key="value" :value="value">
-                {{ value }}
-            </option>
-        </select>
+            @update:model-value="(value) => (action = value ?? '')"
+        />
 
         <Card>
             <EmptyState

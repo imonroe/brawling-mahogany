@@ -137,6 +137,21 @@ export function formatAddressOneLine(address: AddressParts): string {
     return [line1, line2].filter(Boolean).join(', ');
 }
 
+/**
+ * Where a thing is, without repeating what it is called: "Indianapolis, IN".
+ *
+ * The DealHeader meta row (Design System §8.4) is the caller. A deal is named
+ * after its subject property's street (IA §10), so the header would otherwise
+ * read "123 Main St · 123 Main St, Indianapolis, IN 46201" — the street twice
+ * and a postcode nobody is reading at a glance.
+ *
+ * Empty when neither part is known, which the caller renders as an absent
+ * pair rather than as a stray separator.
+ */
+export function formatLocality(address: AddressParts): string {
+    return [address.city, address.state].filter(Boolean).join(', ');
+}
+
 /* -------------------------------------------------------------------------
  * Dates and times
  * ---------------------------------------------------------------------- */

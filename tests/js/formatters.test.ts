@@ -8,6 +8,7 @@ import {
     formatDateForClient,
     formatDateTime,
     formatDealName,
+    formatLocality,
     formatPersonName,
     formatRelativeDate,
     formatTime,
@@ -51,6 +52,27 @@ describe('formatters', () => {
                 postalCode: '80202',
             }),
         ).toEqual({ line1: '123 Main St', line2: 'Denver, CO 80202' });
+    });
+
+    /**
+     * The DealHeader meta pair (§8.4). The deal is already named after its
+     * subject property's street, so repeating the street — and adding a
+     * postcode — is the header saying the same thing three times.
+     */
+    it('reduces an address to city and state for the deal header', () => {
+        expect(
+            formatLocality({
+                street: '123 Main St',
+                city: 'Denver',
+                state: 'CO',
+                postalCode: '80202',
+            }),
+        ).toBe('Denver, CO');
+
+        // A property entered from a parcel number has neither, and the header
+        // drops the pair rather than rendering a stray comma.
+        expect(formatLocality({ street: '123 Main St' })).toBe('');
+        expect(formatLocality({ city: 'Denver' })).toBe('Denver');
     });
 
     it('formats internal dates as weekday, short month, day', () => {

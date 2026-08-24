@@ -18,7 +18,13 @@ Guidance for Claude (and any AI assistant) when working in this repository.
 > Obsidian vault paths inside `[[wikilinks]]` also still read
 > `brawling mahogany` and must stay that way or the links break.
 
-**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), and properties with their polymorphic external links (S35, S36, S37). Its remaining screens — the deal views themselves, offers, and the templates UI — are still open under epic #3.
+**Slices 0 and 1 have landed, and Slice 2's engine with them.** Slice 0 is the Laravel + Inertia + Vue application skeleton, the container stack, the CI pipeline, and the design system foundations. Slice 1 is tenancy: teams, memberships, the five access roles and their permission catalogue, authentication, the people directory, contact import, the activity timeline, the append-only audit log, the super admin console, and the cross-tenant isolation suite. Slice 2 so far is the workflow engine — deals, the template/instance split, gate evaluation, `AdvanceWorkflow` — plus the deal types screen (S76), deal participants (S19, S25), properties with their polymorphic external links (S35, S36, S37), the deal's own properties tab with subject promotion and buyer interest (S20), the create-deal wizard with attach-workflow (S14, S28), **the deal overview (S15)** — which brought with it the deal chrome every tab now wears and the first HTTP route in front of `AdvanceWorkflow` — the team activity feed with the two-click contact log (S12, S26), **the advance and override modals (S23, S24)**, which gave the engine a way past a gate that cannot clear on its own, and **the deals index (S13)** — the screen that finally rendered
+`DealRow` outside the gallery, and where Design System §4.3's twenty-row density
+claim was confirmed by measurement rather than estimate — and **the deal timeline
+(S16)**, the stage rail Screen Inventory calls *"the one interaction with no
+obvious precedent to copy"*, which is where the difference between a state and a
+presentation of one had to be settled. Its remaining screens — tasks, offers, and
+the templates UI — are still open under epic #3.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -76,6 +82,178 @@ These come from PRD §8 and should guide the eventual build:
   URL is held to an http/https allowlist on the way in *and* on save
   (`App\Support\Links\SafeUrl`), because a stored `javascript:` URL is
   stored XSS the moment it is an `href`.
+
+- **A derived name is derived, and a typed one wins.** `deals` carries both
+  `name` and `generated_name` for one reason: the derived half goes on tracking
+  the facts — the subject property's street, the client's surname, the deal
+  type's side (IA §10) — and the typed half survives every one of those passes.
+  `App\Support\Deals\NameDeal` is the only thing that writes
+  `generated_name`, and it never touches `name`; `Deal::displayName()` decides
+  which a screen sees. Built across #61 and #62.
+
+  **Every fact it derives from has to trigger a refresh, and the buy side is
+  where forgetting one shows.** `PropertyDeals` (link, unlink, promote) and
+  `SaveProperty` (a subject's street changing) cover the property half;
+  `DealRoster` (add, replace, remove) covers the client half. That last one was
+  missing for a round, and it did not matter until #62 stopped making a
+  buyer's first house the subject — at which point a buy-side deal had nothing
+  *but* the surname to be named from, and rendered "Untitled deal" with a
+  named Buyer sitting on it.
+
+  Seven call sites, then: `link`, `unlink`, `promote`, `SaveProperty::update`,
+  `add`, `replace`, `remove`. Adding an eighth fact means adding an eighth.
+
+- **An event's subject is not the same question as which deal it belongs on.**
+  `activity_events` carries both: `subject_type`/`subject_id` is *what this
+  happened to*, and `deal_id` is *where a team looks for it*. S26 is where they
+  come apart — PRD F2.5 logs a contact **against a person and optionally a
+  deal**, so the subject is the person and the deal is context — and a stage
+  advance is the mirror image, subjected to the workflow while belonging to the
+  deal.
+
+  `RecordActivity` fills `deal_id` from the subject when the subject **is** a
+  deal, so the seven call sites that already pass one need no change and the
+  eighth cannot be written without one. The four that subject an event to a
+  workflow pass `deal:` explicitly. Adding an event type with a deal behind it
+  means answering which of those two it is.
+
+- **A staging table needs its own sweep.** `records:purge` finds a row by its
+  `deleted_at`, so everything somebody *deleted* is covered — and a table whose
+  rows end by **neglect** rather than by an action is reached by nothing.
+  `contact_imports` (S33) and `deal_drafts` (S14) both carry their own sweep in
+  `PurgeSoftDeletedRecords` for that reason. **What "abandoned" means differs
+  per table, so each sweep picks its own column.** An import is swept on
+  `created_at`: the CSV is the risk, an import is a single sitting, and an
+  upload that old is over however the row was touched. A draft is swept on
+  `updated_at`, because a wizard genuinely is resumed days later and
+  `created_at` would delete work in progress. #61 shipped this hole for
+  `external_links` and had it found in review; the rule is the generalisation,
+  and choosing the column deliberately is half of it.
+
+- **A presentation table is not a vocabulary.** Design System §7.4's stage-rail
+  marker table has seven rows; IA §8's stage vocabulary has five states, and
+  `lib/states.ts` throws on a sixth rather than render an unstyled badge. Both
+  are right, because they answer different questions — and the row that exists
+  in one and not the other is **Overridden**.
+
+  A stage that completed over an overridden gate *is* `complete`. How it got
+  there is a second fact, carried as `hasOverride` and drawn as a different
+  marker over the same badge. IA §8 insists an override is not a kind of Met;
+  this is that insistence one level up, so it is not a kind of *state* either
+  and does not belong in the table that enumerates them. The counts follow the
+  same rule and §7.4 says so outright: *"cleared", not "met"* — the count is met
+  **plus** overridden, because "1 of 1 met" over a row badged Overridden says
+  the opposite of what happened.
+
+  Before adding a state to render something, ask whether it is a state or a
+  presentation of one. Built in Slice 2 (#76).
+
+  The presentation has its own boundary, too: the override marker applies only
+  to a **completed** stage. Overriding does not advance, so an active stage can
+  carry a waived gate while two others still block it — and marking that one
+  Overridden would replace the live "something is still in your way" with a
+  historical note, on the one row the reader is there to act on. A **skipped**
+  stage is excluded for a different and sharper reason: IA §7 calls conflating
+  Skip with Override legally material, so the one row that earns the shield is a
+  stage somebody advanced *through* by waiving a condition.
+
+- **A cache is only true at the moment something refreshed it.** `stages.state`
+  is written by an advance attempt and by nothing else, so a stage cached
+  `blocked` whose gate somebody has since satisfied goes on badging Blocked
+  until the next attempt. On a hub that is a stale badge; on S16's expanded card
+  it is incoherent *within one card*, because the requirements pane beside the
+  badge shows nothing in the way.
+
+  So S16 badges the **active** stage from `DescribeBlockers` — the live answer,
+  which writes nothing — and every other stage from the record. **Both screens
+  that draw a current stage read the same function**, `StageReadiness::stageState()`:
+  S15 and S16 derived it separately for one round and disagreed on the ordinary
+  stage straight after an advance, which is cached `active` with its gate unmet.
+  One screen said In Progress directly above its own "1 requirement to clear". That split is
+  not squeamishness about the cache: a complete stage's gates are what happened,
+  not a question still open, and re-evaluating twenty of them per render to
+  re-derive a fact that cannot change is work with no reader. The same split
+  decides which gates each row carries.
+
+- **An eager-load is a claim that a row needs the relation, and the check is
+  the row.** S13's deals index eager-loaded `propertyLinks` with a nested
+  `property`, selecting a `state` column `properties` does not have — it has
+  `state_code`; `state` is what `deals` calls its lifecycle. So `/deals`
+  answered *SQLSTATE[42703]* for any team whose deals had a property linked:
+  a 500 on the primary list screen, for the ordinary case of a deal with a
+  subject property.
+
+  **Five review rounds went past it, and the reason generalises: a relation
+  nothing renders is a relation nothing thinks to seed.** Every fixture on that
+  screen seeded participants, workflows, stages and tasks — the four cells the
+  row draws — so the broken select list never executed. It read as a wasted
+  query right up until something had a property on it.
+
+  A query-count budget will not find this either. `DealsIndexBudgetTest`
+  asserts 25 deals cost what 2 deals cost, which is the right shape for an N+1
+  and blind to a fixed cost paid once per page. The guard that works holds two
+  **same-sized** fixtures differing only in whether the relation is populated.
+  Before adding a `with()`, name the cell that reads it; if there isn't one,
+  that is the finding.
+
+- **Reading is not advancing, and the read path writes nothing.** `AdvanceWorkflow`
+  answers *"what is blocking this stage"* by **attempting the advance**, which
+  writes `stages.state = blocked` and refreshes the `gates.is_met` cache. A hub
+  screen must not mutate the record it is describing merely by being looked at,
+  so S15 reads through `App\Support\Workflow\DescribeBlockers`, which
+  composes the same evaluators and writes nothing. That is possible only
+  because all seven evaluators are **pure**; an evaluator that saved anything
+  would turn every render of every deal overview into a write, and
+  `SingleMutationPathTest` would not catch it, because that test guards writes
+  to workflow *state*. `DealOverviewTest`'s *"changes nothing"* case pins it,
+  and pins it against a fixture an advance attempt really would mark blocked —
+  otherwise the assertion passes for the wrong reason. Built in Slice 2 (#75).
+
+- **One header for a deal, built once.** Every deal tab renders the same
+  Design System §8.4 header, from the same payload:
+  `App\Support\Deals\DealHeader::for($deal)` under a `dealHeader` prop, and
+  `resources/js/layouts/DealLayout.vue` draws it. A tab that builds its own
+  would disagree with its neighbours about the client's name or the counts
+  within a month — S19 and S20 each carried their own slightly different `deal`
+  prop before #75 folded them into this one. Adding S16–S22 means adding the
+  page to `DEAL_TAB_PAGES` in `resources/js/app.ts` and a tab in `DealHeader`.
+
+- **A cascade that means *context* has to be stepped around.**
+  `teamScopedForeign()` always cascades, which is right when the reference
+  means ownership and wrong when it means context. `activity_events.deal_id`
+  is the second kind: a contact logged against a *person* names a deal for
+  context, and letting the cascade reach it lost a client's contact history
+  thirty days after an unrelated deal was purged. The purge detaches those
+  rows before the parent goes, by an **allowlist of subject types** — an
+  exclusion list fails open, and did, in review. See
+  [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md), *"A
+  `teamScopedForeign` that means context still cascades"*.
+- **An override is four artefacts, and the fourth is the one that gets
+  dropped.** PRD F4.9 is not "set a flag": it is the flag, an immutable audit
+  entry naming **who, when, which gate, and why**, a distinct timeline marker,
+  and an **auto-created follow-up task** — because an override *defers* an
+  obligation and does not delete one. All four live inside
+  `AdvanceWorkflow::override()`, beside `handle()`, for the reason the single
+  mutation path exists at all: a controller that wrote the flag and remembered
+  three of the four would look like it worked. `SingleMutationPathTest` did
+  **not** catch that when #77 was written — a probe confirmed it, a controller
+  calling `Gate::query()->update(['overridden' => true])` passing while the
+  same controller writing `stages.state` failed — so the guard was widened to
+  the override flag and the `gates` table rather than the hazard being written
+  down. Built in Slice 2 (#77, #69).
+
+  Two things about it are load-bearing and neither is obvious. **The follow-up
+  task is not `is_required`**: `is_required` feeds `required_tasks_complete`,
+  which counts the required tasks on the stage the person is about to *leave*,
+  so a required follow-up would be counted by a tasks gate on that same stage
+  and would block the very advance the override exists to permit. And
+  **overriding never advances** — overriding one of three blocking gates must
+  not move the deal past the other two, so the modal reopens onto the
+  refreshed checklist and Advance is a second, deliberate press.
+
+  IA §7 calls conflating **Override** with **Skip** legally material, and
+  F4.12's skip is still #70's work. Nothing here writes
+  `stages.skipped_reason`.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by
@@ -139,7 +317,11 @@ worth repeating here because they are the ones most easily broken by accident:
   formatting independently will disagree within a month.
 - **Nothing decides its own state colour or label.** It calls
   `resources/js/lib/states.ts`, which throws on an unknown state rather than
-  rendering an unstyled badge.
+  rendering an unstyled badge. Its sibling `lib/activity.ts` does the same job
+  for timeline event types — and *does not* throw, because Design System §7.3
+  specifies the fallback ("everything else `state-neutral`"). What replaces the
+  throw is `tests/js/activityEventTypes.test.ts`, which reads every
+  `eventType:` literal out of `app/` and fails when one has no icon.
 
 ### Component governance (Design System §13.2)
 

@@ -8,6 +8,7 @@
  * A section the user lacks permission for is hidden, never disabled.
  */
 import {
+    Activity,
     Briefcase,
     CalendarDays,
     Heart,
@@ -70,6 +71,21 @@ export const NAV_GROUPS: NavEntry[][] = [
             href: '/keep-in-touch',
             icon: Heart,
             permission: 'nurture.manage',
+        },
+        /*
+         * S12. Last in the group deliberately: it answers "what has everyone
+         * been doing", which is a question asked at the end of a day rather
+         * than at the start of one — the top of the sidebar belongs to the two
+         * screens Heather opens every morning.
+         *
+         * IA §11 names it **Activity**, not Feed, History, or Audit. *Audit* is
+         * the security log, which lives in Settings behind its own permission.
+         */
+        {
+            label: 'Activity',
+            href: '/activity',
+            icon: Activity,
+            permission: 'people.view',
         },
     ],
     [

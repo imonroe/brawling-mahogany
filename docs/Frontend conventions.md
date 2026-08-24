@@ -48,7 +48,19 @@ chrome by accident:
 | `Admin/*` | `AdminLayout` — visually distinct, so the two are never confused |
 | `Status/*` | none; the page composes `ClientLayout` itself with the team's branding |
 | `System/*` | none; system pages carry their own frame and render for signed-out people |
+| `Deals/Overview`, `Deals/People`, `Deals/Properties` | `AppLayout` + `DealLayout` |
 | everything else | `AppLayout` |
+
+The deal row is a **list of page names, not a prefix**: `Deals/Index` is the
+list of deals and `Deals/Create` is the wizard, and neither is *inside* a deal.
+The list lives in `DEAL_TAB_PAGES` in `app.ts`; adding S16–S22 means adding a
+name there and a tab in `components/app/DealHeader.vue`.
+
+`DealLayout` owns the Design System §8.4 header, the tab row, and the answer to
+an Advance pressed from any of them. It reads a `dealHeader` prop, which every
+deal-tab controller supplies from `App\Support\Deals\DealHeader::for()` —
+one payload, so two tabs cannot disagree about the client's name or the counts.
+Per §9.2 the header is full-bleed and **each page owns its own `p-6`**.
 
 ---
 
@@ -105,8 +117,9 @@ though the existing ones are tolerated.
 
 `components/app/controlVariants.ts` carries the §4.2 and §7.2 measurements as
 a `cva` set — the sanctioned way to differ from generated source (rule 4) —
-and `AppButton` and `AppInput` apply them. **Use those, not `ui/button` and
-`ui/input` directly**, on anything designed against the Design System.
+and `AppButton`, `AppInput` and `AppSelect` apply them. **Use those, not
+`ui/button` and `ui/input` directly**, on anything designed against the Design
+System.
 
 | | Design System | shadcn's default |
 |---|---|---|
@@ -128,6 +141,20 @@ how the filter silently became 14px on the one breakpoint it is used at.
 Every size — buttons *and* inputs — is `min-h-11` below `md`, because §11's
 44px minimum has no exceptions and §4.3 is explicit that the compact desktop
 density is a power-user affordance rather than a house style.
+
+**`AppSelect` is the third of these, and it exists because the rule was broken
+four times.** A native `<select>` styled by hand — `h-8 rounded-md border
+bg-background px-2.5 text-xs` — had been transcribed into the properties
+directory, the contact import, the audit log and deal properties, and every
+copy was 32px on a phone. It shares `appInputVariants` with `AppInput` so the
+two cannot drift, and it maps the empty option to `null`, because `''` is how
+a native select says *unanswered* and `null` is what that means to the server.
+Prefer it to `ui/select` for a short list of words; the shadcn listbox is for
+a picker with search or rich rows. Both behaviours are pinned in
+`tests/js/controlSizes.test.ts`.
+
+Several screens still hand-roll a `<select>` at the **form-control** size, and
+nothing scans for it — a follow-up, not a claim that the pattern is finished.
 
 Two behaviours worth knowing rather than discovering: `variant="ghost"` sizes
 itself as a ghost button (32px) without being told twice, and a disabled
@@ -167,6 +194,7 @@ ninety-one screens disagree within a month — so nothing in `components/` or
 | `formatTime` | 12-hour, lowercase meridiem, **team timezone** | 2:30pm |
 | `formatCurrency` | Whole dollars above $1,000, cents below | $485,000 · $250.50 |
 | `formatCount` | Numeral plus noun, pluralised | 3 deals · 1 task |
+| `formatDateTime` | Date and time together, for a timeline row | Thu, Aug 20 at 2:30pm |
 
 **Timezone.** Storage is UTC; display is the team's timezone (PRD §9). Call
 `setTeamTimeZone()` once at boot. `calendarDaysBetween()` compares wall-calendar
@@ -204,20 +232,135 @@ PHP enums against IA §8 and PRD §6.3.
 Changing a state means changing the document and the code together. That is
 rule 7 made mechanical.
 
-**One domain is not a state machine, and reads from a different document.**
-`property` carries PRD §6.3's *market status* lookup, not an IA §8 vocabulary,
-because a property does not transition — a team sets what is true. So the test
-reads its labels out of PRD §6.3 and only its tones out of Design System §2.4.
+**Two domains are not state machines, and read from a different document.**
+`property` and `propertyInterest` carry PRD §6.3 lookups rather than IA §8
+vocabularies,
+because neither transitions — a team sets what is true about a house, and a
+buyer changes their mind about one. So the test reads their labels out of PRD
+§6.3 and only their tones out of Design System §2.4.
 The distinction is load-bearing rather than pedantic: PRD §7.11 rules that
 "Undergoing improvements" and "Staged" are **workflow positions**, and they
 belong to a stage. A property status that grew a workflow position would be
-this table quietly becoming a second, worse stage vocabulary.
+this table quietly becoming a second, worse stage vocabulary — and the same
+line keeps "Viewing scheduled" and "Offer made" out of `propertyInterest`,
+where both are facts the product already holds somewhere better.
+
+### `lib/activity.ts`
+
+Design System §7.3's tint-by-event-type table, plus the icon each event type
+carries — for `ActivityItem`, which three screens render already (S12, S31, and
+the deal timeline that follows).
+
+- `activityDescriptor({ eventType, contactType })` returns `{ icon, tone }`. On
+  a `contact.logged` row the icon comes from PRD §6.3's contact type instead: a
+  phone and an envelope are legible at a glance in a way "Phone call" and
+  "Email" at 14px are not.
+- **It does not throw the way `resolveState` does**, and the difference is not
+  an oversight. §7.3 *specifies* the fallback — "everything else
+  `state-neutral`" — so an unmapped event type renders correctly rather than
+  wrongly, and a throw would take a whole feed down over one row a later slice
+  added.
+- What that costs is silence, and `tests/js/activityEventTypes.test.ts` pays
+  it: it reads every `eventType:` literal out of `app/` and fails when one has
+  no entry here. `tests/Unit/ActivityCategoryTest.php` does the same for the
+  feed's filter, which groups by the prefix before the dot.
+
+### `lib/gates.ts`
+
+Design System §7.4's requirement (gate) row decides two things, and this is
+where both live so S15, S16 and S23 cannot disagree about either.
+
+- `gateAppearance(gate)` returns `{ icon, tone }`. Met is `circle-check` in
+  `success`, unmet-and-blocking is `circle-alert` in `warning`, an unmet
+  advisory is the same glyph in `neutral` — and **overridden is its own
+  marker**, `shield-alert` in `warning`, never the met one. IA §8: overridden
+  is not a kind of met.
+- `gateResolutionLink(gate, dealUrl)` turns the evaluator's `linkTarget` into a
+  route, or null. PRD §5.4 wants every unmet gate linked to the thing that
+  clears it, and only the evaluator knows what that is. The shapes with no
+  screen yet — `awaiting_slice`, `gate`, `gate_config` — resolve to **nothing**
+  on purpose: a dead link is worse than a sentence, because it teaches the
+  reader that the links do not work.
+- `isOverridable(gate)` is a display concern only. The service refuses each
+  case in its own words and is the only thing that decides.
+
+`components/app/GateRow.vue` renders the row itself, `boxed` selecting §7.4's
+advance-dialog density.
+
+**How many gates are blocking is not in here, and the reason is worth keeping.**
+A gate list carries every unmet gate — advisories, and overridden ones, both
+shown deliberately — so `gates.length` is never the number of things to go and
+do. S15 counted it that way, a shared TypeScript helper was written to fix it,
+and the helper was then reverted at its call site on a green build: the
+function was tested, the caller was not. The count is sent from the server
+now, off the same `StageReadiness` bucketing that answers S23, so there is one
+computation rather than one per screen. Ask the payload; do not count the
+array.
+
+### `composables/useAdvanceDialog.ts`
+
+Module state rather than a prop, and the reason is structural. §8.4 puts
+**Advance Stage** in the deal header — which `DealLayout` owns — and S15 puts
+a second one on each running workflow's card, which lives in the page
+`DealLayout` renders into its default slot. A persistent layout cannot hand a
+page a callback, and a page cannot reach up. So `AdvanceStageDialog` is mounted
+**once** in `DealLayout` and everything that starts an advance calls
+`openAdvance({ dealId, workflowId, stageId })`.
+
+Nothing else on a deal screen posts an advance. §7.4 does not allow the action
+to ship without its "what happens when you advance" block, so a button that
+posted straight through would be the one thing the spec forbids.
+
+**It clears itself on navigation.** Module state outlives the page, so nothing
+unmounts it: a gate's "Go and clear it" link took the reader to the properties
+tab with the modal still on top of it. `router.on('navigate')` is registered
+beside the state it clears. A same-URL `back()` — which is what a refused
+advance or override does — sets `replace`, so `navigate` does not fire and the
+dialog stays open onto its refreshed checklist, which is the behaviour S23
+wants.
 
 ### `lib/navigation.ts`
 
 The sidebar's contents and order (IA §5.1), the four mobile tabs, and the
 "More" sheet's contents (IA §5.3). A section the person lacks permission for is
 **hidden, never shown disabled**.
+
+### A filtered list's props are not its filters
+
+**`props` are the filters of the last response that *landed*.** For the whole
+of an in-flight round trip they are stale, and on a screen where each control
+sends only what it changes and inherits the rest, that window is where one
+filter silently drops another.
+
+S13 is where this was worked out, over three review rounds. Click **All**, then
+press a sort header before the response arrives: the sort inherited
+`props.segment`, still `open`, and went out with no segment at all — returning
+the reader to the deals they had just left. Typing during a round trip was the
+same defect wearing different clothes: the server's echo of the *previous*
+search overwrote the box and cancelled the pending one, so a keystroke
+vanished with no request ever made for it.
+
+Three rules, and the third is the one that gets missed:
+
+1. **Keep a record of what was last asked for**, and inherit from it until the
+   server catches up. `resources/js/pages/Deals/Index.vue`'s `asked` is the
+   reference implementation.
+2. **Release that record on agreement, not on arrival.** A response landing
+   does not mean *this* request was answered. With two visits in flight,
+   clearing on any prop change discards the second one's record when the first
+   one's response arrives, and the bug returns one visit later.
+3. **One spelling of a value, from one function.** The record and the props
+   have to be comparable, so both go through the same normaliser. S13's first
+   attempt normalised the props but stored each caller's changes verbatim, so
+   the first press of a sort header stored `direction: 'asc'` against a
+   `undefined` — never equal, so the record was never released and the props
+   could never take over again. Defaults dropping out of the query string is
+   what makes `/deals` and `?segment=open&direction=asc` the same object.
+
+A test for any of this is only as good as its fixture: S13's release test
+passed for a round while the mechanism was dead, because it happened to assert
+on `segment: 'all'` — the one value in that filter set which normalises to
+itself. Pick fixtures that do **not**.
 
 ---
 

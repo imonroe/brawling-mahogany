@@ -114,12 +114,19 @@ class TeamController extends Controller
                 // Shown once, then gone: only the hash is stored, so there is
                 // nothing to read back on a later visit.
                 'issuedLink' => session('invitationLink'),
+                /*
+                 * The same definition of "on the team" the team's own members
+                 * screen uses (#142).
+                 *
+                 * The console listed `[team_owner, team_member]` by name, and
+                 * an operator asked to look into a team that had composed its
+                 * own role (PRD F2.3) saw a members list missing exactly the
+                 * people they were being asked about — while the usage counts
+                 * above, which count every membership, counted them.
+                 */
                 'members' => TeamMembership::withoutTeamScope()
                     ->where('team_id', $model->getKey())
-                    ->whereHas('roles', fn ($query) => $query->whereIn('roles.key', [
-                        SystemRole::TeamOwner->value,
-                        SystemRole::TeamMember->value,
-                    ]))
+                    ->carryingAccess()
                     ->with(['person:id,email,password', 'roles:id,key,name'])
                     ->get()
                     ->map(fn (TeamMembership $membership): array => [

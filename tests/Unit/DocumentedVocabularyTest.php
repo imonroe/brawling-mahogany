@@ -11,6 +11,7 @@ use App\Enums\ExtractedFieldReviewState;
 use App\Enums\GateState;
 use App\Enums\ParticipantRole;
 use App\Enums\PersonLifecycleState;
+use App\Enums\PropertyInterest;
 use App\Enums\PropertyStatus;
 use App\Enums\PropertyType;
 use App\Enums\RestrictedDocumentCategory;
@@ -113,6 +114,7 @@ function documented_ia_state_vocabulary(string $heading): array
 dataset('lookups', [
     'property type' => ['Property type', PropertyType::class],
     'property status' => ['Property status', PropertyStatus::class],
+    'property interest' => ['Property interest', PropertyInterest::class],
     'contact type' => ['Contact type', ContactType::class],
     'deal side' => ['Deal side', DealSide::class],
     'participant role' => ['Participant role', ParticipantRole::class],
@@ -145,7 +147,7 @@ it('keeps every enum value in snake_case', function (): void {
     $enums = [
         DealState::class, WorkflowState::class, StageState::class, TaskState::class,
         GateState::class, PersonLifecycleState::class, AutomationState::class,
-        ExtractedFieldReviewState::class, PropertyType::class, PropertyStatus::class,
+        ExtractedFieldReviewState::class, PropertyType::class, PropertyStatus::class, PropertyInterest::class,
         ContactType::class, ParticipantRole::class, DocumentCategory::class, DealSide::class,
         TaskSource::class,
         RestrictedDocumentCategory::class,

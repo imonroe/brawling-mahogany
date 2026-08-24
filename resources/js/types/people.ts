@@ -37,17 +37,6 @@ export type PersonDetail = PersonRow & {
     revokedAt: string | null;
 };
 
-/** One entry on the timeline (IA §2 — Activity, never History or Log). */
-export type ActivityEntry = {
-    id: string;
-    eventType: string;
-    summary: string;
-    source: string;
-    occurredAt: string;
-    payload: Record<string, unknown> | null;
-    actorName: string | null;
-};
-
 /** Laravel's paginator, as it reaches a page. */
 export type Paginated<T> = {
     data: T[];
@@ -57,4 +46,36 @@ export type Paginated<T> = {
     total: number;
     prev_page_url: string | null;
     next_page_url: string | null;
+};
+
+/**
+ * One entry on the timeline, as `App\Queries\ActivityFeed::rows()` shapes it
+ * (IA §2 — **Activity**, never History, Log, or Audit).
+ *
+ * One type for the feed (S12) and the person record (S31), because both are
+ * rendered from that one method. The screen decides which parts it shows — the
+ * person page knows whose timeline it is and does not repeat the subject — and
+ * the shape stays the same, so the two cannot drift into disagreeing about
+ * whether a row carries the deal it was attached to.
+ */
+export type ActivityFeedRow = {
+    id: string;
+    eventType: string;
+    summary: string;
+    source: string;
+    occurredAt: string;
+    actorName: string | null;
+    /** The thing it happened to, linked when a screen for it exists. */
+    subject: { label: string; url: string | null } | null;
+    /** The deal it belongs on, when it belongs on one (PRD F2.5). */
+    deal: { label: string; url: string } | null;
+    note: string | null;
+    /** PRD §6.3 contact type, on a logged contact only. */
+    contactType: string | null;
+};
+
+/** A deal the log-contact modal can attach an entry to (S26). */
+export type LoggableDeal = {
+    id: string;
+    name: string;
 };

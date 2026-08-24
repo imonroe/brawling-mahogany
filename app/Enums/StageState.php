@@ -17,6 +17,24 @@ enum StageState: string implements HasLabel
     case Complete = 'complete';
     case Skipped = 'skipped';
 
+    /**
+     * The states a person is standing in and has not left.
+     *
+     * **Blocked counts.** A refused advance marks the stage blocked, and it is
+     * a display state for a stage somebody cannot leave rather than one they
+     * have left — `Workflow::activeStage()` says what leaving it out cost.
+     *
+     * Written once, because two callers now read it: the relation query and
+     * the in-memory pass over an already-loaded stage list. Two spellings of
+     * "which stage is current" is how one of them ends up disagreeing.
+     *
+     * @return list<string>
+     */
+    public static function inProgress(): array
+    {
+        return [self::Active->value, self::Blocked->value];
+    }
+
     public function label(): string
     {
         return match ($this) {

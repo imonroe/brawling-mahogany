@@ -1,0 +1,266 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Enums\ParticipantRole;
+use App\Models\ActivityEvent;
+use App\Models\Deal;
+use App\Models\DealParticipant;
+use App\Models\DealType;
+use App\Models\Team;
+use App\Support\Tenancy\TeamContext;
+use Carbon\CarbonImmutable;
+
+/**
+ * S26 — log a contact (PRD §4.2 F2.5 · issue #81).
+ *
+ * The endpoint under the two-click modal. What is tested here is the half a
+ * component test cannot see: what a submit with only a type in it writes, what
+ * attaching a deal does to where the entry shows up, and what "when it
+ * happened" means to a team that is not in UTC.
+ */
+beforeEach(function (): void {
+    [$this->team, $this->member] = $this->teamWithMember();
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->membership = $this->member->membershipIn($this->team);
+});
+
+function contactLogDeal(Team $team): Deal
+{
+    return app(TeamContext::class)->runFor($team, fn (): Deal => Deal::factory()->create([
+        'team_id' => $team->getKey(),
+        'deal_type_id' => DealType::query()->whereNull('team_id')->firstOrFail()->getKey(),
+    ]));
+}
+
+it('saves an entry with nothing but the type', function (): void {
+    // The two-click contract, at the endpoint: the modal's second click sends
+    // exactly this, and anything else being required would make it a third.
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'showing',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $event = ActivityEvent::query()->where('event_type', 'contact.logged')->sole();
+
+    expect($event->summary)->toBe('Showing')
+        ->and($event->source)->toBe('manual')
+        ->and($event->payload['note'] ?? null)->toBeNull()
+        // Unattached, which F2.5 allows: "against a person and optionally a
+        // deal."
+        ->and($event->deal_id)->toBeNull();
+});
+
+it('puts an attached entry on the deal as well as the person', function (): void {
+    $deal = contactLogDeal($this->team);
+
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'note' => 'Walked through the inspection dates.',
+        'deal_id' => $deal->getKey(),
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $event = ActivityEvent::query()->where('event_type', 'contact.logged')->sole();
+
+    // The subject stays the person — that is what F2.5 logs against, and what
+    // the person record reads. The deal is context, and the deal's own
+    // timeline reads that.
+    expect($event->subject_id)->toBe($this->member->getKey())
+        ->and($event->deal_id)->toBe($deal->getKey())
+        ->and(ActivityEvent::query()->forSubject($this->member)->pluck('id'))
+        ->toContain($event->getKey())
+        ->and(ActivityEvent::query()->forDeal($deal)->pluck('id'))
+        ->toContain($event->getKey());
+});
+
+/**
+ * A deleted deal drops out of the dialog rather than 500ing the page.
+ *
+ * Soft-deleting a deal leaves its `deal_participants` rows behind, and
+ * `DealParticipant::deal()` carries no `withTrashed()` — so `PersonDeals` read
+ * a null relation and called `displayName()` on it. That is a fatal on
+ * `/people/{membership}`, a screen a team reaches by clicking somebody's name,
+ * and the deal it was about is one nobody should be offered anyway.
+ */
+it('leaves a deleted deal out of the deals a person can be logged against', function (): void {
+    $live = contactLogDeal($this->team);
+    $deleted = contactLogDeal($this->team);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($live, $deleted): void {
+        foreach ([$live, $deleted] as $deal) {
+            DealParticipant::factory()->create([
+                'team_id' => $this->team->getKey(),
+                'deal_id' => $deal->getKey(),
+                'team_membership_id' => $this->membership?->getKey(),
+                'participant_role' => ParticipantRole::Seller,
+            ]);
+        }
+
+        $deleted->delete();
+    });
+
+    $this->get("/people/{$this->membership?->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('deals', fn ($deals) => collect($deals)->pluck('id')->all() === [$live->getKey()]));
+});
+
+/**
+ * A contact is something that already happened.
+ *
+ * Both the feed and the person's timeline sort by `occurred_at` descending, so
+ * one fat-fingered year pins an entry to the top of every activity screen in
+ * the team. `nullable|date` alone accepted it.
+ */
+it('refuses a contact dated in the future', function (): void {
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'occurred_at' => now()->addMonth()->toDateTimeString(),
+    ])->assertSessionHasErrors('occurred_at');
+
+    expect(ActivityEvent::query()->where('event_type', 'contact.logged')->count())->toBe(0);
+});
+
+/**
+ * A malformed date is a 422, not a 500.
+ *
+ * The future-date rule is a closure that parses the value, and Laravel runs
+ * every rule in an attribute's list unless told otherwise — `date` failing
+ * does not stop it. So `CarbonImmutable::parse('banana')` threw, and an
+ * unparseable string turned a validation message into a stack trace. `bail`
+ * is what stops it; these are the two inputs that reach the parse.
+ */
+it('answers an unparseable date with a validation error', function (string $submitted): void {
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'occurred_at' => $submitted,
+    ])->assertSessionHasErrors('occurred_at');
+})->with(['banana', '2026-13-45']);
+
+/** The same, for a body that sends an array where a string belongs. */
+it('answers a non-string date with a validation error', function (): void {
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'occurred_at' => ['a' => 'b'],
+    ])->assertSessionHasErrors('occurred_at');
+});
+
+/**
+ * Later today is not the future, and the team's zone decides which is which.
+ *
+ * The rule parses the submitted string the same way `store()` does — in the
+ * team's zone — because a bound built in the app's zone rejects this evening's
+ * showing for any team east of UTC.
+ */
+it('accepts a contact dated later today in the team zone', function (): void {
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $this->team->forceFill(['timezone' => 'Pacific/Auckland'])->save(),
+    );
+
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'showing',
+        'occurred_at' => CarbonImmutable::now('Pacific/Auckland')->endOfDay()
+            ->subMinutes(5)->toDateTimeString(),
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(ActivityEvent::query()->where('event_type', 'contact.logged')->count())->toBe(1);
+});
+
+it('refuses a deal from another team without touching the timeline', function (): void {
+    $other = Team::factory()->create();
+    $theirDeal = contactLogDeal($other);
+
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'deal_id' => $theirDeal->getKey(),
+    ])->assertSessionHasErrors('deal_id');
+
+    // Nothing written at all — not an entry with the deal quietly dropped,
+    // which is what an unscoped `exists` plus a scoped lookup would produce.
+    expect(ActivityEvent::query()->where('event_type', 'contact.logged')->count())->toBe(0);
+});
+
+it('reads a typed time in the team’s timezone and stores it in UTC', function (): void {
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $this->team->forceFill(['timezone' => 'America/Denver'])->save(),
+    );
+
+    // What a `datetime-local` input sends: wall-clock time, no zone on it.
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'phone_call',
+        'occurred_at' => '2026-08-20T09:00',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $event = ActivityEvent::query()->where('event_type', 'contact.logged')->sole();
+
+    // 9am in Denver is 15:00 UTC in August. Parsed as UTC it would have been
+    // stored as 09:00 — four in the morning for the team that typed it.
+    expect($event->occurred_at->utc()->format('Y-m-d H:i'))->toBe('2026-08-20 15:00');
+});
+
+it('defaults the time to now when nobody typed one', function (): void {
+    $this->freezeAt('2026-08-20T17:30:00Z');
+
+    $this->post("/people/{$this->membership?->getKey()}/contact-log", [
+        'contact_type' => 'text',
+    ])->assertRedirect();
+
+    $event = ActivityEvent::query()->where('event_type', 'contact.logged')->sole();
+
+    expect($event->occurred_at->utc()->format('Y-m-d H:i'))->toBe('2026-08-20 17:30');
+});
+
+it('offers the deals a person is on, and only those', function (): void {
+    $theirs = contactLogDeal($this->team);
+
+    // A second deal in the same team that this person has nothing to do with.
+    // The modal offering it would make the attachment a search rather than a
+    // choice, which is a click the two-click target does not have.
+    contactLogDeal($this->team);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($theirs): void {
+        DealParticipant::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $theirs->getKey(),
+            'team_membership_id' => $this->membership?->getKey(),
+            'participant_role' => ParticipantRole::Buyer,
+        ]);
+    });
+
+    $this->get("/people/{$this->membership?->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('deals', 1)
+            ->where('deals.0.id', $theirs->getKey()));
+});
+
+it('finds a person for the shell’s modal, with their deals attached', function (): void {
+    $deal = contactLogDeal($this->team);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($deal): void {
+        DealParticipant::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $deal->getKey(),
+            'team_membership_id' => $this->membership?->getKey(),
+            'participant_role' => ParticipantRole::Seller,
+        ]);
+    });
+
+    $response = $this->getJson('/people/candidates?q='.urlencode((string) $this->membership?->first_name));
+
+    $response->assertOk();
+
+    $candidate = collect($response->json('candidates'))
+        ->firstWhere('id', $this->membership?->getKey());
+
+    expect($candidate)->not->toBeNull()
+        ->and($candidate['name'])->toBe($this->membership?->fullName())
+        // The deals travel with the candidate, so picking somebody in the
+        // modal does not cost a second round trip before the attachment can
+        // be offered.
+        ->and($candidate['deals'])->toHaveCount(1)
+        ->and($candidate['deals'][0]['id'])->toBe($deal->getKey());
+});

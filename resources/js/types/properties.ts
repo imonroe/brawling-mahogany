@@ -53,3 +53,15 @@ export type LinkedDeal = {
     sideLabel: string;
     isSubject: boolean;
 };
+
+/** One property on one deal — S20's row (issue #62). */
+export type DealPropertyLink = {
+    /** The link row's id, which every S20 route binds to. */
+    id: string;
+    propertyId: string;
+    isSubject: boolean;
+    /** A PRD §6.3 buyer opinion, or null when nobody has said. */
+    interestStatus: string | null;
+    /** Null when the property has been deleted out from under the link. */
+    property: PropertyRow | null;
+};

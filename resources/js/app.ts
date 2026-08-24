@@ -5,10 +5,25 @@ import { initializeTheme } from '@/composables/useAppearance';
 import AdminLayout from '@/layouts/AdminLayout.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import AuthLayout from '@/layouts/AuthLayout.vue';
+import DealLayout from '@/layouts/DealLayout.vue';
 import SettingsLayout from '@/layouts/SettingsLayout.vue';
 import { initializeFlashToast } from '@/lib/flashToast';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Brawling Mahogany';
+
+/**
+ * The pages that are *inside* one deal (IA §5.2), and so wear `DealLayout`.
+ *
+ * A list rather than a prefix test: `Deals/Index` and `Deals/Create` live
+ * under the same folder and are not inside a deal. Adding S16–S22 means adding
+ * a line here and a tab in `DealHeader`.
+ */
+const DEAL_TAB_PAGES = [
+    'Deals/Overview',
+    'Deals/Timeline',
+    'Deals/People',
+    'Deals/Properties',
+];
 
 createInertiaApp({
     /**
@@ -73,6 +88,17 @@ createInertiaApp({
                 return AdminLayout;
             case name.startsWith('Settings/'):
                 return [AppLayout, SettingsLayout];
+            /*
+             * Inside a deal is a context, not a page (IA §5.2), so every deal
+             * tab wears the §8.4 header and the tab row.
+             *
+             * Matched on the sub-pages by name rather than on the `Deals/`
+             * prefix, because `Deals/Index` is the *list* of deals and
+             * `Deals/Create` is the wizard — neither is inside a deal, and
+             * neither has a `dealHeader` to render one from.
+             */
+            case DEAL_TAB_PAGES.includes(name):
+                return [AppLayout, DealLayout];
             default:
                 return AppLayout;
         }
