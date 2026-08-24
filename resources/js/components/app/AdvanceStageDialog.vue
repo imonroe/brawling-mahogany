@@ -292,6 +292,18 @@ function onOverridden(): void {
     overriding.value = null;
     void load();
 }
+
+/**
+ * A refused override leaves this dialog stale, so it reloads too.
+ *
+ * The override dialog stays open showing why — but two of the four refusals
+ * mean somebody else already cleared or waived the gate, so the checklist
+ * behind it is describing a stage that has moved. Without this it went on
+ * saying "Advance when you are ready" over an Advance button it had disabled.
+ */
+function onOverrideRefused(): void {
+    void load();
+}
 </script>
 
 <template>
@@ -557,5 +569,6 @@ function onOverridden(): void {
         :stage-name="preview.stage.name"
         @close="overriding = null"
         @overridden="onOverridden"
+        @refused="onOverrideRefused"
     />
 </template>

@@ -65,7 +65,7 @@ import {
     formatDateTime,
     formatLocality,
 } from '@/lib/formatters';
-import { gateResolutionLink } from '@/lib/gates';
+import { blockingGateCount, gateResolutionLink } from '@/lib/gates';
 import type { GateSummary } from '@/lib/gates';
 import { stateTone } from '@/lib/states';
 import type { Tone } from '@/lib/states';
@@ -169,18 +169,6 @@ function railClass(stage: StageDot): string {
  * separately where a `tasks` link points is two screens that disagree the day
  * S17 moves.
  */
-/**
- * How many of a workflow's gates actually stand in the way.
- *
- * `gates` carries every unmet gate, blocking or not — advisories are shown
- * because #75's standard is that the screen says what is going on without a
- * click, and an overridden gate is shown because hiding it would hide a
- * decision somebody made and signed for. Neither is something to go and clear.
- */
-function blockingCount(workflow: WorkflowCard): number {
-    return workflow.gates.filter((gate) => gate.blocksAdvance).length;
-}
-
 function linkFor(gate: GateSummary): string | null {
     return gateResolutionLink(gate, dealUrl.value);
 }
@@ -337,7 +325,10 @@ function advance(workflow: WorkflowCard): void {
                                     class="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground uppercase"
                                 >
                                     <TriangleAlert
-                                        v-if="blockingCount(workflow) > 0"
+                                        v-if="
+                                            blockingGateCount(workflow.gates) >
+                                            0
+                                        "
                                         class="size-3.5 text-state-warning"
                                         aria-hidden="true"
                                     />
@@ -349,14 +340,28 @@ function advance(workflow: WorkflowCard): void {
                                         badged Overridden. Same arithmetic S23
                                         was corrected for in round 1; this is
                                         the caller that fix did not reach.
+
+                                        "Requirement" in both branches, not
+                                        "gate" in one and "Requirements" in the
+                                        other. IA §11 allows the softer word
+                                        **only** in the deal view, which is
+                                        exactly here, and §7.4's pane is called
+                                        "Requirements to advance" — so S23 and
+                                        this card name the same thing the same
+                                        way.
                                     -->
                                     <template
-                                        v-if="blockingCount(workflow) > 0"
+                                        v-if="
+                                            blockingGateCount(workflow.gates) >
+                                            0
+                                        "
                                     >
                                         {{
                                             formatCount(
-                                                blockingCount(workflow),
-                                                'gate',
+                                                blockingGateCount(
+                                                    workflow.gates,
+                                                ),
+                                                'requirement',
                                             )
                                         }}
                                         to clear

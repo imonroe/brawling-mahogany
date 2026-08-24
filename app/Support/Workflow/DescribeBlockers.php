@@ -64,7 +64,7 @@ final readonly class DescribeBlockers
      * S15 renders — leaves them out, because F3.7 asks the overview for *what
      * blocks advance* and not for a checklist of everything that does not.
      * `checklist()` keeps them, because S23 is the screen that asks the
-     * opposite question and Design System §7.4 wants a count of *"2 of 3 met"*
+     * opposite question and Design System §7.4 wants a count of *"2 of 3 cleared"*
      * that a reader can check against the rows above it.
      */
     public function forStage(Stage $stage): StageReadiness

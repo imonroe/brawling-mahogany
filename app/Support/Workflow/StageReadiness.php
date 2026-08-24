@@ -77,7 +77,7 @@ final readonly class StageReadiness
      * a hub screen listing satisfied conditions is a hub screen burying the
      * two that matter. S23 is the opposite question: Design System §7.4's
      * requirements pane is a **checklist** with its own count (*"Requirements
-     * to advance · 2 of 3 met"*), and a checklist that hides the ticked rows
+     * to advance · 2 of 3 cleared"*), and a checklist that hides the ticked rows
      * cannot be counted by the person reading it.
      *
      * Blocking first, then advisories, then met — the order somebody should

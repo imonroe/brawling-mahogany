@@ -48,7 +48,7 @@ const props = defineProps<{
     stageName: string;
 }>();
 
-const emit = defineEmits<{ close: []; overridden: [] }>();
+const emit = defineEmits<{ close: []; overridden: []; refused: [] }>();
 
 const form = useForm({ gate_id: '', reason: '' });
 
@@ -110,7 +110,20 @@ function submit(): void {
                  */
                 refusal.value =
                     advance.reasons?.[0] ??
-                    'This gate could not be overridden. Reload to see where the workflow is now.';
+                    'This gate could not be overridden.';
+
+                /*
+                 * And refresh the checklist behind this dialog.
+                 *
+                 * Two of the four refusals mean somebody else got there first
+                 * — a colleague cleared the gate, or waived it — so the pane
+                 * underneath is now describing a stage that has moved on. It
+                 * was reading "Advance when you are ready" over a disabled
+                 * Advance button, which is the screen contradicting itself.
+                 * Reloading here is what the fallback sentence used to ask the
+                 * person to do by hand.
+                 */
+                emit('refused');
 
                 return;
             }

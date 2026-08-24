@@ -115,6 +115,26 @@ export function gateResolutionLink(
 }
 
 /**
+ * How many of a list of gates actually stand in the way.
+ *
+ * Not `gates.length`. A gate list carries every unmet gate — advisories are
+ * shown because #75's standard is that the screen says what is going on
+ * without a click, and an overridden gate is shown because hiding it would
+ * hide a decision somebody made and signed for. Neither is something to go and
+ * clear, and counting them put "2 gates to clear" behind a warning triangle
+ * over a list where one was badged Overridden.
+ *
+ * Here rather than in the page for the reason `gateResolutionLink` is here:
+ * Design System §7.4 calls the requirement pane one anatomy at three
+ * densities, S23 and S15 already render it, and S16's stage card is next. Two
+ * screens counting separately is two screens that disagree the first time a
+ * gate is waived.
+ */
+export function blockingGateCount(gates: GateSummary[]): number {
+    return gates.filter((gate) => gate.blocksAdvance).length;
+}
+
+/**
  * Whether this gate is one an override could clear (F4.9).
  *
  * Blocking, unmet, and not already overridden. An advisory never stops an

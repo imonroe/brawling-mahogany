@@ -147,13 +147,13 @@ const STATE_WRITE_PATTERNS = [
     '/\[\s*[\'"]overridden[\'"]\s*\]\s*=(?!=)/',
 
     /*
-     * `override_reason`, `overridden_by` and `overridden_at` are deliberately
-     * not guarded. They are the *record* of the decision, not the decision:
-     * none of them changes whether a gate blocks an advance, and writing one
-     * without `overridden` moves no workflow. `overridden` is the flag every
-     * one of them describes, so guarding it is guarding the act — and a
-     * pattern per column would be four ways to say the same thing, three of
-     * which fire on a row that is already correct.
+     * `override_reason` and `overridden_by` are deliberately not guarded — the
+     * two that exist, and the list is exactly those two. They are the *record*
+     * of the decision rather than the decision: neither changes whether a gate
+     * blocks an advance, and writing one without `overridden` moves no
+     * workflow. `overridden` is the flag both of them describe, so guarding it
+     * is guarding the act, and a pattern per column would be three ways to say
+     * one thing, two of which fire on a row that is already correct.
      *
      * `stages.skipped_reason` is not guarded either, for a different reason:
      * F4.12's skip is #70's work and nothing writes it yet. It belongs here
@@ -384,9 +384,28 @@ it('reads a file whose only signal is the write itself', function (string $shape
     expect(touchesWorkflowState($source))->toBeTrue("The detector never even reads: {$shape}")
         ->and(writesWorkflowState($source))->toBeTrue("The detector waves through: {$shape}");
 })->with([
-    'eloquent mass update' => ['Gate::query()->whereKey($id)->update([\'overridden\' => true]);'],
-    'query builder' => ['DB::table(\'gates\')->whereKey($id)->update([\'overridden\' => true]);'],
-    'raw sql' => ['DB::statement(\'UPDATE gates SET overridden = true\');'],
+    // The override flag, which is what this dataset was added for.
+    'gate, eloquent mass update' => ['Gate::query()->whereKey($id)->update([\'overridden\' => true]);'],
+    'gate, query builder' => ['DB::table(\'gates\')->whereKey($id)->update([\'overridden\' => true]);'],
+    'gate, raw sql' => ['DB::statement(\'UPDATE gates SET overridden = true\');'],
+
+    /*
+     * And `stages.state`, the column this whole test was built for — whose
+     * table patterns turned out to be just as unheld, for longer.
+     *
+     * `catches every shape` covers these three shapes already, but through
+     * `run(Stage $stage)`: the *model* half of the filter is satisfied by the
+     * parameter, so narrowing both table patterns to `gates` alone left the
+     * entire suite green. That is the `DB::table('stages')` hole #68's first
+     * review found, re-opened and invisible. A query-builder write is exactly
+     * the case that names no model — it is what "Eloquent bypassed entirely"
+     * means — so it is the case that most needs a fixture naming none.
+     */
+    'stage, eloquent mass update' => ['Stage::query()->whereKey($id)->update([\'state\' => \'complete\']);'],
+    'stage, query builder' => ['DB::table(\'stages\')->whereKey($id)->update([\'state\' => \'complete\']);'],
+    'stage, raw sql' => ['DB::statement(\'UPDATE stages SET state = \\\'complete\\\'\');'],
+    'workflow, query builder' => ['DB::table(\'workflows\')->whereKey($id)->update([\'state\' => \'completed\']);'],
+    'workflow, raw sql' => ['DB::statement(\'UPDATE workflows SET state = \\\'completed\\\'\');'],
 ]);
 
 /**
