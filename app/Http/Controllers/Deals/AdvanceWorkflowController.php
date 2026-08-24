@@ -8,8 +8,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Deals\AdvanceWorkflowRequest;
 use App\Models\Deal;
 use App\Models\Person;
+use App\Models\Stage;
 use App\Models\Workflow;
+use App\Support\Workflow\AdvancePreview;
 use App\Support\Workflow\AdvanceWorkflow;
+use App\Support\Workflow\DescribeBlockers;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 
@@ -43,17 +47,70 @@ use Inertia\Inertia;
  * `DealHeader::advanceTarget()` and the Overview's cards both offer the button
  * only when there is an active stage, which is what keeps it unreachable.
  *
- * ## Override and skip are deliberately absent
+ * ## Override and skip
  *
- * F4.9's override and F4.12's skip are S23/S24 (#77, #69, #70), and both have
- * to go **inside** `AdvanceWorkflow` rather than here. Three of the seven gate
- * types cannot clear on their own in Slice 2 — document present, action
- * completed and date reached each return `GateVerdict::notYetWired()`, whose
- * own sentence tells the reader to override — so override is load-bearing
- * rather than optional, and #77 follows this closely rather than eventually.
+ * F4.9's override arrived with S23 (#77, #69) and lives on
+ * `OverrideGateController`, which hands to `AdvanceWorkflow::override()` —
+ * inside the service, never here. F4.12's skip is a third verb with a
+ * different audit meaning (IA §7) and is still #70's work.
  */
 class AdvanceWorkflowController extends Controller
 {
+    /**
+     * Everything S23 shows before the click (issue #77).
+     *
+     * JSON rather than an Inertia page, because S23 is a **modal** reachable
+     * from all eight deal tabs — Design System §8.4 puts Advance in the header
+     * — and a page prop would exist on the one tab that thought to build it.
+     * `AttachWorkflowDialog` fetches its templates the same way.
+     *
+     * Read fresh at the moment the dialog opens rather than served off the
+     * page. The whole value of this screen is that its refusal is current: a
+     * gate a colleague cleared two minutes ago must not still be listed as
+     * what is stopping the deal, and an overridden gate has to come back
+     * cleared without a full page reload.
+     *
+     * Nothing here writes. `DescribeBlockers` re-runs the evaluators and does
+     * not touch `stages.state` or the `gates.is_met` cache, which is what lets
+     * a person open and close this dialog all afternoon without changing the
+     * record it describes.
+     */
+    public function show(Deal $deal, Workflow $workflow, DescribeBlockers $blockers): JsonResponse
+    {
+        $this->authorize('advance', $workflow);
+
+        $workflow->load('stages.gates');
+        $workflow->setRelation('deal', $deal);
+
+        foreach ($workflow->stages as $stage) {
+            $stage->setRelation('workflow', $workflow);
+        }
+
+        $stage = $workflow->activeStage();
+
+        /*
+         * A dialog opened on a workflow with nowhere to go gets a sentence,
+         * not a 404. `handle()` throws `NothingToAdvance` here because a
+         * *post* means a screen offered a button it should not have — but a
+         * read is how a screen finds that out, and the honest answer to "what
+         * would advancing do" on a finished workflow is "nothing, and here is
+         * why".
+         */
+        if (! $workflow->isRunning() || ! $stage instanceof Stage) {
+            return response()->json([
+                'stage' => null,
+                'refusal' => $workflow->isRunning()
+                    ? 'This workflow has no stage in progress, so there is nothing to advance.'
+                    : $workflow->state->advanceRefusal(),
+            ]);
+        }
+
+        return response()->json([
+            ...AdvancePreview::for($workflow, $stage, $blockers->forStage($stage)),
+            'refusal' => null,
+        ]);
+    }
+
     public function store(
         AdvanceWorkflowRequest $request,
         Deal $deal,

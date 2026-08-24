@@ -821,7 +821,7 @@ it('offers no advance target when two workflows are running', function (): void 
     unset($stage);
 });
 
-it('treats an overridden gate as an advisory rather than a blocker', function (): void {
+it('stops an overridden gate blocking without calling it an advisory', function (): void {
     /*
      * `Gate::blocksAdvance()` is `is_blocking && ! overridden`, and
      * `DescribeBlockers` must ask exactly that — its own docblock names
@@ -830,6 +830,15 @@ it('treats an overridden gate as an advisory rather than a blocker', function ()
      *
      * Changing `blocksAdvance()` to a bare `is_blocking` in `DescribeBlockers`
      * passed the whole suite before this test existed.
+     *
+     * **Two fields, since #77.** This test used to assert one, because until
+     * something could write `overridden` the two questions had never once
+     * disagreed. `isBlocking` is the gate's own column — this *is* a blocking
+     * gate, and a screen that says otherwise is claiming the team waived
+     * nothing. `blocksAdvance` is whether it stands in the way right now, and
+     * that is the one an override changes. IA §8 is the reason the distinction
+     * has to survive into the payload: Overridden is its own state, and an
+     * override is precisely not an advisory.
      */
     [$deal, $workflow, $stage] = overviewDeal();
 
@@ -847,9 +856,13 @@ it('treats an overridden gate as an advisory rather than a blocker', function ()
             ->has('workflows.0.gates', 2)
             ->where('workflows.0.gates.0.id', $blocking->getKey())
             ->where('workflows.0.gates.0.isBlocking', true)
-            // IA §8: Overridden is its own state, not a kind of Met.
+            ->where('workflows.0.gates.0.blocksAdvance', true)
+            // Still a blocking gate, and no longer in the way. IA §8:
+            // Overridden is its own state, not a kind of Met and not an
+            // Advisory.
             ->where('workflows.0.gates.1.id', $waived->getKey())
-            ->where('workflows.0.gates.1.isBlocking', false)
+            ->where('workflows.0.gates.1.isBlocking', true)
+            ->where('workflows.0.gates.1.blocksAdvance', false)
             ->where('workflows.0.gates.1.gateState', 'overridden'));
 });
 

@@ -265,6 +265,42 @@ the deal timeline that follows).
   no entry here. `tests/Unit/ActivityCategoryTest.php` does the same for the
   feed's filter, which groups by the prefix before the dot.
 
+### `lib/gates.ts`
+
+Design System §7.4's requirement (gate) row decides two things, and this is
+where both live so S15, S16 and S23 cannot disagree about either.
+
+- `gateAppearance(gate)` returns `{ icon, tone }`. Met is `circle-check` in
+  `success`, unmet-and-blocking is `circle-alert` in `warning`, an unmet
+  advisory is the same glyph in `neutral` — and **overridden is its own
+  marker**, `shield-alert` in `warning`, never the met one. IA §8: overridden
+  is not a kind of met.
+- `gateResolutionLink(gate, dealUrl)` turns the evaluator's `linkTarget` into a
+  route, or null. PRD §5.4 wants every unmet gate linked to the thing that
+  clears it, and only the evaluator knows what that is. The shapes with no
+  screen yet — `awaiting_slice`, `gate`, `gate_config` — resolve to **nothing**
+  on purpose: a dead link is worse than a sentence, because it teaches the
+  reader that the links do not work.
+- `isOverridable(gate)` is a display concern only. The service refuses each
+  case in its own words and is the only thing that decides.
+
+`components/app/GateRow.vue` renders the row itself, `boxed` selecting §7.4's
+advance-dialog density.
+
+### `composables/useAdvanceDialog.ts`
+
+Module state rather than a prop, and the reason is structural. §8.4 puts
+**Advance Stage** in the deal header — which `DealLayout` owns — and S15 puts
+a second one on each running workflow's card, which lives in the page
+`DealLayout` renders into its default slot. A persistent layout cannot hand a
+page a callback, and a page cannot reach up. So `AdvanceStageDialog` is mounted
+**once** in `DealLayout` and everything that starts an advance calls
+`openAdvance({ dealId, workflowId, stageId })`.
+
+Nothing else on a deal screen posts an advance. §7.4 does not allow the action
+to ship without its "what happens when you advance" block, so a button that
+posted straight through would be the one thing the spec forbids.
+
 ### `lib/navigation.ts`
 
 The sidebar's contents and order (IA §5.1), the four mobile tabs, and the

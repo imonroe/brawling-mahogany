@@ -56,9 +56,10 @@ enum ActivityCategory: string implements HasLabel
         return match ($this) {
             self::All => [],
             self::ContactLog => ['contact'],
-            // A workflow, its stages, the moments they announce, and who is
-            // on the deal are all one story to somebody scanning a feed.
-            self::Deals => ['workflow', 'stage', 'milestone', 'participant'],
+            // A workflow, its stages, the gates on them, the moments they
+            // announce, and who is on the deal are all one story to somebody
+            // scanning a feed.
+            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant'],
             self::People => ['person'],
             self::Properties => ['property'],
         };

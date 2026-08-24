@@ -12,25 +12,34 @@
  * `Deals/Index` is deliberately not on that list — it is the list of deals,
  * not a deal, and it wears the ordinary `AppLayout`.
  *
- * ## Why the Advance button and its answer both live up here
+ * ## Why the Advance dialog and its answer both live up here
  *
  * §8.4 puts **Advance** in the header, which means any of the eight tabs can
- * post one. `AdvanceWorkflowController` sends the person back to the tab they
+ * start one. `AdvanceWorkflowController` sends the person back to the tab they
  * were standing on and flashes what happened, so the alert has to be
  * somewhere all eight of them share — rendered on the Overview alone, an
  * advance refused from the People tab would have said nothing at all.
+ *
+ * The same argument puts S23's dialog (#77) here and mounts it **once**. The
+ * Overview's per-workflow cards open the same instance through
+ * `useAdvanceDialog()`, because a persistent layout cannot hand a callback to
+ * the page it renders into its slot, and two instances would be two things to
+ * keep in step.
  */
-import { router, usePage } from '@inertiajs/vue3';
+import { usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
+import AdvanceStageDialog from '@/components/app/AdvanceStageDialog.vue';
 import DealHeader from '@/components/app/DealHeader.vue';
 import type { DealHeaderProps } from '@/components/app/DealHeader.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useAdvanceDialog } from '@/composables/useAdvanceDialog';
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
 
 type AdvanceFlash = { refused: boolean; reasons: string[] };
 
 const page = usePage();
 const { currentUrl } = useCurrentUrl();
+const { target, openAdvance, closeAdvance } = useAdvanceDialog();
 
 const deal = computed(
     () => (page.props as { dealHeader?: DealHeaderProps }).dealHeader ?? null,
@@ -62,16 +71,21 @@ const advance = computed<AdvanceFlash | null>(
         null,
 );
 
-function submitAdvance(workflowId: string, stageId: string): void {
+/**
+ * The header's button opens S23; it no longer posts.
+ *
+ * Design System §7.4 is explicit that the advance action never ships without
+ * the "What happens when you advance" block, and #77's own standard is that
+ * the refusal has to be explained where the decision is made. A header button
+ * that posted straight through was the interim shape (#75), and it could only
+ * ever report a refusal after the fact.
+ */
+function startAdvance(workflowId: string, stageId: string): void {
     if (!deal.value) {
         return;
     }
 
-    router.post(
-        `/deals/${deal.value.id}/workflows/${workflowId}/advance`,
-        { expected_stage_id: stageId },
-        { preserveScroll: true },
-    );
+    openAdvance({ dealId: deal.value.id, workflowId, stageId });
 }
 </script>
 
@@ -81,7 +95,7 @@ function submitAdvance(workflowId: string, stageId: string): void {
             v-if="deal"
             :deal="deal"
             :active="activeSegment"
-            @advance="submitAdvance"
+            @advance="startAdvance"
         />
 
         <!--
@@ -108,5 +122,12 @@ function submitAdvance(workflowId: string, stageId: string): void {
         </div>
 
         <slot />
+
+        <!--
+            S23, mounted once for every deal tab and for the Overview's
+            per-workflow cards alike. `useAdvanceDialog()` is what they all
+            reach for; nothing else on a deal screen posts an advance.
+        -->
+        <AdvanceStageDialog :target="target" @close="closeAdvance" />
     </div>
 </template>

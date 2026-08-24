@@ -38,7 +38,7 @@
  * as first-class cards that say what will go there, which is #75's explicit
  * instruction: *"not as afterthoughts wedged in when their slice lands."*
  */
-import { Head, router } from '@inertiajs/vue3';
+import { Head } from '@inertiajs/vue3';
 import {
     CalendarClock,
     FileText,
@@ -54,8 +54,10 @@ import Card from '@/components/app/Card.vue';
 import DateChip from '@/components/app/DateChip.vue';
 import type { DealHeaderProps } from '@/components/app/DealHeader.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
+import GateRow from '@/components/app/GateRow.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import TextLink from '@/components/app/TextLink.vue';
+import { useAdvanceDialog } from '@/composables/useAdvanceDialog';
 import { usePermissions } from '@/composables/usePermissions';
 import {
     formatAddress,
@@ -63,20 +65,11 @@ import {
     formatDateTime,
     formatLocality,
 } from '@/lib/formatters';
+import { gateResolutionLink } from '@/lib/gates';
+import type { GateSummary } from '@/lib/gates';
 import { stateTone } from '@/lib/states';
 import type { Tone } from '@/lib/states';
 import { cn } from '@/lib/utils';
-
-type GateRow = {
-    id: string;
-    label: string;
-    gateType: string;
-    isBlocking: boolean;
-    gateState: string;
-    met: boolean;
-    explanation: string;
-    linkTarget: Record<string, string>;
-};
 
 type StageDot = {
     id: string;
@@ -100,7 +93,7 @@ type WorkflowCard = {
         position: number | null;
         total: number;
     } | null;
-    gates: GateRow[];
+    gates: GateSummary[];
     canAdvance: boolean;
 };
 
@@ -137,6 +130,7 @@ const props = defineProps<{
 }>();
 
 const { can } = usePermissions();
+const { openAdvance } = useAdvanceDialog();
 
 const attaching = ref(false);
 
@@ -168,42 +162,35 @@ function railClass(stage: StageDot): string {
 }
 
 /**
- * Where an unmet gate says to go, or null when it cannot say.
+ * Where an unmet gate says to go (PRD §5.4), resolved by `lib/gates.ts`.
  *
- * The evaluator writes `linkTarget`; PRD §5.4 wants *"each unmet gate links
- * directly to the thing that clears it"*, and only the evaluator knows what
- * that thing is.
- *
- * **Only routes that exist.** `deal_field` resolves to the properties tab,
- * which is built. `tasks` does not resolve to anything: S17 is unbuilt, there
- * is no `deals/{deal}/tasks` route, and `DealHeader` already draws that tab as
- * inert for exactly that reason — so linking to it here rendered "Go and clear
- * it" over a 404, on the one screen whose whole promise is telling somebody
- * what to do next. `gate`, `gate_config` and `awaiting_slice` resolve to
- * nothing for the same reason, their screens being S23 and S43.
- *
- * A dead link is worse than a sentence, and this function said so while
- * emitting one.
+ * Shared with S23 rather than repeated here: Design System §7.4 calls the
+ * requirement row one anatomy at three densities, and two screens deciding
+ * separately where a `tasks` link points is two screens that disagree the day
+ * S17 moves.
  */
-function linkFor(gate: GateRow): string | null {
-    switch (gate.linkTarget.type) {
-        case 'deal_field':
-            return `${dealUrl.value}/properties`;
-        default:
-            return null;
-    }
+function linkFor(gate: GateSummary): string | null {
+    return gateResolutionLink(gate, dealUrl.value);
 }
 
+/**
+ * Opens S23 (#77); it no longer posts.
+ *
+ * §7.4: the advance action never ships without the "What happens when you
+ * advance" block, and #77's standard is that a refusal is explained where the
+ * decision is made rather than reported after it. This is the same dialog
+ * instance the header's button opens — `DealLayout` mounts it once.
+ */
 function advance(workflow: WorkflowCard): void {
     if (!workflow.currentStage) {
         return;
     }
 
-    router.post(
-        `${dealUrl.value}/workflows/${workflow.id}/advance`,
-        { expected_stage_id: workflow.currentStage.id },
-        { preserveScroll: true },
-    );
+    openAdvance({
+        dealId: props.dealHeader.id,
+        workflowId: workflow.id,
+        stageId: workflow.currentStage.id,
+    });
 }
 </script>
 
@@ -341,71 +328,27 @@ function advance(workflow: WorkflowCard): void {
                                     }}
                                     to clear
                                 </p>
+                                <!--
+                                    §7.4's requirement row, in its plain
+                                    density — the same component S23 renders
+                                    boxed. The sub-line is the evaluator's own
+                                    sentence, not a fragment assembled here.
+                                -->
                                 <ul class="flex flex-col gap-2">
                                     <li
                                         v-for="gate in workflow.gates"
                                         :key="gate.id"
-                                        class="flex flex-col gap-0.5"
                                     >
-                                        <span
-                                            class="flex flex-wrap items-center gap-2"
-                                        >
-                                            <span
-                                                class="text-13 font-medium text-foreground"
-                                                >{{ gate.label }}</span
-                                            >
-                                            <!--
-                                                Overridden first. IA §8 makes
-                                                Overridden a state of its own,
-                                                distinct from Met — the gate
-                                                "should have been met and was
-                                                not, and you proceeded anyway".
-                                                Testing `isBlocking` first hid
-                                                that entirely: `blocksAdvance()`
-                                                is `is_blocking && ! overridden`,
-                                                so an overridden gate is not
-                                                blocking and took the Advisory
-                                                branch, which says the opposite
-                                                of what happened.
-                                            -->
-                                            <StatusBadge
-                                                v-if="
-                                                    gate.gateState ===
-                                                    'overridden'
-                                                "
-                                                domain="gate"
-                                                :state="gate.gateState"
-                                            />
-                                            <StatusBadge
-                                                v-else-if="!gate.isBlocking"
-                                                tone="neutral"
-                                                label="Advisory"
-                                                dotless
-                                            />
-                                            <StatusBadge
-                                                v-else
-                                                domain="gate"
-                                                :state="gate.gateState"
-                                            />
-                                        </span>
-                                        <!--
-                                            The evaluator's own sentence, not a
-                                            fragment assembled here: "3 of 5
-                                            required tasks are still open" and
-                                            "no inspection report is attached"
-                                            are not the same sentence with
-                                            different nouns.
-                                        -->
-                                        <span
-                                            class="text-13 text-muted-foreground"
-                                            >{{ gate.explanation }}</span
-                                        >
-                                        <TextLink
-                                            v-if="linkFor(gate)"
-                                            :href="linkFor(gate)!"
-                                            class="w-fit text-[11px]"
-                                            >Go and clear it</TextLink
-                                        >
+                                        <GateRow :gate="gate">
+                                            <template #sub>
+                                                <TextLink
+                                                    v-if="linkFor(gate)"
+                                                    :href="linkFor(gate)!"
+                                                    class="w-fit text-[11px]"
+                                                    >Go and clear it</TextLink
+                                                >
+                                            </template>
+                                        </GateRow>
                                     </li>
                                 </ul>
                             </template>

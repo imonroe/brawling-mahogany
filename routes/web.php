@@ -7,6 +7,7 @@ use App\Http\Controllers\Deals\AdvanceWorkflowController;
 use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
 use App\Http\Controllers\Deals\DealWizardController;
+use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\People\ContactImportController;
@@ -208,6 +209,28 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::post('deals/{deal}/workflows/{workflow}/advance', [AdvanceWorkflowController::class, 'store'])
             ->name('deals.workflows.advance');
+
+        /*
+         * S23's own payload (#77).
+         *
+         * The same URI as the POST above, read rather than written — what
+         * advancing *would* do. A modal opened from any of the eight deal tabs
+         * cannot read it off a page prop, and it has to be current: the whole
+         * value of the screen is that its refusal describes this minute.
+         */
+        Route::get('deals/{deal}/workflows/{workflow}/advance', [AdvanceWorkflowController::class, 'show'])
+            ->name('deals.workflows.advance.preview');
+
+        /*
+         * S24 — override one gate with a reason (F4.9, #69).
+         *
+         * A separate route from advance because it is a separate permission
+         * (`workflow.override`) and a separate act in the audit log. IA §7
+         * calls conflating the two legally material, and a shared endpoint
+         * with a mode flag is exactly that conflation in URL form.
+         */
+        Route::post('deals/{deal}/workflows/{workflow}/override', [OverrideGateController::class, 'store'])
+            ->name('deals.workflows.override');
 
         Route::get('deals/{deal}/people', [ParticipantController::class, 'index'])
             ->name('deals.people.index');

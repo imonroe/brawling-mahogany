@@ -123,9 +123,28 @@ const STATE_WRITE_PATTERNS = [
     '/->\s*setRawAttributes\s*\(/',
     // DB::table('stages')->update(…) — Eloquent bypassed entirely, so the
     // model, its casts, and its transition map never see the write
-    '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows)[\'"]\s*\)/',
+    '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows|gates)[\'"]\s*\)/',
     // …and the same by hand
-    '/\bUPDATE\s+(?:stages|workflows)\b/i',
+    '/\bUPDATE\s+(?:stages|workflows|gates)\b/i',
+
+    /*
+     * And the override flag, which is workflow state by every argument that
+     * makes `stages.state` workflow state — F4.9's override is a flag, an
+     * immutable audit entry naming who/when/which gate/why, a timeline marker,
+     * and an auto-created follow-up task, and a caller that writes the flag
+     * and forgets the other three looks like it worked.
+     *
+     * Added when #77 gave `overridden` its first writer. Before that the guard
+     * covered `stages.state` only, and a probe proved the gap was real: a
+     * controller calling `Gate::query()->update(['overridden' => true])`
+     * passed this test, while the same controller writing `stages.state`
+     * failed it. Documenting that hazard was the alternative; holding it is
+     * better.
+     */
+    '/->\s*overridden\s*=(?!=)/',
+    '/'.WRITE_CALLS.'\s*\(\s*\['.ARRAY_BODY.'[\'"]overridden[\'"]\s*=>/s',
+    '/->\s*setAttribute\s*\(\s*[\'"]overridden[\'"]/',
+    '/\[\s*[\'"]overridden[\'"]\s*\]\s*=(?!=)/',
 ];
 
 /**

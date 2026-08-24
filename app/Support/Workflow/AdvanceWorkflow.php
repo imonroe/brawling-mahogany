@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Support\Workflow;
 
 use App\Enums\StageState;
+use App\Enums\TaskSource;
 use App\Enums\WorkflowState;
 use App\Models\Gate;
 use App\Models\Person;
 use App\Models\Stage;
+use App\Models\Task;
 use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
@@ -47,9 +49,35 @@ use RuntimeException;
  * a client email is the failure PRD §4.5 calls unrecallable — the email goes,
  * the advance did not, and nobody can take it back. Slice 3 hangs the actual
  * dispatch on `pendingDispatch`.
+ *
+ * ## Two public methods, one of them a way *past* the gates
+ *
+ * `handle()` advances; `override()` clears one unmet gate with a reason
+ * (F4.9, #69). Override lives here rather than in a controller for the same
+ * reason advancing does: it is four artefacts that have to happen together —
+ * the flag, an immutable audit entry, a distinct timeline marker, and a
+ * follow-up task — and three of the four are the kind a second implementation
+ * forgets. `SingleMutationPathTest` would not have caught it, because
+ * `gates.overridden` is not `stages.state`.
+ *
+ * F4.12's **skip** is the third verb and is deliberately absent. IA §7 calls
+ * conflating it with override legally material, and it needs a reopen path of
+ * its own (#70) rather than a fifth branch here.
  */
 final class AdvanceWorkflow
 {
+    /**
+     * The shortest reason an override may carry (F4.9 · issue #69).
+     *
+     * Named here rather than in the form request, because the form is one
+     * caller and this service is the rule. `OverrideGateRequest` reads this
+     * constant to build its rule, so the sentence a person is shown and the
+     * check that actually holds cannot drift apart — the defect this codebase
+     * keeps finding is a rule written into one caller and forgotten in the
+     * next one somebody adds.
+     */
+    public const MINIMUM_REASON_LENGTH = 10;
+
     public function __construct(
         private readonly GateRegistry $gates,
         private readonly RecordActivity $activity,
@@ -189,6 +217,234 @@ final class AdvanceWorkflow
 
             return $this->applyAdvance($workflow, $stage, $actor, $advisories);
         });
+    }
+
+    /**
+     * Force past one unmet gate, with a reason (PRD §4.4 F4.9 · §5.5 · #69).
+     *
+     * ## Why this is a method on the advance service and not a controller
+     *
+     * F4.9 is four artefacts, not one write: the flag on the gate, an
+     * immutable audit entry naming **who, when, which gate, and why**, a
+     * distinct timeline marker, and an auto-created follow-up task. A
+     * controller that wrote the flag and remembered three of the four would
+     * look like it worked. `tests/Unit/SingleMutationPathTest.php` would not
+     * catch it either — `gates.overridden` is not `stages.state` — so the
+     * thing that keeps them together is that there is one place they are
+     * written.
+     *
+     * ## Override is not Skip, and this method is not the other one
+     *
+     * IA §7, flagged as legally material: **Override** means the gate should
+     * have been met and was not, and you are proceeding anyway. **Skip** means
+     * the stage does not apply to this deal at all. F4.12's skip is a
+     * different verb with a different audit meaning and is #70's work; nothing
+     * here writes `stages.skipped_reason`.
+     *
+     * ## It does not advance
+     *
+     * Deliberately. Overriding one of three blocking gates must not move the
+     * deal past the other two, and there is no reading of F4.9 in which it
+     * does. The caller presses Advance afterwards, and `handle()` evaluates
+     * every gate again under its own lock. PRD §5.5 reads as one motion
+     * because the modal reopens onto the refreshed checklist.
+     *
+     * @throws OverrideNeedsAReason when the reason is missing or too short
+     * @throws GateNotOnWorkflow when the gate belongs to a different workflow
+     */
+    public function override(
+        Workflow $workflow,
+        Gate $gate,
+        Person $actor,
+        string $reason,
+    ): OverrideResult {
+        $reason = trim($reason);
+
+        /*
+         * Checked before the transaction opens, because it is not a fact about
+         * the deal. `Person` is non-nullable for the same reason: `handle()`
+         * takes a null actor so a queue or a webhook can advance a workflow,
+         * and F4.9's audit entry has to name **who** — an override attributed
+         * to nobody is an audit entry that cannot answer the only question it
+         * exists for.
+         */
+        if (mb_strlen($reason) < self::MINIMUM_REASON_LENGTH) {
+            throw OverrideNeedsAReason::atLeast(self::MINIMUM_REASON_LENGTH);
+        }
+
+        return DB::transaction(function () use ($workflow, $gate, $actor, $reason): OverrideResult {
+            $workflow = Workflow::query()
+                ->whereKey($workflow->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /*
+             * Re-read under the lock, so two people overriding the same gate
+             * from two screens produce one override and one refusal rather
+             * than two audit entries disagreeing about the reason.
+             */
+            $gate = Gate::query()->whereKey($gate->getKey())->lockForUpdate()->firstOrFail();
+            $stage = $gate->stage;
+
+            if (! $stage instanceof Stage || $stage->workflow_id !== $workflow->getKey()) {
+                throw GateNotOnWorkflow::for($gate, $workflow);
+            }
+
+            if (! $workflow->isRunning()) {
+                return OverrideResult::refused($workflow->state->advanceRefusal());
+            }
+
+            $refusal = $this->overrideRefusal($gate, $stage);
+
+            if ($refusal !== null) {
+                return OverrideResult::refused($refusal);
+            }
+
+            $gate->forceFill([
+                // IA §8: **overridden is not a kind of met.** `is_met` is left
+                // exactly as it was, so six weeks later the record still says
+                // whether the survey came back or whether somebody decided to
+                // proceed without it.
+                'overridden' => true,
+                'override_reason' => $reason,
+                'overridden_by' => $actor->getKey(),
+            ])->save();
+
+            $followUp = $this->followUpFor($gate, $stage, $actor, $reason);
+
+            $deal = $workflow->deal;
+
+            /*
+             * The distinct timeline marker (F4.9, and #69's fourth bullet).
+             *
+             * Its own event type rather than a `stage.advanced` with different
+             * wording: Design System §7.3 tints an override `state-warning`
+             * and everything else neutral, and `lib/activity.ts` decides that
+             * from the type. A marker that has to be recognised by reading the
+             * summary is not a marker.
+             *
+             * The summary names the gate and never the reason. The reason is
+             * in the audit entry, which has the retention and the access
+             * control for it; the timeline is read by anyone who can see the
+             * deal.
+             */
+            $this->activity->record(
+                subject: $workflow,
+                eventType: 'gate.overridden',
+                summary: "Overrode {$gate->label} on {$stage->name}",
+                actor: $actor,
+                deal: $deal,
+            );
+
+            /*
+             * The immutable entry (#51). `audit_log`'s own triggers refuse an
+             * UPDATE, a DELETE and a TRUNCATE, so "immutable" is a property of
+             * the table rather than a promise made here.
+             *
+             * Who is `actorPersonId`, when is `created_at`, why is `reason`,
+             * and **which gate** is both the auditable subject and the
+             * `after` payload — the subject alone is an id, and an id whose
+             * row a later slice archives is an entry nobody can read.
+             */
+            $this->audit->record(
+                action: 'workflow.gate_overridden',
+                auditable: $gate,
+                teamId: $workflow->team_id,
+                actorPersonId: $actor->getKey(),
+                reason: $reason,
+                after: [
+                    'gate_id' => $gate->getKey(),
+                    'gate_label' => $gate->label,
+                    'gate_type' => $gate->gate_type,
+                    'stage_id' => $stage->getKey(),
+                    'stage_name' => $stage->name,
+                    'workflow_id' => $workflow->getKey(),
+                    'follow_up_task_id' => $followUp->getKey(),
+                ],
+            );
+
+            return OverrideResult::overridden($gate, $followUp);
+        });
+    }
+
+    /**
+     * Why this gate cannot be overridden, or null when it can.
+     *
+     * Four sentences rather than one, because each names a different thing to
+     * do next. They also keep the §12.2 metric honest: *"share of advances
+     * using override, target under 15%"* is unreadable if the column also
+     * holds overrides of gates that were never in the way.
+     */
+    private function overrideRefusal(Gate $gate, Stage $stage): ?string
+    {
+        if (! $stage->isInProgress()) {
+            return "{$stage->name} is not the stage this workflow is in, so overriding a gate on it "
+                .'would change nothing about what happens next.';
+        }
+
+        if ($gate->overridden) {
+            return "{$gate->label} has already been overridden. Advance when you are ready.";
+        }
+
+        if (! $gate->is_blocking) {
+            return "{$gate->label} is an advisory — it never stops an advance, so there is nothing "
+                .'to override. Advance when you are ready.';
+        }
+
+        /*
+         * Evaluated, not read off `is_met`.
+         *
+         * The cache is refreshed only by an advance attempt, so a gate a
+         * colleague cleared this morning still reads unmet — and an override
+         * written against it would say in the permanent record that the survey
+         * was missing when it was not.
+         */
+        if ($this->gates->evaluate($gate)->met) {
+            return "{$gate->label} is met. Nothing needs overriding — advance when you are ready.";
+        }
+
+        return null;
+    }
+
+    /**
+     * The task that carries the bypassed obligation forward (#69).
+     *
+     * *"An override defers an obligation; it does not delete one."*
+     *
+     * **Not required, and that is not timidity.** `is_required` feeds the
+     * `required_tasks_complete` evaluator, which counts the required tasks on
+     * *this* stage — the stage the person is about to advance out of. A
+     * required follow-up would therefore be counted by a tasks gate on the
+     * same stage and would block the very advance the override exists to
+     * permit, one click after clearing the thing that was blocking it.
+     *
+     * **Due today**, because the obligation was due when the gate was. The
+     * override moved the workflow, not the deadline, so this is overdue
+     * tomorrow — which is loud, and is the point. A follow-up with no due date
+     * sorts to the bottom of My Work (S11 is *"my open tasks, soonest
+     * first"*), which is where a deferred obligation goes to be forgotten.
+     */
+    private function followUpFor(Gate $gate, Stage $stage, Person $actor, string $reason): Task
+    {
+        $task = new Task;
+
+        $task->forceFill([
+            'team_id' => $gate->team_id,
+            'deal_id' => $stage->workflow->deal_id,
+            'stage_id' => $stage->getKey(),
+            // #69: the follow-up appears in My Work "with the deal and the
+            // gate named". The deal comes from the row; the gate has to be in
+            // the title, because a task list shows titles.
+            'title' => "Follow up on the overridden gate: {$gate->label}",
+            'description' => "{$stage->name} was advanced with this gate unmet. Reason given: {$reason}",
+            'assignee_id' => $actor->getKey(),
+            'due_date' => now()->toDateString(),
+            'is_required' => false,
+            'source' => TaskSource::Override->value,
+            'sort_order' => 0,
+        ])->save();
+
+        return $task;
     }
 
     /**
