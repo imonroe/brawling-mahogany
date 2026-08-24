@@ -72,9 +72,89 @@ const props = defineProps<{
  */
 const columns = dealRowColumns({ hide: ['owner'] });
 
+/** The five filters, as they travel in the query string. */
+type Query = {
+    segment?: string;
+    search?: string;
+    dealType?: string;
+    sort?: string;
+    direction?: string;
+};
+
 const search = ref(props.search);
 
 let debounce: ReturnType<typeof setTimeout> | undefined;
+
+/** Cancel the pending search, and *record* that none is pending. */
+function cancelSearch(): void {
+    clearTimeout(debounce);
+    debounce = undefined;
+}
+
+/**
+ * What the server last resolved, as a query string would carry it.
+ *
+ * Defaults drop out, so this round-trips: `/deals` bare and
+ * `?segment=open&direction=asc` are the same view and produce the same object.
+ */
+function resolved(): Query {
+    return {
+        segment: props.segment === 'open' ? undefined : props.segment,
+        search: props.search.trim() || undefined,
+        dealType: props.dealType === 'all' ? undefined : props.dealType,
+        sort: props.sort || undefined,
+        direction: props.direction === 'asc' ? undefined : props.direction,
+    };
+}
+
+const QUERY_KEYS = [
+    'segment',
+    'search',
+    'dealType',
+    'sort',
+    'direction',
+] as const;
+
+function sameQuery(a: Query, b: Query): boolean {
+    return QUERY_KEYS.every((key) => a[key] === b[key]);
+}
+
+/**
+ * **What this page last asked the server for, until the server answers.**
+ *
+ * This is the fix for the whole family of races on this screen, and it exists
+ * because `props` are not "the current filters" — they are *the filters of the
+ * last response that landed*, and they stay stale for the entire in-flight
+ * round trip.
+ *
+ * Every control passes only what it changes and inherits the rest, so during
+ * that window the inheritance read the wrong thing. Click **All**, then press
+ * a sort header before the response arrives: the sort's visit inherited
+ * `props.segment`, still `open`, and went out as
+ * `{sort: 'primary', direction: 'asc'}` with **no segment at all** — silently
+ * putting the reader back on the deals they had just navigated away from. The
+ * deal-type select did the same. `search` escaped it only because it happened
+ * to have a local ref that `visit()` read instead.
+ *
+ * So `visit()` inherits from `asked` when there is one, and the fix is uniform
+ * across all five filters rather than one exception that happens to work.
+ *
+ * **Cleared by agreement, not by arrival.** A response landing does not mean
+ * *this* request was answered: with two visits in flight, the first one's
+ * props would otherwise discard the second one's record and reintroduce the
+ * bug one visit later. So `asked` is dropped only once `resolved()` matches
+ * it — which is exactly the moment props stop being stale.
+ */
+let asked: Query | null = null;
+
+watch(
+    () => QUERY_KEYS.map((key) => props[key]),
+    () => {
+        if (asked !== null && sameQuery(resolved(), asked)) {
+            asked = null;
+        }
+    },
+);
 
 /**
  * Whether the pending change to `search` was written by this page rather than
@@ -108,16 +188,32 @@ function setSearch(value: string): void {
     search.value = value;
 }
 
-// The server's answer, echoed into the box. Assigned, so it does not ask again.
 watch(
     () => props.search,
     (value) => {
+        /*
+         * **The reader's box outranks the server's echo.**
+         *
+         * A pending debounce means they have typed since the request being
+         * answered went out. Type `a`, let it fire, type `b` while it is in
+         * flight: the answer for `a` arrived and overwrote the box back to
+         * `a`, cancelling `ab`'s timer on the way — so the character was lost
+         * and *no request was ever made for it*. The box silently undid a
+         * keystroke, which is the one thing a search box must not do.
+         *
+         * With nothing pending there is nothing to lose, and echoing is right:
+         * it is how a back button or a hand-edited URL reaches the box.
+         */
+        if (debounce !== undefined) {
+            return;
+        }
+
         setSearch(value);
     },
 );
 
 watch(search, (value) => {
-    clearTimeout(debounce);
+    cancelSearch();
 
     if (assigned) {
         assigned = false;
@@ -126,6 +222,10 @@ watch(search, (value) => {
     }
 
     debounce = setTimeout(() => {
+        // Before the visit, so `visit()` and the props watcher both see that
+        // this edit is no longer pending.
+        debounce = undefined;
+
         visit({ search: value || undefined });
     }, 250);
 });
@@ -138,82 +238,58 @@ watch(search, (value) => {
  * component was gone.
  */
 onBeforeUnmount(() => {
-    clearTimeout(debounce);
+    cancelSearch();
 });
 
 /**
- * One place that builds the query string, so that a filter dropping another is
- * one bug rather than six.
+ * One place that builds the query string, so a filter can never drop another.
  *
- * Every control passes only what it changes; everything else is read from the
- * props, which are what the server last resolved.
- *
- * **`search` is the only axis that survives a race, and the other three are a
- * known gap — issue to follow.** `props` are stale for the whole in-flight
- * round trip, so two controls used inside one are read through the *first*
- * one's un-updated props: click **All** and then a sort header before the
- * response lands, and the second visit goes out as
- * `{sort: 'primary', direction: 'asc'}` with no segment at all, putting the
- * reader back on open deals without saying so. Same for the deal-type select.
- * `search` escapes it only because it has a local ref and this function reads
- * that ref rather than the prop.
- *
- * The fix is the same shape for all four — the page has to remember what it
- * last asked for until the server answers — and it is deliberately **not**
- * being made here: this screen has had four consecutive rounds in which the
- * round's fix opened the hole it closed, and restructuring the navigation
- * path is not something to land unreviewed. It is recoverable in one click
- * and the UI comes back truthful, which is why it is a gap and not a stop.
+ * Every control passes only what it changes and inherits the rest — from
+ * `asked` while a request is outstanding, and from the props once the server
+ * has caught up. Inheriting from the props alone is what dropped a filter: see
+ * `asked` above for the sequence.
  *
  * **Cancelling the pending search is part of that guarantee, not tidiness.**
- * The debounce closure reads `props.search` and `props.segment` — the values
- * the *server* last resolved — so a search typed at t=0 and a segment clicked
- * at t=100ms would fire at t=250ms still reading the old segment, because the
- * segment's own response had not landed. It would then navigate back to the
- * segment the reader had just left. Without this line the sentence above is
- * a claim the code does not make good on.
+ * A search typed at t=0 and a segment clicked at t=100ms would otherwise fire
+ * at t=250ms as a second, redundant visit — and before `asked` existed it read
+ * the old segment and navigated back to the one the reader had just left.
  */
-function visit(changes: Record<string, string | undefined>): void {
-    clearTimeout(debounce);
+function visit(changes: Query): void {
+    cancelSearch();
 
-    router.get(
-        '/deals',
-        {
-            segment: props.segment === 'open' ? undefined : props.segment,
-            /*
-             * The **ref**, not the prop.
-             *
-             * `props.search` is what the server last resolved, and during a
-             * race it is stale: type `smith`, click a segment 100ms later, and
-             * cancelling the pending debounce meant the segment's own visit
-             * went out reading `''`. The search was not carried, it was thrown
-             * away — and because `props.search` came back empty, the watcher
-             * below never fired, so the box went on showing `smith` over a
-             * list that was not filtered by it.
-             *
-             * The window is wider than the debounce: `props.search` stays
-             * stale for the whole in-flight round trip.
-             */
-            search: search.value.trim() || undefined,
-            dealType: props.dealType === 'all' ? undefined : props.dealType,
-            sort: props.sort || undefined,
-            direction: props.direction === 'asc' ? undefined : props.direction,
-            ...changes,
-        },
-        {
-            preserveState: true,
-            replace: true,
-            only: [
-                'deals',
-                'segmentCounts',
-                'segment',
-                'search',
-                'dealType',
-                'sort',
-                'direction',
-            ],
-        },
-    );
+    const query: Query = {
+        ...(asked ?? resolved()),
+        /*
+         * The **ref**, not either of them.
+         *
+         * The box can hold a search that has been typed and not yet sent —
+         * that is what the debounce is — so neither the props nor `asked` know
+         * about it. Type `smith`, click a segment 100ms later, and cancelling
+         * the pending debounce meant the segment's own visit went out with no
+         * search at all: it was not carried, it was thrown away, and the box
+         * went on showing `smith` over a list not filtered by it.
+         *
+         * `changes` still wins, so the debounce's own visit sets it normally.
+         */
+        search: search.value.trim() || undefined,
+        ...changes,
+    };
+
+    asked = query;
+
+    router.get('/deals', query, {
+        preserveState: true,
+        replace: true,
+        only: [
+            'deals',
+            'segmentCounts',
+            'segment',
+            'search',
+            'dealType',
+            'sort',
+            'direction',
+        ],
+    });
 }
 
 /**
@@ -221,10 +297,20 @@ function visit(changes: Record<string, string | undefined>): void {
  * ascending on one that is not.
  */
 function sortBy(key: string): void {
+    /*
+     * Read through `asked` for the same reason `visit()` does. Pressing the
+     * same header twice inside one round trip read `props.sort`, still the
+     * *previous* column, so the second press restarted at ascending instead of
+     * toggling — the arrow refusing to flip.
+     */
+    const current = asked ?? resolved();
+
     visit({
         sort: key,
         direction:
-            props.sort === key && props.direction === 'asc' ? 'desc' : 'asc',
+            current.sort === key && (current.direction ?? 'asc') === 'asc'
+                ? 'desc'
+                : 'asc',
     });
 }
 
@@ -280,7 +366,7 @@ function clearFilters(): void {
      * `setSearch()` rather than a bare assignment, because a bare one re-armed
      * the timer the line above cancels. See the flag it reads.
      */
-    clearTimeout(debounce);
+    cancelSearch();
     setSearch('');
 
     /*
@@ -306,7 +392,17 @@ function clearFilters(): void {
         props.search.trim() === '' &&
         props.dealType === 'all';
 
-    router.get('/deals', widen ? { segment: 'all' } : {}, {
+    const query: Query = widen ? { segment: 'all' } : {};
+
+    /*
+     * Recorded like any other visit. This is the second thing on the page that
+     * navigates, and `asked` is only true if **both** of them keep it — a
+     * control pressed before this clear's response landed would otherwise
+     * inherit the filters the clear had just dropped and put them back.
+     */
+    asked = query;
+
+    router.get('/deals', query, {
         preserveState: true,
         replace: true,
     });
