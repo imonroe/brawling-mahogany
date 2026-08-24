@@ -15,8 +15,18 @@
  * eight deal tabs and `useAdvanceDialog` holds the target, so a second here
  * would be a second dialog over the same act — and `AdvanceWorkflow` is the one
  * thing this codebase keeps single.
+ *
+ * ## Ticking a box here is not advancing here
+ *
+ * The rail's task rows became live when S17 (#71) gave completion an endpoint,
+ * and that does not make this a write screen for the *workflow*. Completing a
+ * task posts to the task; whether the stage may now move is still asked by
+ * `AdvanceWorkflow`, from the one dialog, when somebody presses Advance. What
+ * the reader sees on the way back is the requirements pane opposite the
+ * checklist recounting itself — which is the whole reason the two panes sit
+ * side by side in §7.4.
  */
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { Plus } from '@lucide/vue';
 import AppButton from '@/components/app/AppButton.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
@@ -38,6 +48,32 @@ function advance(workflowId: string, stageId: string): void {
         stageId,
     });
 }
+
+/**
+ * The same two endpoints S17 posts to, from the rail's own checkbox.
+ *
+ * `preserveScroll`, because the stage being worked is somewhere down a rail of
+ * twenty and the rail has just been scrolled to it. `preserveState`, because
+ * which rows are expanded lives in `StageRail`'s own `opened` set — remounting
+ * would collapse every row the reader had opened, including the one holding
+ * the checkbox they just ticked.
+ *
+ * The server sends them **back** here rather than to the tasks tab, so what
+ * they see next is the requirements pane opposite the checklist, recounted.
+ */
+const VISIT = { preserveScroll: true, preserveState: true } as const;
+
+function setCompleted(taskId: string, completed: boolean): void {
+    const url = `${props.dealUrl}/tasks/${taskId}/completion`;
+
+    if (completed) {
+        router.post(url, {}, VISIT);
+
+        return;
+    }
+
+    router.delete(url, VISIT);
+}
 </script>
 
 <template>
@@ -54,6 +90,7 @@ function advance(workflowId: string, stageId: string): void {
             :key="workflow.id"
             :workflow="workflow"
             @advance="(stageId) => advance(workflow.id, stageId)"
+            @complete="setCompleted"
         />
 
         <!--

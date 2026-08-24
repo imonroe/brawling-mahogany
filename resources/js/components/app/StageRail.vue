@@ -47,7 +47,11 @@ export type TimelineWorkflow = {
 
 const props = defineProps<{ workflow: TimelineWorkflow }>();
 
-const emit = defineEmits<{ advance: [stageId: string] }>();
+const emit = defineEmits<{
+    advance: [stageId: string];
+    /** A task on one of this rail's stages was ticked, or unticked (#71). */
+    complete: [taskId: string, completed: boolean];
+}>();
 
 /*
  * Which rows are open, by stage id.
@@ -186,6 +190,10 @@ const total = computed(() => props.workflow.stages.length);
                     :advance-refusal="workflow.refusal"
                     @toggle="toggle(stage.id)"
                     @advance="emit('advance', stage.id)"
+                    @complete="
+                        (taskId, completed) =>
+                            emit('complete', taskId, completed)
+                    "
                 />
             </div>
         </div>

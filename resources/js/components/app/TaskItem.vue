@@ -17,13 +17,15 @@ const props = defineProps<{
     dueDate?: string | number | Date | null;
     assignee?: (NameParts & { name?: string | null }) | null;
     /**
-     * Show the state without offering to change it (S16).
+     * Show the state without offering to change it.
      *
-     * The stage rail lists a stage's tasks so the reader can see what is owed,
-     * and completing one is S17's endpoint, which does not exist yet. A
-     * checkbox wired to nothing is the *"checkbox that selects into nothing"*
-     * S13 refused to ship: it invites a click, does nothing, and teaches the
-     * reader the screen is broken.
+     * S16 shipped this because completing a task was S17's endpoint and S17
+     * did not exist — a checkbox wired to nothing is the *"checkbox that
+     * selects into nothing"* S13 refused to ship. The endpoint exists now
+     * (#71), so what this carries is the other half of the same rule:
+     * **somebody without `deals.manage` may read the checklist and not tick
+     * it** (PRD §4.2 F2.2's Read Only role), and the client status page will
+     * render tasks it must never be able to complete.
      *
      * Disabled rather than replaced by an icon, so the row keeps one anatomy
      * and the tick still means what it means everywhere else.
@@ -58,7 +60,9 @@ defineEmits<{ 'update:completed': [value: boolean] }>();
             :aria-label="
                 readonly
                     ? `${title}: ${completed ? 'complete' : 'not complete'}`
-                    : `Complete ${title}`
+                    : completed
+                      ? `Reopen ${title}`
+                      : `Complete ${title}`
             "
             @change="
                 $emit(
@@ -89,11 +93,31 @@ defineEmits<{ 'update:completed': [value: boolean] }>();
             :tone="completed ? 'neutral' : undefined"
             class="shrink-0"
         />
+        <!--
+            Hidden below `sm`, and the reason is arithmetic rather than taste.
+            The row is one non-wrapping line: on a 360px phone the checkbox,
+            the date chip, the avatar and two 44px action buttons leave about
+            100px for the title, which truncates Emily's checklist to a dozen
+            characters. §7.3 already hides this avatar on My Work; on a phone
+            it is the least load-bearing cell here too, because the meta line
+            says when nobody owns the task and the tasks tab is scoped to one
+            deal. A fuller mobile treatment of this row belongs with S11, which
+            is the phone-first screen.
+        -->
         <PersonAvatar
             v-if="assignee"
             :person="assignee"
             :size="24"
-            class="shrink-0"
+            class="hidden shrink-0 sm:inline-flex"
         />
+
+        <!--
+            Row actions, after the avatar (S17). A slot rather than props,
+            because §7.3 fixes this row's four cells and Edit/Delete are not a
+            fifth one — they are what the screen that owns the row wants to
+            hang on it. The stage rail passes nothing and keeps §7.3's anatomy
+            exactly.
+        -->
+        <slot name="actions" />
     </div>
 </template>

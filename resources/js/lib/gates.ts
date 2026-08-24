@@ -92,23 +92,29 @@ export function gateResolutionLink(
     switch (gate.linkTarget.type) {
         /*
          * **Only routes that exist.** `deal_field` resolves to the properties
-         * tab, which is built.
+         * tab and `tasks` to the tasks tab, both of which are built.
          *
-         * `tasks` deliberately does not. S17 is unbuilt, there is no
-         * `deals/{deal}/tasks` route, and `DealHeader` already draws that tab
-         * inert for exactly that reason — so linking it rendered "Go and clear
-         * it" over a 404, on the screens whose whole promise is telling
-         * somebody what to do next. `gate`, `gate_config` and `awaiting_slice`
-         * resolve to nothing for the same reason, their screens being S23 and
-         * S43.
+         * `tasks` was the one that was not, for two slices: linking it
+         * rendered "Go and clear it" over a 404, on the screens whose whole
+         * promise is telling somebody what to do next. S17 (#71) is what
+         * changed, and it is the reason PRD §5.4's rule — *"each unmet gate
+         * links directly to the thing that clears it"* — is now true of the
+         * gate a deal meets most, `required_tasks_complete`. It goes to the
+         * tab rather than to a filtered view of one stage: the reader has to
+         * be able to see the whole checklist to know what they are walking
+         * into, and every group is on the page already.
          *
-         * A dead link is worse than a sentence. `tests/js/routeTargets.test.ts`
-         * holds this by reading the source, because it is the second time the
-         * link has been written: once on S15's own `linkFor()`, and again here
-         * when the two screens' copies were folded into one.
+         * `gate`, `gate_config` and `awaiting_slice` still resolve to nothing,
+         * their screens being S23 and S43. A dead link is worse than a
+         * sentence. `tests/js/routeTargets.test.ts` holds this by reading the
+         * source, because it is the second time the link has been written:
+         * once on S15's own `linkFor()`, and again here when the two screens'
+         * copies were folded into one.
          */
         case 'deal_field':
             return `${dealUrl}/properties`;
+        case 'tasks':
+            return `${dealUrl}/tasks`;
         default:
             return null;
     }

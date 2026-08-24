@@ -11,6 +11,7 @@ use App\Http\Controllers\Deals\DealTimelineController;
 use App\Http\Controllers\Deals\DealWizardController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
+use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
@@ -253,6 +254,35 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.people.update');
         Route::delete('deals/{deal}/people/{participant}', [ParticipantController::class, 'remove'])
             ->name('deals.people.remove');
+
+        /*
+         * S17, S27 — a deal's tasks (#71).
+         *
+         * `{task}` resolves *through* `{deal}` — `Deal::tasks()` is the
+         * relation `scopeBindings()` walks — which is what answers "whose
+         * deal". The tenancy layers only answer "whose team", and a task id
+         * from the deal next door would bind happily without it.
+         *
+         * **Completion is its own sub-resource**, posted to and deleted from,
+         * rather than a boolean on the PATCH. The two are different acts: an
+         * edit changes what the work is, and completing it says the work is
+         * done — which writes an activity event and is what the
+         * `required_tasks_complete` gate is counting. A shared endpoint with a
+         * flag makes "I fixed a typo" and "it is done" the same request, which
+         * is the shape IA §7 objects to when Override and Skip share a label.
+         */
+        Route::get('deals/{deal}/tasks', [TaskController::class, 'index'])
+            ->name('deals.tasks.index');
+        Route::post('deals/{deal}/tasks', [TaskController::class, 'store'])
+            ->name('deals.tasks.store');
+        Route::patch('deals/{deal}/tasks/{task}', [TaskController::class, 'update'])
+            ->name('deals.tasks.update');
+        Route::post('deals/{deal}/tasks/{task}/completion', [TaskController::class, 'complete'])
+            ->name('deals.tasks.complete');
+        Route::delete('deals/{deal}/tasks/{task}/completion', [TaskController::class, 'reopen'])
+            ->name('deals.tasks.reopen');
+        Route::delete('deals/{deal}/tasks/{task}', [TaskController::class, 'destroy'])
+            ->name('deals.tasks.destroy');
 
         /*
          * S20 — deal properties.

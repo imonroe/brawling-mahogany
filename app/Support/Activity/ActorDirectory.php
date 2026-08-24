@@ -42,9 +42,30 @@ final class ActorDirectory
      */
     public static function for(iterable $events): self
     {
-        $ids = collect($events)
-            ->map(fn (ActivityEvent $event): ?string => $event->actor_person_id)
+        return self::forPeople(collect($events)->map(
+            fn (ActivityEvent $event): ?string => $event->actor_person_id,
+        ));
+    }
+
+    /**
+     * The same two queries, for a set of people rather than a set of events.
+     *
+     * S17's task list (#71) needs exactly this and needs it for the same
+     * reason: `tasks.assignee_id` points at `people`, a name lives on
+     * `team_memberships` since #140, and asking per row costs two queries per
+     * row. Splitting the entry point rather than copying the body, because
+     * what is hard here is not the join — it is the four rules underneath it
+     * (live membership wins, most recent removal next, reach past the soft
+     * delete, fall back to the sign-in address), and a second copy would be a
+     * second set of answers to those.
+     *
+     * @param  iterable<string|null>  $personIds
+     */
+    public static function forPeople(iterable $personIds): self
+    {
+        $ids = collect($personIds)
             ->filter()
+            ->map(fn ($id): string => (string) $id)
             ->unique()
             ->values();
 
@@ -144,8 +165,20 @@ final class ActorDirectory
      */
     public function nameOf(ActivityEvent $event): ?string
     {
-        $id = $event->actor_person_id;
+        return $this->name($event->actor_person_id);
+    }
 
-        return $id === null ? null : ($this->names[$id] ?? null);
+    /**
+     * What this team calls one person, or null when there is nobody to name.
+     *
+     * Null for an id this directory was not built with, rather than a
+     * placeholder: a task with no assignee is **Unassigned**, which is a state
+     * S17 renders on purpose (issue #71: *"unassigned is a visible state, not
+     * a silent default"*), and inventing a name for it would hide the very
+     * thing the screen is meant to show.
+     */
+    public function name(?string $personId): ?string
+    {
+        return $personId === null ? null : ($this->names[$personId] ?? null);
     }
 }

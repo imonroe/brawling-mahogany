@@ -77,18 +77,32 @@ describe('gateResolutionLink', () => {
         ).toBe('/deals/d1/properties');
     });
 
+    it('sends a tasks gate to the tasks tab', () => {
+        // `required_tasks_complete` is the gate a deal meets most, and until
+        // S17 (#71) this resolved to null — there was no `deals/{deal}/tasks`
+        // route, and "Go and clear it" over a 404 is worse than a sentence.
+        // Now PRD §5.4's rule is true of it: the unmet gate links to the thing
+        // that clears it.
+        expect(
+            gateResolutionLink(
+                gate({ linkTarget: { type: 'tasks' } }),
+                '/deals/d1',
+            ),
+        ).toBe('/deals/d1/tasks');
+    });
+
     it('resolves the shapes with no screen yet to nothing at all', () => {
         // A dead link is worse than a sentence: it teaches the reader that the
         // links do not work. `awaiting_slice` is what all three deferred
         // evaluators return, so this is the common case in Slice 2.
         //
-        // `tasks` is in this list, not the one above. S17 is unbuilt, there is
-        // no `deals/{deal}/tasks` route, and `DealHeader` draws that tab inert
-        // for the same reason — this exact link was round 1's blocker on #158,
-        // and it came back here when the two screens' copies of `linkFor()`
-        // were folded into this resolver. `tests/js/routeTargets.test.ts`
-        // holds it by reading the source; this holds it by asking.
-        for (const type of ['tasks', 'awaiting_slice', 'gate', 'gate_config']) {
+        // `tasks` used to be in this list. It moved to the test above when its
+        // screen shipped, which is the only reason a shape ever leaves here —
+        // this exact link was round 1's blocker on #158, and it came back when
+        // the two screens' copies of `linkFor()` were folded into this
+        // resolver. `tests/js/routeTargets.test.ts` holds the rule by reading
+        // the source; this holds it by asking.
+        for (const type of ['awaiting_slice', 'gate', 'gate_config']) {
             expect(
                 gateResolutionLink(gate({ linkTarget: { type } }), '/deals/d1'),
             ).toBeNull();

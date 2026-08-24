@@ -239,6 +239,7 @@ One verb per action, used identically everywhere it appears. The right column is
 | **Override** | Force past an unmet gate, with a reason | Bypass, Force, Skip, Ignore |
 | **Skip** | Mark a stage not applicable to this deal | Ignore, Dismiss, Cancel |
 | **Complete** | Finish a task | Done, Close, Check off, Finish |
+| **Reopen** | Undo a completion — a task that is not done after all, or a stage the team has to go back to | Uncomplete, Undo, Revert, Restart |
 | **Assign** | Give a task an owner | Delegate, Allocate, Give |
 | **Log** | Record something that already happened | Add note, Record, Track |
 | **Send** | Dispatch a message immediately | Fire, Trigger, Push, Blast |
