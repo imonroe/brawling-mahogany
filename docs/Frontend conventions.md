@@ -325,6 +325,43 @@ The sidebar's contents and order (IA §5.1), the four mobile tabs, and the
 "More" sheet's contents (IA §5.3). A section the person lacks permission for is
 **hidden, never shown disabled**.
 
+### A filtered list's props are not its filters
+
+**`props` are the filters of the last response that *landed*.** For the whole
+of an in-flight round trip they are stale, and on a screen where each control
+sends only what it changes and inherits the rest, that window is where one
+filter silently drops another.
+
+S13 is where this was worked out, over three review rounds. Click **All**, then
+press a sort header before the response arrives: the sort inherited
+`props.segment`, still `open`, and went out with no segment at all — returning
+the reader to the deals they had just left. Typing during a round trip was the
+same defect wearing different clothes: the server's echo of the *previous*
+search overwrote the box and cancelled the pending one, so a keystroke
+vanished with no request ever made for it.
+
+Three rules, and the third is the one that gets missed:
+
+1. **Keep a record of what was last asked for**, and inherit from it until the
+   server catches up. `resources/js/pages/Deals/Index.vue`'s `asked` is the
+   reference implementation.
+2. **Release that record on agreement, not on arrival.** A response landing
+   does not mean *this* request was answered. With two visits in flight,
+   clearing on any prop change discards the second one's record when the first
+   one's response arrives, and the bug returns one visit later.
+3. **One spelling of a value, from one function.** The record and the props
+   have to be comparable, so both go through the same normaliser. S13's first
+   attempt normalised the props but stored each caller's changes verbatim, so
+   the first press of a sort header stored `direction: 'asc'` against a
+   `undefined` — never equal, so the record was never released and the props
+   could never take over again. Defaults dropping out of the query string is
+   what makes `/deals` and `?segment=open&direction=asc` the same object.
+
+A test for any of this is only as good as its fixture: S13's release test
+passed for a round while the mechanism was dead, because it happened to assert
+on `segment: 'all'` — the one value in that filter set which normalises to
+itself. Pick fixtures that do **not**.
+
 ---
 
 ## 4. Content rules
