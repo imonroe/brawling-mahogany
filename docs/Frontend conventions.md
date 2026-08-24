@@ -311,6 +311,14 @@ Nothing else on a deal screen posts an advance. §7.4 does not allow the action
 to ship without its "what happens when you advance" block, so a button that
 posted straight through would be the one thing the spec forbids.
 
+**It clears itself on navigation.** Module state outlives the page, so nothing
+unmounts it: a gate's "Go and clear it" link took the reader to the properties
+tab with the modal still on top of it. `router.on('navigate')` is registered
+beside the state it clears. A same-URL `back()` — which is what a refused
+advance or override does — sets `replace`, so `navigate` does not fire and the
+dialog stays open onto its refreshed checklist, which is the behaviour S23
+wants.
+
 ### `lib/navigation.ts`
 
 The sidebar's contents and order (IA §5.1), the four mobile tabs, and the

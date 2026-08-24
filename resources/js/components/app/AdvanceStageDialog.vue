@@ -558,9 +558,19 @@ function onOverrideRefused(): void {
                 <AppButton variant="ghost" @click="emit('close')"
                     >Cancel</AppButton
                 >
+                <!--
+                    `failed` in the disabled test as well, because a kept-stale
+                    preview keeps this button's reason to be enabled. Round 4
+                    stopped `load()` nulling `preview` on a failed refresh so
+                    the override dialog would survive — but the header band and
+                    this footer sit outside the `failed` branch, so a refused
+                    advance followed by a 500 on the reload read "nothing has
+                    moved" over a live Advance button. The server refuses it
+                    safely; it is the screen contradicting itself that matters.
+                -->
                 <AppButton
                     v-if="!preview?.refusal"
-                    :disabled="!canAdvance || submitting || loading"
+                    :disabled="!canAdvance || failed || submitting || loading"
                     @click="advance"
                     >{{
                         preview?.isLastStage

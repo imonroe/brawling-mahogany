@@ -331,13 +331,13 @@ function advance(workflow: WorkflowCard): void {
                                         aria-hidden="true"
                                     />
                                     <!--
-                                        Counted by `blocksAdvance`, not by
-                                        length: counting a waived gate put
-                                        "2 gates to clear" behind a warning
-                                        triangle over a list where one was
-                                        badged Overridden. Same arithmetic S23
-                                        was corrected for in round 1; this is
-                                        the caller that fix did not reach.
+                                        `blockingCount` from the payload, not
+                                        `gates.length`: the list carries
+                                        advisories and waived gates too, and
+                                        neither is something to go and do.
+                                        `DealOverviewController` says where the
+                                        number comes from and why it is not
+                                        counted here.
 
                                         "Requirement" in both branches, not
                                         "gate" in one and "Requirements" in the

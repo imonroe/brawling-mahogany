@@ -386,6 +386,14 @@ it('reads a file whose only signal is the write itself', function (string $shape
 })->with([
     // The override flag, which is what this dataset was added for.
     'gate, eloquent mass update' => ['Gate::query()->whereKey($id)->update([\'overridden\' => true]);'],
+    /*
+     * A static call that is not `::query` or `::class`, which is the whole
+     * point of the model pattern taking a bare `::`. Every other case here
+     * spells it `::query`, so the alternative the pattern was *widened* to
+     * accept was the one alternative no case exercised — reverting it to
+     * `(?:::class|\s*\$|::query)` left the suite green.
+     */
+    'gate, find then update' => ['Gate::findOrFail($id)->update([\'overridden\' => true]);'],
     'gate, query builder' => ['DB::table(\'gates\')->whereKey($id)->update([\'overridden\' => true]);'],
     'gate, raw sql' => ['DB::statement(\'UPDATE gates SET overridden = true\');'],
 

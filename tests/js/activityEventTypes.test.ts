@@ -106,6 +106,17 @@ describe('activity event types', () => {
         expect(activityDescriptor({ eventType: 'person.added' }).tone).toBe(
             'neutral',
         );
+        /*
+         * The override, which this test quoted the rule for and then did not
+         * assert. It is the one tone §7.3 names that is not a completion or a
+         * message, and the one an override most needs: `gate.overridden`
+         * dropping to `neutral` left a waived gate reading like any other
+         * timeline row, on the feed where "somebody decided to proceed anyway"
+         * is the entry a reader is scanning for.
+         */
+        expect(activityDescriptor({ eventType: 'gate.overridden' }).tone).toBe(
+            'warning',
+        );
     });
 
     it('gives every PRD §6.3 contact type its own glyph', () => {
