@@ -175,6 +175,46 @@ function removeTask(stage: Stage, task: TaskRow): void {
         preserveScroll: true,
     });
 }
+
+/*
+ * Renaming and removing the template itself. Without these the screen could
+ * build a process and never correct its name — and "Listing to Close (copy)",
+ * which is what taking a copy from a pack produces, is a name somebody wants
+ * to change within a minute of arriving here.
+ */
+const renaming = ref(false);
+const detailsForm = useForm({
+    name: props.template.name,
+    description: props.template.description ?? '',
+});
+
+function rename(): void {
+    detailsForm.patch(base, {
+        preserveScroll: true,
+        onSuccess: () => {
+            renaming.value = false;
+        },
+    });
+}
+
+function remove(): void {
+    /*
+     * The count in the question rather than in a report afterwards — the rule
+     * the archived-lookup pattern records, and the reassuring direction of it
+     * stated plainly: those deals keep running, because instantiation
+     * snapshotted.
+     */
+    const running =
+        props.template.inUse > 0
+            ? ` ${inUseLabel.value} — they keep the stages they started with and are not affected.`
+            : '';
+
+    if (!window.confirm(`Remove ${props.template.name}?${running}`)) {
+        return;
+    }
+
+    router.delete(base);
+}
 </script>
 
 <template>
@@ -192,6 +232,21 @@ function removeTask(stage: Stage, task: TaskRow): void {
                     label="From a pack"
                     dotless
                 />
+                <!--
+                    Absent on a pack's template rather than disabled, the way
+                    every other control on this screen is.
+                -->
+                <template v-if="can.update">
+                    <AppButton
+                        variant="ghost"
+                        size="compact"
+                        @click="renaming = !renaming"
+                        >{{ renaming ? 'Cancel' : 'Rename' }}</AppButton
+                    >
+                    <AppButton variant="ghost" size="compact" @click="remove"
+                        >Remove</AppButton
+                    >
+                </template>
                 <!--
                     The count before the edit, and the reassuring direction of
                     it: those deals will *not* change, which is why the number
@@ -217,6 +272,23 @@ function removeTask(stage: Stage, task: TaskRow): void {
             This one belongs to a pack every team shares, so it cannot be
             changed. Take a copy from the templates list and change that.
         </p>
+
+        <Card v-if="renaming" title="Rename this template">
+            <form
+                class="flex flex-wrap items-end gap-2 px-4 py-4"
+                @submit.prevent="rename"
+            >
+                <AppInput v-model="detailsForm.name" class="w-72" />
+                <AppInput
+                    v-model="detailsForm.description"
+                    class="w-96"
+                    placeholder="What this process is for"
+                />
+                <AppButton :disabled="detailsForm.processing" @click="rename"
+                    >Save</AppButton
+                >
+            </form>
+        </Card>
 
         <Card title="Stages">
             <EmptyState

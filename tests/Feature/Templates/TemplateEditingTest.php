@@ -240,3 +240,57 @@ it('counts only this team’s deals as running on a shared template', function (
         ->assertOk()
         ->assertInertia(fn ($page) => $page->where('template.inUse', 1));
 });
+
+it('renames a template and removes one, from the screen that owns it', function (): void {
+    /*
+     * Both routes existed with nothing calling them — a screen that can build
+     * a process and never correct its name. *"Listing to Close (copy)"* is
+     * what taking a copy from a pack produces, so renaming is the first thing
+     * somebody does after arriving here.
+     */
+    $template = teamTemplate();
+
+    $this->patch("/templates/{$template->getKey()}", [
+        'name' => 'Our Listing Process',
+        'description' => 'How we actually do it.',
+    ])->assertRedirect();
+
+    expect($template->refresh()->name)->toBe('Our Listing Process');
+
+    $this->delete("/templates/{$template->getKey()}")->assertRedirect();
+
+    // Soft, for PRD §9's window — and the deals running on it are untouched,
+    // which is the whole point of the snapshot.
+    expect(WorkflowTemplate::query()->find($template->getKey()))->toBeNull()
+        ->and(WorkflowTemplate::withTrashed()->find($template->getKey()))->not->toBeNull();
+});
+
+it('edits a composed role without touching a shipped one', function (): void {
+    /*
+     * `roles.update` had no caller either. Composing a role you can never
+     * adjust is half a feature: the first thing anybody does after building
+     * "Transaction Coordinator" is discover it needs one more permission.
+     */
+    $this->post('/settings/roles', [
+        'name' => 'Transaction Coordinator',
+        'permissions' => [App\Support\Permissions::VIEW_DEALS],
+    ])->assertRedirect();
+
+    $role = app(TeamContext::class)->runFor(
+        test()->team,
+        fn () => App\Models\Role::query()->where('key', 'transaction_coordinator')->sole(),
+    );
+
+    $this->patch("/settings/roles/{$role->getKey()}", [
+        'name' => 'Transaction Coordinator',
+        'permissions' => [
+            App\Support\Permissions::VIEW_DEALS,
+            App\Support\Permissions::MANAGE_DEALS,
+        ],
+    ])->assertRedirect();
+
+    expect($role->fresh()->permissionKeys())->toEqualCanonicalizing([
+        App\Support\Permissions::VIEW_DEALS,
+        App\Support\Permissions::MANAGE_DEALS,
+    ]);
+});

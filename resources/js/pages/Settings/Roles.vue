@@ -53,13 +53,45 @@ defineOptions({
     },
 });
 
+/*
+ * One form for both verbs, holding the role being edited or `null` for a new
+ * one. Composing a role you can never adjust is half a feature — the first
+ * thing anybody does after building "Transaction Coordinator" is discover it
+ * needs one more permission — and a second form would be the same fields
+ * twice, drifting the first time the catalogue changes.
+ */
+const editing = ref<RoleRow | null>(null);
 const creating = ref(false);
+const open = computed(() => creating.value || editing.value !== null);
 
 const form = useForm<{
     name: string;
     description: string;
     permissions: string[];
 }>({ name: '', description: '', permissions: [] });
+
+function startCreating(): void {
+    editing.value = null;
+    creating.value = !creating.value;
+    form.reset();
+    form.clearErrors();
+}
+
+function startEditing(role: RoleRow): void {
+    creating.value = false;
+    editing.value = role;
+    form.clearErrors();
+    form.name = role.name;
+    form.description = role.description ?? '';
+    form.permissions = [...role.permissions];
+}
+
+function cancel(): void {
+    creating.value = false;
+    editing.value = null;
+    form.reset();
+    form.clearErrors();
+}
 
 /** The catalogue as it is described — grouped, in the order it arrives. */
 const groups = computed(() => {
@@ -78,14 +110,21 @@ function toggle(key: string, on: boolean): void {
         : form.permissions.filter((one) => one !== key);
 }
 
-function create(): void {
-    form.post('/settings/roles', {
+function submit(): void {
+    const role = editing.value;
+
+    const options = {
         preserveScroll: true,
-        onSuccess: () => {
-            form.reset();
-            creating.value = false;
-        },
-    });
+        onSuccess: () => cancel(),
+    };
+
+    if (role) {
+        form.patch(`/settings/roles/${role.id}`, options);
+
+        return;
+    }
+
+    form.post('/settings/roles', options);
 }
 
 function archive(role: RoleRow): void {
@@ -125,16 +164,19 @@ function restore(role: RoleRow): void {
             subtitle="What each role may do. The shipped five are the product’s — compose your own beside them."
         >
             <template v-if="can.manage" #actions>
-                <AppButton @click="creating = !creating">{{
-                    creating ? 'Cancel' : 'New role'
+                <AppButton @click="startCreating">{{
+                    open ? 'Cancel' : 'New role'
                 }}</AppButton>
             </template>
         </PageHeader>
 
-        <Card v-if="creating" title="New role">
+        <Card
+            v-if="open"
+            :title="editing ? `Editing ${editing.name}` : 'New role'"
+        >
             <form
                 class="flex flex-col gap-4 px-4 py-4"
-                @submit.prevent="create"
+                @submit.prevent="submit"
             >
                 <AppInput
                     v-model="form.name"
@@ -172,9 +214,12 @@ function restore(role: RoleRow): void {
                     </label>
                 </div>
 
-                <div class="flex">
-                    <AppButton :disabled="form.processing" @click="create"
-                        >Create role</AppButton
+                <div class="flex gap-2">
+                    <AppButton :disabled="form.processing" @click="submit">{{
+                        editing ? 'Save role' : 'Create role'
+                    }}</AppButton>
+                    <AppButton variant="ghost" @click="cancel"
+                        >Cancel</AppButton
                     >
                 </div>
             </form>
@@ -231,13 +276,20 @@ function restore(role: RoleRow): void {
                             @click="restore(role)"
                             >Restore</AppButton
                         >
-                        <AppButton
-                            v-else
-                            variant="ghost"
-                            size="compact"
-                            @click="archive(role)"
-                            >Archive</AppButton
-                        >
+                        <template v-else>
+                            <AppButton
+                                variant="ghost"
+                                size="compact"
+                                @click="startEditing(role)"
+                                >Edit</AppButton
+                            >
+                            <AppButton
+                                variant="ghost"
+                                size="compact"
+                                @click="archive(role)"
+                                >Archive</AppButton
+                            >
+                        </template>
                     </template>
                 </li>
             </ul>
