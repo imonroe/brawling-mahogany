@@ -74,7 +74,10 @@ trait MessageTemplateRules
                 : ['prohibited'],
 
             'body_html' => $channel?->hasHtmlBody() === true
-                ? ['nullable', 'string', 'max:100000', new ValidMergeFields]
+                // `markup: true` — a `<style>` block's nested CSS rules close
+                // with `}}`, and refusing that would refuse valid email on the
+                // one field HTML email is written into.
+                ? ['nullable', 'string', 'max:100000', new ValidMergeFields(markup: true)]
                 : ['prohibited'],
 
             // Never nullable. Design System §12 wants a real plain-text
@@ -120,7 +123,10 @@ trait MessageTemplateRules
                 return;
             }
 
-            $stranded = $ignoring->liveActionDefinitions()->get()->filter(
+            // The wide relation, matching the model guard — see its note.
+            // A count that hides an automation is fine; a guard that does is
+            // the hole the guard exists to close.
+            $stranded = $ignoring->actionDefinitions()->get()->filter(
                 fn ($automation): bool => $automation->action_type->channel() !== null
                     && $automation->action_type->channel() !== $channel,
             );

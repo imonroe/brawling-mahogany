@@ -184,6 +184,36 @@ it('guards the archived and mismatched cases on the model too', function (): voi
     });
 });
 
+it('guards the pair when the action type changes, not only the template', function (): void {
+    /*
+     * The same finding as the template's channel, from the third side: the
+     * hook watched only `message_template_id`, so switching an existing
+     * automation from *create a task* to *send an email* saved a mismatched
+     * pair with nothing looking at it.
+     */
+    [, $stage] = automationStage();
+    $push = emailTemplate([
+        'channel' => MessageChannel::Push,
+        'subject' => null,
+        'body_html' => null,
+        'recipient_rule' => ['type' => RecipientRuleType::TeamOwner->value],
+    ]);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($stage, $push): void {
+        $automation = ActionDefinition::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'stage_template_id' => $stage->getKey(),
+            'action_type' => AutomationActionType::PostInternalNotification,
+            'message_template_id' => $push->getKey(),
+        ]);
+
+        // The template never moves; only the action does.
+        expect(fn () => $automation->forceFill([
+            'action_type' => AutomationActionType::SendEmail,
+        ])->save())->toThrow(ChannelMismatch::class);
+    });
+});
+
 it('refuses a requirement that is not on this stage', function (): void {
     // A `gate_cleared` automation naming a gate from another stage is an
     // automation that can never fire, and nothing anywhere would say so.

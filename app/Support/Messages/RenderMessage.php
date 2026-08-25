@@ -75,11 +75,13 @@ final class RenderMessage
              * the one kind of problem that reaches a client looking exactly
              * like a bug in our product.
              */
-            malformed: MergeFields::strayBraceRuns(
-                $template->subject,
-                $template->body_html,
-                $template->body_text,
-            ),
+            malformed: array_values(array_unique([
+                ...MergeFields::strayBraceRuns($template->subject),
+                // Markup, so only an unclosed opening counts — nested CSS
+                // braces are ordinary email.
+                ...MergeFields::strayBraceRuns($template->body_html, markup: true),
+                ...MergeFields::strayBraceRuns($template->body_text),
+            ])),
         );
     }
 

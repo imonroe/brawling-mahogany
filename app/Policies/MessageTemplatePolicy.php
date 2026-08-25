@@ -73,14 +73,17 @@ class MessageTemplatePolicy
     /**
      * Sending a test copy of this template to yourself (S46, S48).
      *
-     * Deliberately the same permission as editing rather than a looser one.
+     * Deliberately the same answer as editing rather than a looser one — and
+     * `update()` rather than `view()`, which is the difference between saying
+     * so and doing it.
+     *
      * It is the only path in this slice that puts a real message on a real
-     * mail transport, and while it can only reach the person who asked for it,
-     * a narrower gate here would be a second answer to "who may work on
-     * templates" for no gain.
+     * mail transport. Reading it as a *view* left "Send a test to me" as the
+     * one live control on an archived template: every other control on that
+     * screen is disabled, and the one that sends was not.
      */
     public function test(Person $person, MessageTemplate $template): bool
     {
-        return $this->view($person, $template);
+        return $this->update($person, $template);
     }
 }

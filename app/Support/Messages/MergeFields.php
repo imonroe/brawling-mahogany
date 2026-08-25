@@ -69,6 +69,27 @@ final class MergeFields
     private const BRACE_RUN = '/\{\{|\}\}/';
 
     /**
+     * The half of that check a body of **markup** may legitimately trip.
+     *
+     * `<style>@media (max-width:600px){.c{width:100%}}</style>` is ordinary
+     * email CSS — Design System §12 wants a `<style>` block as a progressive
+     * enhancement — and it closes two nested rules with `}}`. Reporting that
+     * as a stray brace refused a valid template on the one field HTML email is
+     * written into, which is a regression the first version of this check
+     * introduced.
+     *
+     * An unclosed **opening** run has no such collision: nothing in CSS or
+     * HTML produces `{{`, and it is the half that catches every realistic
+     * typo — `{{ client_name }` and `{{client_name` both leave one. A body of
+     * markup is therefore held to the opening half only.
+     *
+     * What that gives up is `{ { client_name }}` **inside HTML**, which
+     * renders as visible nonsense rather than as a merge attempt, and is still
+     * caught in the subject and the plain-text alternative.
+     */
+    private const OPENING_RUN = '/\{\{/';
+
+    /**
      * @return list<MergeField>
      */
     public static function all(): array
@@ -243,25 +264,26 @@ final class MergeFields
      * is a token followed by a literal brace, which renders as somebody
      * probably meant and is not the failure this exists to catch.
      *
+     * `$markup` narrows the check to unclosed **openings**, for a field that
+     * may legitimately carry nested CSS braces. See {@see self::OPENING_RUN}.
+     *
      * @return list<string>
      */
-    public static function strayBraceRuns(?string ...$bodies): array
+    public static function strayBraceRuns(?string $body, bool $markup = false): array
     {
+        if ($body === null || $body === '') {
+            return [];
+        }
+
+        $remainder = (string) preg_replace(self::TOKEN_PATTERN, '', $body);
+
+        preg_match_all($markup ? self::OPENING_RUN : self::BRACE_RUN, $remainder, $matches);
+
         $found = [];
 
-        foreach ($bodies as $body) {
-            if ($body === null || $body === '') {
-                continue;
-            }
-
-            $remainder = (string) preg_replace(self::TOKEN_PATTERN, '', $body);
-
-            preg_match_all(self::BRACE_RUN, $remainder, $matches);
-
-            foreach ($matches[0] as $run) {
-                if (! in_array($run, $found, true)) {
-                    $found[] = $run;
-                }
+        foreach ($matches[0] as $run) {
+            if (! in_array($run, $found, true)) {
+                $found[] = $run;
             }
         }
 

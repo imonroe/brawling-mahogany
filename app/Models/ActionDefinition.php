@@ -91,7 +91,20 @@ class ActionDefinition extends Model
          * would notice until a client received it.
          */
         static::saving(function (self $definition): void {
-            if (! $definition->isDirty('message_template_id') || $definition->message_template_id === null) {
+            /*
+             * Either half of the pair changing is a reason to look.
+             *
+             * Watching only `message_template_id` meant switching the
+             * **action type** on an existing automation — from *create a task*
+             * to *send an email*, say — saved a mismatched pair with nothing
+             * looking at it. Same shape as the finding one layer up, where
+             * editing the template's channel reached the identical state from
+             * its own end.
+             */
+            $touchedThePair = $definition->isDirty('message_template_id')
+                || $definition->isDirty('action_type');
+
+            if (! $touchedThePair || $definition->message_template_id === null) {
                 return;
             }
 
@@ -213,9 +226,4 @@ class ActionDefinition extends Model
 
         return $this->trigger->label().': '.mb_strtolower(mb_substr($what, 0, 1)).mb_substr($what, 1);
     }
-
-    /**
-     * @param  Builder<self>  $query
-     * @return Builder<self>
-     */
 }

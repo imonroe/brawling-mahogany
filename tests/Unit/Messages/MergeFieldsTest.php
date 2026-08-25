@@ -80,6 +80,29 @@ it('finds a brace run that was never a pair', function (string $body, array $exp
     'a lone closing brace (control)' => ['a } b', []],
 ]);
 
+/**
+ * The other half of the brace check, and the regression the first version of
+ * it caused.
+ *
+ * Design System §12 allows a `<style>` block as a progressive enhancement, and
+ * nested CSS rules close with `}}` — which the closing half of the check read
+ * as a stray brace and refused, on the one field HTML email is written into.
+ * An unclosed **opening** has no such collision: nothing in CSS or HTML
+ * produces `{{`.
+ */
+it('lets a markup body carry nested CSS braces and still catches the typo', function (): void {
+    $css = '<style>@media (max-width:600px){.card{width:100%}}</style>';
+
+    expect(MergeFields::strayBraceRuns($css, markup: true))->toBe([])
+        // The same string in the plain-text alternative is not CSS, and there
+        // the closing half still applies.
+        ->and(MergeFields::strayBraceRuns($css))->toBe(['}}']);
+
+    // The typo the check exists for is caught either way.
+    expect(MergeFields::strayBraceRuns('<p>Hi {{ client_name }</p>', markup: true))->toBe(['{{'])
+        ->and(MergeFields::strayBraceRuns('Hi {{ client_name }'))->toBe(['{{']);
+});
+
 it('reads several bodies at once and reports each token once', function (): void {
     // A template is a subject and two bodies, and a token in all three is one
     // problem rather than three.

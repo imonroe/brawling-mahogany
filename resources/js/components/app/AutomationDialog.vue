@@ -429,8 +429,9 @@ function submit(): void {
                         "
                         class="text-[11px] text-muted-foreground"
                     >
-                        This sends without anybody looking at it first. A new
-                        team’s messages wait for approval for the first 30 days
+                        This will send without anybody looking at it first.
+                        Nothing sends yet — and when it does, a new team’s
+                        messages will wait for approval for their first 30 days
                         whatever this says.
                     </p>
                     <p

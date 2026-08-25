@@ -106,6 +106,7 @@ class SaveAutomationRequest extends FormRequest
     {
         return [
             'message_template_id.prohibited' => 'This kind of automation does not send a message, so it has no template.',
+            'message_template_id.required' => 'This automation sends a message, so it needs a template to send.',
             'config.gateTemplateId.required' => 'Choose which requirement clearing should start this.',
             'config.taskTitle.required' => 'Give the task a title.',
             'config.instruction.required' => 'Say what somebody should do.',

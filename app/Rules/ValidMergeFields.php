@@ -39,6 +39,13 @@ use Illuminate\Contracts\Validation\ValidationRule;
  */
 final readonly class ValidMergeFields implements ValidationRule
 {
+    /**
+     * @param  bool  $markup  Whether this field may legitimately carry nested
+     *                        braces — a `<style>` block's CSS closes two rules
+     *                        with `}}`. See `MergeFields::OPENING_RUN`.
+     */
+    public function __construct(private bool $markup = false) {}
+
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (! is_string($value) || $value === '') {
@@ -53,7 +60,7 @@ final readonly class ValidMergeFields implements ValidationRule
          * all, so every check after this saw a clean template and the braces
          * went out to a client verbatim.
          */
-        foreach (MergeFields::strayBraceRuns($value) as $run) {
+        foreach (MergeFields::strayBraceRuns($value, $this->markup) as $run) {
             $fail(sprintf(
                 'There is a stray “%s” here. A merge field needs both braces at both ends, like {{ client_name }}.',
                 $run,

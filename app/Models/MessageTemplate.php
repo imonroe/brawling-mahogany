@@ -102,7 +102,22 @@ class MessageTemplate extends Model
                 return;
             }
 
-            $stranded = $template->liveActionDefinitions()->get()->first(
+            /*
+             * **Every** automation, not just the reachable ones.
+             *
+             * The count on S45 is deliberately narrower — an automation on a
+             * soft-deleted workflow template is a number nobody can chase down
+             * — but a guard that borrowed that narrowing reopened the hole one
+             * step back: delete the workflow template, change the channel, and
+             * the automation survives pointing at a template it cannot send.
+             * PRD §9 gives a soft delete a 30-day window, so those rows come
+             * back.
+             *
+             * The count answers *what should I tell the reader*; the guard
+             * answers *what would this break*. They are different questions
+             * and only one of them may be optimistic.
+             */
+            $stranded = $template->actionDefinitions()->get()->first(
                 fn (ActionDefinition $automation): bool => $automation->action_type->channel() !== null
                     && $automation->action_type->channel() !== $template->channel,
             );
@@ -134,9 +149,8 @@ class MessageTemplate extends Model
      * number, because Frontend conventions §4 puts the count before the choice
      * precisely so it can be acted on.
      *
-     * One relation, read by the count **and** by the channel guard above, so
-     * the number on the list and the rule that refuses an edit cannot disagree
-     * about which automations are real.
+     * Read by the **count** and by nothing else. The channel guard above
+     * deliberately asks the wider relation — see the note there.
      *
      * @return HasMany<ActionDefinition, $this>
      */

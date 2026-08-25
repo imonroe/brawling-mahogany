@@ -182,6 +182,22 @@ it('refuses a merge field with a brace missing', function (): void {
     expect(MessageTemplate::query()->count())->toBe(0);
 });
 
+it('saves an HTML body carrying a media query', function (): void {
+    // Design System §12 wants a `<style>` block as a progressive enhancement,
+    // and its nested rules close with `}}`. The first version of the stray
+    // brace check refused it.
+    $this->post('/templates/messages', [
+        'name' => 'Branded',
+        'channel' => MessageChannel::Email->value,
+        'subject' => 'Your inspection',
+        'body_html' => '<style>@media (max-width:600px){.card{width:100%}}</style><p>Hi {{ client_first_name }}</p>',
+        'body_text' => 'Hi {{ client_first_name }}',
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ])->assertSessionHasNoErrors();
+
+    expect(MessageTemplate::query()->sole()->body_html)->toContain('@media');
+});
+
 it('refuses a subject carrying a line break', function (): void {
     // A subject is a mail header. Symfony folds a newline into encoded words
     // rather than injecting one, so this is not an exploit — it is the rule
@@ -412,6 +428,39 @@ it('previews the draft against a real deal rather than the saved row', function 
             ->where('preview.recipients', ['Emily Bosart']));
 });
 
+it('previews the draft’s channel, not the one last saved', function (): void {
+    /*
+     * The last of three channel-dependent narrowings still taken from the
+     * saved row. A push template switched to Email in the form previewed with
+     * a null subject and no HTML body — the reader's own words, missing.
+     */
+    $template = messageTemplate([
+        'channel' => MessageChannel::Push,
+        'subject' => null,
+        'body_html' => null,
+        'body_text' => 'x',
+        'recipient_rule' => ['type' => RecipientRuleType::TeamOwner->value],
+    ]);
+
+    $deal = previewDeal();
+
+    $this->post("/templates/messages/{$template->getKey()}/preview", [
+        'deal' => $deal->getKey(),
+        'channel' => MessageChannel::Email->value,
+        'subject' => 'About {{ client_name }}',
+        'body_html' => '<p>Hello</p>',
+        'body_text' => 'Hello.',
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ])
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('preview.subject', 'About Emily Bosart')
+            ->where('preview.bodyHtml', '<p>Hello</p>')
+            // …and *"would reach"* answers for the draft's rule too, or the
+            // preview names one person and would send to another.
+            ->where('preview.recipients', ['Emily Bosart']));
+});
+
 it('shows a merge field with nothing behind it rather than sending over it', function (): void {
     $template = messageTemplate();
     $deal = previewDeal();
@@ -585,6 +634,23 @@ it('stops counting automations nobody can reach any more', function (): void {
 
     $this->get('/templates/messages')
         ->assertInertia(fn ($page) => $page->where('templates.0.inUse', 0));
+
+    /*
+     * …and the **guard** does not inherit that optimism.
+     *
+     * Narrowing the count is right — a number nobody can chase down is noise.
+     * Narrowing the guard reopened the stranding one step back: PRD §9 gives a
+     * soft delete a 30-day window, so those automations come back, and they
+     * would come back pointing at a template that cannot send them.
+     */
+    $this->patch("/templates/messages/{$template->getKey()}", [
+        'name' => $template->name,
+        'channel' => MessageChannel::Push->value,
+        'body_text' => 'ok',
+        'recipient_rule' => ['type' => RecipientRuleType::TeamOwner->value],
+    ])->assertSessionHasErrors('channel');
+
+    expect($template->fresh()->channel)->toBe(MessageChannel::Email);
 });
 
 it('offers every channel’s recipient rules, so the picker can narrow with the form', function (): void {
@@ -602,6 +668,22 @@ it('offers every channel’s recipient rules, so the picker can narrow with the 
             // PRD F12.2: push is internal and carries nothing client-facing.
             ->missing('recipientRules.push.primary_contact')
             ->has('recipientRules.push.team_owners'));
+});
+
+it('refuses a test send from an archived template', function (): void {
+    // Every other control on an archived template is disabled; the one that
+    // puts mail on a transport was reading as a *view* and stayed live.
+    Mail::fake();
+
+    $template = messageTemplate();
+    $deal = previewDeal();
+
+    $this->post("/templates/messages/{$template->getKey()}/archive")->assertRedirect();
+
+    $this->post("/templates/messages/{$template->getKey()}/test", ['deal' => $deal->getKey()])
+        ->assertForbidden();
+
+    Mail::assertNothingSent();
 });
 
 it('refuses the whole screen to somebody without templates.manage', function (): void {

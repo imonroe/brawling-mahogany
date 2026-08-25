@@ -28,6 +28,7 @@ use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -199,16 +200,36 @@ class MessageTemplateController extends Controller
          */
         $draft = $request->validate([
             'deal' => ['required', 'string'],
+            /*
+             * The channel is part of the draft, and leaving it out was the
+             * last of three narrowings still taken from the saved row: a push
+             * template switched to Email in the form previewed with a null
+             * subject and no HTML body, because `MessageChannel::hasSubject()`
+             * was asked of the channel in the database rather than the one on
+             * screen. The reader's own words came back missing.
+             */
+            'channel' => ['nullable', Rule::in(array_keys(MessageChannel::selectableOptions()))],
             'subject' => ['nullable', 'string', 'max:200'],
             'body_html' => ['nullable', 'string', 'max:100000'],
             'body_text' => ['nullable', 'string', 'max:100000'],
+            // The recipient rule too, so *"would reach"* answers for the draft
+            // rather than for the last save.
+            'recipient_rule' => ['nullable', 'array'],
+            'recipient_rule.type' => ['nullable', Rule::enum(RecipientRuleType::class)],
+            'recipient_rule.participantRole' => ['nullable', Rule::enum(ParticipantRole::class)],
         ]);
 
+        $channel = isset($draft['channel'])
+            ? MessageChannel::from((string) $draft['channel'])
+            : $messageTemplate->channel;
+
         $rehearsal = $messageTemplate->replicate();
-        $rehearsal->fill([
-            'subject' => $draft['subject'] ?? null,
-            'body_html' => $draft['body_html'] ?? null,
+        $rehearsal->forceFill([
+            'channel' => $channel,
+            'subject' => $channel->hasSubject() ? ($draft['subject'] ?? null) : null,
+            'body_html' => $channel->hasHtmlBody() ? ($draft['body_html'] ?? null) : null,
             'body_text' => $draft['body_text'] ?? '',
+            'recipient_rule' => $this->draftRecipientRule($draft, $messageTemplate),
         ]);
 
         return $this->editor($request, $messageTemplate, $rehearsal, (string) $draft['deal']);
@@ -330,13 +351,50 @@ class MessageTemplateController extends Controller
                 ? [
                     ...$rendered->toArray(),
                     'dealId' => $deal->getKey(),
-                    'recipients' => $this->recipientNames($template, $deal, $team),
+                    'recipients' => $this->recipientNames($rehearsal ?? $template, $deal, $team),
                 ]
                 : null,
             'can' => [
                 'update' => $request->user()?->can('update', $template) ?? false,
             ],
         ]);
+    }
+
+    /**
+     * The rule the draft is addressed to, falling back to the saved one.
+     *
+     * A rule that cannot resolve is refused by `RecipientRule::fromArray()`
+     * rather than shrugged off, so a half-typed one on the way through the
+     * preview would throw — which is why an incomplete draft rule falls back
+     * rather than being trusted.
+     *
+     * @param  array<string, mixed>  $draft
+     * @return array<string, string>
+     */
+    private function draftRecipientRule(array $draft, MessageTemplate $template): array
+    {
+        $rule = $draft['recipient_rule'] ?? null;
+
+        if (! is_array($rule) || ! is_string($rule['type'] ?? null)) {
+            return $template->recipient_rule;
+        }
+
+        $type = RecipientRuleType::tryFrom($rule['type']);
+
+        if ($type === null) {
+            return $template->recipient_rule;
+        }
+
+        if ($type->needsParticipantRole() && ! is_string($rule['participantRole'] ?? null)) {
+            return $template->recipient_rule;
+        }
+
+        return array_filter([
+            'type' => $type->value,
+            'participantRole' => $type->needsParticipantRole()
+                ? (string) $rule['participantRole']
+                : null,
+        ], fn (?string $value): bool => $value !== null);
     }
 
     /**

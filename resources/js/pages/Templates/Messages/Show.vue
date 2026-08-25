@@ -216,9 +216,23 @@ function refreshPreview(): void {
         `${base}/preview`,
         {
             deal: dealId.value,
+            /*
+             * The channel and the recipient rule travel with the words.
+             * Without them the server rendered the draft's body against the
+             * **saved** channel, so a push template switched to Email in the
+             * form previewed with no subject and no HTML body — the reader's
+             * own text, missing.
+             */
+            channel: form.channel,
             subject: hasSubject.value ? form.subject : null,
             body_html: hasHtml.value ? form.body_html : null,
             body_text: form.body_text,
+            recipient_rule: {
+                type: form.recipient_rule.type,
+                participantRole: needsParticipantRole.value
+                    ? form.recipient_rule.participantRole
+                    : null,
+            },
         },
         { preserveScroll: true, preserveState: true },
     );
