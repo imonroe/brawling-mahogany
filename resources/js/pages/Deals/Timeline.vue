@@ -28,8 +28,10 @@
  */
 import { Head, router } from '@inertiajs/vue3';
 import { Plus } from '@lucide/vue';
+import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
+import SkipStageDialog from '@/components/app/SkipStageDialog.vue';
 import StageRail from '@/components/app/StageRail.vue';
 import type { TimelineWorkflow } from '@/components/app/StageRail.vue';
 import { useAdvanceDialog } from '@/composables/useAdvanceDialog';
@@ -63,6 +65,53 @@ function advance(workflowId: string, stageId: string): void {
  */
 const VISIT = { preserveScroll: true, preserveState: true } as const;
 
+/**
+ * F4.12's two verbs (#70).
+ *
+ * Skip opens a dialog, because it needs a typed reason and IA §7 makes that
+ * reason the thing that distinguishes it from an override. Reopen does not:
+ * nothing is waived and nothing is recorded as done, so a confirm is the
+ * proportionate ceremony — and it names the stage, per IA §10.
+ */
+const skipping = ref<{
+    stage: { id: string; name: string };
+    workflowId: string;
+} | null>(null);
+
+const dealId = computed(() => props.dealUrl.split('/').pop() as string);
+
+function startSkip(workflowId: string, stageId: string): void {
+    const workflow = props.workflows.find((one) => one.id === workflowId);
+    const stage = workflow?.stages.find((one) => one.id === stageId);
+
+    if (stage) {
+        skipping.value = {
+            workflowId,
+            stage: { id: stage.id, name: stage.name },
+        };
+    }
+}
+
+function reopen(workflowId: string, stageId: string): void {
+    const workflow = props.workflows.find((one) => one.id === workflowId);
+    const stage = workflow?.stages.find((one) => one.id === stageId);
+
+    if (
+        !stage ||
+        !window.confirm(
+            `Reopen ${stage.name}? The stage after it goes back to upcoming, and the deal returns to this one.`,
+        )
+    ) {
+        return;
+    }
+
+    router.post(
+        `${props.dealUrl}/workflows/${workflowId}/stages/${stageId}/reopen`,
+        {},
+        VISIT,
+    );
+}
+
 function setCompleted(taskId: string, completed: boolean): void {
     const url = `${props.dealUrl}/tasks/${taskId}/completion`;
 
@@ -90,7 +139,17 @@ function setCompleted(taskId: string, completed: boolean): void {
             :key="workflow.id"
             :workflow="workflow"
             @advance="(stageId) => advance(workflow.id, stageId)"
+            @skip="(stageId) => startSkip(workflow.id, stageId)"
+            @reopen="(stageId) => reopen(workflow.id, stageId)"
             @complete="setCompleted"
+        />
+
+        <SkipStageDialog
+            :stage="skipping?.stage ?? null"
+            :deal-id="dealId"
+            :workflow-id="skipping?.workflowId ?? ''"
+            @close="skipping = null"
+            @skipped="skipping = null"
         />
 
         <!--

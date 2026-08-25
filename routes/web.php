@@ -11,6 +11,7 @@ use App\Http\Controllers\Deals\DealTimelineController;
 use App\Http\Controllers\Deals\DealWizardController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
+use App\Http\Controllers\Deals\StageStateController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\People\ContactImportController;
@@ -230,6 +231,24 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::post('deals/{deal}/workflows/{workflow}/override', [OverrideGateController::class, 'store'])
             ->name('deals.workflows.override');
+
+        /*
+         * F4.12 — the two stage verbs that are not Advance (#70).
+         *
+         * Two routes rather than one with a mode flag, for the reason the
+         * override has its own: IA §7 calls conflating Skip with Override
+         * legally material, and Reopen is a third act again. A shared endpoint
+         * is that conflation in URL form, and the audit log would inherit it.
+         *
+         * `{stage}` resolves through `{workflow}` by scoped binding — one deal
+         * runs several workflows at once (F4.7), so "whose workflow" is a
+         * question neither the tenancy layers nor the policy can answer.
+         */
+        Route::post('deals/{deal}/workflows/{workflow}/stages/{stage}/skip', [StageStateController::class, 'skip'])
+            ->name('deals.workflows.stages.skip');
+
+        Route::post('deals/{deal}/workflows/{workflow}/stages/{stage}/reopen', [StageStateController::class, 'reopen'])
+            ->name('deals.workflows.stages.reopen');
 
         /*
          * S16 — the stage rail (#76).

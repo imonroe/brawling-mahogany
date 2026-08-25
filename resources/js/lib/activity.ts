@@ -25,6 +25,7 @@ import {
     Activity,
     ArrowRight,
     CircleCheck,
+    CircleSlash,
     Flag,
     House,
     Import,
@@ -37,6 +38,7 @@ import {
     MessageSquare,
     PenLine,
     Phone,
+    RotateCcw,
     ShieldAlert,
     Star,
     Trash2,
@@ -99,6 +101,23 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * that looks like every other row is a bypassed gate nobody finds.
      */
     'gate.overridden': { icon: ShieldAlert, tone: 'warning' },
+
+    /*
+     * Skip and Reopen (PRD F4.12 · IA §7 · #70), and both are **neutral**.
+     *
+     * The override above earns amber because something that should have
+     * happened did not. Neither of these is that. A skipped stage did not
+     * apply to this deal at all — §7.4 badges it neutral and IA §8 hides it
+     * from the client entirely — and tinting it like an override on the feed
+     * would rebuild, in colour, exactly the conflation IA §7 calls legally
+     * material. Reopening is somebody correcting themselves, which the product
+     * would rather encourage than mark.
+     *
+     * Distinct glyphs, though: both are unusual enough to be worth finding
+     * without reading the summary.
+     */
+    'stage.skipped': { icon: CircleSlash, tone: 'neutral' },
+    'stage.reopened': { icon: RotateCcw, tone: 'neutral' },
 
     // The rest, neutral by Design System §7.3's own rule.
     'workflow.started': { icon: Activity, tone: 'neutral' },

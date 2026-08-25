@@ -95,6 +95,14 @@ class Stage extends Model
      * second issue, and the work reopens. A terminal `complete` would force a
      * duplicate workflow to hold work that belongs on the original.
      *
+     * `active` and `blocked` return to `pending` for the other half of that
+     * same reopen, and for nothing else. Reopening the stage behind the one a
+     * team is standing on has to put the standing-on one somewhere, and the
+     * only honest answer is back in the queue: it is upcoming again, it has no
+     * `actual_start` any more, and the pointer has moved off it. Without this
+     * the workflow would hold two active stages, which is the state the
+     * `current_stage_id` pointer exists to make impossible.
+     *
      * @return array<string, list<string>>
      */
     public static function stateTransitions(): array
@@ -108,11 +116,13 @@ class Stage extends Model
                 StageState::Blocked->value,
                 StageState::Complete->value,
                 StageState::Skipped->value,
+                StageState::Pending->value,
             ],
             StageState::Blocked->value => [
                 StageState::Active->value,
                 StageState::Complete->value,
                 StageState::Skipped->value,
+                StageState::Pending->value,
             ],
             StageState::Complete->value => [
                 StageState::Active->value,

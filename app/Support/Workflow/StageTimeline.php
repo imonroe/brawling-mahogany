@@ -75,6 +75,26 @@ final readonly class StageTimeline
     {
         $active = $workflow->activeStage();
 
+        /*
+         * Which stage, if any, F4.12's reopen would take (#70).
+         *
+         * Computed once for the rail rather than per row, and on the server
+         * rather than in the screen: *"only the most recently finished stage"*
+         * is a rule `AdvanceWorkflow::reopen()` enforces, and a rail that
+         * decided for itself which rows to offer the control on would be a
+         * second copy of it — drifting the first time either changed.
+         */
+        $reopenable = $workflow->isRunning()
+            ? $workflow->stages
+                ->filter(fn (Stage $stage): bool => in_array(
+                    $stage->state,
+                    [StageState::Complete, StageState::Skipped],
+                    true,
+                ))
+                ->sortByDesc('sort_order')
+                ->first()
+            : null;
+
         return [
             'id' => $workflow->getKey(),
             'name' => $workflow->name,
@@ -96,6 +116,8 @@ final readonly class StageTimeline
                     $stage,
                     $index,
                     $active instanceof Stage && $stage->is($active) ? $readiness : null,
+                    $workflow,
+                    $reopenable,
                 ))
                 ->all(),
         ];
@@ -106,8 +128,13 @@ final readonly class StageTimeline
      *
      * @return array<string, mixed>
      */
-    private static function stage(Stage $stage, int $index, ?StageReadiness $readiness): array
-    {
+    private static function stage(
+        Stage $stage,
+        int $index,
+        ?StageReadiness $readiness,
+        Workflow $workflow,
+        ?Stage $reopenable,
+    ): array {
         $isActive = $readiness instanceof StageReadiness;
 
         return [
@@ -160,13 +187,30 @@ final readonly class StageTimeline
             'actualEnd' => $stage->actual_end?->toIso8601String(),
 
             /*
-             * F4.12's skip is #70's work and nothing writes this column yet.
-             * It is carried anyway because a skipped stage with no reason
-             * beside it is the exact shape of the complaint IA §7 makes about
-             * conflating Skip with Override: both remove an obligation, and
-             * only one of them is supposed to say why.
+             * F4.12's reason, written by `AdvanceWorkflow::skip()` (#70). A
+             * skipped stage with no reason beside it is the exact shape of the
+             * complaint IA §7 makes about conflating Skip with Override: both
+             * remove an obligation, and only one of them is supposed to say
+             * why.
              */
             'skippedReason' => $stage->skipped_reason,
+
+            /*
+             * Whether each verb applies to **this** row (#70).
+             *
+             * The permission is a separate question the shell already answers
+             * — `can('stage.skip')` — and these are the half it cannot: a
+             * complete stage cannot be skipped, and only the last finished one
+             * can be reopened. Both rules live in `AdvanceWorkflow`; this is
+             * the same answer shaped for a row, so the control appears exactly
+             * where pressing it would work.
+             */
+            'canSkip' => $workflow->isRunning() && ! in_array(
+                $stage->state,
+                [StageState::Complete, StageState::Skipped],
+                true,
+            ),
+            'canReopen' => $reopenable instanceof Stage && $reopenable->is($stage),
 
             'hasOverride' => $stage->gates->contains(
                 fn (Gate $gate): bool => $gate->overridden,

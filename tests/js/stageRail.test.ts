@@ -65,6 +65,8 @@ function stage(overrides: Partial<TimelineStage> = {}): TimelineStage {
         isActive: false,
         state: 'pending',
         isMilestone: false,
+        canSkip: false,
+        canReopen: false,
         plannedStart: null,
         plannedEnd: null,
         actualStart: null,

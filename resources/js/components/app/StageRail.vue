@@ -49,6 +49,9 @@ const props = defineProps<{ workflow: TimelineWorkflow }>();
 
 const emit = defineEmits<{
     advance: [stageId: string];
+    /** F4.12's two verbs, forwarded with the row they came from (#70). */
+    skip: [stageId: string];
+    reopen: [stageId: string];
     /** A task on one of this rail's stages was ticked, or unticked (#71). */
     complete: [taskId: string, completed: boolean];
 }>();
@@ -190,6 +193,8 @@ const total = computed(() => props.workflow.stages.length);
                     :advance-refusal="workflow.refusal"
                     @toggle="toggle(stage.id)"
                     @advance="emit('advance', stage.id)"
+                    @skip="emit('skip', stage.id)"
+                    @reopen="emit('reopen', stage.id)"
                     @complete="
                         (taskId, completed) =>
                             emit('complete', taskId, completed)
