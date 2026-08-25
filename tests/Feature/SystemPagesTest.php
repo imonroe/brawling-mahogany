@@ -88,7 +88,8 @@ it('renders a placeholder for every sidebar destination', function (): void {
 
     $this->actingAsPerson($member, $team);
 
-    foreach (['work', 'calendar', 'keep-in-touch', 'templates'] as $path) {
+    // `work` left this list with S11 (#80) — it is a real screen now.
+    foreach (['calendar', 'keep-in-touch', 'templates'] as $path) {
         $this->get("/{$path}")
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Placeholder'));

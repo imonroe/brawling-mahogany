@@ -22,6 +22,7 @@ use App\Http\Controllers\Properties\PropertyController;
 use App\Http\Controllers\Properties\PropertyDealController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
+use App\Http\Controllers\WorkController;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -382,8 +383,14 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * placeholder naming the slice that replaces it, so the shell can be
      * navigated and reviewed — a nav item pointing at a 404 cannot be.
      */
+    /*
+     * S11 — My Work (F9.2, #80). Heather's primary screen, and the reason
+     * `tasks.deal_id` is not nullable: a task belonging to nothing has nowhere
+     * to appear here.
+     */
+    Route::get('work', [WorkController::class, 'index'])->name('work.index');
+
     $placeholders = [
-        'work' => ['My Work', 'S11', 2],
         'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
         'templates' => ['Templates', 'S40', 2],

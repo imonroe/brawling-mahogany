@@ -8,6 +8,7 @@ use App\Enums\ContactType;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
+use App\Queries\MyWork;
 use App\Support\Admin\Impersonation;
 use App\Support\Permissions;
 use App\Support\Teams\PendingInvitations;
@@ -99,6 +100,23 @@ class HandleInertiaRequests extends Middleware
              * screen has no shell and no use for them.
              */
             'lookups' => $team instanceof Team ? ['contactTypes' => ContactType::options()] : null,
+            /*
+             * The sidebar's own numbers (Design System §10.4 · #80).
+             *
+             * Shared rather than supplied per page, because the count sits
+             * beside the **My Work** link on every screen and a number that is
+             * only right on `/work` is a number that is wrong everywhere else
+             * — which is worse than no number, since it is the one thing on
+             * the shell claiming to know what is waiting.
+             *
+             * Lazily evaluated: `Inertia::lazy` would drop it from partial
+             * reloads, and a partial reload after ticking a task off is
+             * exactly when it has to change. One indexed count, and skipped
+             * entirely before a team resolves.
+             */
+            'counts' => $person instanceof Person && $team instanceof Team
+                ? ['myWork' => MyWork::countFor($person)]
+                : null,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }
