@@ -286,3 +286,51 @@ it('refuses a rename onto a name this team already uses', function (): void {
     expect($closer->fresh()->name)->toBe('Closing Coordinator')
         ->and($closer->fresh()->key)->toBe('closer');
 });
+
+it('cannot be walked into two roles with one name', function (): void {
+    /*
+     * The sequence two earlier attempts at this check both permitted, and the
+     * reason a rename is what makes it possible: `update()` deliberately never
+     * recomputes the key, so after a rename the key and the name no longer
+     * agree — and a check that asks the key on one path and the name on the
+     * other has a gap exactly there.
+     */
+    $this->post('/settings/roles', ['name' => 'Deal Lead'])->assertRedirect();
+
+    $role = app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): Role => Role::query()->where('key', 'deal_lead')->sole(),
+    );
+
+    $this->patch("/settings/roles/{$role->getKey()}", ['name' => 'Closer'])->assertRedirect();
+
+    // The key is deliberately unchanged — it is what every permission check is
+    // written against.
+    expect($role->fresh()->name)->toBe('Closer')
+        ->and($role->fresh()->key)->toBe('deal_lead');
+
+    // And now the name is taken, even though the key it would derive is free.
+    $this->post('/settings/roles', ['name' => 'Closer'])->assertSessionHasErrors('name');
+
+    expect(app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): int => Role::withTrashed()->where('name', 'Closer')->count(),
+    ))->toBe(1);
+});
+
+it('refuses two names that slug to one key', function (): void {
+    /*
+     * The other half, and the reason the key is still checked on create: a
+     * name that is *free* can still derive a key that is taken. "Deal-Lead"
+     * and "Deal Lead" are two names and one key, and the partial unique index
+     * would answer that with a 500.
+     */
+    $this->post('/settings/roles', ['name' => 'Deal Lead'])->assertRedirect();
+
+    $this->post('/settings/roles', ['name' => 'Deal-Lead'])->assertSessionHasErrors('name');
+
+    expect(app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): int => Role::withTrashed()->where('key', 'deal_lead')->count(),
+    ))->toBe(1);
+});

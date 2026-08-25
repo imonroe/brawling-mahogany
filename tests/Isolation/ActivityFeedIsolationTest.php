@@ -237,15 +237,17 @@ it('gives every subject type the feed carries a permission rule', function (): v
      * `$membership->person` and `$link->deal` resolve to the same four classes
      * as the bare variables, so the check is on the tail of each expression.
      */
+    /*
+     * No exclusion list. `Str::afterLast` already takes the tail of
+     * `$participant->deal` and `$link->deal`, so both resolve to `Deal` — an
+     * earlier version carried a `reject(['Participant', 'Link'])` that could
+     * never fire, which is a fail-open branch inside a fail-closed guard and
+     * exactly the shape this test exists to catch one layer down.
+     */
     $resolved = $subjects
         ->map(fn (string $expression): string => (string) Str::afterLast($expression, '>'))
         ->map(fn (string $name): string => Str::studly(Str::singular($name)))
         ->unique()
-        ->reject(fn (string $class): bool => in_array($class, [
-            // Not subjects: `participant` and `link` are the *rows*, and the
-            // expressions above take `->deal` off them.
-            'Participant', 'Link',
-        ], true))
         ->values();
 
     $named = collect(ActivityFeed::subjectPermissions())

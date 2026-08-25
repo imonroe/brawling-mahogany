@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\DealState;
 use App\Enums\StageState;
+use App\Models\ActivityEvent;
 use App\Models\Deal;
 use App\Models\Stage;
 use App\Models\Task;
@@ -203,4 +204,42 @@ it('shows another team nothing of this one', function (): void {
     $this->get('/dashboard')
         ->assertOk()
         ->assertInertia(fn ($page) => $page->where('stats.activeDeals', 0));
+});
+
+it('shows the newest activity, which the panel promises and did not do', function (): void {
+    /*
+     * The ordering lived in `ActivityFeed::paginate()` — the only place it was
+     * needed while `/activity` was the feed's only caller. S10's panel calls
+     * `query()->limit(8)->get()`, so it took the eight rows Postgres returned
+     * first, which is insertion order, which is the **oldest** eight. The
+     * panel's own empty state promises "newest first".
+     *
+     * Twelve events and a limit of eight, because the bug is invisible at any
+     * count the limit does not cut: with eight or fewer, both orderings return
+     * the same set and only the sequence differs.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+        foreach (range(1, 12) as $i) {
+            ActivityEvent::factory()->create([
+                'team_id' => $this->team->getKey(),
+                'deal_id' => $deal->getKey(),
+                'subject_type' => $deal->getMorphClass(),
+                'subject_id' => $deal->getKey(),
+                'summary' => sprintf('Event %02d', $i),
+                'occurred_at' => now()->subMinutes(60 - $i),
+            ]);
+        }
+    });
+
+    $this->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where(
+            'activity',
+            fn ($rows) => collect($rows)->pluck('summary')->all() === [
+                'Event 12', 'Event 11', 'Event 10', 'Event 09',
+                'Event 08', 'Event 07', 'Event 06', 'Event 05',
+            ],
+        ));
 });

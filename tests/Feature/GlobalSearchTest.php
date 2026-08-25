@@ -191,14 +191,23 @@ it('treats an underscore as a character rather than a wildcard', function (): vo
      * scope still answers whose data it is; a precision one, and `_` is
      * ordinary in an email local part.
      */
+    /*
+     * The decoy has to be a row the **wildcard** would match and the literal
+     * would not — so it differs from the target in exactly the character the
+     * underscore stands in for. A first version of this test used a decoy
+     * sharing no letters with the query, which misses either way: it passed
+     * with the escaping deleted, which is the definition of a test that is not
+     * testing anything.
+     */
     app(TeamContext::class)->runFor($this->team, function (): void {
-        Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'Underscore_Deal']);
-        Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'Something else entirely']);
+        Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'Pine_Ridge sale']);
+        Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'PineXRidge sale']);
     });
 
-    $names = collect($this->getJson('/search?q=e_D')->assertOk()->json()['groups'])
+    $names = collect($this->getJson('/search?q=Pine_Ridge')->assertOk()->json()['groups'])
         ->flatMap(fn (array $group): array => array_column($group['results'], 'label'));
 
-    expect($names)->toContain('Underscore_Deal')
-        ->and($names)->not->toContain('Something else entirely');
+    expect($names)->toContain('Pine_Ridge sale')
+        // Matched only if `_` is still a wildcard.
+        ->and($names)->not->toContain('PineXRidge sale');
 });

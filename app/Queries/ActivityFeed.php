@@ -46,8 +46,6 @@ final class ActivityFeed
     public function paginate(ActivityCategory $category, ?string $cursor = null): CursorPaginator
     {
         return $this->query($category)
-            ->orderByDesc('occurred_at')
-            ->orderByDesc('id')
             ->cursorPaginate(self::PER_PAGE, cursor: $cursor)
             ->withQueryString();
     }
@@ -57,7 +55,28 @@ final class ActivityFeed
      */
     public function query(ActivityCategory $category): Builder
     {
-        $query = ActivityEvent::query();
+        /*
+         * **Newest first, here rather than in a caller.**
+         *
+         * The ordering lived in `paginate()`, which is the only place it was
+         * needed while `/activity` was the only screen. S10's panel calls
+         * `query()->limit(8)->get()` — so it took whatever eight rows Postgres
+         * returned first, which is insertion order, which is the **oldest**
+         * eight. The panel's own empty state promises "newest first".
+         *
+         * `id` breaks the tie because `occurred_at` is a timestamp two events
+         * can share — a contact log and the stage advance somebody recorded in
+         * the same second — and a cursor paginator needs a total order or it
+         * repeats a row across pages. ULIDs sort by creation time, so the tie
+         * is broken the way a reader expects rather than arbitrarily.
+         *
+         * This is the same lesson the subject filter below carries, one line
+         * up: a rule written into one caller is a rule the next caller is
+         * written without.
+         */
+        $query = ActivityEvent::query()
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('id');
 
         $prefixes = $category->prefixes();
 
@@ -111,6 +130,25 @@ final class ActivityFeed
          * somebody without `deals.view` must not read it even though they hold
          * `people.view`.
          */
+        return $this->visibleToViewer($query);
+    }
+
+    /**
+     * The per-viewer rules, applied to **any** builder over `activity_events`.
+     *
+     * Public and separate from `query()` because S31 does not go through
+     * `query()` — a person's own timeline is `forSubject($person)` with its
+     * own limit — and a filter written into one caller is a filter the next
+     * caller is written without. That sentence has now been proved twice on
+     * this one class: once when S10 reused `query()` behind a different screen
+     * gate, and once here, where a `people.view`-only reader saw the **deal**
+     * a contact was logged against and a link to a page answering 403.
+     *
+     * @param  Builder<ActivityEvent>  $query
+     * @return Builder<ActivityEvent>
+     */
+    public function visibleToViewer(Builder $query): Builder
+    {
         $query->where(function (Builder $inner): void {
             foreach (self::subjectPermissions() as $morphClass => $permission) {
                 if ($this->viewerCanSee($permission)) {
@@ -124,6 +162,15 @@ final class ActivityFeed
             $inner->orWhereRaw('1 = 0');
         });
 
+        /*
+         * And the deal-context rule, which is separate from the subject one.
+         *
+         * `deal_id` is set on every event belonging to a deal, whatever its
+         * subject — F2.5 logs a contact against a person and *optionally* a
+         * deal. So a person-subjected event can carry deal context, and
+         * somebody holding `people.view` without `deals.view` must not read
+         * it.
+         */
         if (! $this->viewerCanSeeDeals()) {
             $query->whereNull('deal_id');
         }

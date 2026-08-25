@@ -253,40 +253,62 @@ class RoleController extends Controller
             }
 
             /*
-             * **Uniqueness is asked of the key on create and of the name on
-             * edit**, because those are the two different things that can
-             * collide.
+             * **The name is what has to be unique, on both paths.**
              *
-             * `update()` does not recompute the key — the key is what every
-             * permission check and every `membership_role` row is written
-             * against, so renaming a role must not change what it means. So
-             * checking the *key* on an edit refused a rename against a key
-             * nothing would write, and reported a role by that name existing
-             * when the only match was an old name's slug.
+             * Two earlier attempts each held one half and let the other
+             * through, and the reason is that a rename decouples the key from
+             * the name: `update()` deliberately never recomputes the key,
+             * because the key is what every permission check and every
+             * `membership_role` row is written against and renaming a role
+             * must not change what it means.
              *
-             * Skipping the check entirely was the first correction and was
-             * worse: two roles could then both be called "Deal Lead" while
-             * keyed `deal_lead` and `closer`, which is a list nobody can read
-             * and a permission matrix nobody can audit. The name is what a
-             * person picks a role by, so on an edit the name is what has to be
-             * unique.
+             * So checking the *key* on create and the *name* on edit — which
+             * looked symmetric — still permitted the end state it was written
+             * to prevent: create "Deal Lead" (key `deal_lead`), rename it to
+             * "Closer" (key stays `deal_lead`), then create "Closer" — whose
+             * key `closer` is free, and whose name nothing checked. Two roles
+             * called Closer, which is a list nobody can read and a matrix
+             * nobody can audit.
+             *
+             * The name is what a person picks a role by, so the name is the
+             * uniqueness that matters and it is asked every time. The key is
+             * still checked on create as well, because a name that is *free*
+             * can still slug onto a key that is taken — "Deal-Lead" and "Deal
+             * Lead" are two names and one key, and the partial unique index
+             * would answer that with a 500.
              */
             $teamId = app(TeamContext::class)->requireId(Role::class);
 
-            $taken = Role::query()
+            $sameName = Role::query()
                 ->withTrashed()
                 ->where('team_id', $teamId)
+                ->whereRaw('lower(name) = ?', [mb_strtolower(trim($value))])
                 ->when(
                     $editing instanceof Role,
-                    fn ($query) => $query
-                        ->whereRaw('lower(name) = ?', [mb_strtolower($value)])
-                        ->whereKeyNot($editing?->getKey()),
-                    fn ($query) => $query->where('key', $key),
+                    fn ($query) => $query->whereKeyNot($editing?->getKey()),
                 )
                 ->exists();
 
-            if ($taken) {
+            if ($sameName) {
                 $fail('This team already has a role by that name. Archived ones still count — restore it instead.');
+
+                return;
+            }
+
+            if ($editing instanceof Role) {
+                // The key is not recomputed by an edit, so there is nothing
+                // left to collide.
+                return;
+            }
+
+            $sameKey = Role::query()
+                ->withTrashed()
+                ->where('team_id', $teamId)
+                ->where('key', $key)
+                ->exists();
+
+            if ($sameKey) {
+                $fail('That name produces the same internal key as a role this team already has. Pick one that reads differently.');
             }
         };
     }

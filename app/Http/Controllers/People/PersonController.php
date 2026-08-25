@@ -103,10 +103,20 @@ class PersonController extends Controller
          * `map()`, which is a `teams` lookup *and* a `team_memberships` lookup
          * per row, so up to a hundred queries on a fifty-event timeline.
          */
-        $activity = ActivityEvent::query()
-            ->forSubject($membership->person)
-            ->limit(50)
-            ->get();
+        /*
+         * Through `visibleToViewer()`, because this screen does **not** go
+         * through `ActivityFeed::query()` — a person's own timeline is
+         * `forSubject()` with its own limit — and the per-viewer rules live
+         * there rather than in a caller.
+         *
+         * The one that matters here is the deal-context rule: F2.5 logs a
+         * contact against a person and *optionally* a deal, so a reader
+         * holding `people.view` without `deals.view` was shown the deal a
+         * contact was attached to and a link to a page answering 403.
+         */
+        $activity = $feed->visibleToViewer(
+            ActivityEvent::query()->forSubject($membership->person),
+        )->limit(50)->get();
 
         return Inertia::render('People/Show', [
             'membership' => PeopleDirectory::detail($membership),
