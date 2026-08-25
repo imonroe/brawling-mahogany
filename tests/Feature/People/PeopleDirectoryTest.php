@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 use App\Enums\PersonLifecycleState;
+use App\Enums\SystemRole;
 use App\Models\ActivityEvent;
 use App\Models\Person;
+use App\Models\Role;
+use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
@@ -422,7 +425,7 @@ it('revokes rather than deletes when the person holds access', function (): void
         ]);
 
         $membership->roles()->attach(
-            App\Models\Role::query()->whereNull('team_id')->where('key', 'team_member')->sole()->getKey(),
+            Role::query()->whereNull('team_id')->where('key', 'team_member')->sole()->getKey(),
         );
     });
 
@@ -492,7 +495,7 @@ it('refuses a person without the permission', function (): void {
         ]);
 
         $membership->roles()->attach(
-            App\Models\Role::query()->whereNull('team_id')->where('key', 'contact')->sole()->getKey(),
+            Role::query()->whereNull('team_id')->where('key', 'contact')->sole()->getKey(),
         );
     });
 
@@ -533,3 +536,304 @@ function ownerMembershipOf(App\Models\Team $team): TeamMembership
         ->get()
         ->first(fn (TeamMembership $membership): bool => $membership->hasRole('team_owner'));
 }
+
+/* -------------------------------------------------------------------------
+ * A colleague is not a client (#162)
+ * ---------------------------------------------------------------------- */
+
+it('does not call somebody on the team a client', function (): void {
+    /*
+     * The bug as reported: invite an assistant, and the People index draws
+     * them with a green **Client** badge. The segment was never wrong —
+     * `notCarryingAccess()` keeps them out of Clients — the *badge* was, because
+     * `PersonLifecycleState::Active`'s label is literally "Client" and every
+     * row rendered it unconditionally.
+     *
+     * `carriesAccess` is what a screen asks now, and the roles are what it
+     * draws instead. Asserted on the payload rather than the markup, because
+     * the payload is what both screens read.
+     */
+    $this->get('/people?segment=team')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $rows = collect($page->toArray()['props']['people']['data']);
+
+            $colleague = $rows->firstWhere('email', $this->member->email);
+
+            expect($colleague)->not->toBeNull()
+                ->and($colleague['isColleague'])->toBeTrue()
+                ->and($colleague['roles'])->toContain('Team Member');
+        });
+});
+
+it('still calls a client a client', function (): void {
+    // The control. Without it this passes by never drawing a lifecycle at all.
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'last_name' => 'Nakamura',
+        'email' => 'claire@example.test',
+        'status' => PersonLifecycleState::Active->value,
+    ]);
+
+    $this->get('/people?segment=clients')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('email', 'claire@example.test');
+
+            expect($row)->not->toBeNull()
+                ->and($row['isColleague'])->toBeFalse()
+                ->and($row['status'])->toBe('active')
+                ->and($row['roles'])->toBe([]);
+        });
+});
+
+it('refuses a lifecycle change on somebody who is on the team', function (): void {
+    /*
+     * The second half of #162: S32 offered all four lifecycle states for a
+     * colleague. The form no longer sends the field — and the server refuses
+     * it rather than ignoring it, so a stale tab is told what happened instead
+     * of believing it changed something it did not.
+     */
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    $this->patch("/people/{$membership->getKey()}", [
+        'first_name' => $membership->first_name,
+        'last_name' => $membership->last_name,
+        'email' => $membership->email,
+        'status' => PersonLifecycleState::Lead->value,
+    ])->assertSessionHasErrors('status');
+
+    // Null, because a colleague has no place on the client lifecycle — and
+    // that is a value the column can hold now rather than one it fakes.
+    expect($membership->refresh()->status)->toBeNull();
+});
+
+it('lets a colleague’s other details be edited without a lifecycle', function (): void {
+    // The control for the rule above: refusing the field must not refuse the
+    // form. A colleague's phone number is ordinary directory work.
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    $this->patch("/people/{$membership->getKey()}", [
+        'first_name' => 'Demo',
+        'last_name' => 'Assistant',
+        'email' => $membership->email,
+        'phone' => '+1 303 555 0199',
+    ])->assertRedirect();
+
+    expect($membership->refresh()->phone)->toBe('+1 303 555 0199')
+        ->and($membership->last_name)->toBe('Assistant')
+        // Untouched, rather than reset by an absent field.
+        ->and($membership->status)->toBeNull();
+});
+
+it('lets a revoked colleague be recorded as the past client they now are', function (): void {
+    /*
+     * Found by review on #162, and the same failure family as the bug itself.
+     * `carriesAccess()` says nothing about revocation on purpose — a revoked
+     * Team Owner's membership is still an access membership, which is why
+     * `destroy()` revokes rather than deletes — so the first version of this
+     * fix badged somebody who had left as a current **Team Member** and
+     * refused every attempt to reclassify them. `destroy()` only revokes them
+     * again, so there was no way out at all.
+     *
+     * Revocation ends being a colleague. What is left is a person the team
+     * knows, which is exactly what the lifecycle describes.
+     */
+    /*
+     * A second colleague, because revoking the acting member would take away
+     * the access this test needs to read the screen with.
+     */
+    $person = Person::factory()->create();
+
+    $membership = app(TeamContext::class)->runFor($this->team, function () use ($person): TeamMembership {
+        $created = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'Gone',
+            'last_name' => 'Away',
+            'joined_at' => now(),
+        ]);
+
+        $created->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', SystemRole::TeamMember->value)->sole()->getKey(),
+        );
+
+        return $created;
+    });
+
+    $membership->revoke();
+
+    $this->get('/people')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('id', $membership->getKey());
+
+            expect($row['isColleague'])->toBeFalse()
+                // The roles survive until somebody tidies up, which is why the
+                // screen has to say Revoked beside them.
+                ->and($row['isRevoked'])->toBeTrue()
+                ->and($row['carriesAccess'])->toBeTrue()
+                ->and($row['roles'])->toContain('Team Member')
+                /*
+                 * **No lifecycle at all**, which is the whole reason the
+                 * column is nullable (#162).
+                 *
+                 * Round 1 of this fix left the value `AcceptInvitation` wrote
+                 * — `active`, label *Client*, tone success — and sent the row
+                 * to the lifecycle badge the moment `isColleague` went false.
+                 * Somebody who had never been a client of this team was drawn
+                 * in green as one.
+                 */
+                ->and($row['status'])->toBeNull();
+        });
+
+    $this->patch("/people/{$membership->getKey()}", [
+        'first_name' => $membership->first_name,
+        'last_name' => $membership->last_name,
+        'email' => $membership->email,
+        'status' => PersonLifecycleState::PastClient->value,
+    ])->assertRedirect();
+
+    expect($membership->refresh()->status)->toBe(PersonLifecycleState::PastClient);
+
+    /*
+     * And somebody can find them. Review on #162 measured the round-1 fix:
+     * the reclassification was editable, audited — and invisible, because
+     * `Clients` narrowed with `notCarryingAccess()`, which revocation does not
+     * enter, while the badge beside it asked `isColleague()`. A former
+     * colleague recorded as a past client appeared on no segment but All.
+     */
+    $this->get('/people?segment=clients')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('id', $membership->getKey());
+
+            expect($row)->not->toBeNull()
+                ->and($row['status'])->toBe('past_client');
+        });
+});
+
+it('keeps a colleague out of the Leads segment', function (): void {
+    /*
+     * The latent half of the same bug. `Leads` filtered on status alone, so
+     * one edit setting a team member to Lead — which S32 used to offer — put
+     * them in the list a team works to decide who to chase. The rule above
+     * stops the edit; this stops the segment agreeing with it if anything else
+     * ever writes that value.
+     */
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    $membership->forceFill(['status' => PersonLifecycleState::Lead])->save();
+
+    $this->get('/people?segment=leads')
+        ->assertOk()
+        ->assertInertia(function ($page): void {
+            expect(collect($page->toArray()['props']['people']['data']))->toHaveCount(0);
+        });
+});
+
+it('does not revoke somebody twice', function (): void {
+    /*
+     * Found by review on #162. `RevokeMembership::handle()` stamped
+     * `revoked_at` with *now* unconditionally, and both callers reach it from
+     * a button that is still on screen afterwards — so a second press moved
+     * the date the person record displays onto today and wrote a second
+     * `membership.revoked` entry. An audit log saying access was taken away
+     * twice, and the loss of when it actually happened.
+     */
+    $person = Person::factory()->create();
+
+    $membership = app(TeamContext::class)->runFor($this->team, function () use ($person): TeamMembership {
+        $created = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $person->getKey(),
+            'first_name' => 'Gone',
+            'joined_at' => now(),
+        ]);
+
+        $created->roles()->attach(
+            Role::query()->whereNull('team_id')
+                ->where('key', SystemRole::TeamMember->value)->sole()->getKey(),
+        );
+
+        return $created;
+    });
+
+    /*
+     * As the owner: revoking is `team.members.manage`, which a Team Member
+     * does not hold. That is why S31 offers this control only to somebody who
+     * can carry it out, and calls it **Revoke access** rather than promising a
+     * removal that PRD F1.3 forbids — the membership carries the name on
+     * every event this person authored (#140), so it is never deleted.
+     */
+    $owner = TeamMembership::query()
+        ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
+        ->sole();
+
+    // Two-factor is mandatory for an owner, and an un-enrolled one is
+    // redirected to the enrolment screen — so every assertion about a route
+    // becomes a 302 that did nothing.
+    $this->actingAsPerson($this->enrollTwoFactor($owner->person), $this->team);
+
+    $this->travelTo(now()->subDays(3));
+    $this->delete("/people/{$membership->getKey()}")->assertRedirect();
+    $this->travelBack();
+
+    $revokedAt = $membership->refresh()->revoked_at;
+
+    // The second press, on a button that is still on screen.
+    $this->delete("/people/{$membership->getKey()}")->assertRedirect();
+
+    expect($membership->refresh()->revoked_at?->toIso8601String())
+        ->toBe($revokedAt?->toIso8601String())
+        ->and(DB::table('audit_log')
+            ->where('auditable_id', $membership->getKey())
+            ->where('action', 'membership.revoked')
+            ->count())->toBe(1);
+});
+
+it('does not put a lifecycle on a colleague who is also given a status page', function (): void {
+    /*
+     * Found by review on #162, round five, and a regression the previous
+     * round's fix introduced.
+     *
+     * On a live membership the roles are a **union** — `syncWithoutDetaching`
+     * — so the invited role does not decide whether somebody is on the team
+     * afterwards. Asking only the invitation wrote `active` onto a person who
+     * is still a Team Member: invisible, because the badge suppresses a
+     * colleague's lifecycle, and uncorrectable, because `PersonRules`
+     * prohibits the field. The team would have found out on the day they
+     * revoked access, when the row came back a green **Client**.
+     *
+     * Asserted on the **column**. The badge is honest here and the column is
+     * not, which is why five rounds of badge fixtures went past it.
+     */
+    $membership = TeamMembership::query()->where('person_id', $this->member->getKey())->sole();
+
+    expect($membership->status)->toBeNull();
+
+    $owner = TeamMembership::query()
+        ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
+        ->sole();
+
+    $this->actingAsPerson($this->enrollTwoFactor($owner->person), $this->team);
+
+    $this->post('/settings/members/invitations', [
+        'email' => $membership->email,
+        'role_id' => Role::query()->whereNull('team_id')
+            ->where('key', SystemRole::StatusViewer->value)->sole()->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    $invitation = TeamInvitation::query()->latest('created_at')->sole();
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->post("/invitations/{$invitation->getKey()}/claim")->assertRedirect();
+
+    expect($membership->refresh()->status)->toBeNull()
+        ->and($membership->carriesAccess())->toBeTrue();
+});

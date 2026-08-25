@@ -6,6 +6,7 @@ import {
     formatCurrency,
     formatDate,
     formatDateForClient,
+    formatDateShort,
     formatDateTime,
     formatDealName,
     formatLocality,
@@ -77,6 +78,45 @@ describe('formatters', () => {
 
     it('formats internal dates as weekday, short month, day', () => {
         expect(formatDate('2026-08-20T18:00:00Z')).toBe('Thu, Aug 20');
+    });
+
+    it('draws a day as that day, in any zone (issue 165)', () => {
+        /*
+         * A `date` column carries a **day**, and `new Date('2026-08-25')` reads
+         * a bare date string as UTC midnight — which in Denver is the evening
+         * of the 24th. So a task due the 25th drew as *"Aug 24"*, and
+         * `DateChip` gave it the danger tone a day early, while the badge
+         * beside it (fixed in #164, and asking the team's calendar) still said
+         * Open. The two halves of this fix are the wire sending `2026-08-25`
+         * and this reading it as a day rather than an instant.
+         */
+        expect(formatDate('2026-08-25')).toBe('Tue, Aug 25');
+        expect(formatDateShort('2026-08-25')).toBe('Aug 25');
+
+        // Every zone, because a day has none. Tokyo is the other side of the
+        // same mistake: +9 would land a UTC-midnight instant on the 25th and
+        // an evening instant on the 26th.
+        setTeamTimeZone('Asia/Tokyo');
+        expect(formatDate('2026-08-25')).toBe('Tue, Aug 25');
+        setTeamTimeZone('Pacific/Honolulu');
+        expect(formatDate('2026-08-25')).toBe('Tue, Aug 25');
+
+        // The control: a real instant still reads in the team's zone, because
+        // it has one. 01:00 UTC on the 25th is the evening of the 24th here.
+        setTeamTimeZone('America/Denver');
+        expect(formatDate('2026-08-25T01:00:00Z')).toBe('Mon, Aug 24');
+    });
+
+    it('counts a day as today when it is today for the team', () => {
+        // 01:00 UTC on the 25th is still the 24th in Denver, so a task due the
+        // 24th is due *today* — the relative chip and the state badge have to
+        // agree about which day it is.
+        const now = '2026-08-25T01:00:00Z';
+
+        expect(formatRelativeDate('2026-08-24', { now })).toBe('today');
+        expect(formatRelativeDate('2026-08-25', { now })).toBe('tomorrow');
+        expect(formatRelativeDate('2026-08-23', { now })).toBe('yesterday');
+        expect(calendarDaysBetween(now, '2026-08-27')).toBe(3);
     });
 
     it('formats client dates in full, with the year only when it differs', () => {

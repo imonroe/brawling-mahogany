@@ -1,6 +1,6 @@
 import { Check, Circle, Flag, Loader, Minus, ShieldAlert } from '@lucide/vue';
 import { mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { MARKER_TONE, stageMarker } from '@/components/app/stageRail';
 
@@ -10,7 +10,28 @@ import { MARKER_TONE, stageMarker } from '@/components/app/stageRail';
  * stage card is guarded by `workflow.advance` — so the mock is not scaffolding
  * here, it is the thing one of these cases is about.
  */
-const permissions = { value: ['workflow.advance'] as string[] };
+const permissions = {
+    // What a Team Member holds. `deals.manage` is what makes the expanded
+    // card's task checkboxes live (S17, #71).
+    value: ['workflow.advance', 'deals.manage'] as string[],
+};
+
+/** One open, required task — the fixture both completion tests stand on. */
+function oneOpenTask() {
+    return {
+        total: 1,
+        complete: 0,
+        items: [
+            {
+                id: 'task-1',
+                title: 'Order the sign',
+                state: 'open',
+                isRequired: true,
+                dueDate: null,
+            },
+        ],
+    };
+}
 
 vi.mock('@inertiajs/vue3', () => ({
     usePage: () => ({ props: { auth: { permissions: permissions.value } } }),
@@ -44,6 +65,8 @@ function stage(overrides: Partial<TimelineStage> = {}): TimelineStage {
         isActive: false,
         state: 'pending',
         isMilestone: false,
+        canSkip: false,
+        canReopen: false,
         plannedStart: null,
         plannedEnd: null,
         actualStart: null,
@@ -410,7 +433,7 @@ describe('StageRow', () => {
                 'Advance stage',
             );
         } finally {
-            permissions.value = ['workflow.advance'];
+            permissions.value = ['workflow.advance', 'deals.manage'];
         }
 
         // And it is back for somebody who may.
@@ -540,37 +563,54 @@ describe('StageRow', () => {
         expect(last.findAll('.bg-border')).toHaveLength(0);
     });
 
-    it('does not offer to complete a task it cannot complete', () => {
+    it('completes a task from the rail, and says which one', async () => {
         /*
-         * S17 owns task completion and its endpoint does not exist. A checkbox
-         * wired to nothing is the *"checkbox that selects into nothing"* S13
-         * refused to ship.
+         * Live since S17 (#71) gave completion an endpoint. Until then this
+         * row was deliberately inert — a checkbox wired to nothing is the
+         * *"checkbox that selects into nothing"* S13 refused to ship — and the
+         * event it emits now goes to the **task**, not to the workflow: the
+         * rail is still not a second way into `AdvanceWorkflow`.
          */
-        const wrapper = row(
-            {
-                isActive: true,
-                tasks: {
-                    total: 1,
-                    complete: 0,
-                    items: [
-                        {
-                            id: 'task-1',
-                            title: 'Order the sign',
-                            state: 'open',
-                            isRequired: true,
-                            dueDate: null,
-                        },
-                    ],
-                },
-            },
-            true,
-        );
+        const wrapper = row({ isActive: true, tasks: oneOpenTask() }, true);
+
+        const box = wrapper.find('input[type="checkbox"]');
+
+        expect(box.attributes('disabled')).toBeUndefined();
+
+        await box.setValue(true);
+
+        expect(wrapper.emitted('complete')).toEqual([['task-1', true]]);
+    });
+
+    it('does not offer to complete a task to somebody who may not', () => {
+        /*
+         * PRD §4.2 F2.2's Read Only role: a broker who watches the pipeline
+         * reads the checklist and does not tick it. §7.3 hides a section
+         * somebody may not use; a checkbox is the one control that has to stay
+         * visible either way, because its *state* is the information — so it
+         * is disabled rather than dropped, and its accessible name says the
+         * state rather than offering the action.
+         */
+        permissions.value = ['deals.view'];
+
+        const wrapper = row({ isActive: true, tasks: oneOpenTask() }, true);
 
         const box = wrapper.find('input[type="checkbox"]');
 
         expect(box.exists()).toBe(true);
         expect(box.attributes('disabled')).toBeDefined();
     });
+});
+
+/*
+ * Restored here rather than at the end of each test that narrows it. A
+ * restoring line inside the test body only runs when the test *passes* — so a
+ * failing assertion leaks the narrowed permissions into every test that
+ * follows, and what you get is one real failure followed by a page of
+ * confusing ones.
+ */
+afterEach(() => {
+    permissions.value = ['workflow.advance', 'deals.manage'];
 });
 
 function workflow(overrides: Partial<TimelineWorkflow> = {}): TimelineWorkflow {

@@ -239,6 +239,7 @@ One verb per action, used identically everywhere it appears. The right column is
 | **Override** | Force past an unmet gate, with a reason | Bypass, Force, Skip, Ignore |
 | **Skip** | Mark a stage not applicable to this deal | Ignore, Dismiss, Cancel |
 | **Complete** | Finish a task | Done, Close, Check off, Finish |
+| **Reopen** | Undo a completion — a task that is not done after all, or a stage the team has to go back to | Uncomplete, Undo, Revert, Restart |
 | **Assign** | Give a task an owner | Delegate, Allocate, Give |
 | **Log** | Record something that already happened | Add note, Record, Track |
 | **Send** | Dispatch a message immediately | Fire, Trigger, Push, Blast |
@@ -252,6 +253,27 @@ One verb per action, used identically everywhere it appears. The right column is
 
 > [!warning] Override and Skip are different, and the difference matters legally
 > **Override** means the gate should have been met and was not, and you are proceeding anyway. It demands a reason, writes an audit entry, and creates a follow-up task. **Skip** means the stage does not apply to this deal at all. Conflating them in a label destroys the audit trail's meaning.
+>
+> Built in Slice 2 (#69, #70), and the separation runs all the way down:
+> different permissions (`workflow.override`, `stage.skip`), different routes,
+> different audit actions, and different columns — `gates.overridden` versus
+> `stages.skipped_reason`. **Skip creates no follow-up task**, deliberately: an
+> override defers an obligation, and a cash purchase's appraisal contingency is
+> not late, it is absent. On the feed a skip is neutral for the same reason,
+> where an override is amber.
+>
+> **Reopen** is the third verb and the quiet one: it returns the stage the
+> workflow most recently finished with — completed or skipped — to `active`,
+> and puts the stage after it back to `pending`. Only the most recent one,
+> because reopening stage 3 while stage 6 is active either un-completes three
+> stages silently or leaves the workflow with two active ones. Repeating it
+> walks backwards a stage at a time. It is authorized as an **advance**, since
+> it waives nothing and marks nothing inapplicable — it undoes one.
+>
+> A **finished workflow** refuses a reopen. `Workflow`'s own state map settled
+> that before #70 existed: *"reopen the inspection stage" is a real request,
+> "un-complete the entire sale" is not* — and a stage made active inside a
+> workflow that cannot advance is a dead end.
 
 ---
 
@@ -296,6 +318,65 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 ### Person lifecycle
 
 `lead` → Lead · `active` → Client · `past_client` → Past Client · `archived` → Archived
+
+> [!warning] This describes a **contact**, not a colleague
+> Every value here is a stage of a client relationship, so somebody on the team
+> has no honest answer in it. `team_memberships.status` is therefore
+> **nullable**, and null is not "unknown" — it is *this person has no place on
+> the client lifecycle*. It is what a colleague holds, and what a former
+> colleague holds until the team says what they are now.
+>
+> That column used to be `NOT NULL`, so `AcceptInvitation` wrote `active` for
+> want of something to write, and `active` reads as *Client* — a team's own
+> assistant badged as their client (#162). The fix that hid the badge for
+> anybody carrying access only moved the problem: revoke that access and the
+> row fell back to the same value nobody had chosen. The question
+> *"was `active` typed or defaulted?"* has no answer in a column that cannot be
+> empty.
+>
+> **Colleague means team access *and* not revoked.**
+> `TeamMembership::carriesAccess()` is the one definition of team access (§2's
+> note above, and issue #142) and deliberately says nothing about revocation —
+> a revoked Team Owner's membership is still an access membership, which is why
+> removing somebody revokes rather than deletes. `isColleague()` adds the
+> revocation, and `scopeNotColleagues()` is the same question in SQL, so the
+> **Leads** and **Clients** segments of S30 filter on exactly what the badge
+> beside the row draws. They asked two different questions for one round, and a
+> former colleague recorded as a past client was then visible on no segment but
+> All.
+>
+> **What accepting an invitation does to the lifecycle**, since that is the one
+> place the product writes it without a human choosing:
+>
+> - Somebody who is **on the team afterwards** holds null. That is the invited
+>   role granting team access, *or* a live membership that already carried it —
+>   the roles are a union on a live row, so a Team Member given a status page is
+>   still a Team Member, and asking only the invitation wrote `active` onto a
+>   colleague where nobody could see or correct it.
+> - Anybody else **keeps the lifecycle they had**. Clearing it for `Contact` and
+>   `Status Viewer` erased a classification the team had typed.
+> - With none to keep, they get `active` — *Client*. This is what the product
+>   did before any of this and is deliberately unchanged, but it is a guess, and
+>   for the `Contact` role — *"known to the team, with no access of any kind"*,
+>   which is a lender or an inspector as readily as a client — it is the wrong
+>   one. `SavePerson::create` answers the same question with `Lead`.
+>
+> A professional contact has **no lifecycle**: they are in or out, engaged
+> across many deals, never promoted from one state to another. So the answer is
+> not a fifth state here — it is a badge drawn from the vocabulary that already
+> describes them, `ParticipantRole` (§13.3's flag and specialties, and PRD §6.3's
+> per-deal roles). Issue #167 is where that lands; until it does, these two
+> paths guess, visibly and correctably, on S32.
+>
+> An **archived** role grants nothing, on both sides of that question: a
+> membership whose only role is archived carries no access, so it is not a
+> colleague, so its lifecycle is its own.
+>
+> A screen draws three independent facts, each when it is true: the roles the
+> team calls them by (whenever the membership carries access, revoked or not,
+> so S30 agrees with `/settings/members` and the console), the lifecycle
+> (whenever it is not null), and **Revoked**. S32 offers the lifecycle for a
+> contact, refuses it for a colleague, and makes it optional for a former one.
 
 ### Automation / message
 

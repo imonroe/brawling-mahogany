@@ -22,6 +22,11 @@ final class RequiredTasksCompleteEvaluator implements GateEvaluator
         return 'required_tasks_complete';
     }
 
+    public static function label(): string
+    {
+        return 'Required tasks complete';
+    }
+
     public function evaluate(Gate $gate): GateVerdict
     {
         $stage = $gate->stage;

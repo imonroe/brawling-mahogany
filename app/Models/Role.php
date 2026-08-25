@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\SystemRole;
 use App\Models\Concerns\HasProductDefaults;
+use App\Support\Permissions;
 use Database\Factories\RoleFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -37,7 +38,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property bool $is_system
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Permission> $permissions
  */
-#[Fillable(['team_id', 'key', 'name', 'description', 'is_system'])]
+/*
+ * **Not `team_id`, and not `key` or `is_system` either.** `BelongsToTeam`'s
+ * rule is that a request body must never choose a tenant, and this table is
+ * the sharper case: `Role` carries no global scope (the five shipped roles
+ * have no team), so a fillable `team_id` is a request choosing whose role it
+ * is with nothing behind it to refuse. `key` is what every permission check is
+ * written against and `is_system` is what makes a row uneditable — both are
+ * derived by `RoleController`, never typed.
+ */
+#[Fillable(['name', 'description'])]
 class Role extends Model
 {
     /** @use HasFactory<RoleFactory> */
@@ -57,6 +67,71 @@ class Role extends Model
     public function team(): BelongsTo
     {
         return $this->belongsTo(Team::class);
+    }
+
+    /**
+     * Does holding this role put somebody **on the team**?
+     *
+     * #142's question, asked of the grant rather than of the membership. The
+     * catalogue's surfaces are the answer: `Contact` and `Status Viewer` are
+     * roles a *client* holds, and an invitation to one is not somebody joining
+     * the team. Review on #162 found the lifecycle being cleared for every
+     * accepted invitation, which erased a typed **Client** from the moment
+     * somebody was given a status-page login.
+     */
+    public function grantsTeamAccess(): bool
+    {
+        /*
+         * An archived role grants nothing. `holdsATeamSurfacePermission()`
+         * excludes a soft-deleted role, and so does the relation behind
+         * `carriesAccess()` — so a role that answered *yes* here while the
+         * membership holding it answered *no* would put the two halves of one
+         * question on opposite sides. Review on #162 measured exactly that:
+         * accepting an invitation to a role archived in the meantime cleared
+         * the lifecycle for a membership that then carried no access, leaving
+         * a row with no badge of any kind.
+         */
+        if ($this->trashed()) {
+            return false;
+        }
+
+        return Permissions::grantTeamAccess($this->permissionKeys());
+    }
+
+    /**
+     * Every permission this role carries, deduplicated.
+     *
+     * `TeamMembership::permissionKeys()` is the same walk one level up and
+     * calls this rather than repeating the loop.
+     *
+     * @return list<string>
+     */
+    public function permissionKeys(): array
+    {
+        $this->loadMissing('permissions');
+
+        $keys = [];
+
+        foreach ($this->permissions as $permission) {
+            $keys[$permission->key] = true;
+        }
+
+        return array_keys($keys);
+    }
+
+    /**
+     * Who holds this role (S75 · #88).
+     *
+     * The count S75 shows **before** somebody archives a role, because a role
+     * held by four people is a role whose archiving takes four people's
+     * access with it — the same rule S76 set for deal types, where the in-use
+     * count is shown before the choice rather than reported after it.
+     *
+     * @return BelongsToMany<TeamMembership, $this>
+     */
+    public function memberships(): BelongsToMany
+    {
+        return $this->belongsToMany(TeamMembership::class, 'membership_role');
     }
 
     /**

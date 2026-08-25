@@ -39,6 +39,18 @@ class TeamMembershipFactory extends Factory
         ];
     }
 
+    /**
+     * A colleague: no lifecycle value at all (#162).
+     *
+     * IA §8's states describe a contact, so a membership that carries team
+     * access holds null — which is what `AcceptInvitation` writes. Attach the
+     * roles separately; this is the lifecycle half.
+     */
+    public function colleague(): static
+    {
+        return $this->state(fn (array $attributes): array => ['status' => null]);
+    }
+
     public function lead(): static
     {
         return $this->state(fn (array $attributes): array => ['status' => PersonLifecycleState::Lead]);

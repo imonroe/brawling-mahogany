@@ -17,8 +17,8 @@
  *
  * ## The tabs that have no screen yet
  *
- * Timeline (S16), Tasks (S17), Dates (S18) and Documents (S21) are later
- * slices. They are rendered, and disabled, with a title naming the slice —
+ * Dates (S18) and Documents (S21) are later slices. They are rendered, and
+ * disabled, with a title naming the slice —
  * `Tab` already draws a hrefless tab as a `<button>`. Visible, so the shape of
  * a deal is honest; inert, so nothing offers a route that 404s. §7.3's "hide
  * rather than disable" rule is about **permission**: a section somebody may
@@ -54,7 +54,22 @@ export type DealHeaderProps = {
     sideLabel: string;
     clientName: string | null;
     location: AddressParts | null;
-    counts: { people: number; properties: number };
+    /**
+     * `tasks` is what is **open**; the other two are totals.
+     *
+     * Deliberate, and `App\Support\Deals\DealHeader` carries the argument:
+     * a checklist counts what is left, because a seeded pack puts eighty tasks
+     * on a deal and a tab reading `80` when all eighty are done says the
+     * opposite of what happened.
+     */
+    counts: {
+        people: number;
+        properties: number;
+        tasks: number;
+        offers: number;
+    };
+    /** Whether this deal's type has offers at all (IA §5.2 · #73). */
+    hasOffers: boolean;
     /** Null when no single workflow is unambiguously the one to advance. */
     advance: { workflowId: string; stageId: string } | null;
 };
@@ -86,7 +101,12 @@ type TabSpec = {
 const tabs = computed<TabSpec[]>(() => [
     { label: 'Overview', segment: null, count: null, arrivesWith: null },
     { label: 'Timeline', segment: 'timeline', count: null, arrivesWith: null },
-    { label: 'Tasks', segment: 'tasks', count: null, arrivesWith: 'S17' },
+    {
+        label: 'Tasks',
+        segment: 'tasks',
+        count: props.deal.counts.tasks,
+        arrivesWith: null,
+    },
     { label: 'Dates', segment: 'dates', count: null, arrivesWith: 'S18' },
     {
         label: 'People',
@@ -100,6 +120,22 @@ const tabs = computed<TabSpec[]>(() => [
         count: props.deal.counts.properties,
         arrivesWith: null,
     },
+    /*
+         IA §5.2: *"hidden when empty and the deal type has no offers."* Two
+         conditions, and both are needed — a rental placement does not grow an
+         empty Offers tab, and a listing shows one before the first offer
+         arrives so somebody can record it.
+    */
+    ...(props.deal.hasOffers || props.deal.counts.offers > 0
+        ? [
+              {
+                  label: 'Offers',
+                  segment: 'offers',
+                  count: props.deal.counts.offers,
+                  arrivesWith: null,
+              },
+          ]
+        : []),
     {
         label: 'Documents',
         segment: 'documents',
@@ -170,7 +206,28 @@ function hrefFor(tab: TabSpec): string | undefined {
                 </div>
             </div>
 
-            <!--
+            <div class="flex flex-wrap items-center gap-2">
+                <!--
+                §8.4's secondary action, and the one that had no write path
+                until S17 (#71).
+
+                A link to the Tasks tab rather than a dialog opened in place:
+                the form needs this deal's stages and this team's assignees,
+                and putting that payload on all seven other tabs to save one
+                navigation is a cost every tab pays for a button most of them
+                never press. `Deals/Tasks.vue` opens the form on `?new`.
+
+                Hidden rather than disabled without `deals.manage`, per §7.3.
+            -->
+                <AppButton
+                    v-if="can('deals.manage')"
+                    variant="secondary"
+                    :href="`/deals/${deal.id}/tasks?new`"
+                >
+                    Add task
+                </AppButton>
+
+                <!--
                 IA §7: **Advance** is the only verb for moving a workflow
                 forward — never Progress, Move, Next or Complete.
 
@@ -179,8 +236,11 @@ function hrefFor(tab: TabSpec): string | undefined {
                 per-workflow cards each carry their own. Hidden rather than
                 disabled when the person lacks `workflow.advance`, per §7.3.
             -->
-            <div v-if="deal.advance && can('workflow.advance')">
-                <AppButton @click="advanceFromHeader">Advance stage</AppButton>
+                <AppButton
+                    v-if="deal.advance && can('workflow.advance')"
+                    @click="advanceFromHeader"
+                    >Advance stage</AppButton
+                >
             </div>
         </div>
 

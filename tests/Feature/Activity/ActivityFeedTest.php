@@ -66,7 +66,7 @@ function feedRoleWithDirectoryOnly(Team $team, Person $person): void
 
         expect($membership)->toBeInstanceOf(TeamMembership::class);
 
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => 'directory_only',
             'name' => 'Directory Only',

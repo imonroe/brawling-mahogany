@@ -13,25 +13,56 @@ export type PersonRow = {
     lastName: string | null;
     email: string | null;
     phone: string | null;
-    status: string;
+    /**
+     * IA §8's lifecycle, or **null** where it does not apply (#162).
+     *
+     * Null is not "unknown": it is *this person has no place on the client
+     * lifecycle*, which is what a colleague holds and what a former colleague
+     * holds until the team says what they are now. A screen with nothing to
+     * say about somebody says nothing.
+     */
+    status: string | null;
+    /** Whether the role badges apply — team access, revoked or not (#162). */
+    carriesAccess: boolean;
+    /** `carriesAccess` and not revoked: whether the lifecycle is theirs to set. */
+    isColleague: boolean;
+    /** What the team calls them, when they are on it. Empty for a contact. */
+    roles: string[];
     isVendor: boolean;
+    /**
+     * The three cells S34's rows draw, and null for everybody else (#83).
+     *
+     * `lastUsedAt` is **derived** from `deal_participants` and never stored —
+     * F2.6 calls it the most useful column and the one most likely to be stale
+     * if duplicated.
+     */
+    vendor: VendorSummary | null;
     /** Most of this directory has none, and S31 says so rather than implying one. */
     hasLogin: boolean;
     isRevoked: boolean;
 };
 
-export type VendorFields = {
+/**
+ * What a vendor row draws (S34 · #83): what they do, where, how they rated,
+ * and when this team last engaged them.
+ */
+export type VendorSummary = {
     specialties: string[];
+    rating: number | null;
+    serviceArea: string | null;
+    /** Derived from `deal_participants`, never stored — F2.6. */
+    lastUsedAt: string | null;
+};
+
+/** The full record S31 edits — the row's summary, plus what only it shows. */
+export type VendorFields = VendorSummary & {
     /** Integer cents, never dollars (ADR 0001). Pass it to `formatCurrency` as-is. */
     typicalCost: number | null;
-    serviceArea: string | null;
-    rating: number | null;
     notes: string | null;
 };
 
 export type PersonDetail = PersonRow & {
     notes: string | null;
-    roles: { key: string; name: string }[];
     vendor: VendorFields;
     joinedAt: string | null;
     revokedAt: string | null;

@@ -24,15 +24,23 @@
 import {
     Activity,
     ArrowRight,
+    CircleCheck,
+    CircleSlash,
+    FileSignature,
     Flag,
     House,
     Import,
     Link2,
     Link2Off,
+    ListChecks,
+    ListPlus,
+    ListX,
     Mail,
     MessageSquare,
     PenLine,
     Phone,
+    RotateCcw,
+    Scale,
     ShieldAlert,
     Star,
     Trash2,
@@ -74,6 +82,12 @@ const CONTACT_ICONS: Record<string, LucideIcon> = {
 const EVENT_TYPES: Record<string, ActivityDescriptor> = {
     // Completions.
     'stage.advanced': { icon: ArrowRight, tone: 'success' },
+    /*
+     * A completed task is a completion, so §7.3's rule gives it `success` —
+     * the same tone as an advance, which is right: on a checklist-driven deal
+     * these are the entries that say work got done.
+     */
+    'task.completed': { icon: CircleCheck, tone: 'success' },
     'milestone.reached': { icon: Flag, tone: 'success' },
     'workflow.completed': { icon: Flag, tone: 'success' },
 
@@ -89,9 +103,80 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * that looks like every other row is a bypassed gate nobody finds.
      */
     'gate.overridden': { icon: ShieldAlert, tone: 'warning' },
+    /*
+     * Ticking a manual gate. **Neutral, not success** — §7.3 tints a
+     * *completion*, and clearing one of three blockers completes nothing. It
+     * is also the row that has to read as plainly different from the
+     * `state-warning` override directly above it: IA §8 keeps met and
+     * overridden apart, and a feed that tinted them alike would undo that
+     * distinction at exactly the point somebody is scanning for it.
+     */
+    'gate.confirmed': { icon: CircleCheck, tone: 'neutral' },
+    'gate.unconfirmed': { icon: CircleSlash, tone: 'neutral' },
+
+    /*
+     * Skip and Reopen (PRD F4.12 · IA §7 · #70), and both are **neutral**.
+     *
+     * The override above earns amber because something that should have
+     * happened did not. Neither of these is that. A skipped stage did not
+     * apply to this deal at all — §7.4 badges it neutral and IA §8 hides it
+     * from the client entirely — and tinting it like an override on the feed
+     * would rebuild, in colour, exactly the conflation IA §7 calls legally
+     * material. Reopening is somebody correcting themselves, which the product
+     * would rather encourage than mark.
+     *
+     * Distinct glyphs, though: both are unusual enough to be worth finding
+     * without reading the summary.
+     */
+    /*
+     * A note somebody wrote (F4.11 · #72). Neutral, and `PenLine` because it
+     * is the one row on the feed whose text a person typed rather than the
+     * product describing something that happened.
+     */
+    'note.added': { icon: PenLine, tone: 'neutral' },
+
+    /*
+     * Offers (S22, #73). All three neutral, including the one that records an
+     * acceptance: §7.3 tints a **completion**, and an accepted offer is not
+     * the deal completing — it is the moment the deal acquires its dates. The
+     * completion on this feed is the closing, which is a stage advance.
+     */
+    'offer.added': { icon: FileSignature, tone: 'neutral' },
+    'offer.status_changed': { icon: Scale, tone: 'neutral' },
+    'offer.removed': { icon: Trash2, tone: 'neutral' },
+
+    'stage.skipped': { icon: CircleSlash, tone: 'neutral' },
+    'stage.reopened': { icon: RotateCcw, tone: 'neutral' },
 
     // The rest, neutral by Design System §7.3's own rule.
     'workflow.started': { icon: Activity, tone: 'neutral' },
+    /*
+     * The other three halves of a task's life (S17, #71). Neutral by §7.3's
+     * own rule — only a completion, a message the product sent, and an
+     * override are tinted.
+     *
+     * `task.reopened` exists so the feed cannot go on asserting something the
+     * team has since decided is not true: a completion is already in it.
+     */
+    'task.added': { icon: ListPlus, tone: 'neutral' },
+    /*
+     * The other way past a blocking gate (#71, found in review). Neutral
+     * rather than `warning`: §7.3 gives `warning` to an override, and this is
+     * a team changing what it decided the obligation is rather than somebody
+     * waiving one that stands. It is on the feed at all so that the change is
+     * not silent, which is what it was.
+     */
+    'task.required_changed': { icon: ListChecks, tone: 'neutral' },
+    /*
+     * The same bypass one control higher up the form: a
+     * `required_tasks_complete` gate counts the required tasks on **one
+     * stage**, so moving a task off that stage clears it exactly as unticking
+     * the flag does. Round 2 of #71's review proved it, after round 1 had
+     * fixed only the half it named first.
+     */
+    'task.moved': { icon: ArrowRight, tone: 'neutral' },
+    'task.reopened': { icon: ListChecks, tone: 'neutral' },
+    'task.deleted': { icon: ListX, tone: 'neutral' },
     'contact.logged': { icon: MessageSquare, tone: 'neutral' },
     'person.added': { icon: UserPlus, tone: 'neutral' },
     'person.imported': { icon: Import, tone: 'neutral' },

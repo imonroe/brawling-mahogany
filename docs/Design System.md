@@ -626,7 +626,7 @@ Everything in this section is measured from the built designs. Tailwind classes 
 |---|---|---|
 | `StatusBadge` | `components/app/` | **Built in design** |
 | `DealRow` | `components/app/` | **Built in design** |
-| `TaskItem` | `components/app/` | **Built in design** |
+| `TaskItem` | `components/app/` | **Built in code** (S16, S17), with an `actions` slot for the row controls a screen hangs on it |
 | `ActivityItem` | `components/app/` | **Built in code** (S12, S31), with a default slot for a row's supporting lines |
 | `DateChip` | `components/app/` | **Built in design** |
 | `NavItem` | `layouts/` | **Built in design** |
@@ -752,6 +752,27 @@ h-11  px-3  gap-2.5  border-b
 Title `text-sm text-foreground`; completed tasks get `line-through text-muted-foreground` and a filled checkbox. Meta is `text-xs text-muted-foreground` and carries the deal context (`123 Main St · Under Contract`) on cross-deal screens, or the completion attribution (`Completed by Heather`) within a deal.
 
 The assignee avatar is hidden on My Work, where it is always the current user.
+
+> [!note] As built (#71)
+> Two additions, both made when S17 gave the row somewhere to be worked from:
+>
+> - An **`actions` slot** after the avatar. §7.3 fixes four cells and Edit and
+>   Delete are not a fifth — they are what the screen that owns the row wants
+>   to hang on it, so the stage rail passes nothing and keeps the anatomy
+>   exactly. The same argument as `ActivityItem`'s default slot.
+> - A **`readonly`** flag, which is what a screen sets when the *reader* may
+>   not complete the task rather than when the endpoint does not exist. The
+>   checkbox is disabled rather than dropped, because its state is the
+>   information: PRD §4.2 F2.2's Read Only role has to see what is done.
+>
+> And one departure, forced by arithmetic. The row is a single non-wrapping
+> line, so on a 360px phone the checkbox, the date chip, the avatar and two
+> 44px action buttons leave roughly 100px for the title — which truncates a
+> real checklist item to a dozen characters. **Below `sm` the assignee avatar
+> and the Delete action are hidden**, which buys the title back about 80px and
+> keeps every remaining control at §11's 44px floor. §7.3 already hides this
+> avatar on My Work; a fuller mobile treatment of the row belongs with S11,
+> which is the phone-first screen and will force the question properly.
 
 #### ActivityItem
 
@@ -954,7 +975,7 @@ Beyond shadcn and its own dependencies. Keep this list short and justify every a
 | TanStack Table | Data tables | shadcn's Data Table is a recipe over it |
 | VueUse | Composables | Breakpoints, storage, event listeners |
 | date-fns | Formatting | Reka's calendar uses `@internationalized/date` separately |
-| A sortable library | S38, S41, S42 | Pick one, use it everywhere |
+| ~~A sortable library~~ | S38, S41, S42 | **Decided in S38 (#63): none.** Explicit move controls instead — see §13.2's note below |
 | TipTap | S46 merge-field editor | Only if a simpler token-insert textarea proves insufficient |
 | A PDF renderer | S52, S66 | pdf.js based |
 | A calendar library | S57 | Evaluate against building the month grid by hand |
@@ -1019,6 +1040,8 @@ Shared by all eight deal tabs (S15–S22).
 
 Tabs, in order: Overview · Timeline · Tasks · Dates · People · Properties · Documents · Offers. Counts appear on Tasks, Dates, People, Documents, Offers. Offers is hidden when the deal type has none.
 
+**The Tasks count is what is open, not what the deal holds** (#71). Every other count is a total; this one is not, because a seeded pack puts eighty tasks on a deal and a tab reading `80` when all eighty are done says the opposite of what happened. Same rule as §7.4's stage-rail counts: the number has to mean what a reader will assume it means.
+
 > [!warning] Three things this table does not settle, found while building S15 (#75)
 > Each is answered in code for now, and each is really a design decision:
 >
@@ -1030,9 +1053,13 @@ Tabs, in order: Overview · Timeline · Tasks · Dates · People · Properties �
 >    Overview's per-workflow cards carry one each. A primary action that
 >    silently picks one of two workflows is worse than none, and there is no
 >    honest label for *"advance one of these"*.
-> 2. **`Log Contact` and `Add Task` are not built.** Contact logging is on the
->    person (S32) and tasks are S17; neither has a deal-level write path yet.
->    The overflow icon button has nothing to put in it either.
+> 2. **`Add Task` is built; `Log Contact` is not.** Tasks landed with S17
+>    (#71), and the button is a **link to the Tasks tab** with `?new` rather
+>    than a dialog opened in place — the form needs this deal's stages and this
+>    team's assignees, and carrying that payload on all eight tabs to save one
+>    navigation is a cost every tab pays for a button most of them never press.
+>    Contact logging is still on the person (S32) and has no deal-level write
+>    path, and the overflow icon button has nothing to put in it either.
 > 3. **There is no `owner`.** The meta row asks for one and `deals` has no
 >    owning-agent column. Nothing is rendered rather than the person who
 >    happens to be looking.
@@ -1382,6 +1409,24 @@ resources/js/
 └── lib/             utils, formatters, the state token map
 ```
 
+
+> [!note] The sortable library, and why there is not one
+> Decided while building S38 (#63), which was the first screen to need
+> reordering. **None — explicit move controls.**
+>
+> Three reasons, in order of weight. Drag-and-drop needs a keyboard path to be
+> usable at all, so shipping it means building the buttons *as well as* the
+> drag; a photo gallery reorders perfectly well with two of them. §13.2 rule 3
+> admits a third-party library only when nothing composes, and here something
+> does. And the reorder endpoint takes **the whole order at once** rather than
+> a move-one request — a reorder is one intention, and two adjacent swaps
+> racing each other produce an order neither person chose — which is the same
+> API whether a drag or a button produced it.
+>
+> S41 and S42 order longer lists than twenty photographs and may overturn this.
+> It is deliberately cheap to overturn: the endpoint does not change, only what
+> calls it.
+
 ### 13.2 Rules
 
 1. **Need a component? Check shadcn-vue first.** It is probably there.
@@ -1477,7 +1522,7 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 - [x] Build `StatusBadge` against the section 2.4 table ✅ 2026-08-21
 - [x] Build S13 end to end and confirm 20 rows is the honest desktop number ✅ 2026-08-24 — #78; §4.3 now carries the measured budget rather than the estimate
 - [x] Design the mobile collapse for the shell before the PWA slice ✅ 2026-08-21 — built; still to be judged on a real phone
-- [ ] Choose the sortable library, needed by S38, S41, and S42 📅 2026-09-07
+- [x] ~~Choose the sortable library, needed by S38, S41, and S42~~ — **decided with S38 (#63): none.** See §13.2
 - [ ] Decide the calendar approach for S57 📅 2026-09-14
 
 ## Sources

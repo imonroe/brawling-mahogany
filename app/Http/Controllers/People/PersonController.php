@@ -41,15 +41,41 @@ class PersonController extends Controller
         $segment = PersonSegment::tryFrom((string) $request->query('segment', 'all')) ?? PersonSegment::All;
         $search = trim((string) $request->query('search', ''));
 
+        /*
+         * S34's two filters (#83). PRD §5.9 step 4 is the whole value of the
+         * vendor directory — *"filtering by specialty surfaces him with his
+         * rating and history"* — and the query object ignores them on every
+         * other segment, so a stale bookmark cannot empty the Clients tab.
+         */
+        $vendorFilters = [
+            'specialty' => trim((string) $request->query('specialty', '')),
+            'area' => trim((string) $request->query('area', '')),
+        ];
+
         return Inertia::render('People/Index', [
             'segment' => $segment->value,
             'segmentCounts' => $directory->segmentCounts(),
             'emptyMessage' => $segment->emptyMessage(),
             'search' => $search,
+            'vendorFilters' => $vendorFilters,
+            /*
+             * Every specialty this team has actually typed, for the filter's
+             * own options. Read from the rows rather than from a lookup table:
+             * IA §13.3 made specialties free text on purpose, so the list of
+             * them is whatever the team has written and cannot be seeded.
+             *
+             * Only on the segment that renders the filter. It is one query,
+             * and one query on four segments that never draw the control is
+             * the shape of cost `PeopleIndexBudgetTest`'s ceiling exists to
+             * make somebody justify — this one cannot be.
+             */
+            'specialties' => $segment === PersonSegment::Vendors
+                ? $directory->specialties()
+                : [],
             // Paginated, always. PRD §3.4 puts hundreds of past clients in a
             // team, and the people index is the screen that meets that volume
             // first — 500 rows must never reach the DOM.
-            'people' => $directory->paginate($segment, $search),
+            'people' => $directory->paginate($segment, $search, $vendorFilters),
             'lifecycleStates' => PersonLifecycleState::options(),
         ]);
     }
@@ -58,7 +84,13 @@ class PersonController extends Controller
     {
         $this->authorize('view', $membership);
 
-        $membership->load(['person', 'roles']);
+        /*
+         * `roles.permissions`, not just `roles`: the badge asks
+         * `isColleague()`, which walks the permissions — and without the
+         * nested load that is a lazy query per role. Found by review on #162,
+         * measured rather than argued.
+         */
+        $membership->load(['person', 'roles.permissions']);
 
         /*
          * Shaped by `ActivityFeed`, not here.
@@ -71,10 +103,20 @@ class PersonController extends Controller
          * `map()`, which is a `teams` lookup *and* a `team_memberships` lookup
          * per row, so up to a hundred queries on a fifty-event timeline.
          */
-        $activity = ActivityEvent::query()
-            ->forSubject($membership->person)
-            ->limit(50)
-            ->get();
+        /*
+         * Through `visibleToViewer()`, because this screen does **not** go
+         * through `ActivityFeed::query()` — a person's own timeline is
+         * `forSubject()` with its own limit — and the per-viewer rules live
+         * there rather than in a caller.
+         *
+         * The one that matters here is the deal-context rule: F2.5 logs a
+         * contact against a person and *optionally* a deal, so a reader
+         * holding `people.view` without `deals.view` was shown the deal a
+         * contact was attached to and a link to a page answering 403.
+         */
+        $activity = $feed->visibleToViewer(
+            ActivityEvent::query()->forSubject($membership->person),
+        )->limit(50)->get();
 
         return Inertia::render('People/Show', [
             'membership' => PeopleDirectory::detail($membership),
@@ -135,9 +177,17 @@ class PersonController extends Controller
         if ($membership->carriesAccess()) {
             $this->authorize('manageAccess', $membership);
 
+            // Already revoked: `handle()` is idempotent, so nothing is
+            // re-stamped and nothing is audited twice. Say which happened
+            // rather than reporting an act that did not take place.
+            $alreadyRevoked = $membership->isRevoked();
+
             $revoke->handle($membership);
 
-            Inertia::flash('toast', ['type' => 'success', 'message' => __('Access revoked.')]);
+            Inertia::flash('toast', [
+                'type' => 'success',
+                'message' => $alreadyRevoked ? __('Access was already revoked.') : __('Access revoked.'),
+            ]);
 
             return to_route('people.index');
         }

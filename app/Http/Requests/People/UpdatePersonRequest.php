@@ -30,4 +30,20 @@ class UpdatePersonRequest extends FormRequest
 
         return $this->personRules($membership instanceof TeamMembership ? $membership : null);
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            /*
+             * Laravel's own is *"The status field is prohibited"*, which says
+             * what the rule did and not what the reader should do. #162 is
+             * about somebody being confused by this exact field.
+             */
+            'status.prohibited' => 'Somebody on your team is not a lead or a client. '
+                .'Their role and their access are managed on the members screen.',
+        ];
+    }
 }

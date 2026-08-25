@@ -3,22 +3,34 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Activity\ActivityController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
+use App\Http\Controllers\Deals\ConfirmGateController;
 use App\Http\Controllers\Deals\DealIndexController;
 use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
 use App\Http\Controllers\Deals\DealTimelineController;
 use App\Http\Controllers\Deals\DealWizardController;
+use App\Http\Controllers\Deals\NoteController;
+use App\Http\Controllers\Deals\OfferController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
+use App\Http\Controllers\Deals\StageStateController;
+use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
+use App\Http\Controllers\Properties\PhotoController;
 use App\Http\Controllers\Properties\PropertyController;
 use App\Http\Controllers\Properties\PropertyDealController;
+use App\Http\Controllers\SearchController;
+use App\Http\Controllers\Settings\RoleController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
+use App\Http\Controllers\Templates\StageTemplateController;
+use App\Http\Controllers\Templates\TemplateController;
+use App\Http\Controllers\WorkController;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -93,7 +105,7 @@ Route::get('no-team', function () {
  * than their dashboard.
  */
 Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function (): void {
-    Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::put('teams/current', [TeamSwitchController::class, 'update'])->name('teams.switch');
 
@@ -231,6 +243,74 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.workflows.override');
 
         /*
+         * S23 — tick a manual gate, and untick one (F4.8).
+         *
+         * The routine way past the most common gate type, which the engine
+         * shipped two slices without: `ManualConfirmationEvaluator` reads
+         * `gates.is_met` and nothing wrote it, so the only way past one was
+         * the override above — the audited exception standing in for the
+         * ordinary path.
+         *
+         * `POST` and `DELETE` on a `confirmation` sub-resource, the shape
+         * tasks use for completion, because confirming is not editing: only
+         * one of the two writes a timeline entry and is counted by an advance.
+         * Authorized on `advance`, not `override` — an assistant who advances
+         * stages all day is exactly the person who confirms the survey came
+         * back.
+         */
+        Route::post('deals/{deal}/workflows/{workflow}/confirmation', [ConfirmGateController::class, 'store'])
+            ->name('deals.workflows.confirm');
+
+        Route::delete('deals/{deal}/workflows/{workflow}/confirmation', [ConfirmGateController::class, 'destroy'])
+            ->name('deals.workflows.unconfirm');
+
+        /*
+         * S22 — a deal's offers (F3.6, #73).
+         *
+         * `{offer}` resolves through `{deal}` by scoped binding: two deals in
+         * the same team pass the tenancy layers and the policy alike, and only
+         * the nesting answers whose deal an offer is on.
+         */
+        Route::get('deals/{deal}/offers', [OfferController::class, 'index'])
+            ->name('deals.offers.index');
+        Route::post('deals/{deal}/offers', [OfferController::class, 'store'])
+            ->name('deals.offers.store');
+        Route::patch('deals/{deal}/offers/{offer}', [OfferController::class, 'update'])
+            ->name('deals.offers.update');
+        Route::delete('deals/{deal}/offers/{offer}', [OfferController::class, 'destroy'])
+            ->name('deals.offers.destroy');
+
+        /*
+         * F4.11 — a note on a deal (#72).
+         *
+         * Nested under the deal because a note is *about* one, and inside
+         * `scopeBindings()` with everything else here. IA §7: a note is
+         * **written** and a contact is **logged** — `people/{membership}/
+         * contacts` is the other verb, and they are deliberately not one
+         * endpoint with a type flag.
+         */
+        Route::post('deals/{deal}/notes', [NoteController::class, 'store'])
+            ->name('deals.notes.store');
+
+        /*
+         * F4.12 — the two stage verbs that are not Advance (#70).
+         *
+         * Two routes rather than one with a mode flag, for the reason the
+         * override has its own: IA §7 calls conflating Skip with Override
+         * legally material, and Reopen is a third act again. A shared endpoint
+         * is that conflation in URL form, and the audit log would inherit it.
+         *
+         * `{stage}` resolves through `{workflow}` by scoped binding — one deal
+         * runs several workflows at once (F4.7), so "whose workflow" is a
+         * question neither the tenancy layers nor the policy can answer.
+         */
+        Route::post('deals/{deal}/workflows/{workflow}/stages/{stage}/skip', [StageStateController::class, 'skip'])
+            ->name('deals.workflows.stages.skip');
+
+        Route::post('deals/{deal}/workflows/{workflow}/stages/{stage}/reopen', [StageStateController::class, 'reopen'])
+            ->name('deals.workflows.stages.reopen');
+
+        /*
          * S16 — the stage rail (#76).
          *
          * A GET and nothing else. Every action the screen offers already has
@@ -253,6 +333,35 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.people.update');
         Route::delete('deals/{deal}/people/{participant}', [ParticipantController::class, 'remove'])
             ->name('deals.people.remove');
+
+        /*
+         * S17, S27 — a deal's tasks (#71).
+         *
+         * `{task}` resolves *through* `{deal}` — `Deal::tasks()` is the
+         * relation `scopeBindings()` walks — which is what answers "whose
+         * deal". The tenancy layers only answer "whose team", and a task id
+         * from the deal next door would bind happily without it.
+         *
+         * **Completion is its own sub-resource**, posted to and deleted from,
+         * rather than a boolean on the PATCH. The two are different acts: an
+         * edit changes what the work is, and completing it says the work is
+         * done — which writes an activity event and is what the
+         * `required_tasks_complete` gate is counting. A shared endpoint with a
+         * flag makes "I fixed a typo" and "it is done" the same request, which
+         * is the shape IA §7 objects to when Override and Skip share a label.
+         */
+        Route::get('deals/{deal}/tasks', [TaskController::class, 'index'])
+            ->name('deals.tasks.index');
+        Route::post('deals/{deal}/tasks', [TaskController::class, 'store'])
+            ->name('deals.tasks.store');
+        Route::patch('deals/{deal}/tasks/{task}', [TaskController::class, 'update'])
+            ->name('deals.tasks.update');
+        Route::post('deals/{deal}/tasks/{task}/completion', [TaskController::class, 'complete'])
+            ->name('deals.tasks.complete');
+        Route::delete('deals/{deal}/tasks/{task}/completion', [TaskController::class, 'reopen'])
+            ->name('deals.tasks.reopen');
+        Route::delete('deals/{deal}/tasks/{task}', [TaskController::class, 'destroy'])
+            ->name('deals.tasks.destroy');
 
         /*
          * S20 — deal properties.
@@ -313,18 +422,103 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::delete('properties/{property}/deals/{dealLink}', [PropertyDealController::class, 'remove'])
             ->name('properties.deals.remove');
+
+        /*
+         * S38 — a property's photographs (F6.4–F6.6, #63).
+         *
+         * The product's **only** upload path in this slice, and it hangs off a
+         * property rather than a deal on purpose: #63's residual window is
+         * closed by restricting the context, because a photographed cheque is
+         * an image and the content scan is #100's work.
+         *
+         * `download` is a route rather than a presigned object-store URL. PRD
+         * §9 makes document access an audited event, and an entry written when
+         * a link was minted records an intention rather than a read.
+         */
+        Route::post('properties/{property}/photos', [PhotoController::class, 'store'])
+            ->name('properties.photos.store');
+        Route::patch('properties/{property}/photos', [PhotoController::class, 'reorder'])
+            ->name('properties.photos.reorder');
+        Route::post('properties/{property}/photos/{photo}/primary', [PhotoController::class, 'setPrimary'])
+            ->name('properties.photos.primary');
+        Route::delete('properties/{property}/photos/{photo}', [PhotoController::class, 'destroy'])
+            ->name('properties.photos.destroy');
+        Route::get('properties/{property}/photos/{photo}', [PhotoController::class, 'download'])
+            ->name('properties.photos.show');
     });
+
+    /*
+     * S07 — the global search overlay (F9.3, #82).
+     *
+     * JSON, because the overlay opens over whatever screen somebody is on and
+     * an Inertia visit would replace it. `q` in the query string so a search
+     * is a GET that can be retried and cached by nothing.
+     */
+    Route::get('search', SearchController::class)->name('search');
 
     /*
      * The sidebar's remaining destinations (IA §5.1). Each renders a
      * placeholder naming the slice that replaces it, so the shell can be
      * navigated and reviewed — a nav item pointing at a 404 cannot be.
      */
+    /*
+     * S11 — My Work (F9.2, #80). Heather's primary screen, and the reason
+     * `tasks.deal_id` is not nullable: a task belonging to nothing has nowhere
+     * to appear here.
+     */
+    Route::get('work', [WorkController::class, 'index'])->name('work.index');
+
+    /*
+     * S39–S43 — templates (F4.1, #84–#86).
+     *
+     * A team's own templates are editable and a pack's are not: one pack is
+     * shared by every team, so `WorkflowTemplatePolicy::update()` refuses a
+     * system row and the pack browser's only verb is *Use a copy*. Every
+     * nested route authorizes against the **workflow template**, because a
+     * guard on the parent with a door beside it is not a guard.
+     */
+    Route::scopeBindings()->group(function (): void {
+        Route::get('templates', [TemplateController::class, 'index'])->name('templates.index');
+        Route::post('templates', [TemplateController::class, 'store'])->name('templates.store');
+        Route::get('templates/{template}', [TemplateController::class, 'show'])->name('templates.show');
+        Route::patch('templates/{template}', [TemplateController::class, 'update'])->name('templates.update');
+        Route::delete('templates/{template}', [TemplateController::class, 'destroy'])->name('templates.destroy');
+        Route::post('templates/{template}/copy', [TemplateController::class, 'copy'])->name('templates.copy');
+
+        Route::post('templates/{template}/stages', [StageTemplateController::class, 'store'])
+            ->name('templates.stages.store');
+        Route::patch('templates/{template}/stages', [StageTemplateController::class, 'reorder'])
+            ->name('templates.stages.reorder');
+        Route::patch('templates/{template}/stages/{stageTemplate}', [StageTemplateController::class, 'update'])
+            ->name('templates.stages.update');
+        Route::delete('templates/{template}/stages/{stageTemplate}', [StageTemplateController::class, 'destroy'])
+            ->name('templates.stages.destroy');
+        Route::post('templates/{template}/stages/{stageTemplate}/gates', [StageTemplateController::class, 'addGate'])
+            ->name('templates.stages.gates.store');
+        Route::delete('templates/{template}/stages/{stageTemplate}/gates/{gateTemplate}', [StageTemplateController::class, 'removeGate'])
+            ->name('templates.stages.gates.destroy');
+        Route::post('templates/{template}/stages/{stageTemplate}/tasks', [StageTemplateController::class, 'addTask'])
+            ->name('templates.stages.tasks.store');
+        Route::delete('templates/{template}/stages/{stageTemplate}/tasks/{taskTemplate}', [StageTemplateController::class, 'removeTask'])
+            ->name('templates.stages.tasks.destroy');
+    });
+
+    /*
+     * S75 — roles and permissions (F2.3, #88).
+     *
+     * **No destroy route**, deliberately. A lookup is archived, never deleted
+     * — the rule S76 set — because a role appears in audit entries and in
+     * every membership that ever held it.
+     */
+    Route::get('settings/roles', [RoleController::class, 'index'])->name('roles.index');
+    Route::post('settings/roles', [RoleController::class, 'store'])->name('roles.store');
+    Route::patch('settings/roles/{role}', [RoleController::class, 'update'])->name('roles.update');
+    Route::delete('settings/roles/{role}/archive', [RoleController::class, 'archive'])->name('roles.archive');
+    Route::post('settings/roles/{role}/restore', [RoleController::class, 'restore'])->name('roles.restore');
+
     $placeholders = [
-        'work' => ['My Work', 'S11', 2],
         'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
-        'templates' => ['Templates', 'S40', 2],
     ];
 
     foreach ($placeholders as $path => [$title, $screen, $slice]) {

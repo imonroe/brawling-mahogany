@@ -15,15 +15,24 @@ use App\Enums\SystemRole;
 use App\Models\Deal;
 use App\Models\DealType;
 use App\Models\ExternalLink;
+use App\Models\GateTemplate;
 use App\Models\Person;
 use App\Models\Property;
 use App\Models\Role;
+use App\Models\Stage;
+use App\Models\StageTemplate;
+use App\Models\Task;
+use App\Models\TaskTemplate;
 use App\Models\Team;
 use App\Models\TeamMembership;
+use App\Models\WorkflowTemplate;
 use App\Support\Activity\RecordActivity;
 use App\Support\Deals\DealRoster;
+use App\Support\Deals\DealTasks;
 use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
+use App\Support\Workflow\AdvanceWorkflow;
+use App\Support\Workflow\InstantiateWorkflow;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
@@ -59,7 +68,10 @@ class DemoTeamSeeder extends Seeder
             $team->memberships()->where('person_id', $owner->getKey())->first()
                 ?->forceFill($ownerDetails)->save();
 
-            $this->attach($team, $member, SystemRole::TeamMember, PersonLifecycleState::Active, $memberDetails);
+            // No lifecycle: a colleague has no place on IA §8's contact
+            // vocabulary, and the column says so rather than holding `active`
+            // and reading as *Client* (#162).
+            $this->attach($team, $member, SystemRole::TeamMember, null, $memberDetails);
 
             [$client, $clientDetails] = $this->person('claire@example.test', 'Claire', 'Nakamura', canSignIn: false);
             [$lead, $leadDetails] = $this->person('lee@example.test', 'Lee', 'Okonkwo', canSignIn: false);
@@ -91,6 +103,8 @@ class DemoTeamSeeder extends Seeder
             $this->properties(
                 $team->memberships()->where('person_id', $client->getKey())->sole(),
             );
+
+            $this->workflow($team);
         });
 
         $this->command->info("Demo team seeded. Sign in as emily@example.test / password (super admin: {$superAdmin->email}).");
@@ -267,9 +281,153 @@ class DemoTeamSeeder extends Seeder
     }
 
     /**
+     * A listing template, and one deal running on it (S39–S43, S15–S17).
+     *
+     * ## Why the demo seed needs this at all
+     *
+     * Slices 0 to 2 built the workflow engine and every screen over it, and
+     * `migrate:fresh --seed` produced a team with **no workflow template and
+     * no running workflow** — so the timeline, the stage rail, the tasks tab,
+     * the advance modal, My Work and the dashboard's two headline counts were
+     * all empty on a fresh install. `CLAUDE.md` advertises this command as
+     * *"a working demo team"*, and the slice that makes the product exist was
+     * the part it could not demonstrate.
+     *
+     * ## This is not #87, and must not be mistaken for it
+     *
+     * #87 seeds **Emily's real listing checklist** as a shipped pack, and is
+     * blocked on #11 because a pack whose stages somebody invented teaches a
+     * process nobody follows and gets copied before anyone notices. What is
+     * here is the demo team's **own** template — `team_id` set, no
+     * `template_pack_id` — four stages sketched so the screens have something
+     * to draw. Nobody inherits it, and no install but a developer's has it.
+     *
+     * ## It is advanced by the product, never by hand
+     *
+     * The deal is walked forward through `AdvanceWorkflow` and
+     * `DealTasks`, which is why the seeded history is real: the timeline
+     * entries, the `stages.state` values and the task completions are the ones
+     * those services write. A seeder that set `state` directly would produce a
+     * screenshot rather than a deal, and `SingleMutationPathTest` would refuse
+     * it anyway.
+     */
+    private function workflow(Team $team): void
+    {
+        if (WorkflowTemplate::query()->where('team_id', $team->getKey())->exists()) {
+            return;
+        }
+
+        $template = WorkflowTemplate::query()->create([
+            'team_id' => $team->getKey(),
+            'name' => 'Listing to Close',
+            'description' => 'A sketch, so the screens have something to draw. Emily’s real list is issue #11.',
+            'version' => 1,
+            'is_active' => true,
+        ]);
+
+        /*
+         * Four stages, and the shape matters more than the content: a
+         * milestone with a client-facing sentence (IA §3 and §9), a manual
+         * gate somebody can tick, and a tasks gate that clears by doing the
+         * work. Between them they exercise both routine ways past a gate,
+         * which is the pair S17 and the confirmation route exist to provide.
+         */
+        $stages = [
+            ['Pre-listing', 'Get the house ready and the paperwork signed.', false, null, [
+                ['manual_confirmation', 'Seller signed the listing agreement'],
+            ], ['Walk the property', 'Book the photographer']],
+            ['On Market', 'Live on the MLS, showings running.', true, 'Your home is on the market.', [
+                ['required_tasks_complete', 'Listing tasks are done'],
+            ], ['Publish the listing', 'Hold the first open house']],
+            ['Under Contract', 'An offer is accepted and the clock is running.', true, 'You are under contract.', [
+                ['manual_confirmation', 'Inspection is complete'],
+            ], ['Order the inspection', 'Confirm the appraisal date']],
+            ['Closing', 'Final walkthrough, signing, keys.', true, 'Your sale has closed.', [], ['Schedule the walkthrough']],
+        ];
+
+        foreach ($stages as $index => [$name, $description, $isMilestone, $clientLabel, $gates, $tasks]) {
+            $stage = StageTemplate::query()->create([
+                'workflow_template_id' => $template->getKey(),
+                'name' => $name,
+                'description' => $description,
+                'sort_order' => $index,
+                'expected_duration_days' => 14,
+                'is_milestone' => $isMilestone,
+                'client_facing_label' => $clientLabel,
+            ]);
+
+            foreach ($gates as $order => [$type, $label]) {
+                GateTemplate::query()->create([
+                    'stage_template_id' => $stage->getKey(),
+                    'gate_type' => $type,
+                    'label' => $label,
+                    'is_blocking' => true,
+                    'sort_order' => $order,
+                ]);
+            }
+
+            foreach ($tasks as $order => $title) {
+                TaskTemplate::query()->create([
+                    'stage_template_id' => $stage->getKey(),
+                    'title' => $title,
+                    'is_required' => true,
+                    'due_offset_days' => $order * 3,
+                    'sort_order' => $order,
+                ]);
+            }
+        }
+
+        $deal = Deal::query()->whereNotNull('generated_name')->orderBy('created_at')->first();
+
+        if (! $deal instanceof Deal) {
+            return;
+        }
+
+        $agent = $team->memberships()
+            // `holdingSystemRole()`, not a raw `roles.key` — a team may compose
+            // a role and a grep is how the next person decides whether the
+            // counterfeit-owner fix is complete.
+            ->holdingSystemRole(SystemRole::TeamOwner->value)
+            ->sole();
+
+        $workflow = app(InstantiateWorkflow::class)->handle($deal, $template, now()->subWeeks(3));
+
+        /*
+         * Walked one stage forward, so the demo opens on a deal **mid-flight**
+         * rather than on stage one of four. That is the state every screen is
+         * designed around — a completed stage above, an active one with an
+         * unmet requirement, and future stages below — and it is the only one
+         * that shows the stage rail doing anything.
+         *
+         * The advance is earned rather than forced: the manual gate is
+         * confirmed and both required tasks completed, through the same two
+         * services a person would use.
+         */
+        $advance = app(AdvanceWorkflow::class);
+        $person = $agent->person;
+        $first = $workflow->stages()->orderBy('sort_order')->firstOrFail();
+
+        foreach ($first->gates as $gate) {
+            $advance->confirm($workflow->fresh(), $gate, $person);
+        }
+
+        $tasks = app(DealTasks::class);
+
+        foreach (Task::query()->where('deal_id', $deal->getKey())->whereNull('completed_at')->get() as $task) {
+            $stage = $task->stage;
+
+            if ($stage instanceof Stage && $stage->sort_order === 0) {
+                $tasks->complete($deal, $task, $person);
+            }
+        }
+
+        $advance->handle($workflow->fresh(), $person);
+    }
+
+    /**
      * @param  array{first_name: string, last_name: string, email: string, phone: string}  $details
      */
-    private function attach(Team $team, Person $person, SystemRole $role, PersonLifecycleState $status, array $details): TeamMembership
+    private function attach(Team $team, Person $person, SystemRole $role, ?PersonLifecycleState $status, array $details): TeamMembership
     {
         $membership = TeamMembership::query()->firstOrCreate(
             ['team_id' => $team->getKey(), 'person_id' => $person->getKey()],

@@ -42,6 +42,11 @@ final class FieldPopulatedEvaluator implements GateEvaluator
         return 'field_populated';
     }
 
+    public static function label(): string
+    {
+        return 'Field populated';
+    }
+
     public function evaluate(Gate $gate): GateVerdict
     {
         $field = (string) ($gate->configuration()['field'] ?? '');

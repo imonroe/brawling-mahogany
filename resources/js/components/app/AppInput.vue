@@ -23,6 +23,11 @@
  *    timezone — a browser puts wall-clock time in one — so whatever reads it
  *    has to say which zone that is (PRD §9 stores UTC and displays the
  *    team's). `ContactLogController` is the worked example.
+ *
+ *    `date` is the same shape with the timezone question settled rather than
+ *    deferred: it emits `YYYY-MM-DD`, which is a day rather than an instant,
+ *    and `tasks.due_date` is a `date` column for exactly that reason (S27,
+ *    #71). A deadline is a day in the team's calendar, not a moment in UTC.
  */
 import { cn } from '@/lib/utils';
 import { appInputVariants } from './controlVariants';
@@ -39,6 +44,7 @@ const props = withDefaults(
             | 'search'
             | 'tel'
             | 'url'
+            | 'date'
             | 'datetime-local';
         class?: string;
     }>(),

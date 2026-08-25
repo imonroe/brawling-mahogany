@@ -16,7 +16,6 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import {
     ExternalLink as ExternalLinkIcon,
-    Images,
     Link2,
     Pencil,
     Trash2,
@@ -27,6 +26,7 @@ import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import LinkDealDialog from '@/components/app/LinkDealDialog.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
+import PhotoGallery from '@/components/app/PhotoGallery.vue';
 import PropertyFormDialog from '@/components/app/PropertyFormDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import {
@@ -43,6 +43,14 @@ const props = defineProps<{
     propertyTypes: Record<string, string>;
     propertyStatuses: Record<string, string>;
     can: { update: boolean; link: boolean };
+    /** S38's gallery (#63). Every `url` is a route, never a bucket address. */
+    photos: {
+        id: string;
+        url: string;
+        originalName: string;
+        caption: string | null;
+        isPrimary: boolean;
+    }[];
 }>();
 
 const editing = ref(false);
@@ -127,10 +135,10 @@ function destroy(): void {
         <div class="grid gap-4 lg:grid-cols-[2fr_1fr]">
             <div class="flex flex-col gap-4">
                 <Card title="Photos">
-                    <EmptyState
-                        :icon="Images"
-                        title="No photos yet"
-                        description="The gallery lands with S38. Until then, a link to the listing is the fastest way back to the pictures."
+                    <PhotoGallery
+                        :property-id="property.id"
+                        :photos="photos"
+                        :can-manage="can.update"
                     />
                 </Card>
 

@@ -12,6 +12,7 @@ use App\Http\Requests\Properties\StorePropertyRequest;
 use App\Http\Requests\Properties\UpdatePropertyRequest;
 use App\Models\Deal;
 use App\Models\DealProperty;
+use App\Models\Document;
 use App\Models\ExternalLink;
 use App\Models\Property;
 use App\Queries\PropertyDirectory;
@@ -76,6 +77,8 @@ class PropertyController extends Controller
          */
         $property->load([
             'externalLinks',
+            // One query for the gallery, not one per photo (#63).
+            'photos',
             'dealLinks' => fn (HasMany $links) => $links->whereHas('deal'),
             'dealLinks.deal.dealType',
         ]);
@@ -124,6 +127,20 @@ class PropertyController extends Controller
                 'update' => $request->user()?->can('update', $property) ?? false,
                 'link' => $request->user()?->can('link', $property) ?? false,
             ],
+            /*
+             * S38's gallery (#63). Every `url` is the download **route** and
+             * never a bucket address: F6.4's *"no public buckets, every
+             * download authorized and short-lived"* is a property of there
+             * being exactly one way to read a file, and PRD §9 needs that way
+             * to be auditable.
+             */
+            'photos' => $property->photos->map(fn (Document $photo): array => [
+                'id' => $photo->getKey(),
+                'url' => route('properties.photos.show', [$property, $photo]),
+                'originalName' => $photo->original_name,
+                'caption' => $photo->caption,
+                'isPrimary' => $photo->is_primary,
+            ])->values()->all(),
         ]);
     }
 

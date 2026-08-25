@@ -52,6 +52,9 @@ export type TimelineStage = {
     actualStart: string | null;
     actualEnd: string | null;
     skippedReason: string | null;
+    /** Whether F4.12's two verbs apply to this row — the server decides (#70). */
+    canSkip: boolean;
+    canReopen: boolean;
     hasOverride: boolean;
     tasks: { total: number; complete: number; items: StageTask[] };
     gates: GateSummary[];
@@ -72,9 +75,25 @@ const props = defineProps<{
 const emit = defineEmits<{
     toggle: [];
     advance: [];
+    /** F4.12 — mark this stage not applicable, or undo the last advance (#70). */
+    skip: [];
+    reopen: [];
+    /** A task on this stage was ticked, or unticked (S17, #71). */
+    complete: [taskId: string, completed: boolean];
 }>();
 
 const { can } = usePermissions();
+
+/**
+ * Whether the checklist in the expanded card is live.
+ *
+ * The same permission S17's own screen asks for, asked here rather than passed
+ * down: `usePermissions()` reads the shared page props, so a prop threaded
+ * through the page and the rail would be a second answer to a question the
+ * component can ask directly — and the two would disagree the first time
+ * somebody forgot to pass it.
+ */
+const canManageTasks = computed(() => can('deals.manage'));
 
 /**
  * What the rail's *geometry* says, for a reader who cannot see it.
@@ -395,6 +414,21 @@ const footerLine = computed(() => {
                                 No tasks on this stage.
                             </p>
 
+                            <!--
+                                Live since S17 (#71) gave completion an
+                                endpoint. Before that this row was deliberately
+                                inert — a checkbox wired to nothing is the
+                                *"checkbox that selects into nothing"* S13
+                                refused to ship — and what keeps it inert now
+                                is the reader's permission rather than a
+                                missing route: PRD §4.2 F2.2's Read Only role
+                                reads the checklist and does not tick it.
+
+                                The rail stays a **read** screen in the sense
+                                that matters: this posts to the task, not to
+                                the workflow. `AdvanceWorkflow` is still
+                                reached from one place.
+                            -->
                             <TaskItem
                                 v-for="task in stage.tasks.items"
                                 :key="task.id"
@@ -402,7 +436,10 @@ const footerLine = computed(() => {
                                 :completed="task.state === 'completed'"
                                 :due-date="task.dueDate"
                                 :meta="task.isRequired ? 'Required' : null"
-                                readonly
+                                :readonly="!canManageTasks"
+                                @update:completed="
+                                    emit('complete', task.id, $event)
+                                "
                             />
                         </div>
 
@@ -478,6 +515,24 @@ const footerLine = computed(() => {
                             producing: the server answers 403, so the button was
                             offering an act it could not perform.
                         -->
+                        <!--
+                            F4.12's skip, beside Advance and never instead of
+                            it (#70). IA §7 keeps the verbs apart, so this one
+                            is a quiet ghost button: skipping is the unusual
+                            answer, and a stage that does not apply is rarer
+                            than a stage that is not finished.
+                        -->
+                        <AppButton
+                            v-if="
+                                advanceRefusal === null &&
+                                stage.canSkip &&
+                                can('stage.skip')
+                            "
+                            variant="ghost"
+                            size="compact"
+                            @click="emit('skip')"
+                            >Skip</AppButton
+                        >
                         <AppButton
                             v-if="
                                 advanceRefusal === null &&
@@ -498,13 +553,45 @@ const footerLine = computed(() => {
                     -->
                     <div
                         v-else-if="stage.state === 'skipped'"
-                        class="border-t bg-muted px-3.5 py-2.5 text-xs text-muted-foreground"
+                        class="flex items-center gap-3 border-t bg-muted px-3.5 py-2.5 text-xs text-muted-foreground"
                         data-slot="skip-reason"
                     >
-                        {{
+                        <span class="min-w-0 flex-1">{{
                             stage.skippedReason ??
                             'Skipped. No reason was recorded.'
-                        }}
+                        }}</span>
+                        <AppButton
+                            v-if="stage.canReopen && can('workflow.advance')"
+                            variant="ghost"
+                            size="compact"
+                            @click="emit('reopen')"
+                            >Reopen</AppButton
+                        >
+                    </div>
+
+                    <!--
+                        Undoing the last advance (#70). Only ever on the stage
+                        the workflow most recently finished with — the server
+                        decides which that is, because "only the most recent
+                        one" is a rule `AdvanceWorkflow::reopen()` enforces and
+                        a second copy here would drift the first time either
+                        changed.
+                    -->
+                    <div
+                        v-else-if="stage.canReopen && can('workflow.advance')"
+                        class="flex items-center gap-3 border-t bg-muted px-3.5 py-2.5"
+                        data-slot="reopen"
+                    >
+                        <span
+                            class="min-w-0 flex-1 text-xs text-muted-foreground"
+                            >Finished too soon?</span
+                        >
+                        <AppButton
+                            variant="ghost"
+                            size="compact"
+                            @click="emit('reopen')"
+                            >Reopen</AppButton
+                        >
                     </div>
                 </template>
             </div>

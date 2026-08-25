@@ -92,26 +92,76 @@ export function gateResolutionLink(
     switch (gate.linkTarget.type) {
         /*
          * **Only routes that exist.** `deal_field` resolves to the properties
-         * tab, which is built.
+         * tab and `tasks` to the tasks tab, both of which are built.
          *
-         * `tasks` deliberately does not. S17 is unbuilt, there is no
-         * `deals/{deal}/tasks` route, and `DealHeader` already draws that tab
-         * inert for exactly that reason — so linking it rendered "Go and clear
-         * it" over a 404, on the screens whose whole promise is telling
-         * somebody what to do next. `gate`, `gate_config` and `awaiting_slice`
-         * resolve to nothing for the same reason, their screens being S23 and
-         * S43.
+         * `tasks` was the one that was not, for two slices: linking it
+         * rendered "Go and clear it" over a 404, on the screens whose whole
+         * promise is telling somebody what to do next. S17 (#71) is what
+         * changed, and it is the reason PRD §5.4's rule — *"each unmet gate
+         * links directly to the thing that clears it"* — is now true of the
+         * gate a deal meets most, `required_tasks_complete`. It goes to the
+         * tab rather than to a filtered view of one stage: the reader has to
+         * be able to see the whole checklist to know what they are walking
+         * into, and every group is on the page already.
          *
-         * A dead link is worse than a sentence. `tests/js/routeTargets.test.ts`
-         * holds this by reading the source, because it is the second time the
-         * link has been written: once on S15's own `linkFor()`, and again here
-         * when the two screens' copies were folded into one.
+         * `gate` still resolves to nothing, and now deliberately rather than
+         * for want of a screen: a manual gate is cleared **in place**, by the
+         * Confirm button `isConfirmable()` below decides — sending somebody to
+         * another page to tick one box would be the worst version of it.
+         * `gate_config` and `awaiting_slice` resolve to nothing too, their
+         * screens being S43 and a later slice. A dead link is worse than a
+         * sentence. `tests/js/routeTargets.test.ts` holds this by reading the
+         * source, because it is the second time the link has been written:
+         * once on S15's own `linkFor()`, and again here when the two screens'
+         * copies were folded into one.
          */
         case 'deal_field':
             return `${dealUrl}/properties`;
+        case 'tasks':
+            return `${dealUrl}/tasks`;
         default:
             return null;
     }
+}
+
+/**
+ * Whether this gate is one somebody can simply tick (F4.8).
+ *
+ * A **manual confirmation** and nothing else. Every other evaluator derives
+ * its answer from something real — the required tasks, a populated field, a
+ * document — so a tick would be a claim rather than a cache, and the next
+ * advance would overwrite it from the evaluator anyway. That is a control that
+ * appears to work and silently does not.
+ *
+ * This is the routine path past the most common gate type in the product, and
+ * for two slices it did not exist: `is_met` had no writer but the advance's
+ * own cache refresh, so the only way past a manual gate was an **override** —
+ * the act IA §7 reserves for a condition that should have been met and was
+ * not. The audited exception was standing in for the ordinary path.
+ *
+ * A display concern only. `AdvanceWorkflow::confirm()` refuses each of these
+ * cases in its own words, and is the only thing that decides.
+ */
+export function isConfirmable(gate: GateSummary): boolean {
+    return gate.gateType === 'manual_confirmation' && !gate.met;
+}
+
+/**
+ * Whether this gate is one somebody can **untick**.
+ *
+ * The way back, and it has to exist: a person who ticked the wrong row needs
+ * one, and `AdvanceWorkflow::unconfirm()` was written for it. Without a
+ * control the service, the route, the refusal strings and the
+ * `gate.unconfirmed` timeline descriptor are all unreachable from the product
+ * — which is exactly the shape of the bug this pair was built to close, one
+ * verb over.
+ *
+ * A **met** manual gate, and only while its stage is still the one in
+ * progress. The service refuses the rest; this decides which row draws the
+ * control.
+ */
+export function isUnconfirmable(gate: GateSummary): boolean {
+    return gate.gateType === 'manual_confirmation' && gate.met;
 }
 
 /**

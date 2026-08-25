@@ -44,6 +44,36 @@ function zone(options?: FormatDateOptions): string {
     return options?.timeZone ?? teamTimeZone;
 }
 
+const WALL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A **day** is not an instant, and must not be given one (issue 165).
+ *
+ * A `date` column carries a calendar day: a task due the 25th is due the 25th
+ * wherever the reader is. The wire sends it as `2026-08-25`, and `new Date()`
+ * reads a bare date string as **UTC midnight** — which, rendered in a team's
+ * zone west of Greenwich, is the evening of the 24th. So a task due the 25th
+ * drew as *"Aug 24"*, in the danger tone, a day early.
+ *
+ * Giving the day its own zone is what fixes it: parsed as UTC and rendered as
+ * UTC, `2026-08-25` is *"Aug 25"* in Denver, in Auckland, and in the seeded
+ * test team alike. The team's zone still governs every real **instant** —
+ * `occurred_at`, `completed_at` — because those have one.
+ *
+ * An explicit `timeZone` is ignored for a wall date on purpose: there is no
+ * zone in which the 25th is a different day.
+ */
+function resolve(
+    value: DateInput,
+    options?: FormatDateOptions,
+): { date: Date; timeZone: string } {
+    if (typeof value === 'string' && WALL_DATE.test(value)) {
+        return { date: toDate(`${value}T00:00:00Z`), timeZone: 'UTC' };
+    }
+
+    return { date: toDate(value), timeZone: zone(options) };
+}
+
 /* -------------------------------------------------------------------------
  * People, deals, addresses
  * ---------------------------------------------------------------------- */
@@ -161,12 +191,14 @@ export function formatDate(
     value: DateInput,
     options?: FormatDateOptions,
 ): string {
+    const { date, timeZone } = resolve(value, options);
+
     return new Intl.DateTimeFormat('en-US', {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
-        timeZone: zone(options),
-    }).format(toDate(value));
+        timeZone,
+    }).format(date);
 }
 
 /** Internal, without the weekday: "Aug 20". */
@@ -174,11 +206,13 @@ export function formatDateShort(
     value: DateInput,
     options?: FormatDateOptions,
 ): string {
+    const { date, timeZone } = resolve(value, options);
+
     return new Intl.DateTimeFormat('en-US', {
         month: 'short',
         day: 'numeric',
-        timeZone: zone(options),
-    }).format(toDate(value));
+        timeZone,
+    }).format(date);
 }
 
 export interface ClientDateOptions extends FormatDateOptions {
@@ -194,11 +228,11 @@ export function formatDateForClient(
     value: DateInput,
     options?: ClientDateOptions,
 ): string {
-    const date = toDate(value);
-    const timeZone = zone(options);
+    const { date, timeZone } = resolve(value, options);
     const reference = options?.now ? toDate(options.now) : new Date();
 
-    const sameYear = yearIn(date, timeZone) === yearIn(reference, timeZone);
+    const sameYear =
+        yearIn(date, timeZone) === yearIn(reference, zone(options));
 
     return new Intl.DateTimeFormat('en-US', {
         weekday: 'long',
@@ -243,11 +277,11 @@ export function formatRelativeDate(
     value: DateInput,
     options?: ClientDateOptions,
 ): string {
-    const timeZone = zone(options);
-    const target = toDate(value);
     const reference = options?.now ? toDate(options.now) : new Date();
 
-    const days = calendarDaysBetween(reference, target, timeZone);
+    // The target resolves its own zone when it is a wall date; the reference
+    // is an instant and reads the team's.
+    const days = calendarDaysBetween(reference, value, zone(options));
 
     if (days === 0) {
         return 'today';
@@ -269,7 +303,7 @@ export function formatRelativeDate(
         return `${Math.abs(days)} days ago`;
     }
 
-    return formatDateShort(target, { timeZone });
+    return formatDateShort(value, options);
 }
 
 /**
@@ -283,23 +317,26 @@ export function calendarDaysBetween(
     timeZone?: string,
 ): number {
     const tz = timeZone ?? teamTimeZone;
-    const fromDay = Date.parse(`${isoDateIn(toDate(from), tz)}T00:00:00Z`);
-    const toDay = Date.parse(`${isoDateIn(toDate(to), tz)}T00:00:00Z`);
+    const fromDay = Date.parse(`${isoDateIn(from, tz)}T00:00:00Z`);
+    const toDay = Date.parse(`${isoDateIn(to, tz)}T00:00:00Z`);
 
     return Math.round((toDay - fromDay) / 86_400_000);
 }
 
 /** The calendar date, in a timezone, as "YYYY-MM-DD". */
 export function isoDateIn(value: DateInput, timeZone?: string): string {
-    const parts = new Intl.DateTimeFormat('en-CA', {
+    // A wall date already is one, and has no zone to be read in.
+    if (typeof value === 'string' && WALL_DATE.test(value)) {
+        return value;
+    }
+
+    // en-CA gives YYYY-MM-DD.
+    return new Intl.DateTimeFormat('en-CA', {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
         timeZone: timeZone ?? teamTimeZone,
     }).format(toDate(value));
-
-    // en-CA gives YYYY-MM-DD.
-    return parts;
 }
 
 function yearIn(value: Date, timeZone: string): string {

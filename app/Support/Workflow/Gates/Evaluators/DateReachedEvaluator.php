@@ -21,6 +21,11 @@ final class DateReachedEvaluator implements GateEvaluator
         return 'date_reached';
     }
 
+    public static function label(): string
+    {
+        return 'Date reached';
+    }
+
     public function evaluate(Gate $gate): GateVerdict
     {
         $date = (string) ($gate->configuration()['key_date'] ?? 'a key date');

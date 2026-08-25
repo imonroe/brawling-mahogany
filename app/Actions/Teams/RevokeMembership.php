@@ -26,6 +26,19 @@ final class RevokeMembership
      */
     public function handle(TeamMembership $membership): void
     {
+        /*
+         * Revoking twice is not revoking again.
+         *
+         * `revoke()` stamps `revoked_at` with *now*, so a second press moved
+         * the date the person record displays onto today and wrote a second
+         * `membership.revoked` entry — an audit log saying access was taken
+         * away twice, and the loss of when it actually happened. Both callers
+         * reach this from a button that stays on screen afterwards.
+         */
+        if ($membership->isRevoked()) {
+            return;
+        }
+
         $this->guardLastOwner($membership);
 
         $membership->revoke();
@@ -80,7 +93,7 @@ final class RevokeMembership
             ->where('team_id', $membership->team_id)
             ->whereKeyNot($membership->getKey())
             ->whereNull('revoked_at')
-            ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
+            ->holdingSystemRole(SystemRole::TeamOwner->value)
             ->whereHas('person', fn ($query) => $query->whereNotNull('password'))
             ->count();
     }

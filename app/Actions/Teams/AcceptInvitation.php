@@ -235,6 +235,19 @@ final class AcceptInvitation
         ?string $lastName,
         bool $nameIsAuthoritative,
     ): TeamMembership {
+        /*
+         * Whether **this invitation** puts somebody on the team (#162).
+         *
+         * `Contact` and `Status Viewer` are roles a client holds — they carry
+         * no team-surface permission — so accepting one is not somebody
+         * joining the team, and the lifecycle is theirs to keep.
+         *
+         * `withTrashed()`, because a soft-deleted role still answers: without
+         * it an invitation to a role the team archived in the meantime was a
+         * fatal on null.
+         */
+        $joinsTheTeam = $invitation->role()->withTrashed()->first()?->grantsTeamAccess() ?? false;
+
         // The name goes in the insert, not a follow-up write: `first_name` is
         // not nullable, so a membership cannot exist for a moment without one.
         $membership = TeamMembership::query()->firstOrCreate(
@@ -243,7 +256,6 @@ final class AcceptInvitation
                 'first_name' => $firstName,
                 'last_name' => $lastName,
                 'email' => $invitation->email,
-                'status' => PersonLifecycleState::Active,
                 'joined_at' => now(),
             ],
         );
@@ -286,7 +298,56 @@ final class AcceptInvitation
          * onto the membership precisely so the team would own it. So when the
          * name is not authoritative, what the team already recorded stands.
          */
+        /*
+         * Joining **the team** ends the contact lifecycle (#162).
+         *
+         * `firstOrCreate` reuses an existing row, and the insert half never
+         * runs for one — so inviting somebody already in the directory carried
+         * their `lead` or `active` forward onto a colleague, where IA §8 has
+         * nothing to say about them. It stayed hidden while they held access
+         * and reappeared the day it was revoked, as a blue **Lead** pill on
+         * somebody who had worked here. Null is what a colleague's lifecycle
+         * is; if they leave, the team records what they are then.
+         *
+         * **Only for somebody on the team**, and a client keeps a
+         * lifecycle either way. Clearing it for `Contact` and `Status Viewer`
+         * erased a typed **Client** the moment somebody was given a
+         * status-page login; and a client who was **not** already in the
+         * directory arrived with no lifecycle at all, no roles to draw
+         * instead, and a row that said nothing whatsoever about somebody the
+         * team had just invited. Both were measured through the routes, in
+         * successive rounds of review on #162.
+         *
+         * The `??` is what covers the second, and it covers a third with it: a
+         * **revoked colleague** re-invited as a client already holds a null.
+         * One expression rather than a default in the insert as well — the
+         * insert is followed unconditionally by this write, so a second copy
+         * is one no test can tell from a typo.
+         */
+        /*
+         * Whether they are on the team **after** this accept, which is not the
+         * same question.
+         *
+         * On a live membership the roles are `syncWithoutDetaching` — a union
+         * — so the invited role does not decide it: a Team Member invited to
+         * read a status page is still a Team Member. Asking only the
+         * invitation wrote `active` onto a colleague, invisibly (the badge
+         * suppresses a colleague's lifecycle) and uncorrectably (`PersonRules`
+         * prohibits the field), and the team found out on the day they revoked
+         * access and the row came back a green **Client**. Round 5 of review
+         * on #162 measured it; it also re-created the exact ambiguity the
+         * nullable column exists to remove, since `AcceptInvitation` would
+         * once again be writing a value no human chose.
+         *
+         * A revival is the other case: `sync()` below replaces the whole set,
+         * so there the invited role really is the answer.
+         */
+        $staysOnTheTeam = $joinsTheTeam || (! $wasRevoked && $membership->carriesAccess());
+
         $membership->forceFill([
+            'status' => $staysOnTheTeam
+                ? null
+                : ($membership->status ?? PersonLifecycleState::Active),
             'first_name' => $nameIsAuthoritative || $membership->first_name === ''
                 ? $firstName
                 : $membership->first_name,

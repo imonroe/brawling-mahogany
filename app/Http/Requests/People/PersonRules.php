@@ -101,6 +101,13 @@ trait PersonRules
      */
     protected function personRules(?TeamMembership $ignoring = null): array
     {
+        /*
+         * `$ignoring` is the membership being edited — named for the unique
+         * rule below, which is what it was added for, and now also the row
+         * the lifecycle rule asks about. Null when creating, and a person
+         * being created cannot already carry team access: an invitation is
+         * what grants it, and that is a different flow entirely.
+         */
         return [
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['nullable', 'string', 'max:255'],
@@ -109,7 +116,28 @@ trait PersonRules
                 $this->uniqueWithinTeam($ignoring),
             ],
             'phone' => ['nullable', 'string', 'max:50'],
-            'status' => ['required', Rule::enum(PersonLifecycleState::class)],
+            /*
+             * **A colleague has no lifecycle** (#162), which the column now
+             * says outright: `status` is nullable, and null is what a
+             * membership carrying team access holds.
+             *
+             * Three cases, and the middle one is the one review found:
+             *
+             *  - A current colleague: **prohibited**. S32 offered all four
+             *    states for anybody, and picking one moved an assistant into
+             *    the Leads segment — the list a team works to decide who to
+             *    chase. Refused rather than ignored, so a stale tab is told
+             *    its change did not happen instead of believing it did.
+             *  - Somebody whose access has been revoked: **nullable**. They
+             *    are a person the team knows now, and the team may record
+             *    which — but a phone-number edit must not force the question.
+             *  - A contact: **required**, as it always was.
+             */
+            'status' => match (true) {
+                $ignoring?->isColleague() === true => ['prohibited'],
+                $ignoring?->carriesAccess() === true => ['nullable', Rule::enum(PersonLifecycleState::class)],
+                default => ['required', Rule::enum(PersonLifecycleState::class)],
+            },
             'notes' => ['nullable', 'string', 'max:10000'],
 
             'is_vendor' => ['boolean'],

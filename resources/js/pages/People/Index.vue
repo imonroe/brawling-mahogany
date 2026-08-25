@@ -23,7 +23,11 @@ import PersonFormDialog from '@/components/app/PersonFormDialog.vue';
 import SegmentedControl from '@/components/app/SegmentedControl.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { formatCount, formatPersonName } from '@/lib/formatters';
+import {
+    formatCount,
+    formatDateShort,
+    formatPersonName,
+} from '@/lib/formatters';
 import type { PersonRow, Paginated } from '@/types';
 
 const props = defineProps<{
@@ -33,6 +37,9 @@ const props = defineProps<{
     search: string;
     people: Paginated<PersonRow>;
     lifecycleStates: Record<string, string>;
+    /** S34's two filters, and the specialties this team has actually typed. */
+    vendorFilters: { specialty: string; area: string };
+    specialties: string[];
 }>();
 
 const { can } = usePermissions();
@@ -62,9 +69,66 @@ function selectSegment(segment: string): void {
     );
 }
 
+/**
+ * S34's filters (PRD §5.9 · #83).
+ *
+ * Step 4 of the flow is the whole value of the vendor directory: *"filtering
+ * the directory by specialty surfaces him with his rating and history."* A
+ * directory that cannot be asked "who stages, in this area, that we liked" is
+ * a contact list.
+ *
+ * They live on the URL rather than in local state, so a filtered directory is
+ * a link somebody can send — and they are dropped when the segment changes,
+ * because "staging" means nothing on the Clients tab.
+ */
+const specialty = ref(props.vendorFilters.specialty);
+const area = ref(props.vendorFilters.area);
+
+const showsVendorFilters = computed(() => props.segment === 'vendors');
+
+function applyVendorFilters(): void {
+    router.get(
+        '/people',
+        {
+            segment: props.segment,
+            search: search.value || undefined,
+            specialty: specialty.value || undefined,
+            area: area.value || undefined,
+        },
+        { preserveState: true, replace: true },
+    );
+}
+
+watch(area, () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(applyVendorFilters, 250);
+});
+
 const subtitle = computed(() => formatCount(props.people.total, 'person'));
 
-const isFiltered = computed(() => search.value.trim().length > 0);
+/**
+ * What a vendor row says instead of an address: specialties, area, and when
+ * they were last engaged. `lastUsedAt` is derived from `deal_participants`,
+ * so "never" is a fact about this team rather than a missing field.
+ */
+function vendorLine(vendor: NonNullable<PersonRow['vendor']>): string {
+    const parts = [
+        vendor.specialties.join(', ') || 'No specialties recorded',
+        vendor.serviceArea,
+        vendor.lastUsedAt
+            ? `last used ${formatDateShort(vendor.lastUsedAt)}`
+            : 'never used',
+    ];
+
+    return parts.filter(Boolean).join(' · ');
+}
+
+const isFiltered = computed(
+    () =>
+        search.value.trim().length > 0 ||
+        specialty.value.length > 0 ||
+        area.value.trim().length > 0,
+);
 </script>
 
 <template>
@@ -102,6 +166,33 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                 aria-label="Search people"
                 class="w-full sm:w-72"
             />
+
+            <!--
+                S34's filters, on the segment that has them (#83). Hidden
+                rather than disabled elsewhere, per §7.3 — "staging" is not a
+                thing to narrow the Clients tab by.
+            -->
+            <template v-if="showsVendorFilters">
+                <select
+                    v-model="specialty"
+                    aria-label="Filter by specialty"
+                    class="h-9 rounded-md border bg-background px-3 text-sm"
+                    @change="applyVendorFilters"
+                >
+                    <option value="">Any specialty</option>
+                    <option v-for="one in specialties" :key="one" :value="one">
+                        {{ one }}
+                    </option>
+                </select>
+                <AppInput
+                    v-model="area"
+                    size="filter"
+                    type="search"
+                    placeholder="Service area"
+                    aria-label="Filter by service area"
+                    class="w-full sm:w-48"
+                />
+            </template>
         </div>
 
         <div class="flex flex-col overflow-hidden rounded-lg border bg-card">
@@ -139,7 +230,7 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                 >
                     <Link
                         :href="`/people/${person.id}`"
-                        class="flex min-h-11 items-center gap-3 px-4 py-2.5 transition-colors duration-150 ease-out hover:bg-accent/60"
+                        class="flex min-h-11 flex-wrap items-center gap-3 px-4 py-2.5 transition-colors duration-150 ease-out hover:bg-accent/60"
                     >
                         <PersonAvatar :person="person" :size="30" />
                         <span class="flex min-w-0 flex-1 flex-col">
@@ -147,22 +238,75 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                                 class="truncate text-13 font-medium text-foreground"
                                 >{{ formatPersonName(person) }}</span
                             >
+                            <!--
+                                On the Vendors tab the second line answers the
+                                question S34 exists for — what they do, where,
+                                and when we last used them — rather than
+                                repeating an address the filter already used
+                                (PRD §5.9).
+                            -->
                             <span
                                 class="truncate text-[11px] text-muted-foreground"
                                 >{{
-                                    person.email ??
-                                    person.phone ??
-                                    'No contact details'
+                                    showsVendorFilters && person.vendor
+                                        ? vendorLine(person.vendor)
+                                        : (person.email ??
+                                          person.phone ??
+                                          'No contact details')
                                 }}</span
                             >
                         </span>
+                        <StatusBadge
+                            v-if="
+                                showsVendorFilters &&
+                                person.vendor?.rating !== null &&
+                                person.vendor !== null
+                            "
+                            tone="neutral"
+                            :label="`${person.vendor.rating}/5`"
+                            dotless
+                        />
                         <StatusBadge
                             v-if="person.isVendor"
                             tone="neutral"
                             label="Vendor"
                             dotless
                         />
-                        <StatusBadge domain="person" :state="person.status" />
+                        <!--
+                            Three facts, each drawn when it is true (#162).
+
+                            The first fix made these one badge with an
+                            `v-else`, and the fallback branch drew a lifecycle
+                            value nobody had chosen: a revoked colleague came
+                            back as a green *Client*, which is the bug this
+                            issue reported. `status` is nullable now, so a
+                            person the lifecycle does not describe simply has
+                            no lifecycle badge.
+
+                            The roles hang on `carriesAccess`, so this row
+                            says what `/settings/members` and the console say
+                            about the same person, revoked or not.
+                        -->
+                        <template v-if="person.carriesAccess">
+                            <StatusBadge
+                                v-for="role in person.roles"
+                                :key="role"
+                                tone="neutral"
+                                :label="role"
+                                dotless
+                            />
+                        </template>
+                        <StatusBadge
+                            v-if="person.status && !person.isColleague"
+                            domain="person"
+                            :state="person.status"
+                        />
+                        <StatusBadge
+                            v-if="person.isRevoked"
+                            tone="danger"
+                            label="Revoked"
+                            dotless
+                        />
                     </Link>
                 </li>
             </ul>

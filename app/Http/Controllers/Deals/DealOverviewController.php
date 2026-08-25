@@ -197,7 +197,7 @@ class DealOverviewController extends Controller
                  */
                 'state' => $currentState,
                 'description' => $stage->description,
-                'plannedEnd' => $stage->planned_end?->toIso8601String(),
+                'plannedEnd' => $stage->planned_end?->toDateString(),
                 'position' => is_int($index) ? $index + 1 : null,
                 'total' => $workflow->stages->count(),
             ] : null,
