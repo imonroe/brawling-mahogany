@@ -48,7 +48,7 @@ final class HelpLibrary
     private const PATH = 'help';
 
     /** @var array<string, HelpArticle>|null */
-    private static ?array $articles = null;
+    private ?array $articles = null;
 
     /**
      * The sections, in the order a person meets them.
@@ -95,18 +95,24 @@ final class HelpLibrary
      * that needs clearing to show a corrected sentence is a cache that will be
      * found stale by somebody reading the wrong instructions.
      *
+     * An *instance* property, bound as a singleton in `AppServiceProvider`, so
+     * "per request" is true under a long-running worker as well. It was
+     * `static` for one round, which is precisely a cross-request cache — and
+     * the tell was in the tests, which reached in with
+     * `ReflectionClass::setStaticPropertyValue` to undo it.
+     *
      * @return array<string, HelpArticle>
      */
     public function all(): array
     {
-        if (self::$articles !== null) {
-            return self::$articles;
+        if ($this->articles !== null) {
+            return $this->articles;
         }
 
         $directory = resource_path(self::PATH);
 
         if (! File::isDirectory($directory)) {
-            return self::$articles = [];
+            return $this->articles = [];
         }
 
         $articles = [];
@@ -130,7 +136,7 @@ final class HelpLibrary
                 <=> [$this->sectionRank($b->section), $b->order],
         );
 
-        return self::$articles = $articles;
+        return $this->articles = $articles;
     }
 
     public function find(string $slug): ?HelpArticle
@@ -215,7 +221,15 @@ final class HelpLibrary
         return count(self::SECTIONS);
     }
 
-    private function parse(string $slug, string $contents): HelpArticle
+    /**
+     * One article, from its slug and its raw file contents.
+     *
+     * Public because it is the unit worth testing: heading anchors, frontmatter
+     * and the HTML strip are all decided here, and exercising them through the
+     * directory means writing a file into `resources/help` — which a killed
+     * process leaves behind for the frontmatter guard to fail on.
+     */
+    public function parse(string $slug, string $contents): HelpArticle
     {
         [$frontmatter, $body] = $this->split($contents);
 
@@ -316,11 +330,24 @@ final class HelpLibrary
                     $id = 'section';
                 }
 
-                $seen[$id] = ($seen[$id] ?? 0) + 1;
+                /*
+                 * Suffix until free, rather than suffixing with the occurrence
+                 * count. `## Foo 2` followed by two `## Foo` headings slugs to
+                 * `foo-2`, `foo`, `foo-2` under a counter — the third heading
+                 * collides with the first, and a contents link then scrolls to
+                 * the wrong section rather than to nothing, which is the harder
+                 * failure to notice.
+                 */
+                $candidate = $id;
+                $suffix = 1;
 
-                if ($seen[$id] > 1) {
-                    $id .= '-'.$seen[$id];
+                while (isset($seen[$candidate])) {
+                    $suffix++;
+                    $candidate = $id.'-'.$suffix;
                 }
+
+                $seen[$candidate] = true;
+                $id = $candidate;
 
                 $headings[] = ['level' => (int) $match[1], 'text' => $text, 'id' => $id];
 

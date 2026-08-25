@@ -13,8 +13,9 @@ than typed in one at a time.
 ## What exists today
 
 Task due dates, which appear on My Work, on the dashboard, and on a deal's
-Tasks tab. The deal's **Dates** tab is present but empty, and the dashboard's
-fourteen-day number counts tasks rather than closings for the same reason.
+Tasks tab. The deal's **Dates** tab appears in the tab row but is not yet
+clickable, and the dashboard's fourteen-day tile counts deals with a task due
+rather than deals closing, for the same reason.
 
 ## What it will do
 

@@ -51,4 +51,6 @@ Due dates are read in your team's own time zone, not the server's — so
 "overdue" means overdue where you are, which is the only definition that is
 any use.
 
-Tasks show as **Overdue** past their date, **Due today**, or **Open**.
+A task is **Open**, **Overdue** once its date has passed, or **Completed**.
+The date itself is chipped separately, so a task due today reads "Today"
+without being a fourth state.

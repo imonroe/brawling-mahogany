@@ -11,8 +11,10 @@ Everything is reached from the left, in three groups.
 
 The **first group** is what you open daily: the dashboard, My Work, and Deals.
 
-The **second** is your reference material: People, Properties, Calendar, Keep
-in Touch, and Activity.
+The **second** is your reference material: People, Properties and Activity.
+Calendar and Keep in Touch sit in the same group and are placeholders for now —
+see [Dates and deadlines](/help/dates-and-deadlines) and
+[Keep in Touch](/help/keep-in-touch) for what they will hold.
 
 The **third** is configuration: Templates and Settings.
 

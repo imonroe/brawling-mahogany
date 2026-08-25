@@ -13,12 +13,19 @@ your password.
 
 ## Two-factor authentication
 
-**Team owners must have it.** Anybody who can change a team's settings, invite
-people, or edit roles is required to set up two-factor authentication before
-they can reach those screens. If you are an owner and have not set it up, the
-app will take you to the enrolment screen rather than letting you past it.
+**Team owners must have it**, and so must whoever administers the install.
+The requirement follows the **Team Owner role** itself rather than any
+particular permission — hold that role in any team and you must enrol.
 
-Everybody else may turn it on and should.
+It is not a lock on particular screens. Until you have enrolled, the app sends
+you to the enrolment screen from everywhere except your own account settings
+and this manual, which stays readable while you are held there.
+
+Everybody else may turn it on and should. A role your team composed for itself
+does not carry the requirement, even when it grants the same abilities an owner
+has — so if you want somebody held to two-factor, give them the Team Owner
+role rather than a copy of its permissions. Whether that is the right rule is
+being looked at.
 
 You will find it under **Settings → Security**, along with your recovery
 codes. Keep those somewhere that is not your phone — they are what gets you

@@ -82,11 +82,18 @@ along all day without being able to decide a survey was unnecessary.
 genuinely has no appraisal contingency — that is not a requirement somebody
 failed to meet, it is a stage that was never relevant.
 
-The difference matters beyond bookkeeping. Overrides are counted, because a
-process that is overridden constantly is a process that is wrong. Skips are
-not, because a deal that differs is not a process that failed.
+The difference matters beyond bookkeeping. An override says the process was
+right and this deal did not follow it; a skip says the process did not apply.
+A team overriding the same requirement on every deal has a template to fix; a
+team skipping the appraisal stage on every cash purchase has a template that is
+working.
 
-Skipping also takes a reason, and it is a Team Owner permission.
+Both are recorded — the override with its reason, its audit entry and its
+follow-up task, the skip with its reason — and that is what makes the
+distinction readable a year later.
+
+Skipping also takes a reason, and it needs the skip permission. A Team Owner
+holds it; a role your team composed may hold it too.
 
 ## Reopening
 

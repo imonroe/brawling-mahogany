@@ -114,11 +114,10 @@ it('is gated on being signed in and on nothing else', function (): void {
      * The claim this PR makes in five places, asserted where it actually
      * lives — the route's middleware — rather than through a request.
      *
-     * The behavioural version of the `team` half cannot be written honestly in
-     * this suite: `TeamContext` is an in-memory singleton, so a test that
-     * signs in a teamless person after `beforeEach` has resolved a team is
-     * asserting against harness state rather than against the product. The
-     * two-factor half *can* be, and is, above.
+     * All three halves are also asserted behaviourally: two-factor above, and
+     * the teamless case in `HelpWithoutTeamTest` — its own file precisely
+     * because `TeamContext` is an in-memory singleton, so the case is only
+     * honest where nothing has resolved a team.
      *
      * `verified`, `two-factor` and `team` are each excluded for a case
      * somebody is genuinely in: mid-signup, held at 2FA enrolment, or invited
@@ -160,15 +159,8 @@ it('strips raw HTML rather than rendering it', function (): void {
      */
     $path = resource_path('help/zz-probe.md');
 
-    File::put($path, "---\ntitle: Probe\nsection: getting-started\norder: 98\n---\n\n"
+    File::put($path, "---\ntitle: Probe\nsummary: Probe.\nsection: getting-started\norder: 98\n---\n\n"
         ."<script>alert(1)</script>\n\nOrdinary text.\n");
-
-    // The library memoises per process; this test writes a file after the
-    // suite may already have read the directory.
-    (function (): void {
-        $reflection = new ReflectionClass(HelpLibrary::class);
-        $reflection->setStaticPropertyValue('articles', null);
-    })();
 
     try {
         $html = $this->get('/help/zz-probe')->assertOk()
@@ -178,9 +170,6 @@ it('strips raw HTML rather than rendering it', function (): void {
             ->and($html)->toContain('Ordinary text.');
     } finally {
         File::delete($path);
-
-        $reflection = new ReflectionClass(HelpLibrary::class);
-        $reflection->setStaticPropertyValue('articles', null);
     }
 });
 
@@ -197,14 +186,26 @@ it('never links to a route the application does not have', function (): void {
      * table. This fails on the day a route is renamed, in the pull request
      * that renames it, which is the only moment anybody can cheaply fix it.
      */
+    /*
+     * **Static routes only**, deliberately.
+     *
+     * The first version rewrote `{param}` to `[^/]+` before matching, which
+     * made `/deals/anything-at-all` resolve — the same hole that let
+     * `/help/logging-a-contact` through, one route pattern over. A manual has
+     * no business linking to a row: it links to screens, and every screen is a
+     * static URI. So a link carrying an id now fails rather than resolving
+     * against the pattern that would have held it.
+     */
     $routes = collect(app('router')->getRoutes()->getRoutes())
         ->filter(fn ($route): bool => in_array('GET', $route->methods(), true))
-        ->map(fn ($route): string => '/'.ltrim((string) $route->uri(), '/'));
+        ->map(fn ($route): string => '/'.ltrim((string) $route->uri(), '/'))
+        ->reject(fn (string $uri): bool => str_contains($uri, '{'));
 
     $articles = array_keys(app(HelpLibrary::class)->all());
 
     $broken = [];
     $checked = 0;
+    $intoTheManual = 0;
 
     foreach (File::files(resource_path('help')) as $file) {
         preg_match_all('/\]\((\/[^)#\s]*)/', (string) File::get($file->getPathname()), $matches);
@@ -224,6 +225,8 @@ it('never links to a route the application does not have', function (): void {
              * guards is not a guard.
              */
             if (Str::startsWith($link, '/help/')) {
+                $intoTheManual++;
+
                 if (! in_array(Str::after($link, '/help/'), $articles, true)) {
                     $broken[] = $file->getFilename().': '.$link.' (no such article)';
                 }
@@ -231,23 +234,25 @@ it('never links to a route the application does not have', function (): void {
                 continue;
             }
 
-            $resolves = $routes->contains(function (string $uri) use ($link): bool {
-                // A route with a parameter matches any single segment there,
-                // so `/help/{article}` covers `/help/tasks`.
-                $pattern = '#^'.preg_replace('/\\\{[^}]+\\\}/', '[^/]+', preg_quote($uri, '#')).'$#';
-
-                return (bool) preg_match($pattern, $link);
-            });
-
-            if (! $resolves) {
+            if (! $routes->contains($link)) {
                 $broken[] = $file->getFilename().': '.$link;
             }
         }
     }
 
-    // The scan has to be finding links: a pattern that quietly stopped
-    // matching would make the assertion below pass over an empty list.
-    expect($checked)->toBeGreaterThanOrEqual(4);
+    /*
+     * The scan has to be finding links: a pattern that quietly stopped
+     * matching would make the assertion below pass over an empty list.
+     *
+     * Counted in two halves because the totals are not interchangeable. Every
+     * link in the manual today points *into the manual*, so the app-route
+     * branch executes zero times — a single total would look like coverage the
+     * route half does not have. What protects that half meanwhile is the
+     * static-only rule above, not this floor.
+     */
+    expect($checked)->toBeGreaterThanOrEqual(4)
+        ->and($intoTheManual)->toBeGreaterThanOrEqual(4)
+        ->and($checked - $intoTheManual)->toBeGreaterThanOrEqual(0);
 
     expect($broken)->toBe([], 'These help articles link somewhere that does not exist: '
         .implode(', ', $broken));
@@ -375,8 +380,28 @@ it('never promises a screen the reader cannot reach', function (): void {
         ->filter(fn ($article): bool => $article->isPlanned())
         ->keys();
 
-    $navigable = ['Deals', 'People', 'Properties', 'Templates', 'Settings',
-        'Activity', 'My Work', 'Calendar', 'Keep in Touch', 'Help'];
+    /*
+     * Read out of the sidebar rather than typed here.
+     *
+     * The first version was a hand-copied list, and it had already drifted
+     * before it shipped — it omitted Dashboard and carried Help, which is a
+     * top-bar icon. A copy of the thing you are checking against answers a
+     * different question than the failure message claims, and a sidebar rename
+     * leaves it green while every arrow in the manual points at a label that no
+     * longer exists. Same shape as `subjectPermissions()` in
+     * `ActivityFeedIsolationTest`: derive it, so the guard fails in the pull
+     * request that renames the nav.
+     */
+    preg_match_all(
+        "/label: '([^']+)'/",
+        (string) File::get(resource_path('js/lib/navigation.ts')),
+        $labels,
+    );
+
+    $navigable = $labels[1];
+
+    expect($navigable)->toContain('Deals');
+    expect(count($navigable))->toBeGreaterThanOrEqual(8);
 
     $offences = [];
     $checked = 0;
@@ -396,6 +421,12 @@ it('never promises a screen the reader cannot reach', function (): void {
             continue;
         }
 
+        /*
+         * `**Destination → …**` is the shape, and the shape is load-bearing:
+         * `**Deals** → New deal` (bold on the first word only) and a lowercase
+         * destination both escape this. Mutation-tested, and written down here
+         * rather than widened, because a looser pattern starts matching prose.
+         */
         preg_match_all(
             '/\*\*([A-Z][A-Za-z ]+?)\s*→/u',
             (string) File::get($file->getPathname()),
@@ -435,34 +466,29 @@ it('gives the contents list ids that match the headings', function (): void {
      * Also asserts the duplicate case, which two identical headings in one
      * article would otherwise collapse onto the first.
      */
-    $path = resource_path('help/zz-anchors.md');
+    $article = app(HelpLibrary::class)->parse('anchors', "---\ntitle: Anchors\nsummary: Probe.\n"
+        ."section: getting-started\norder: 97\n---\n\n"
+        ."## Dates & Deadlines\n\nOne.\n\n## What it will do\n\nTwo.\n\n## What it will do\n\nThree.\n"
+        // The collision the first numbering scheme could not see: suffixing
+        // once with the occurrence count gives `foo-2`, `foo`, `foo-2`, and the
+        // third heading then anchors onto the first — a contents link that
+        // scrolls to the wrong section rather than to none.
+        ."## Foo 2\n\nFour.\n\n## Foo\n\nFive.\n\n## Foo\n\nSix.\n");
 
-    File::put($path, "---\ntitle: Anchors\nsummary: Probe.\nsection: getting-started\norder: 97\n---\n\n"
-        ."## Dates & Deadlines\n\nOne.\n\n## What it will do\n\nTwo.\n\n## What it will do\n\nThree.\n");
-
-    $reset = function (): void {
-        (new ReflectionClass(HelpLibrary::class))->setStaticPropertyValue('articles', null);
-    };
-
-    $reset();
-
-    try {
-        $article = app(HelpLibrary::class)->find('zz-anchors');
-
-        expect($article)->not->toBeNull();
-
-        // No message argument: Pest reads a second argument to `toContain`
-        // as another needle, not as a failure message.
-        foreach ($article->headings as $heading) {
-            expect($article->html)->toContain('<h2 id="'.$heading['id'].'">');
-        }
-
-        $ids = collect($article->headings)->pluck('id');
-
-        expect($ids->all())->toBe(['dates-deadlines', 'what-it-will-do', 'what-it-will-do-2'])
-            ->and($ids->unique()->count())->toBe($ids->count());
-    } finally {
-        File::delete($path);
-        $reset();
+    // No message argument: Pest reads a second argument to `toContain`
+    // as another needle, not as a failure message.
+    foreach ($article->headings as $heading) {
+        expect($article->html)->toContain('<h2 id="'.$heading['id'].'">');
     }
+
+    $ids = collect($article->headings)->pluck('id');
+
+    expect($ids->all())->toBe([
+        'dates-deadlines',
+        'what-it-will-do',
+        'what-it-will-do-2',
+        'foo-2',
+        'foo',
+        'foo-3',
+    ])->and($ids->unique()->count())->toBe($ids->count());
 });
