@@ -69,8 +69,19 @@ const props = defineProps<{
         inUse: number;
         stages: Stage[];
     };
-    /** `gate_type` → label, from `GateRegistry::options()`. */
+    /**
+     * What a person may **pick**, from `GateRegistry::selectableOptions()` —
+     * the types S43 can fully specify. Five of the seven evaluators read a
+     * `configuration` this editor has no fields for, and a gate composed
+     * without one is a stage only an override can pass.
+     */
     gateTypes: Record<string, string>;
+    /**
+     * What every type is **called**, from `GateRegistry::options()`. Reading
+     * and composing are different questions: a gate a pack carries renders
+     * with its name whether or not this screen could have built it.
+     */
+    gateTypeLabels: Record<string, string>;
     can: { update: boolean };
 }>();
 
@@ -166,6 +177,12 @@ function removeGate(stage: Stage, gate: Gate): void {
 function addTask(stage: Stage): void {
     taskForm.post(`${base}/stages/${stage.id}/tasks`, {
         preserveScroll: true,
+        /*
+         * The form stays **open**, unlike the gate one, and the difference is
+         * deliberate rather than an oversight: a stage gets one or two gates
+         * and four or five tasks, so the common act here is adding several in
+         * a row and the common act there is not.
+         */
         onSuccess: () => taskForm.reset(),
     });
 }
@@ -357,7 +374,7 @@ function remove(): void {
                             v-for="gate in stage.gates"
                             :key="gate.id"
                             :tone="gate.isBlocking ? 'warning' : 'neutral'"
-                            :label="`${gate.label} · ${gateTypes[gate.gateType] ?? gate.gateType}`"
+                            :label="`${gate.label} · ${gateTypeLabels[gate.gateType] ?? gate.gateType}`"
                             dotless
                         />
                         <AppButton

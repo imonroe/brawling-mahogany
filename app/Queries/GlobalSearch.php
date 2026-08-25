@@ -57,7 +57,7 @@ final class GlobalSearch
     /**
      * @return array<int, array<string, mixed>>
      */
-    public static function for(string $term, ?Person $person = null): array
+    public static function for(string $term, Person $person): array
     {
         $term = trim($term);
 
@@ -109,13 +109,18 @@ final class GlobalSearch
     }
 
     /**
-     * A null person is the pre-#88 behaviour and is used by nothing but tests
-     * that predate the split; the controller always passes one.
+     * Required rather than nullable, and the reason is the failure direction.
+     *
+     * A nullable person with a `!$person instanceof Person ||` short-circuit
+     * meant *"nobody in particular sees everything"* — dead code today, since
+     * the controller always passes one, and a tenancy-adjacent surface the day
+     * it stops being dead. `Permissions::grantedTo()` already fails closed on
+     * null; making the parameter required means nothing can ask this question
+     * without saying who is asking.
      */
-    private static function mayRead(?Person $person, string $permission): bool
+    private static function mayRead(Person $person, string $permission): bool
     {
-        return ! $person instanceof Person
-            || in_array($permission, Permissions::grantedTo($person), true);
+        return in_array($permission, Permissions::grantedTo($person), true);
     }
 
     /**

@@ -203,6 +203,61 @@ it('holds a gate to the types the registry actually has', function (): void {
     expect($stage->gateTemplates()->count())->toBe(1);
 });
 
+it('refuses a gate type this editor cannot fully specify', function (): void {
+    /*
+     * The picker offering all seven reintroduced, one layer up, the defect the
+     * confirmation route removed at the runtime layer.
+     *
+     * Five of the seven evaluators read a `configuration` — a field name, a
+     * role, a key date, a document category — and S43 has no editor for any of
+     * them. `is_blocking` defaults to true, so a gate composed without its
+     * configuration is a **permanently blocked stage**: `notYetWired()` says
+     * so in its own words, *"it cannot clear on its own — override it with a
+     * reason if the deal needs to move."* Two clicks to build a stage only the
+     * audited exception can pass.
+     *
+     * So the picker offers what S43 can specify, and the validation is held to
+     * the same list — a request naming one of the others is refused rather
+     * than quietly accepted.
+     */
+    $template = teamTemplate();
+    $stage = StageTemplate::query()->where('workflow_template_id', $template->getKey())->sole();
+
+    foreach (['document_present', 'field_populated', 'approval', 'date_reached', 'action_completed'] as $type) {
+        $this->post("/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates", [
+            'gate_type' => $type,
+            'label' => 'Composed without its configuration',
+        ])->assertSessionHasErrors('gate_type');
+    }
+
+    expect($stage->gateTemplates()->count())->toBe(0);
+
+    // And the two that clear on their own are offered, which is the control:
+    // a validation rule refusing everything would pass the loop above.
+    foreach (['manual_confirmation', 'required_tasks_complete'] as $type) {
+        $this->post("/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates", [
+            'gate_type' => $type,
+            'label' => 'Something somebody can clear',
+        ])->assertRedirect();
+    }
+
+    expect($stage->gateTemplates()->count())->toBe(2);
+
+    /*
+     * The page offers exactly those two, and can still *name* all seven — a
+     * gate a pack carries has to render with its name whether or not this
+     * screen could have built it.
+     */
+    $this->get("/templates/{$template->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('gateTypes', [
+                'manual_confirmation' => 'Manual confirmation',
+                'required_tasks_complete' => 'Required tasks complete',
+            ])
+            ->where('gateTypeLabels.document_present', 'Document present'));
+});
+
 it('shows another team none of this one’s templates', function (): void {
     teamTemplate('Mine');
 

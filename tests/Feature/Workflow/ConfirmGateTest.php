@@ -211,6 +211,30 @@ it('takes a confirmation back', function (): void {
     expect(ActivityEvent::query()->where('event_type', 'gate.unconfirmed')->exists())->toBeTrue();
 });
 
+it('records who ticked it, and clears that with the tick', function (): void {
+    /*
+     * `met_by` and `met_at` had **no writer anywhere in the application**:
+     * the cache refresh sets `is_met` from an evaluator, which is not a
+     * person, so `Gate::metBy()` resolved to null forever and two columns sat
+     * dead beside the one this service had learned to move.
+     * `evaluateGates()`'s own note reserves them for *"a human ticking
+     * something"*, and this route is the first thing that is.
+     */
+    [$workflow, , $gate] = confirmableWorkflow($this->deal);
+
+    app(AdvanceWorkflow::class)->confirm($workflow->fresh(), $gate, $this->member);
+
+    expect($gate->refresh()->met_by)->toBe($this->member->getKey())
+        ->and($gate->met_at)->not->toBeNull();
+
+    app(AdvanceWorkflow::class)->unconfirm($workflow->fresh(), $gate, $this->member);
+
+    // Cleared with the flag: an unticked gate still naming who ticked it is a
+    // record disagreeing with itself.
+    expect($gate->refresh()->met_by)->toBeNull()
+        ->and($gate->met_at)->toBeNull();
+});
+
 it('refuses a gate belonging to another workflow', function (): void {
     [$workflow] = confirmableWorkflow($this->deal);
     [, , $otherGate] = confirmableWorkflow($this->deal);

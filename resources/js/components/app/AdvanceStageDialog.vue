@@ -63,7 +63,12 @@ import {
 import type { AdvanceTarget } from '@/composables/useAdvanceDialog';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatCount } from '@/lib/formatters';
-import { gateResolutionLink, isConfirmable, isOverridable } from '@/lib/gates';
+import {
+    gateResolutionLink,
+    isConfirmable,
+    isOverridable,
+    isUnconfirmable,
+} from '@/lib/gates';
 import type { GateSummary } from '@/lib/gates';
 import { cn } from '@/lib/utils';
 import AppButton from './AppButton.vue';
@@ -157,6 +162,19 @@ const notClearable = computed(() =>
  * one of three blockers does not move the deal.
  */
 function confirmGate(gate: GateSummary): void {
+    setConfirmation(gate, true);
+}
+
+/**
+ * The way back. A person who ticked the wrong row needs one, and without a
+ * control here the service, the route and the `gate.unconfirmed` timeline
+ * entry are unreachable — the shape of the bug this pair exists to close.
+ */
+function unconfirmGate(gate: GateSummary): void {
+    setConfirmation(gate, false);
+}
+
+function setConfirmation(gate: GateSummary, confirmed: boolean): void {
     const target = props.target;
 
     if (!target) {
@@ -165,18 +183,24 @@ function confirmGate(gate: GateSummary): void {
 
     confirming.value = gate.id;
 
-    router.post(
-        `/deals/${target.dealId}/workflows/${target.workflowId}/confirmation`,
-        { gate_id: gate.id },
-        {
-            preserveScroll: true,
-            preserveState: true,
-            onFinish: () => {
-                confirming.value = null;
-                void load();
-            },
+    const url = `/deals/${target.dealId}/workflows/${target.workflowId}/confirmation`;
+
+    const options = {
+        preserveScroll: true,
+        preserveState: true,
+        onFinish: () => {
+            confirming.value = null;
+            void load();
         },
-    );
+    };
+
+    if (confirmed) {
+        router.post(url, { gate_id: gate.id }, options);
+
+        return;
+    }
+
+    router.delete(url, { ...options, data: { gate_id: gate.id } });
 }
 
 /** Everything not in the way: advisories, overridden gates, and met ones. */
@@ -559,7 +583,28 @@ function onOverrideRefused(): void {
                             :key="gate.id"
                             :gate="gate"
                             boxed
-                        />
+                        >
+                            <template #action>
+                                <!--
+                                    Untick, on a manual gate somebody ticked.
+                                    Quiet, because taking a confirmation back
+                                    is a correction rather than a step — but
+                                    present, because the alternative is an
+                                    Override to undo a mistake.
+                                -->
+                                <AppButton
+                                    v-if="
+                                        isUnconfirmable(gate) &&
+                                        can('workflow.advance')
+                                    "
+                                    variant="ghost"
+                                    size="compact"
+                                    :disabled="confirming === gate.id"
+                                    @click="unconfirmGate(gate)"
+                                    >Untick</AppButton
+                                >
+                            </template>
+                        </GateRow>
                     </section>
 
                     <section

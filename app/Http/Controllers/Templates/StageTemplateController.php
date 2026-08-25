@@ -120,10 +120,17 @@ class StageTemplateController extends Controller
              * The gate **type** decides which evaluator runs, and the
              * registry is the list of them — *"adding a gate type means adding
              * a class, not touching advancement logic"*, so the allowed values
-             * are read from the registry rather than repeated here. An eighth
-             * evaluator becomes selectable by existing.
+             * are read from the registry rather than repeated here.
+             *
+             * `selectableOptions()` and not `types()`: five of the seven
+             * evaluators read a `configuration` this editor cannot yet ask
+             * for, and a gate composed without one is a gate no evaluator can
+             * ever answer — a stage only an **override** could pass, built in
+             * two clicks. Validating against the narrower list means a request
+             * naming one is refused rather than quietly accepted, which is the
+             * same argument the permission validation on S75 makes.
              */
-            'gate_type' => ['required', Rule::in(GateRegistry::types())],
+            'gate_type' => ['required', Rule::in(array_keys(GateRegistry::selectableOptions()))],
             'label' => ['required', 'string', 'max:120'],
             'is_blocking' => ['boolean'],
         ]);

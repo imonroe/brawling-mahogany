@@ -846,7 +846,26 @@ final class AdvanceWorkflow
              * overridden and is now genuinely met should read as both — the
              * override is what happened, and no later tick unhappens it.
              */
-            $gate->forceFill(['is_met' => $confirmed])->save();
+            /*
+             * `met_by` and `met_at` alongside, because **this** is what those
+             * columns were reserved for.
+             *
+             * `evaluateGates()`'s own note calls them the record of *"a human
+             * ticking something"*, and until this route existed nothing in the
+             * application wrote either — the cache refresh sets `is_met` from
+             * an evaluator, which is not a person. So `Gate::metBy()` resolved
+             * to null forever and two columns sat dead beside the one this
+             * service had learned to move.
+             *
+             * Cleared on the way back, for the reason the flag is: an unticked
+             * gate that still names who ticked it is a record disagreeing with
+             * itself.
+             */
+            $gate->forceFill([
+                'is_met' => $confirmed,
+                'met_by' => $confirmed ? $actor->getKey() : null,
+                'met_at' => $confirmed ? now() : null,
+            ])->save();
 
             $deal = $workflow->deal;
 

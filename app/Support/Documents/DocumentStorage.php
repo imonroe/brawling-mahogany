@@ -60,19 +60,42 @@ final class DocumentStorage
     public const MAX_BYTES = 15 * 1024 * 1024;
 
     /**
-     * What a photo may be, by extension and by type.
+     * What a photo may be, **by detected type**, and the extension each gets.
      *
      * An allowlist rather than a denylist, for the reason `SafeUrl` is one: a
      * denylist is a list of the attacks somebody thought of.
      *
+     * ## Keyed by mime, because several report as one extension
+     *
+     * This was a one-to-one `extension => mime` map searched backwards, and
+     * that shape is what broke HEIC. `finfo` derives a HEIF file's type from
+     * its **major brand**, and encoders — Apple's included — write `mif1` at
+     * least as often as `heic`:
+     *
+     * | brand  | detected                |
+     * |--------|-------------------------|
+     * | `heic` | `image/heic`            |
+     * | `mif1` | `image/heif`            |
+     * | `msf1` | `image/heif-sequence`   |
+     *
+     * So moving the check from the filename to the bytes — which is right, and
+     * makes the stored `mime_type` true — rejected an iPhone photograph with a
+     * message naming HEIC as accepted. The most likely file in the world to
+     * reach a property gallery, refusing itself.
+     *
+     * `image/heif-sequence` is deliberately **absent**: `msf1` is a Live
+     * Photo, which is a video, and this product does not transcode. Refusing
+     * it with a sentence beats storing a moving image under `.heic` and
+     * calling it a photograph.
+     *
      * @var array<string, string>
      */
     public const IMAGE_TYPES = [
-        'jpg' => 'image/jpeg',
-        'jpeg' => 'image/jpeg',
-        'png' => 'image/png',
-        'webp' => 'image/webp',
-        'heic' => 'image/heic',
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'image/heic' => 'heic',
+        'image/heif' => 'heic',
     ];
 
     /**
@@ -102,19 +125,20 @@ final class DocumentStorage
          * would trust.
          */
         $detected = mb_strtolower((string) $file->getMimeType());
-        $extension = array_search($detected, self::IMAGE_TYPES, true);
 
-        if (! is_string($extension)) {
+        if (! array_key_exists($detected, self::IMAGE_TYPES)) {
             throw UnsupportedDocument::extension(
                 mb_strtolower($file->getClientOriginalExtension()) ?: $detected,
             );
         }
 
+        $extension = self::IMAGE_TYPES[$detected];
+
         if ($file->getSize() > self::MAX_BYTES) {
             throw UnsupportedDocument::tooLarge(self::MAX_BYTES);
         }
 
-        return DB::transaction(function () use ($subject, $file, $actor, $category, $extension): Document {
+        return DB::transaction(function () use ($subject, $file, $actor, $category, $extension, $detected): Document {
             $teamId = $subject->getAttribute('team_id');
 
             $path = $file->storeAs(
@@ -142,7 +166,7 @@ final class DocumentStorage
                  */
                 'original_name' => mb_substr($file->getClientOriginalName(), 0, 255),
                 // Detected from the bytes, never the browser's claim.
-                'mime_type' => self::IMAGE_TYPES[$extension],
+                'mime_type' => $detected,
                 'size_bytes' => (int) $file->getSize(),
                 'sort_order' => $this->nextSortOrder($subject),
                 /*

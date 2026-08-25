@@ -32,8 +32,15 @@ return new class extends Migration
     {
         /*
          * Raw rather than `$table->text('summary')->change()`, because
-         * Doctrine's change() drops and recreates on some drivers and this
-         * table is append-only under a trigger that refuses an UPDATE.
+         * `change()` needs the column's full definition restated and silently
+         * drops anything omitted — a nullable or a default lost that way is
+         * not visible in the diff.
+         *
+         * (An earlier version of this comment justified it by append-only
+         * triggers on this table. There are none: `audit_log` carries those,
+         * `activity_events` does not. The migration was right and the reason
+         * recorded for it was wrong, which in this repository is the half that
+         * lasts.)
          */
         DB::statement('ALTER TABLE activity_events ALTER COLUMN summary TYPE text');
     }

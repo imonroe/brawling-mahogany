@@ -73,6 +73,94 @@ it('takes photographs and refuses everything else', function (): void {
     expect(Document::query()->count())->toBe(0);
 });
 
+/**
+ * A **real** upload over a temp file, so `getMimeType()` runs `finfo`.
+ *
+ * `Illuminate\Http\Testing\File::getMimeType()` returns the type it was
+ * handed, or one derived from the *filename* — it never reads the bytes. So
+ * every assertion about content-based validation written with `fake()` passes
+ * over a code path production does not take, which is how a HEIF brand the
+ * allowlist did not carry got past a green suite.
+ */
+function realUpload(string $name, string $bytes): UploadedFile
+{
+    $path = tempnam(sys_get_temp_dir(), 'upload');
+
+    file_put_contents($path, $bytes);
+
+    return new UploadedFile($path, $name, null, null, true);
+}
+
+/**
+ * The first bytes of a HEIF file with the given major brand.
+ *
+ * `finfo` reads the brand out of the `ftyp` box and nothing else, so this is
+ * enough to reproduce what an encoder writes: `heic` reports `image/heic`,
+ * `mif1` reports `image/heif`, `msf1` reports `image/heif-sequence`.
+ */
+function heifBytes(string $brand): string
+{
+    return "\x00\x00\x00\x18ftyp".$brand."\x00\x00\x00\x00".$brand
+        .'mif1miaf'.str_repeat("\x00", 64);
+}
+
+it('takes an iPhone photograph, whichever HEIF brand wrote it', function (): void {
+    /*
+     * The regression that made this test exist. Moving validation from the
+     * filename to the bytes is right — an allowlist checked against the
+     * browser's claim is a denylist with extra steps — but the map was keyed
+     * by extension and searched backwards, so it carried exactly one of the
+     * three types `finfo` reports for HEIF. An `mif1`-brand file, which is
+     * what Apple writes at least as often as `heic`, refused itself with a
+     * message naming HEIC as accepted.
+     */
+    foreach (['heic', 'mif1'] as $brand) {
+        $this->post("/properties/{$this->property->getKey()}/photos", [
+            'photo' => realUpload("front-{$brand}.heic", heifBytes($brand)),
+        ])->assertRedirect();
+    }
+
+    expect(Document::query()->count())->toBe(2);
+
+    /*
+     * And a Live Photo is refused, deliberately rather than by omission:
+     * `msf1` is a video sequence, and this product does not transcode. A
+     * moving image stored under `.heic` and called a photograph is worse than
+     * a sentence saying no.
+     */
+    $this->post("/properties/{$this->property->getKey()}/photos", [
+        'photo' => realUpload('live.heic', heifBytes('msf1')),
+    ])->assertSessionHasErrors();
+
+    expect(Document::query()->count())->toBe(2);
+});
+
+it('reads the bytes rather than the name, on a real upload', function (): void {
+    /*
+     * The guard that would have caught the HEIF regression while it was being
+     * written, and the one every `fake()`-based assertion here cannot be: a
+     * fake's `getMimeType()` answers from the filename, so a broken
+     * implementation that trusted the client passes them all.
+     */
+    $this->post("/properties/{$this->property->getKey()}/photos", [
+        'photo' => realUpload('front.jpg', '<html><script>alert(1)</script></html>'),
+    ])->assertSessionHasErrors();
+
+    expect(Document::query()->count())->toBe(0);
+
+    $png = base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    );
+
+    // Named `.txt`, and stored as the PNG it actually is.
+    $this->post("/properties/{$this->property->getKey()}/photos", [
+        'photo' => realUpload('front.txt', $png),
+    ])->assertRedirect();
+
+    expect(Document::query()->sole()->mime_type)->toBe('image/png')
+        ->and(Document::query()->sole()->path)->toEndWith('.png');
+});
+
 it('does not trust the browser about what a file is', function (): void {
     /*
      * **The bytes decide, not the filename or the header.**

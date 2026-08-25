@@ -237,3 +237,35 @@ it('ends the other live offers when one is recorded as accepted', function (): v
         ->and(Offer::query()->where('deal_id', $deal->getKey())
             ->where('status', OfferStatus::Accepted)->count())->toBe(1);
 });
+
+it('says on the timeline that a standing acceptance was superseded', function (): void {
+    /*
+     * A mass update wrote nothing to the feed, which was tolerable while it
+     * only reached *open* offers — nobody had been told those were going
+     * anywhere. It stopped being tolerable once it started reaching a standing
+     * **accepted** one: accepting writes an entry, so silently un-accepting
+     * left the timeline saying an offer was accepted and never saying it was
+     * not.
+     */
+    $deal = offerDeal();
+
+    $standing = Offer::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+        'status' => OfferStatus::Accepted,
+    ]);
+
+    $this->post("/deals/{$deal->getKey()}/offers", [
+        'direction' => 'received',
+        'status' => 'accepted',
+        'amount' => 725000,
+    ])->assertRedirect();
+
+    expect($standing->refresh()->status)->toBe(OfferStatus::Rejected);
+
+    // One for the offer recorded, one for the offer it displaced.
+    expect(ActivityEvent::query()
+        ->where('event_type', 'offer.status_changed')
+        ->where('summary', 'like', '%Rejected%')
+        ->count())->toBe(1);
+});

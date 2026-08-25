@@ -67,7 +67,7 @@ final class DealOffers
              * new row nor the demotions.
              */
             if ($offer->status === OfferStatus::Accepted) {
-                $this->rejectOthers($deal, $offer);
+                $this->rejectOthers($deal, $offer, $actor);
             }
 
             $offer->save();
@@ -110,7 +110,7 @@ final class DealOffers
              * collide with.
              */
             if ($offer->status === OfferStatus::Accepted && $wasStatus !== OfferStatus::Accepted) {
-                $this->rejectOthers($deal, $offer);
+                $this->rejectOthers($deal, $offer, $actor);
             }
 
             $offer->save();
@@ -160,9 +160,19 @@ final class DealOffers
      * Superseding an acceptance is the team choosing somebody else, which is
      * `rejected` by the same argument the docblock above makes.
      */
-    private function rejectOthers(Deal $deal, Offer $accepted): void
+    private function rejectOthers(Deal $deal, Offer $accepted, ?Person $actor = null): void
     {
-        Offer::query()
+        /*
+         * Read before the update, so each demotion can be recorded.
+         *
+         * A mass update wrote nothing to the timeline, which was tolerable
+         * while it only reached *open* offers — nobody had been told those
+         * were going anywhere. It stopped being tolerable when it started
+         * reaching a **standing accepted** one: accepting writes an entry, and
+         * silently un-accepting it left the feed saying an offer was accepted
+         * and never saying it was not.
+         */
+        $demoted = Offer::query()
             ->where('deal_id', $deal->getKey())
             ->when(
                 $accepted->exists,
@@ -171,7 +181,26 @@ final class DealOffers
             ->where(fn (Builder $query): Builder => $query
                 ->open()
                 ->orWhere('status', OfferStatus::Accepted))
+            ->get();
+
+        if ($demoted->isEmpty()) {
+            return;
+        }
+
+        Offer::query()->whereKey($demoted->modelKeys())
             ->update(['status' => OfferStatus::Rejected]);
+
+        foreach ($demoted as $offer) {
+            $offer->status = OfferStatus::Rejected;
+
+            $this->activity->record(
+                subject: $deal,
+                eventType: 'offer.status_changed',
+                summary: $this->summary($offer, $offer->status->label()),
+                source: ActivitySource::Manual,
+                actor: $actor,
+            );
+        }
     }
 
     /**

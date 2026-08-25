@@ -124,7 +124,14 @@ class TemplateController extends Controller
              * class"* extended to the editor, so an eighth evaluator is
              * selectable by existing.
              */
-            'gateTypes' => GateRegistry::options(),
+            'gateTypes' => GateRegistry::selectableOptions(),
+            /*
+             * The full list too, so a gate a pack carries renders with its
+             * name rather than its key. Reading and composing are different
+             * questions: everything is legible, and only what S43 can fully
+             * specify is offerable.
+             */
+            'gateTypeLabels' => GateRegistry::options(),
             'can' => [
                 // A system template is readable and never editable: one pack
                 // is shared by every team.

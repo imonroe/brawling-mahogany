@@ -384,7 +384,10 @@ class DemoTeamSeeder extends Seeder
         }
 
         $agent = $team->memberships()
-            ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
+            // `holdingSystemRole()`, not a raw `roles.key` — a team may compose
+            // a role and a grep is how the next person decides whether the
+            // counterfeit-owner fix is complete.
+            ->holdingSystemRole(SystemRole::TeamOwner->value)
             ->sole();
 
         $workflow = app(InstantiateWorkflow::class)->handle($deal, $template, now()->subWeeks(3));

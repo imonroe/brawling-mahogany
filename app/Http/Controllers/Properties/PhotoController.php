@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 
 /**
  * S38 — a property's photographs (PRD §4.6 F6.4–F6.6, §7.14 · issue #63).
@@ -153,9 +154,28 @@ class PhotoController extends Controller
 
         return response($storage->contents($photo), 200, [
             'Content-Type' => $photo->mime_type,
-            // `inline` for an image the gallery renders; the name is the one
-            // the person uploaded, which is theirs to see.
-            'Content-Disposition' => 'inline; filename="'.addslashes($photo->original_name).'"',
+            /*
+             * `inline` for an image the gallery renders; the name is the one
+             * the person uploaded, which is theirs to see.
+             *
+             * Built by `HeaderUtils` rather than by hand: `addslashes()` on a
+             * non-ASCII original filename produces a header value that is not
+             * latin-1, which some clients reject and others mangle. The RFC
+             * 5987 encoding is what that helper exists for.
+             */
+            'Content-Disposition' => HeaderUtils::makeDisposition(
+                HeaderUtils::DISPOSITION_INLINE,
+                $photo->original_name,
+                // The fallback for a client that cannot read the encoded form.
+                'photo.'.pathinfo($photo->path, PATHINFO_EXTENSION),
+            ),
+            /*
+             * The complement to deriving `mime_type` from the bytes: the type
+             * we send is true of the file, and this stops a browser looking
+             * for a second opinion. Together they make `inline` safe by
+             * construction rather than by the type happening to be honest.
+             */
+            'X-Content-Type-Options' => 'nosniff',
             // Private and short-lived, per F6.4. Never a shared cache.
             'Cache-Control' => 'private, max-age=60, no-store',
         ]);

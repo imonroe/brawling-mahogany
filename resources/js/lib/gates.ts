@@ -147,6 +147,24 @@ export function isConfirmable(gate: GateSummary): boolean {
 }
 
 /**
+ * Whether this gate is one somebody can **untick**.
+ *
+ * The way back, and it has to exist: a person who ticked the wrong row needs
+ * one, and `AdvanceWorkflow::unconfirm()` was written for it. Without a
+ * control the service, the route, the refusal strings and the
+ * `gate.unconfirmed` timeline descriptor are all unreachable from the product
+ * — which is exactly the shape of the bug this pair was built to close, one
+ * verb over.
+ *
+ * A **met** manual gate, and only while its stage is still the one in
+ * progress. The service refuses the rest; this decides which row draws the
+ * control.
+ */
+export function isUnconfirmable(gate: GateSummary): boolean {
+    return gate.gateType === 'manual_confirmation' && gate.met;
+}
+
+/**
  * Whether this gate is one an override could clear (F4.9).
  *
  * Blocking, unmet, and not already overridden. An advisory never stops an

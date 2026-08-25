@@ -233,9 +233,35 @@ class RoleController extends Controller
 
             $key = Str::slug($value, '_');
 
+            /*
+             * A name with no ASCII slugs to the empty string — `Str::slug('🙂',
+             * '_') === ''` — and two of those would collide on a key that says
+             * nothing. Refused with the reason, rather than by the uniqueness
+             * message below, which would claim a role by that name exists when
+             * none does.
+             */
+            if ($key === '') {
+                $fail('That name needs some letters or numbers in it — the role’s internal key is derived from it.');
+
+                return;
+            }
+
             if (in_array($key, array_column(SystemRole::cases(), 'value'), true)) {
                 $fail('That is the name of a role this product ships. Pick another — a role that shares its name would be indistinguishable from it wherever permissions are checked.');
 
+                return;
+            }
+
+            /*
+             * **Only on create.** `update()` does not recompute the key — the
+             * key is what every permission check and every `membership_role`
+             * row is written against, so renaming a role must not change what
+             * it means. Checking uniqueness on an edit therefore refused a
+             * rename against a key nothing would write, and told somebody a
+             * role by that name existed when the only thing that matched was
+             * an old name's slug.
+             */
+            if ($editing instanceof Role) {
                 return;
             }
 
@@ -243,11 +269,10 @@ class RoleController extends Controller
                 ->withTrashed()
                 ->where('team_id', app(TeamContext::class)->requireId(Role::class))
                 ->where('key', $key)
-                ->when($editing instanceof Role, fn ($query) => $query->whereKeyNot($editing?->getKey()))
                 ->exists();
 
             if ($taken) {
-                $fail('This team already has a role by that name. Archived ones still count — restore it instead.');
+                $fail('This team already has a role with that internal name. Archived ones still count — restore it instead.');
             }
         };
     }
