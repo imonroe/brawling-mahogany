@@ -203,3 +203,37 @@ it('keeps another team’s offers out of it', function (): void {
 
     unset($deal);
 });
+
+it('ends the other live offers when one is recorded as accepted', function (): void {
+    /*
+     * **Recording one as accepted is accepting it**, and the demotion has to
+     * happen on create as well as on edit — it lived only in `edit()`, while
+     * the create form offers every status.
+     *
+     * An offer is frequently recorded after the fact: Emily enters last
+     * Tuesday's accepted offer on Thursday. That entry hit the partial unique
+     * index behind `offers_one_accepted` and answered with a 500; without the
+     * index it would have left the deal with two accepted offers and two
+     * closing-date chains, which is the thing Slice 4 reads.
+     */
+    $deal = offerDeal();
+
+    $standing = Offer::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+        'status' => OfferStatus::Accepted,
+    ]);
+
+    $this->post("/deals/{$deal->getKey()}/offers", [
+        'direction' => 'received',
+        'status' => 'accepted',
+        'amount' => 725000,
+    ])->assertRedirect();
+
+    $recorded = Offer::query()->whereKeyNot($standing->getKey())->sole();
+
+    expect($recorded->status)->toBe(OfferStatus::Accepted)
+        ->and($standing->refresh()->status)->toBe(OfferStatus::Rejected)
+        ->and(Offer::query()->where('deal_id', $deal->getKey())
+            ->where('status', OfferStatus::Accepted)->count())->toBe(1);
+});

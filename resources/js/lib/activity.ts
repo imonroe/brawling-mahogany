@@ -103,6 +103,16 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * that looks like every other row is a bypassed gate nobody finds.
      */
     'gate.overridden': { icon: ShieldAlert, tone: 'warning' },
+    /*
+     * Ticking a manual gate. **Neutral, not success** — §7.3 tints a
+     * *completion*, and clearing one of three blockers completes nothing. It
+     * is also the row that has to read as plainly different from the
+     * `state-warning` override directly above it: IA §8 keeps met and
+     * overridden apart, and a feed that tinted them alike would undo that
+     * distinction at exactly the point somebody is scanning for it.
+     */
+    'gate.confirmed': { icon: CircleCheck, tone: 'neutral' },
+    'gate.unconfirmed': { icon: CircleSlash, tone: 'neutral' },
 
     /*
      * Skip and Reopen (PRD F4.12 · IA §7 · #70), and both are **neutral**.

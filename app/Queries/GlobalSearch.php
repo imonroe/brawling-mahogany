@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Queries;
 
 use App\Models\Deal;
+use App\Models\Person;
 use App\Models\Property;
 use App\Models\TeamMembership;
+use App\Support\Permissions;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -55,7 +57,7 @@ final class GlobalSearch
     /**
      * @return array<int, array<string, mixed>>
      */
-    public static function for(string $term): array
+    public static function for(string $term, ?Person $person = null): array
     {
         $term = trim($term);
 
@@ -65,11 +67,37 @@ final class GlobalSearch
 
         $like = '%'.mb_strtolower($term).'%';
 
-        $groups = [
-            ['type' => 'deal', 'label' => 'Deals', 'results' => self::deals($like)],
-            ['type' => 'person', 'label' => 'People', 'results' => self::people($like)],
-            ['type' => 'property', 'label' => 'Properties', 'results' => self::properties($like)],
-        ];
+        /*
+         * **Each group behind its own permission.**
+         *
+         * One `deals.view` check for the whole box was defensible while the
+         * five shipped roles were the only roles: each of them either held all
+         * three view permissions or none. S75 (#88) ended that — a team
+         * composes a role from the catalogue now, and *"deals but not the
+         * client directory"* is an ordinary thing to build. One check would
+         * have handed that person every client name and address in the team
+         * through a search box, which is exactly the hole #82 calls search
+         * *"the classic place tenancy leaks"* about, one axis over: not the
+         * wrong team, the wrong colleague.
+         *
+         * A permission somebody lacks removes the **group**, not the results,
+         * so nothing tells them a group exists and is empty.
+         */
+        $groups = array_filter([
+            ['type' => 'deal', 'label' => 'Deals', 'permission' => Permissions::VIEW_DEALS],
+            ['type' => 'person', 'label' => 'People', 'permission' => Permissions::VIEW_PEOPLE],
+            ['type' => 'property', 'label' => 'Properties', 'permission' => Permissions::VIEW_PROPERTIES],
+        ], fn (array $group): bool => self::mayRead($person, (string) $group['permission']));
+
+        $groups = array_map(fn (array $group): array => [
+            'type' => $group['type'],
+            'label' => $group['label'],
+            'results' => match ($group['type']) {
+                'deal' => self::deals($like),
+                'person' => self::people($like),
+                default => self::properties($like),
+            },
+        ], $groups);
 
         // A group with nothing in it is not rendered: #82 asks for results
         // "grouped by type with the type visible", and three empty headings
@@ -78,6 +106,16 @@ final class GlobalSearch
             $groups,
             fn (array $group): bool => $group['results'] !== [],
         ));
+    }
+
+    /**
+     * A null person is the pre-#88 behaviour and is used by nothing but tests
+     * that predate the split; the controller always passes one.
+     */
+    private static function mayRead(?Person $person, string $permission): bool
+    {
+        return ! $person instanceof Person
+            || in_array($permission, Permissions::grantedTo($person), true);
     }
 
     /**

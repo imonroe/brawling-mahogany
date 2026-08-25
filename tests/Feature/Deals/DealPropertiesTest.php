@@ -62,7 +62,7 @@ function dealsOnlyMember(App\Models\Team $team): Person
             'joined_at' => now(),
         ]);
 
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => 'deals_only',
             'name' => 'Deals Only',

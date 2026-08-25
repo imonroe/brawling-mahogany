@@ -200,4 +200,42 @@ class Stage extends Model
     {
         return in_array($this->state->value, StageState::inProgress(), true);
     }
+
+    /**
+     * The one stage in this workflow a reopen may take, or null.
+     *
+     * F4.12's rule is *"only the most recently finished stage"*, and the word
+     * doing the work is **most recently**. Two places need the answer —
+     * `AdvanceWorkflow::reopen()` refuses anything else, and `StageTimeline`
+     * decides which row draws the control — and a rail that worked it out for
+     * itself would be a second copy drifting from the first.
+     *
+     * ## Behind the current stage, not merely finished
+     *
+     * `skip()` may be applied to a **future** stage: it is a note that the
+     * stage does not apply to this deal, and it deliberately moves nothing. So
+     * "finished, highest sort order" selects a stage the workflow has not
+     * reached — and reopening one made the workflow jump *forward*, with the
+     * stage the team was actually standing on displaced back to `pending` and
+     * its `actual_start` nulled. The work in between was silently skipped, by
+     * the verb that exists to undo a skip.
+     *
+     * Un-skipping a future stage is a real thing somebody may want and is not
+     * this verb; nothing offers it yet.
+     */
+    public static function reopenableIn(Workflow $workflow): ?self
+    {
+        $stages = $workflow->relationLoaded('stages')
+            ? $workflow->stages
+            : $workflow->stages()->get();
+
+        $current = $stages->first(fn (self $stage): bool => $stage->isInProgress());
+
+        return $stages
+            ->filter(fn (self $stage): bool => $stage->isFinished())
+            ->filter(fn (self $stage): bool => ! $current instanceof self
+                || $stage->sort_order < $current->sort_order)
+            ->sortByDesc('sort_order')
+            ->first();
+    }
 }

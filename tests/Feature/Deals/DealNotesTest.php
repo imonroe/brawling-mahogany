@@ -121,3 +121,27 @@ it('keeps a note inside its own team', function (): void {
 
     expect(ActivityEvent::withoutTeamScope()->where('event_type', 'note.added')->count())->toBe(0);
 });
+
+it('stores a note as long as the form allows', function (): void {
+    /*
+     * `StoreNoteRequest` allows 5000 characters and `activity_events.summary`
+     * was `varchar(255)`, so a note of more than about four lines was a 500
+     * that lost what somebody had just typed. The rule and the column were
+     * each defensible and disagreed.
+     *
+     * The column is `text` now rather than the rule being cut to ~250: a
+     * paragraph about a client call is an ordinary note, and F4.11 makes the
+     * note *be* the summary — there is no `payload` to demote it into without
+     * giving the timeline a row nobody can read.
+     */
+    // Trimmed on the way in, so the fixture must not end in a space.
+    $body = trim(str_repeat('Long call about the inspection findings. ', 60));
+
+    expect(mb_strlen($body))->toBeGreaterThan(255);
+
+    $this->post("/deals/{$this->deal->getKey()}/notes", ['body' => $body])
+        ->assertRedirect();
+
+    expect(ActivityEvent::query()->where('event_type', 'note.added')->sole()->summary)
+        ->toBe($body);
+});

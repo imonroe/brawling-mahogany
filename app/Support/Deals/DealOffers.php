@@ -10,6 +10,7 @@ use App\Models\Deal;
 use App\Models\Offer;
 use App\Models\Person;
 use App\Support\Activity\RecordActivity;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -46,7 +47,30 @@ final class DealOffers
             $offer->forceFill([
                 'deal_id' => $deal->getKey(),
                 'property_id' => $attributes['property_id'] ?? null,
-            ])->save();
+            ]);
+
+            /*
+             * Recording one **as accepted** is accepting it, and the demotion
+             * has to happen here as well as in `edit()`.
+             *
+             * The create form offers every status, because an offer is
+             * frequently recorded after the fact — Emily enters last Tuesday's
+             * accepted offer on Thursday. Without this, that entry hit the
+             * partial unique index behind `offers_one_accepted` and answered
+             * with a 500; and had the index not been there it would have left
+             * the deal with two accepted offers and two closing-date chains,
+             * which is the thing Slice 4 reads.
+             *
+             * **Before the save**, which is the half a first pass got wrong:
+             * the index refuses the *insert*, so demoting afterwards never
+             * runs. Inside the transaction, so a failure leaves neither the
+             * new row nor the demotions.
+             */
+            if ($offer->status === OfferStatus::Accepted) {
+                $this->rejectOthers($deal, $offer);
+            }
+
+            $offer->save();
 
             $this->activity->record(
                 subject: $deal,
@@ -74,16 +98,22 @@ final class DealOffers
                 $offer->forceFill(['property_id' => $attributes['property_id']]);
             }
 
-            $offer->save();
-
             /*
              * Accepting through an edit is still accepting. The status is an
              * ordinary field on this form, so the demotion cannot live only in
              * a dedicated `accept()` that a form does not call.
+             *
+             * And it runs **before** the save for the reason `add()` does: the
+             * partial index refuses the write, so a demotion after it is a
+             * demotion that never happens. It only looked fine because the
+             * first test to cover this had no *other* accepted offer to
+             * collide with.
              */
             if ($offer->status === OfferStatus::Accepted && $wasStatus !== OfferStatus::Accepted) {
                 $this->rejectOthers($deal, $offer);
             }
+
+            $offer->save();
 
             if ($offer->status !== $wasStatus) {
                 $this->activity->record(
@@ -121,13 +151,26 @@ final class DealOffers
      *
      * `open()` rather than everything: an offer already withdrawn or expired
      * has an answer, and overwriting it would lose why it ended.
+     *
+     * **Plus any standing accepted one**, which `open()` deliberately excludes
+     * — an accepted offer is resolved, not live. It still has to be demoted
+     * here, because the whole reason for this method is that a deal may hold
+     * exactly one, and the partial index enforces it: an offer *recorded* as
+     * accepted collided with the one already there and answered with a 500.
+     * Superseding an acceptance is the team choosing somebody else, which is
+     * `rejected` by the same argument the docblock above makes.
      */
     private function rejectOthers(Deal $deal, Offer $accepted): void
     {
         Offer::query()
             ->where('deal_id', $deal->getKey())
-            ->whereKeyNot($accepted->getKey())
-            ->open()
+            ->when(
+                $accepted->exists,
+                fn (Builder $query): Builder => $query->whereKeyNot($accepted->getKey()),
+            )
+            ->where(fn (Builder $query): Builder => $query
+                ->open()
+                ->orWhere('status', OfferStatus::Accepted))
             ->update(['status' => OfferStatus::Rejected]);
     }
 

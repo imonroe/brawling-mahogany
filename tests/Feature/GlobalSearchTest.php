@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use App\Models\Deal;
+use App\Models\Permission;
 use App\Models\Person;
 use App\Models\Property;
+use App\Models\Role;
 use App\Models\TeamMembership;
+use App\Support\Permissions;
 use App\Support\Tenancy\TeamContext;
 
 /**
@@ -114,4 +117,68 @@ it('refuses somebody who cannot see the team’s deals', function (): void {
     $this->actingAsPerson($outsider, $this->team);
 
     $this->getJson('/search?q=anything')->assertForbidden();
+});
+
+it('gives each group its own permission, now that a team composes roles', function (): void {
+    /*
+     * One `deals.view` check for the whole box was defensible while the five
+     * shipped roles were the only roles: each of them held all three view
+     * permissions or none. **S75 (#88) ended that.** A team composes a role
+     * from the catalogue now, and *"deals but not the client directory"* is an
+     * ordinary thing to build — so one check handed that person every client
+     * name and address in the team through a search box.
+     *
+     * #82 calls search *"the classic place tenancy leaks"*; this is the same
+     * leak one axis over. Not the wrong team — the wrong colleague.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => '123 Main St sale']);
+
+        Property::factory()->create(['team_id' => $this->team->getKey(), 'street' => '123 Main St']);
+
+        TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => Person::factory()->create()->getKey(),
+            'first_name' => 'Main',
+            'last_name' => 'Streeter',
+            'joined_at' => now(),
+        ]);
+    });
+
+    // The control case first: a Team Member sees all three, so an empty result
+    // below cannot be the fixture failing to match.
+    expect(array_column($this->getJson('/search?q=main')->assertOk()->json()['groups'], 'type'))
+        ->toContain('deal', 'person', 'property');
+
+    $narrow = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($narrow): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $narrow->getKey(),
+            'first_name' => 'Dana',
+            'last_name' => 'Alvarez',
+            'joined_at' => now(),
+        ]);
+
+        $role = new Role;
+        $role->forceFill([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only',
+            'name' => 'Deals Only',
+        ])->save();
+
+        $role->permissions()->sync(
+            Permission::query()->where('key', Permissions::VIEW_DEALS)->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($narrow, $this->team);
+
+    $types = array_column($this->getJson('/search?q=main')->assertOk()->json()['groups'], 'type');
+
+    // The group is absent rather than empty: nothing tells them one exists.
+    expect($types)->toBe(['deal']);
 });

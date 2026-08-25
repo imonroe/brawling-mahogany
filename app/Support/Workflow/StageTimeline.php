@@ -85,14 +85,7 @@ final readonly class StageTimeline
          * second copy of it — drifting the first time either changed.
          */
         $reopenable = $workflow->isRunning()
-            ? $workflow->stages
-                ->filter(fn (Stage $stage): bool => in_array(
-                    $stage->state,
-                    [StageState::Complete, StageState::Skipped],
-                    true,
-                ))
-                ->sortByDesc('sort_order')
-                ->first()
+            ? Stage::reopenableIn($workflow)
             : null;
 
         return [

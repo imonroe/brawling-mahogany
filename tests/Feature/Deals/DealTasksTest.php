@@ -112,7 +112,7 @@ function readOnlyMember(Team $team): Person
             'joined_at' => now(),
         ]);
 
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => 'reads_deals',
             'name' => 'Reads Deals',
@@ -143,7 +143,7 @@ function memberWhoMayOverride(Team $team): Person
             'joined_at' => now(),
         ]);
 
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => 'waives_gates',
             'name' => 'Waives Gates',

@@ -125,7 +125,7 @@ function overviewReadOnlyMember(): Person
             'joined_at' => now(),
         ]);
 
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => 'read_only',
             'name' => 'Read Only',

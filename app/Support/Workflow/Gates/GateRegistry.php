@@ -83,4 +83,26 @@ final class GateRegistry
     {
         return array_map(fn (string $evaluator): string => $evaluator::type(), self::EVALUATORS);
     }
+
+    /**
+     * The same list, as `value => label`, for S43's picker.
+     *
+     * Not a lookup beside the registry: the label lives on the evaluator, so
+     * *"adding a gate type means adding a class"* covers being selectable and
+     * being legible at once. Ordered as `EVALUATORS` is — the four that work
+     * today first, then the three whose slices have not landed, which is the
+     * order somebody choosing one wants them in.
+     *
+     * @return array<string, string>
+     */
+    public static function options(): array
+    {
+        $options = [];
+
+        foreach (self::EVALUATORS as $evaluator) {
+            $options[$evaluator::type()] = $evaluator::label();
+        }
+
+        return $options;
+    }
 }

@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\PropertyStatus;
 use App\Enums\PropertyType;
 use App\Models\Concerns\BelongsToTeam;
+use App\Models\Concerns\HasDocuments;
 use App\Models\Concerns\HasExternalLinks;
 use App\Models\Concerns\HasProductDefaults;
 use Database\Factories\PropertyFactory;
@@ -64,7 +65,7 @@ use Illuminate\Support\Carbon;
 class Property extends Model
 {
     /** @use HasFactory<PropertyFactory> */
-    use BelongsToTeam, HasExternalLinks, HasFactory, HasProductDefaults;
+    use BelongsToTeam, HasDocuments, HasExternalLinks, HasFactory, HasProductDefaults;
 
     /**
      * @return array<string, string>

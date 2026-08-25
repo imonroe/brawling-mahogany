@@ -38,7 +38,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property bool $is_system
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Permission> $permissions
  */
-#[Fillable(['team_id', 'key', 'name', 'description', 'is_system'])]
+/*
+ * **Not `team_id`, and not `key` or `is_system` either.** `BelongsToTeam`'s
+ * rule is that a request body must never choose a tenant, and this table is
+ * the sharper case: `Role` carries no global scope (the five shipped roles
+ * have no team), so a fillable `team_id` is a request choosing whose role it
+ * is with nothing behind it to refuse. `key` is what every permission check is
+ * written against and `is_system` is what makes a row uneditable — both are
+ * derived by `RoleController`, never typed.
+ */
+#[Fillable(['name', 'description'])]
 class Role extends Model
 {
     /** @use HasFactory<RoleFactory> */

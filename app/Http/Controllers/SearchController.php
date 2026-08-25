@@ -31,7 +31,14 @@ class SearchController extends Controller
 
         return response()->json([
             'term' => $term,
-            'groups' => $term === '' ? GlobalSearch::recent() : GlobalSearch::for($term),
+            /*
+             * The person, so each group can be gated on its own permission.
+             * `deals.view` alone was enough while the five shipped roles were
+             * the only roles; S75 (#88) lets a team compose *"deals but not
+             * the client directory"*, and one check would hand that person
+             * every client name in the team through a search box.
+             */
+            'groups' => $term === '' ? GlobalSearch::recent() : GlobalSearch::for($term, $request->user()),
             /*
              * Whether the query was too short to run, so the overlay can say
              * *"keep typing"* rather than *"no results"* — which would be a

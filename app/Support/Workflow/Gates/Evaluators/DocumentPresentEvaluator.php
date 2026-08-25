@@ -23,6 +23,11 @@ final class DocumentPresentEvaluator implements GateEvaluator
         return 'document_present';
     }
 
+    public static function label(): string
+    {
+        return 'Document present';
+    }
+
     public function evaluate(Gate $gate): GateVerdict
     {
         $category = (string) ($gate->configuration()['category'] ?? 'document');

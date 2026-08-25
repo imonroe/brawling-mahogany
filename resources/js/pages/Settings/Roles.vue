@@ -95,7 +95,7 @@ function archive(role: RoleRow): void {
      */
     const held =
         role.holders > 0
-            ? ` ${formatCount(role.holders, 'person')} currently ${role.holders === 1 ? 'holds' : 'hold'} it, and would lose what it grants.`
+            ? ` ${formatCount(role.holders, 'person', 'people')} currently ${role.holders === 1 ? 'holds' : 'hold'} it, and would lose what it grants.`
             : '';
 
     if (!window.confirm(`Archive ${role.name}?${held}`)) {
@@ -194,7 +194,8 @@ function restore(role: RoleRow): void {
                         <span
                             class="truncate text-[11px] text-muted-foreground"
                         >
-                            {{ formatCount(role.holders, 'person') }} ·
+                            {{ formatCount(role.holders, 'person', 'people') }}
+                            ·
                             {{
                                 formatCount(
                                     role.permissions.length,

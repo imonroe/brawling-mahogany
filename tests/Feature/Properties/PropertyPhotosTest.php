@@ -74,10 +74,30 @@ it('takes photographs and refuses everything else', function (): void {
 });
 
 it('does not trust the browser about what a file is', function (): void {
-    // The type comes from the extension allowlist, not from the upload's own
-    // claim — a mislabelled `Content-Type` must not become the one we serve.
+    /*
+     * **The bytes decide, not the filename or the header.**
+     *
+     * This test used to assert something weaker and wrong: that a `.jpg`
+     * carrying a `text/html` content-type was *stored* as `image/jpeg`. It
+     * was — because the allowlist was checked against the browser's
+     * `getClientOriginalExtension()`, which is a string the uploader chose.
+     * An allowlist checked against a claim is a denylist with extra steps, and
+     * the row it wrote said `image/jpeg` of a file that was not one.
+     *
+     * So the upload is refused now, and the assertion is that nothing was
+     * stored — which a broken implementation cannot produce, unlike the old
+     * `toBe('image/jpeg')`, which it produced happily.
+     */
     $this->post("/properties/{$this->property->getKey()}/photos", [
         'photo' => UploadedFile::fake()->create('front.jpg', 40, 'text/html'),
+    ])->assertSessionHasErrors();
+
+    expect(Document::query()->count())->toBe(0);
+
+    // And a real image still gets **our** type rather than the browser's,
+    // which is the half of the original claim that was true.
+    $this->post("/properties/{$this->property->getKey()}/photos", [
+        'photo' => UploadedFile::fake()->image('front.jpg', 80, 60),
     ])->assertRedirect();
 
     expect(Document::query()->sole()->mime_type)->toBe('image/jpeg');
@@ -191,4 +211,59 @@ it('serves a file no other way', function (): void {
         ->and(array_key_exists('url', $photo->toArray()))->toBeFalse()
         ->and(config('filesystems.disks.'.DocumentStorage::DISK.'.url'))->toBeNull()
         ->and(config('filesystems.disks.'.DocumentStorage::DISK.'.visibility'))->toBeNull();
+});
+
+it('takes the photos with the property, row and bytes', function (): void {
+    /*
+     * `documents.documentable_id` is polymorphic, so **no foreign key reaches
+     * it**: nothing cascades, and `records:purge` finds a row by its
+     * `deleted_at` — which a document whose parent was deleted does not have.
+     * So deleting a property left live rows pointing at a parent that no
+     * longer existed, and their bytes on the disk permanently.
+     *
+     * `HasDocuments` is the fix and it is a trait rather than a line in
+     * `PropertyController::destroy()`, because Slice 3 makes deals
+     * documentable and a rule written into one caller is a rule the second
+     * caller is written without.
+     */
+    $this->post("/properties/{$this->property->getKey()}/photos", ['photo' => photoUpload()])
+        ->assertRedirect();
+
+    $path = Document::query()->sole()->path;
+
+    $this->delete("/properties/{$this->property->getKey()}")->assertRedirect();
+
+    // The row soft-deletes for PRD §9's window; the bytes go now.
+    expect(Document::query()->count())->toBe(0)
+        ->and(Document::withTrashed()->count())->toBe(1);
+
+    Storage::disk(DocumentStorage::DISK)->assertMissing($path);
+});
+
+it('sweeps a purged team’s uploads off their own disk', function (): void {
+    /*
+     * Uploads live on their **own** private disk — the whole point of
+     * `filesystems.disks.documents` being separate — so `records:purge`'s two
+     * `Storage::` calls for exports and imports never reached them. The rows
+     * were deleted with the rest of the team's tables and the bytes outlived
+     * the team that owned them, indefinitely: the opposite of what PRD §9's
+     * *"then hard delete"* and F6.4's private bucket promise.
+     */
+    $this->post("/properties/{$this->property->getKey()}/photos", ['photo' => photoUpload()])
+        ->assertRedirect();
+
+    $path = Document::query()->sole()->path;
+
+    // A team is purged on `purge_after`, which the console sets when it
+    // schedules the deletion — not on `deleted_at`.
+    $this->team->forceFill(['purge_after' => now()->subDay()])->saveQuietly();
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    Storage::disk(DocumentStorage::DISK)->assertMissing($path);
+
+    // Nothing of theirs left anywhere on it, which is the claim the belt-and-
+    // braces `deleteDirectory` makes: a file whose row was already gone has
+    // nothing left to find it by.
+    expect(Storage::disk(DocumentStorage::DISK)->allFiles())->toBe([]);
 });

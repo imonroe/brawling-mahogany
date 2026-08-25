@@ -13,6 +13,7 @@ use App\Models\TemplatePack;
 use App\Models\WorkflowTemplate;
 use App\Support\Templates\CopyTemplate;
 use App\Support\Tenancy\TeamContext;
+use App\Support\Workflow\Gates\GateRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -117,6 +118,13 @@ class TemplateController extends Controller
                     ])->values()->all(),
                 ])->values()->all(),
             ],
+            /*
+             * The picker's options, from the registry rather than a list in
+             * the page — PRD §8.3's *"adding a gate type means adding a
+             * class"* extended to the editor, so an eighth evaluator is
+             * selectable by existing.
+             */
+            'gateTypes' => GateRegistry::options(),
             'can' => [
                 // A system template is readable and never editable: one pack
                 // is shared by every team.

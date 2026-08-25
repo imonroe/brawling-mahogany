@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Activity\ActivityController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
+use App\Http\Controllers\Deals\ConfirmGateController;
 use App\Http\Controllers\Deals\DealIndexController;
 use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
@@ -240,6 +241,28 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::post('deals/{deal}/workflows/{workflow}/override', [OverrideGateController::class, 'store'])
             ->name('deals.workflows.override');
+
+        /*
+         * S23 — tick a manual gate, and untick one (F4.8).
+         *
+         * The routine way past the most common gate type, which the engine
+         * shipped two slices without: `ManualConfirmationEvaluator` reads
+         * `gates.is_met` and nothing wrote it, so the only way past one was
+         * the override above — the audited exception standing in for the
+         * ordinary path.
+         *
+         * `POST` and `DELETE` on a `confirmation` sub-resource, the shape
+         * tasks use for completion, because confirming is not editing: only
+         * one of the two writes a timeline entry and is counted by an advance.
+         * Authorized on `advance`, not `override` — an assistant who advances
+         * stages all day is exactly the person who confirms the survey came
+         * back.
+         */
+        Route::post('deals/{deal}/workflows/{workflow}/confirmation', [ConfirmGateController::class, 'store'])
+            ->name('deals.workflows.confirm');
+
+        Route::delete('deals/{deal}/workflows/{workflow}/confirmation', [ConfirmGateController::class, 'destroy'])
+            ->name('deals.workflows.unconfirm');
 
         /*
          * S22 — a deal's offers (F3.6, #73).

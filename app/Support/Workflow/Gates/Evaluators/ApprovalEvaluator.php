@@ -33,6 +33,11 @@ final class ApprovalEvaluator implements GateEvaluator
         return 'approval';
     }
 
+    public static function label(): string
+    {
+        return 'Approval';
+    }
+
     public function evaluate(Gate $gate): GateVerdict
     {
         $role = (string) ($gate->configuration()['role'] ?? '');
@@ -54,7 +59,14 @@ final class ApprovalEvaluator implements GateEvaluator
         $approverStillHoldsRole = TeamMembership::query()
             ->where('person_id', $gate->met_by)
             ->whereNull('revoked_at')
-            ->whereHas('roles', fn ($query) => $query->where('roles.key', $role))
+            /*
+             * The shipped role, not a same-named one a team composed. A key
+             * is unique per team and the system rows have no team, so
+             * `roles.key = 'team_owner'` alone matches a counterfeit — and an
+             * approval gate satisfied by one is an approval nobody with the
+             * authority gave.
+             */
+            ->holdingSystemRole($role)
             ->exists();
 
         if (! $approverStillHoldsRole) {

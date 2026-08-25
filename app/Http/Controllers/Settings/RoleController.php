@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Settings;
 
+use App\Enums\SystemRole;
 use App\Http\Controllers\Controller;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Support\Permissions;
 use App\Support\Tenancy\TeamContext;
+use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -185,8 +187,10 @@ class RoleController extends Controller
      */
     private function validated(Request $request): array
     {
+        $role = $request->route('role');
+
         return $request->validate([
-            'name' => ['required', 'string', 'max:80'],
+            'name' => ['required', 'string', 'max:80', $this->keyIsFree($role instanceof Role ? $role : null)],
             'description' => ['nullable', 'string', 'max:500'],
             'permissions' => ['array'],
             /*
@@ -197,6 +201,55 @@ class RoleController extends Controller
              */
             'permissions.*' => ['string', 'in:'.implode(',', Permissions::teamSurfaceKeys())],
         ]);
+    }
+
+    /**
+     * The derived key must not already be taken — and one of the ways it can
+     * be taken is a **security** question rather than a uniqueness one.
+     *
+     * `Str::slug('Team Owner', '_')` is exactly `team_owner`, the key of the
+     * shipped role, and the unique index is over `(team_id, key)` while the
+     * shipped rows have no team. So the database permitted it, and every check
+     * written as `roles.key = 'team_owner'` then treated the counterfeit as
+     * the real thing — including `RevokeMembership`'s last-owner guard, which
+     * counted it and would let somebody revoke the only genuine owner and lock
+     * a team out of its own settings.
+     *
+     * `TeamMembership::hasRole()` and `scopeHoldingSystemRole()` now ask for a
+     * null `team_id`, which is the half that holds however the row got there.
+     * This is the half that keeps the row from being created, and it is worth
+     * having both: a refusal a person can read beats a role that silently
+     * means nothing.
+     *
+     * A collision inside the team is the ordinary case, and gets the ordinary
+     * message — before this it was a 500 from the unique index.
+     */
+    private function keyIsFree(?Role $editing): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($editing): void {
+            if (! is_string($value)) {
+                return;
+            }
+
+            $key = Str::slug($value, '_');
+
+            if (in_array($key, array_column(SystemRole::cases(), 'value'), true)) {
+                $fail('That is the name of a role this product ships. Pick another — a role that shares its name would be indistinguishable from it wherever permissions are checked.');
+
+                return;
+            }
+
+            $taken = Role::query()
+                ->withTrashed()
+                ->where('team_id', app(TeamContext::class)->requireId(Role::class))
+                ->where('key', $key)
+                ->when($editing instanceof Role, fn ($query) => $query->whereKeyNot($editing?->getKey()))
+                ->exists();
+
+            if ($taken) {
+                $fail('This team already has a role by that name. Archived ones still count — restore it instead.');
+            }
+        };
     }
 
     /**

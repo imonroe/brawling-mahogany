@@ -27,6 +27,7 @@ import { ChevronDown, ChevronUp } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
@@ -68,6 +69,8 @@ const props = defineProps<{
         inUse: number;
         stages: Stage[];
     };
+    /** `gate_type` → label, from `GateRegistry::options()`. */
+    gateTypes: Record<string, string>;
     can: { update: boolean };
 }>();
 
@@ -87,8 +90,26 @@ const inUseLabel = computed(() =>
 
 const stageForm = useForm({ name: '' });
 const addingTo = ref<string | null>(null);
-const gateForm = useForm({ gate_type: 'manual_confirmation', label: '' });
+const gateForm = useForm({
+    /*
+     * The first key the registry offers, rather than a literal. `EVALUATORS`
+     * is ordered with the four that work today first, so the default is one
+     * that can actually clear — and a reordering there changes this without
+     * anybody having to remember the page exists.
+     */
+    gate_type: Object.keys(props.gateTypes)[0] ?? '',
+    label: '',
+});
 const taskForm = useForm({ title: '', is_required: true });
+/*
+ * One form, one stage open at a time — the same pattern `addingTo` uses for
+ * gates, and for a reason the gate form found first: `useForm` is a single
+ * reactive object, so a form rendered once per stage put the same typed title
+ * into every stage's box at once. A form per stage would be the alternative
+ * and is worse: four stages is four watchers and four dirty states, for a
+ * control somebody uses one at a time.
+ */
+const addingTaskTo = ref<string | null>(null);
 
 function addStage(): void {
     stageForm.post(`${base}/stages`, {
@@ -264,7 +285,7 @@ function removeTask(stage: Stage, task: TaskRow): void {
                             v-for="gate in stage.gates"
                             :key="gate.id"
                             :tone="gate.isBlocking ? 'warning' : 'neutral'"
-                            :label="gate.label"
+                            :label="`${gate.label} · ${gateTypes[gate.gateType] ?? gate.gateType}`"
                             dotless
                         />
                         <AppButton
@@ -293,6 +314,19 @@ function removeTask(stage: Stage, task: TaskRow): void {
                         class="flex flex-wrap items-end gap-2"
                         @submit.prevent="addGate(stage)"
                     >
+                        <!--
+                            The type decides which evaluator answers the gate,
+                            so it is a choice rather than a hidden default:
+                            every gate added before this picker existed was a
+                            manual confirmation whether or not that is what
+                            somebody meant.
+                        -->
+                        <AppSelect
+                            v-model="gateForm.gate_type"
+                            :options="gateTypes"
+                            size="filter"
+                            class="w-48"
+                        />
                         <AppInput
                             v-model="gateForm.label"
                             size="filter"
@@ -328,8 +362,16 @@ function removeTask(stage: Stage, task: TaskRow): void {
                         </li>
                     </ul>
 
+                    <AppButton
+                        v-if="can.update && addingTaskTo !== stage.id"
+                        variant="ghost"
+                        size="compact"
+                        @click="addingTaskTo = stage.id"
+                        >Add task</AppButton
+                    >
+
                     <form
-                        v-if="can.update"
+                        v-if="can.update && addingTaskTo === stage.id"
                         class="flex flex-wrap items-end gap-2"
                         @submit.prevent="addTask(stage)"
                     >
@@ -339,11 +381,17 @@ function removeTask(stage: Stage, task: TaskRow): void {
                             placeholder="Order the survey"
                             class="w-64"
                         />
+                        <AppButton size="compact" @click="addTask(stage)"
+                            >Add</AppButton
+                        >
                         <AppButton
                             variant="ghost"
                             size="compact"
-                            @click="addTask(stage)"
-                            >Add task</AppButton
+                            @click="
+                                addingTaskTo = null;
+                                taskForm.reset();
+                            "
+                            >Cancel</AppButton
                         >
                     </form>
                 </li>

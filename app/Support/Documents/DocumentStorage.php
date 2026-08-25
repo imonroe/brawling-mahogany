@@ -86,10 +86,28 @@ final class DocumentStorage
         Person $actor,
         DocumentCategory $category = DocumentCategory::Photo,
     ): Document {
-        $extension = mb_strtolower($file->getClientOriginalExtension());
+        /*
+         * **The bytes decide, not the filename.**
+         *
+         * `getClientOriginalExtension()` is a string the browser sent, so it
+         * answered *"is this an image"* by asking the uploader — an allowlist
+         * checked against a claim is the shape of a denylist with extra steps.
+         * `getMimeType()` runs `finfo` over the file's actual contents.
+         *
+         * What that buys, given the disk is private and every download is
+         * streamed with a type this class chose: the stored `mime_type` is now
+         * true of the file. A `.jpg` whose contents are something else no
+         * longer becomes a row that says `image/jpeg` and a file that is not —
+         * which is the row a later slice's thumbnailer, virus scan or preview
+         * would trust.
+         */
+        $detected = mb_strtolower((string) $file->getMimeType());
+        $extension = array_search($detected, self::IMAGE_TYPES, true);
 
-        if (! array_key_exists($extension, self::IMAGE_TYPES)) {
-            throw UnsupportedDocument::extension($extension);
+        if (! is_string($extension)) {
+            throw UnsupportedDocument::extension(
+                mb_strtolower($file->getClientOriginalExtension()) ?: $detected,
+            );
         }
 
         if ($file->getSize() > self::MAX_BYTES) {
@@ -123,7 +141,7 @@ final class DocumentStorage
                  * is not an error, and losing the upload over one would be.
                  */
                 'original_name' => mb_substr($file->getClientOriginalName(), 0, 255),
-                // Ours, from the extension allowlist — not the browser's claim.
+                // Detected from the bytes, never the browser's claim.
                 'mime_type' => self::IMAGE_TYPES[$extension],
                 'size_bytes' => (int) $file->getSize(),
                 'sort_order' => $this->nextSortOrder($subject),

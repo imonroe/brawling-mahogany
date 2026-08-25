@@ -10,10 +10,12 @@ use App\Models\ContactImport;
 use App\Models\DataExport;
 use App\Models\Deal;
 use App\Models\DealDraft;
+use App\Models\Document;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
+use App\Support\Documents\DocumentStorage;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
@@ -411,14 +413,29 @@ class PurgeSoftDeletedRecords extends Command
                 foreach (ContactImport::query()->whereNotNull('disk_path')->get() as $import) {
                     Storage::delete((string) $import->disk_path);
                 }
+
+                /*
+                 * And the uploads (S38, #63), which live on their **own disk**
+                 * — that is the whole point of `filesystems.disks.documents`
+                 * being private and separate — so the two `Storage::` calls
+                 * above never reached them. `purgeableTables()` deletes the
+                 * `documents` rows below; without this the bytes outlived the
+                 * team that owned them, indefinitely, which is the opposite of
+                 * what PRD §9's *"then hard delete"* promises and what F6.4
+                 * promises about a private bucket.
+                 */
+                foreach (Document::query()->withTrashed()->get() as $document) {
+                    Storage::disk($document->disk)->delete($document->path);
+                }
             });
 
             // Belt and braces: anything left under the team's own prefixes,
-            // including a file whose row was already gone. `documents` lands
-            // in Slice 3 and adds its prefix here — the checklist issue #57
-            // asks this command to own.
+            // including a file whose row was already gone — a document whose
+            // parent property was hard-deleted before `HasDocuments` existed
+            // has no row left to find it by.
             Storage::deleteDirectory('exports/'.$team->getKey());
             Storage::deleteDirectory('imports/'.$team->getKey());
+            Storage::disk(DocumentStorage::DISK)->deleteDirectory((string) $team->getKey());
 
             foreach ($this->purgeableTables() as $table) {
                 DB::table($table)->where('team_id', $team->getKey())->delete();

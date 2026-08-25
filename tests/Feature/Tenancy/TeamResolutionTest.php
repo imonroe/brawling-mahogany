@@ -220,7 +220,7 @@ it('scopes a person’s permissions to the team they are standing in', function 
     app(TeamContext::class)->runFor($teamB, function () use ($teamB, $member): void {
         // A team's own composed role (PRD F2.3), holding one permission that
         // is not the one being asserted on.
-        $role = App\Models\Role::query()->create([
+        $role = App\Models\Role::factory()->create([
             'team_id' => $teamB->getKey(),
             'key' => 'calendar_only',
             'name' => 'Calendar Only',

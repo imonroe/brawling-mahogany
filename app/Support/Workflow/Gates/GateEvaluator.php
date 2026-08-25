@@ -21,6 +21,16 @@ interface GateEvaluator
     public static function type(): string;
 
     /**
+     * How S43's picker names it — PRD §4.4's table, verbatim.
+     *
+     * On the evaluator rather than in a lookup beside it, for the reason the
+     * registry exists: *"adding a gate type means adding a class"*, and a
+     * label kept anywhere else is the second thing to remember. An eighth
+     * evaluator becomes selectable **and legible** by existing.
+     */
+    public static function label(): string;
+
+    /**
      * Is this gate satisfied, right now, for this stage?
      *
      * Evaluated fresh every time. `gates.is_met` is a cache for rendering, and

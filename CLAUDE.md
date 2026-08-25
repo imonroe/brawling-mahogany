@@ -140,6 +140,38 @@ These come from PRD §8 and should guide the eventual build:
   workflow pass `deal:` explicitly. Adding an event type with a deal behind it
   means answering which of those two it is.
 
+- **A shared table's key is a shared namespace, and a derived key can collide
+  into it.** `roles` has no global scope — the five shipped roles carry no
+  `team_id` — so the unique index is over `(team_id, key)` and a team's own row
+  may take a key a system row already has. S75 derives a role's key from its
+  name, and `Str::slug('Team Owner', '_')` is exactly `team_owner`.
+
+  Every check written as `roles.key = 'team_owner'` then treated the
+  counterfeit as the real thing, and the sharpest consequence was
+  `RevokeMembership` counting it among the "other owners" — revoke the only
+  genuine owner and the team is locked out of its own settings. The two halves
+  of the fix are both needed: the **name is refused** at the controller, and
+  `TeamMembership::hasRole()` and `scopeHoldingSystemRole()` ask for a null
+  `team_id`, which holds however a row got there.
+
+  Before deriving an identifier into a table anything shares, ask what already
+  lives in that namespace.
+
+- **A polymorphic child is reached by nothing.** No foreign key points at
+  `documents.documentable_id` or `external_links.linkable_id`, so nothing
+  cascades — and `records:purge` finds a row by its `deleted_at`, which a
+  document whose *parent* was deleted does not have. Deleting a property left
+  its photos as live rows pointing at nothing and their bytes on the disk
+  permanently, past F6.4's promise that a deletion deletes.
+
+  `HasExternalLinks` and `HasDocuments` both put the sweep on the **parent's
+  own `deleting` hook** rather than in the controller, for the reason ADR 0002
+  already records: a rule written into one caller is a rule the second caller
+  is written without, and Slice 3 makes deals documentable. And **a file lives
+  on a disk the row-level sweep never touches** — `records:purge` deletes a
+  purged team's `documents` rows, so the bytes have to be deleted beside them
+  and the disk's team directory swept as well.
+
 - **A staging table needs its own sweep.** `records:purge` finds a row by its
   `deleted_at`, so everything somebody *deleted* is covered — and a table whose
   rows end by **neglect** rather than by an action is reached by nothing.
@@ -291,6 +323,24 @@ These come from PRD §8 and should guide the eventual build:
   a state or a flag has exactly one way to be satisfied, check that the way is
   the one somebody would actually take. `DocumentPresentEvaluator` is the next
   one (#104), and `ApprovalEvaluator` after it.
+
+  **`ManualConfirmationEvaluator` was the same hole, and it survived S17 by
+  being invisible in a second way.** It answers by reading `gates.is_met`, and
+  the only writer of that column was `AdvanceWorkflow`'s own cache refresh —
+  which reads the evaluator. So the most common gate type in the product could
+  not clear on its own either, and it had a *tell* that the tasks one did not:
+  `GatePolicy::update` already existed, carrying the docblock *"Ticking a
+  manual gate is ordinary deal work"*, asked for by no route. **A policy method
+  nothing calls is the same finding as a gate nothing can clear**, one layer
+  up. `AuthorizationCoverageTest` reads routes and asks whether each
+  authorizes; nothing asks the question the other way round.
+
+  `AdvanceWorkflow::confirm()` and `unconfirm()` close it, beside `override()`
+  and for the same reason the four artefacts live there: `is_met` and
+  `overridden` are the distinction IA §8 insists on, so the file that writes
+  one has to be the file that writes the other. `SingleMutationPathTest` now
+  guards `is_met` as well, which is #77's widening repeated rather than its
+  hazard written down again.
 
 - **Completing is not editing, and the routes say so.** `POST` and `DELETE` on
   `deals/{deal}/tasks/{task}/completion`, beside the `PATCH` that edits the

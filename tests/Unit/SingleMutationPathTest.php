@@ -147,6 +147,27 @@ const STATE_WRITE_PATTERNS = [
     '/\[\s*[\'"]overridden[\'"]\s*\]\s*=(?!=)/',
 
     /*
+     * And `is_met`, which #71-shaped work gave its first writer outside this
+     * file's own cache refresh.
+     *
+     * It belongs here for the reason `overridden` does, and the reason is the
+     * *pair*: IA §8 insists **overridden is not a kind of met**, so a caller
+     * that could write one of the two columns without the other is exactly the
+     * place that distinction starts to drift. `AdvanceWorkflow::confirm()`
+     * writes `is_met` and never `overridden`; `override()` writes `overridden`
+     * and never `is_met`. Keeping both writers in one file is what makes that
+     * sentence checkable rather than remembered.
+     *
+     * `GateFactory` is sanctioned below on the same grounds as the workflow
+     * and stage factories: a suite that could not build a met gate could not
+     * test the service that reads one.
+     */
+    '/->\s*is_met\s*=(?!=)/',
+    '/'.WRITE_CALLS.'\s*\(\s*\['.ARRAY_BODY.'[\'"]is_met[\'"]\s*=>/s',
+    '/->\s*setAttribute\s*\(\s*[\'"]is_met[\'"]/',
+    '/\[\s*[\'"]is_met[\'"]\s*\]\s*=(?!=)/',
+
+    /*
      * `override_reason` and `overridden_by` are deliberately not guarded — the
      * two that exist, and the list is exactly those two. They are the *record*
      * of the decision rather than the decision: neither changes whether a gate
@@ -185,6 +206,8 @@ const SANCTIONED_STATE_WRITERS = [
         'to move from. Factories are also test fixtures: a suite that could not build a workflow in '.
         'a given state could not test the service that moves it out of one.',
     'database/factories/StageFactory.php' => 'The same, one level down.',
+    'database/factories/GateFactory.php' => 'The same, for `is_met`: a suite that could not build a '.
+        'met gate could not test the service that reads one, or the advance that clears one.',
 ];
 
 /**
@@ -398,6 +421,17 @@ it('reads a file whose only signal is the write itself', function (string $shape
     'gate, raw sql' => ['DB::statement(\'UPDATE gates SET overridden = true\');'],
 
     /*
+     * And the met flag, added with the confirmation route. It is guarded for
+     * the *pair*: `overridden` alone would let a controller write `is_met`
+     * directly, and IA §8's insistence that overridden is not a kind of met
+     * survives only while one file writes both.
+     */
+    'gate met, eloquent mass update' => ['Gate::query()->whereKey($id)->update([\'is_met\' => true]);'],
+    'gate met, find then update' => ['Gate::findOrFail($id)->update([\'is_met\' => true]);'],
+    'gate met, query builder' => ['DB::table(\'gates\')->whereKey($id)->update([\'is_met\' => true]);'],
+    'gate met, raw sql' => ['DB::statement(\'UPDATE gates SET is_met = true\');'],
+
+    /*
      * And `stages.state`, the column this whole test was built for — whose
      * table patterns turned out to be just as unheld, for longer.
      *
@@ -455,6 +489,11 @@ it('matches every shape of writing the override flag', function (string $shape):
     'double-quoted key' => ['$gate->update(["overridden" => true]);'],
     'setAttribute' => ['$gate->setAttribute(\'overridden\', true);'],
     'array key assignment' => ['$payload = []; $payload[\'overridden\'] = true; $gate->forceFill($payload)->save();'],
+    'met, plain property' => ['$gate->is_met = true;'],
+    'met, array key' => ['$gate->forceFill([\'is_met\' => true])->save();'],
+    'met, double-quoted key' => ['$gate->update(["is_met" => true]);'],
+    'met, setAttribute' => ['$gate->setAttribute(\'is_met\', true);'],
+    'met, array key assignment' => ['$payload = []; $payload[\'is_met\'] = true; $gate->forceFill($payload)->save();'],
 ]);
 
 it('stays quiet about code that only reads workflow state', function (string $shape): void {

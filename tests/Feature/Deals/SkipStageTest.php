@@ -101,11 +101,15 @@ function skipMemberWith(array $permissions, string $roleKey): Person
             'joined_at' => now(),
         ]);
 
-        $role = Role::query()->create([
+        // `forceFill`: `key`, `team_id` and `is_system` are not fillable, so a
+        // request body cannot choose what a role means (#88's counterfeit
+        // `team_owner`).
+        $role = new Role;
+        $role->forceFill([
             'team_id' => $team->getKey(),
             'key' => $roleKey,
             'name' => Str::headline($roleKey),
-        ]);
+        ])->save();
 
         $role->permissions()->sync(
             Permission::query()->whereIn('key', $permissions)->pluck('id')->all(),
@@ -387,4 +391,54 @@ it('refuses a stage that belongs to another workflow on the same deal', function
     ))->toThrow(StageNotOnWorkflow::class);
 
     unset($other);
+});
+
+it('never lets a reopen carry the workflow forwards', function (): void {
+    /*
+     * The rule is *"only the most recently finished stage"*, and the word
+     * doing the work is **most recently**.
+     *
+     * A skip may be applied to a **future** stage — it is a note that the
+     * stage does not apply, and it deliberately moves nothing. So "finished,
+     * highest sort order" picked a stage the workflow had not reached, and
+     * reopening it made the deal jump *forwards*: the skipped stage became
+     * current, the stage the team was standing on went back to `pending` with
+     * its `actual_start` nulled, and everything in between was silently
+     * skipped by the verb that exists to undo a skip.
+     */
+    [$workflow, $stages] = skipWorkflow($this->deal, 4);
+
+    $advance = app(AdvanceWorkflow::class);
+
+    // Standing on stage 1, with stage 3 marked not-applicable ahead of us.
+    $advance->skip($workflow->fresh(), $stages[2], $this->skipper, 'Cash purchase, no appraisal.');
+
+    expect($workflow->fresh()->activeStage()?->getKey())->toBe($stages[0]->getKey());
+
+    $result = $advance->reopen($workflow->fresh(), $stages[2]->fresh(), $this->skipper);
+
+    expect($result->changed)->toBeFalse()
+        ->and($result->refusal)->toContain('most recently finished');
+
+    /*
+     * Unmoved, which is the assertion that would have failed: before this the
+     * current stage became stage 3 and stage 1 lost its start.
+     */
+    expect($workflow->fresh()->activeStage()?->getKey())->toBe($stages[0]->getKey())
+        ->and($stages[0]->fresh()->actual_start)->not->toBeNull()
+        ->and($stages[2]->fresh()->state)->toBe(StageState::Skipped);
+});
+
+it('does not offer Reopen on a stage skipped ahead of the current one', function (): void {
+    /*
+     * The rail and the service read the same function for exactly this
+     * reason — a button drawn on a row the service refuses is a button that
+     * teaches people the product is broken, and the two deriving it separately
+     * is how they came to disagree.
+     */
+    [$workflow, $stages] = skipWorkflow($this->deal, 4);
+
+    app(AdvanceWorkflow::class)->skip($workflow->fresh(), $stages[2], $this->skipper, 'Cash purchase, no appraisal.');
+
+    expect(Stage::reopenableIn($workflow->fresh()))->toBeNull();
 });

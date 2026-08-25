@@ -102,12 +102,19 @@ it('refuses to edit a shipped role, all the way down', function (): void {
 
 it('counts the holders before the choice, and archives reversibly', function (): void {
     $role = app(TeamContext::class)->runFor($this->team, function (): Role {
-        $role = Role::query()->create([
+        /*
+         * `forceFill`, because `key`, `team_id` and `is_system` are no longer
+         * fillable — they are derived by the controller, and a request body
+         * choosing any of the three is the hole the counterfeit-owner test
+         * below is about.
+         */
+        $role = new Role;
+        $role->forceFill([
             'team_id' => $this->team->getKey(),
             'key' => 'listing_coordinator',
             'name' => 'Listing Coordinator',
             'is_system' => false,
-        ]);
+        ])->save();
 
         TeamMembership::query()->where('team_id', $this->team->getKey())->sole()
             ->roles()->attach($role->getKey());
@@ -148,12 +155,15 @@ it('has no destroy route at all', function (): void {
 });
 
 it('shows another team none of this one’s roles', function (): void {
-    app(TeamContext::class)->runFor($this->team, fn () => Role::query()->create([
-        'team_id' => $this->team->getKey(),
-        'key' => 'ours',
-        'name' => 'Ours Alone',
-        'is_system' => false,
-    ]));
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $role = new Role;
+        $role->forceFill([
+            'team_id' => $this->team->getKey(),
+            'key' => 'ours',
+            'name' => 'Ours Alone',
+            'is_system' => false,
+        ])->save();
+    });
 
     [$otherTeam, $otherOwner] = $this->teamWithOwner();
 
@@ -165,4 +175,80 @@ it('shows another team none of this one’s roles', function (): void {
     $names = collect($response->viewData('page')['props']['roles'])->pluck('name');
 
     expect($names)->not->toContain('Ours Alone');
+});
+
+it('refuses a role named after one the product ships', function (): void {
+    /*
+     * `Str::slug('Team Owner', '_')` is exactly `team_owner`, and the unique
+     * index is over `(team_id, key)` while the shipped rows have no team — so
+     * the database permitted the row, and every check written as
+     * `roles.key = 'team_owner'` then treated the counterfeit as the real
+     * thing. The sharpest consequence is the one asserted below it.
+     */
+    $this->post('/settings/roles', [
+        'name' => 'Team Owner',
+        'permissions' => [Permissions::VIEW_DEALS],
+    ])->assertSessionHasErrors('name');
+
+    expect(Role::withTrashed()->where('key', 'team_owner')->count())->toBe(1);
+});
+
+it('does not count a counterfeit owner as an owner', function (): void {
+    /*
+     * The half that holds however the row got there. Somebody who has one by
+     * another route — a seed, a fixture, a future import — must not be able to
+     * stand in for the last real owner, because `RevokeMembership` counts
+     * "other owners" before letting one go and a team with none is locked out
+     * of its own settings.
+     */
+    $counterfeit = app(TeamContext::class)->runFor($this->team, function (): Role {
+        $role = new Role;
+        $role->forceFill([
+            'team_id' => $this->team->getKey(),
+            'key' => 'team_owner',
+            'name' => 'Team Owner',
+            'is_system' => false,
+        ])->save();
+
+        return $role;
+    });
+
+    $membership = app(TeamContext::class)->runFor($this->team, function () use ($counterfeit): TeamMembership {
+        $one = TeamMembership::query()
+            ->where('person_id', '!=', $this->owner->getKey())
+            ->firstOr(fn (): TeamMembership => TeamMembership::query()->create([
+                'team_id' => $this->team->getKey(),
+                'person_id' => App\Models\Person::factory()->create()->getKey(),
+                'first_name' => 'Nadia',
+                'last_name' => 'Okafor',
+                'joined_at' => now(),
+            ]));
+
+        $one->roles()->attach($counterfeit->getKey());
+
+        return $one;
+    });
+
+    expect($membership->fresh()->hasRole('team_owner'))->toBeFalse();
+
+    // And the real owner is still refused, which is the point: the guard has
+    // to see exactly one owner here, not two.
+    $owner = app(TeamContext::class)->runFor($this->team, fn (): TeamMembership => TeamMembership::query()
+        ->where('person_id', $this->owner->getKey())->sole());
+
+    expect($owner->hasRole('team_owner'))->toBeTrue();
+});
+
+it('refuses a second role with the same name in one team', function (): void {
+    $this->post('/settings/roles', ['name' => 'Listing Coordinator'])->assertRedirect();
+
+    // Before this, the derived key hit the unique index and answered with a
+    // 500 rather than a sentence.
+    $this->post('/settings/roles', ['name' => 'Listing Coordinator'])
+        ->assertSessionHasErrors('name');
+
+    expect(app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): int => Role::query()->where('key', 'listing_coordinator')->count(),
+    ))->toBe(1);
 });
