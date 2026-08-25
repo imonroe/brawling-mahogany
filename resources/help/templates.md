@@ -70,3 +70,23 @@ team up.
 
 Templates need the `templates.manage` permission, which Team Owner holds by
 default.
+
+## Message templates and automations
+
+Two things live alongside the workflow templates, and both are for the same
+purpose: making the process tell the client what is happening without anybody
+remembering to.
+
+**Message templates** are the words. The link at the top of this screen opens
+them. Who a message goes to is a *rule* — "the seller", "the deal's main
+contact" — worked out per deal when it sends, so one template serves every
+deal.
+
+**Automations** hang off a stage, under **Add automation**. They say what
+should happen when the stage starts or completes: send a message, create a
+task, or prompt somebody to do it by hand.
+
+**Nothing sends yet.** You can write both and neither will reach anybody until
+the review queue and the safety rails around sending are built. The
+[Automated messages](/help/automation) article explains what is coming and why
+it is arriving as one piece rather than in parts.

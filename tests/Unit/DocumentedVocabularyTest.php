@@ -2,18 +2,22 @@
 
 declare(strict_types=1);
 
+use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
+use App\Enums\AutomationTrigger;
 use App\Enums\ContactType;
 use App\Enums\DealSide;
 use App\Enums\DealState;
 use App\Enums\DocumentCategory;
 use App\Enums\ExtractedFieldReviewState;
 use App\Enums\GateState;
+use App\Enums\MessageChannel;
 use App\Enums\ParticipantRole;
 use App\Enums\PersonLifecycleState;
 use App\Enums\PropertyInterest;
 use App\Enums\PropertyStatus;
 use App\Enums\PropertyType;
+use App\Enums\RecipientRuleType;
 use App\Enums\RestrictedDocumentCategory;
 use App\Enums\StageState;
 use App\Enums\TaskSource;
@@ -120,6 +124,7 @@ dataset('lookups', [
     'participant role' => ['Participant role', ParticipantRole::class],
     'document category' => ['Document category', DocumentCategory::class],
     'restricted categories' => ['Restricted (refused) categories', RestrictedDocumentCategory::class],
+    'message channel' => ['Message channel', MessageChannel::class],
 ]);
 
 it('matches the lookup values in PRD §6.3', function (string $lookup, string $enum): void {
@@ -149,7 +154,8 @@ it('keeps every enum value in snake_case', function (): void {
         GateState::class, PersonLifecycleState::class, AutomationState::class,
         ExtractedFieldReviewState::class, PropertyType::class, PropertyStatus::class, PropertyInterest::class,
         ContactType::class, ParticipantRole::class, DocumentCategory::class, DealSide::class,
-        TaskSource::class,
+        TaskSource::class, MessageChannel::class, RecipientRuleType::class,
+        AutomationTrigger::class, AutomationActionType::class,
         RestrictedDocumentCategory::class,
     ];
 

@@ -204,6 +204,22 @@ ninety-one screens disagree within a month — so nothing in `components/` or
 days in that timezone, so "tomorrow" means the next date on the calendar rather
 than 24 hours from now — which is what a contingency deadline actually means.
 
+> [!note] An email is rendered without a browser, so there is a second copy
+> `App\Support\Formatting\Format` is the server-side mirror of the rules an
+> email actually needs — the address block and the client date — and it exists
+> because Slice 3's messages are the first surface this product renders without
+> a browser. Everything before them was rendered by the page, so one file held
+> every rule.
+>
+> It is kept **deliberately small**: only the rules a message uses, so the
+> surface that can drift is the smallest one that does the job. What keeps the
+> pair honest is that `tests/Unit/Formatting/FormatTest.php` asserts the same
+> worked examples `tests/js/formatters.test.ts` does. A rule that lands on one
+> side and not the other is the failure mode, and the shared examples are what
+> make it visible. **Nothing else formats server-side** — a mailable assembling
+> "Indianapolis, IN" inline is the ninety-one-screens problem starting again in
+> a place nobody reviews.
+
 > [!note] Why `Intl` rather than date-fns
 > Design System §7.5 lists date-fns. `Intl.DateTimeFormat` is built in and
 > handles a named IANA timezone without a second package, which is the one hard

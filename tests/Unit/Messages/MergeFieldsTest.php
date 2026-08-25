@@ -25,7 +25,7 @@ it('registers the fields F5.6 names that cannot resolve yet, with the slice that
     ));
 
     expect(array_map(static fn (MergeField $f): string => $f->token, $deferred))
-        ->toBe(['next_key_date', 'status_page_link']);
+        ->toBe(['next_deadline', 'status_page_link']);
 
     foreach ($deferred as $field) {
         expect($field->availableFrom)->toContain('Slice');

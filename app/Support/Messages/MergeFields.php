@@ -113,11 +113,16 @@ final class MergeFields
                 'Your signature block from team settings.',
                 multiline: true,
             ),
+            /*
+             * **Not `next_key_date`.** IA §11 bans "Key dates" in the UI in
+             * Emily's own phrase, and a merge field's label is UI — its token
+             * is more so, because somebody types it into a message body.
+             */
             new MergeField(
-                'next_key_date',
-                'Next key date',
+                'next_deadline',
+                'Next deadline',
                 'Deal',
-                'The next deadline on this deal.',
+                'The next date somebody has to act by on this deal.',
                 availableFrom: 'Dates & Deadlines arrive in Slice 4 (#109).',
             ),
             new MergeField(

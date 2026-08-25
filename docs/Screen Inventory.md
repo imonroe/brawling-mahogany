@@ -25,6 +25,21 @@ tags:
 > [!success] Built in slice 1
 > S01–S06 and S09, S30–S33, S72, S74, S77, S79, and S81–S85. Two of them differ from the row below, and the rows say so: S31's route parameter is the **membership**, and S84 is a page rather than a modal.
 
+> [!success] Built in slice 3 so far
+> **S44, S45 and S46** — the automation definition layer. Message templates with
+> a channel, a recipient *rule* rather than an address, merge fields validated at
+> save time, a live preview against a real deal, and a test send that can reach
+> nobody but its author; and automations on a stage template, with the triggers
+> and action types F5.2 and F5.3 name.
+>
+> **Nothing sends yet**, deliberately. `action_instances`, the queue, the
+> approval queue (S47, S48) and F5.9's rails are #92, #93 and #96, and they land
+> together — the first thing able to reach a client arrives with its safety rails
+> attached rather than shortly afterwards.
+>
+> S45 and S46 were renamed from *email* to *message* templates, and their routes
+> with them. The note in section G argues it.
+
 > [!success] Built in slice 2 so far
 > S76 (deal types), S35–S37 (properties), S19 and S25 (deal people), S20 (deal
 > properties), S14 and S28 (create deal and attach workflow), **S15 (the deal
@@ -171,9 +186,9 @@ tags:
 | S41 | Workflow template editor | `/templates/{template}` | Agent | Stage list, reorder, add, remove, in-use warning, versioning | F4.4 | 2 | **L** |
 | S42 | Stage template editor | `/templates/{template}/stages/{stage}` | Agent | Tasks, gates, automations, milestone toggle, client label | F4.3 | 2 | **L** |
 | S43 | Gate editor | modal | Agent | Seven gate types with distinct configs, blocking toggle | F4.8 | 2 | M |
-| S44 | Automation editor | modal | Agent | Trigger, type, message template, approval toggle, manual prompt | F5.1-F5.2 | 3 | **L** |
-| S45 | Email template list | `/templates/emails` | Agent | Empty, in use by N automations, unused | F5.5 | 3 | S |
-| S46 | Email template editor | `/templates/emails/{template}` | Agent | Merge field picker, invalid field, live preview, recipient rule, test send | F5.5-F5.6 | 3 | **L** |
+| S44 | Automation editor | modal | Agent | Trigger, type, message template, approval toggle, manual prompt. **Built.** One three-way execution choice rather than an approval toggle *and* a manual toggle — see the note below | F5.1-F5.2 | 3 | **L** |
+| S45 | Message template list | `/templates/messages` | Agent | Empty, in use by N automations, unused. **Built.** Renamed from *Email template list* at `/templates/emails` — see the note below | F5.5 | 3 | S |
+| S46 | Message template editor | `/templates/messages/{template}` | Agent | Merge field picker, invalid field, live preview, recipient rule, test send. **Built.** | F5.5-F5.6 | 3 | **L** |
 
 > [!note] S40 is a section of S39, and *install* turned out to be *copy*
 > The pack browser has no route of its own. Both lists live on `/templates` — a team's own above, the packs below — because the thing a reader is doing there is choosing a process, and a second screen to reach the half they do not own makes the choice a navigation.
@@ -184,6 +199,18 @@ tags:
 >
 > **S43 is a section too**, and a thin one for now. Four of the seven gate types take no configuration beyond a label, and the three that will — document present, action completed, date reached — are the ones whose slices have not landed. The picker reads `GateRegistry::types()` rather than keeping its own list, so those three are already selectable and already say why they cannot clear; their config editors arrive with #104, #92 and #109.
 >
+> [!note] S45 and S46 are *message* templates, not email templates
+> Renamed with #90, and the rename is the issue rather than a tidy-up. PRD §7.12 is the correction the issue implements — *"`Email Template` points the wrong way, and should generalise"* — and the v0.2 update puts `push` beside `email` and the deferred `sms` in the channel enum. A route reading `/templates/emails` would be wrong the first time somebody wrote a push template, and a sending subdomain is not the only identifier that is painful to change once things point at it. Epic #4's own child list already calls them message templates.
+>
+> **S46 has a departure worth naming: two of F5.6's seven merge fields cannot resolve yet.** Key dates are Slice 4 (#109) and the status page link is Slice 4 (#110). They are *registered* rather than omitted, carrying the slice that wires them, so the picker names them and the save-time validator refuses them **by name** — "there is no such field" would send somebody looking for a spelling mistake. Same shape as `GateRegistry::selectableOptions()` one screen over.
+>
+> **And there is no delete.** A template is archived, because an automation *points at* one — the rule S76 set for every lookup screen. `/templates/{template}` has a destroy and this does not, and the difference is real: instantiation snapshots a workflow template, so a running deal holds no pointer back to it; an automation holds a live pointer here.
+
+> [!note] S44's *approval toggle* and *manual prompt* are one control, not two
+> The row above lists them separately, which is how PRD §6.2 names the columns, and the editor offers **one three-way choice**: fires on its own · needs approving first · prompts somebody to do it. F5.4's manual prompt and F5.7's approval queue describe the same moment from two ends — a human in the loop — so two booleans have four states of which two are nonsense, and an automation that did both would ask two people to agree to one email. `action_definitions` carries the invariant as a CHECK constraint, so a route added in a later slice inherits it.
+>
+> The Screen Inventory's own note on this screen asks for *"a progressive form that narrows, not four independent dropdowns that can be combined into nonsense"*, and every narrowing the form does is refused again on the server: a template on an action that sends nothing, a template on the wrong channel, an archived template, a requirement from another stage, and a trigger nothing can raise yet.
+
 > **#87's seeded packs are not built and are not blocked on any of this.** They are blocked on #11 — Emily's real listing-side checklist — because a seeded pack whose stages somebody invented is worse than an empty templates screen: it teaches a process nobody follows and gets copied before anyone notices.
 
 ## H. Automation runtime

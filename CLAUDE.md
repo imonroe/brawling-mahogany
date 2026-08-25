@@ -36,6 +36,17 @@ epic #3 is **#87, the seeded template packs**, and it is blocked on #11 rather
 than on code: the mechanism is built, and a pack whose stages somebody invented
 would teach a process nobody follows.
 
+**Slice 3 has started, with the half that cannot send anything.** Message
+templates and the automations that reference them (S44–S46, #90, #91): a
+template carries a **channel** and a recipient *rule* rather than an address,
+its merge fields are validated at save time, and its preview renders the
+**draft** against a real deal of the team's. Automations hang off
+`stage_templates` with the triggers and action types F5.2 and F5.3 name.
+Nothing in it reaches a client: `action_instances`, the queue, the approval
+queue and F5.9's rails are #92, #93 and #96, and they land **together**, so the
+first thing able to email a client arrives with its safety rails attached
+rather than shortly afterwards.
+
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
 ## Documentation map
@@ -372,6 +383,66 @@ These come from PRD §8 and should guide the eventual build:
   **Completion is idempotent, and that is about the event rather than the
   column.** Writing `completed_at` twice changes nothing; recording the work
   twice reports it twice and attributes it to whoever was second.
+
+- **A shared row may not point at a private one, and the foreign key will not
+  say so.** `action_definitions` mirrors its stage template's nullable
+  `team_id`; `message_templates` is strictly team-scoped, because a message
+  template is *a team's own words to their own clients* with their signature
+  under it, which is the closest thing in the definition layer to customer
+  data. So a **system** automation naming a team's template would send that
+  team's words from every other team on the platform.
+
+  The composite foreign key over `(team_id, message_template_id)` looks like it
+  closes that and does not: Postgres foreign keys are **MATCH SIMPLE**, so a
+  null `team_id` satisfies one without checking anything — which is exactly the
+  shared row. A `CHECK (team_id IS NOT NULL OR message_template_id IS NULL)` is
+  what actually closes it. Before relying on a composite key to constrain a
+  nullable column, ask what it does when that column is null.
+
+  The same migration carries the other half of that lesson: `ON DELETE SET
+  NULL` on a composite key nulls **every** referencing column unless the column
+  list is named, so a bare one would have cleared `team_id` too and quietly
+  promoted one team's automation into a shared one.
+
+- **Two ways to put a human in the loop is one way.** F5.4's manual prompt and
+  F5.7's approval queue describe the same moment from two ends, so
+  `action_definitions` keeps both columns PRD §6.2 names and refuses the
+  combination with a CHECK constraint — two booleans have four states and two
+  of them ask two people to agree to one email. S44 offers a single three-way
+  choice, which is the Screen Inventory's *"a progressive form that narrows,
+  not four independent dropdowns that can be combined into nonsense"* made
+  structural rather than encouraged.
+
+- **Escaping is decided by where a value lands, not by where it came from.**
+  `MergeFields::resolve()` returns raw values on purpose and `RenderMessage` is
+  the only thing that escapes them: into `body_html` escaped, into `body_text`
+  **untouched** — escaping there puts `&amp;` into every plain-text message to
+  the O'Brien household — and into `subject` stripped of CR and LF, because a
+  subject is a mail **header** and the value is a name somebody typed into the
+  people directory. Substitution is one `preg_replace_callback` pass rather
+  than a replace per token, because a per-token loop walks over what it has
+  already written.
+
+  The template body itself is not escaped — it is the author's own outbound
+  HTML — but the **preview renders it in a sandboxed iframe**, because trusting
+  an author with their own email is not the same as trusting it inside a
+  colleague's session.
+
+- **A validator that scans for well-formed tokens is blind to the dangerous
+  ones.** `{{ client name }}` is not a merge field, so a scan that extracted
+  valid tokens and checked those against the registry would see nothing wrong
+  and let the braces through into a client's inbox. `MergeFields::extract()` is
+  deliberately loose — anything between double braces — and well-formedness is
+  checked afterwards, against what it found.
+
+- **An email is the first thing this product renders without a browser.**
+  Frontend conventions §3 says nothing formats a date or an address itself
+  because ninety-one screens would disagree within a month, and until Slice 3
+  one file held every rule. `App\Support\Formatting\Format` is its server-side
+  mirror, kept to **only the rules a message needs** so the surface that can
+  drift is the smallest one that does the job — and its test copies
+  `tests/js/formatters.test.ts`'s worked examples verbatim, which is what makes
+  a one-sided change fail in the pull request that made it.
 
 - **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
 - **No user flow depends on email alone.** Every flow the product initiates by
