@@ -262,3 +262,101 @@ it('gives every subject type the feed carries a permission rule', function (): v
         $missing->implode(', '),
     ));
 });
+
+it('never shows a deal’s name on a client page to somebody who may not see deals', function (): void {
+    /*
+     * The sibling of the case above, on the screen that does **not** go
+     * through `ActivityFeed::query()`.
+     *
+     * S31 builds its own `forSubject($person)` query with its own limit, so it
+     * inherited none of the per-viewer rules — and F2.5 logs a contact against
+     * a person and *optionally* a deal, so a `people.view`-only reader was
+     * shown the deal the contact was attached to and a link to a page
+     * answering 403.
+     *
+     * That is why the rules are `visibleToViewer()` rather than lines inside
+     * `query()`: three callers apply them now, and the sentence this branch
+     * has proved twice is that a filter written into one caller is a filter
+     * the next caller is written without.
+     *
+     * Written because the fix shipped without it. Reverting
+     * `PersonController` to its previous form left the whole suite green,
+     * which is the same silence that let the original leak through.
+     */
+    $client = null;
+    $deal = null;
+
+    app(TeamContext::class)->runFor($this->team, function () use (&$client, &$deal): void {
+        $deal = Deal::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'name' => 'Ravenscroft Sale',
+            'deal_type_id' => DealType::query()->whereNull('team_id')->firstOrFail()->getKey(),
+        ]);
+
+        $client = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => Person::factory()->create()->getKey(),
+            'first_name' => 'Imogen',
+            'last_name' => 'Ravenscroft',
+            'status' => PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        app(RecordActivity::class)->record(
+            subject: $client->person,
+            eventType: 'contact.logged',
+            summary: 'Talked through the survey',
+            source: ActivitySource::Manual,
+            deal: $deal,
+        );
+    });
+
+    $directoryOnly = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($directoryOnly): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $directoryOnly->getKey(),
+            'first_name' => 'Rowan',
+            'last_name' => 'Ellis',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'directory_only_feed',
+            'name' => 'Directory Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [
+                Permissions::VIEW_PEOPLE,
+                Permissions::MANAGE_PEOPLE,
+            ])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($directoryOnly, $this->team);
+
+    $response = $this->get("/people/{$client->getKey()}")->assertOk();
+
+    $activity = $response->viewData('page')['props']['activity'];
+
+    /*
+     * The **control**, and it is what stops this passing vacuously: a full
+     * viewer sees the row, so an empty list below would be the filter working
+     * rather than the fixture failing to produce anything.
+     */
+    $this->actingAsPerson($this->member, $this->team);
+
+    $full = $this->get("/people/{$client->getKey()}")->assertOk();
+
+    expect($full->viewData('page')['props']['activity'])->toHaveCount(1)
+        ->and($full->viewData('page')['props']['activity'][0]['deal']['label'])
+        ->toBe('Ravenscroft Sale');
+
+    // And the narrow reader gets no deal-context row at all.
+    expect($activity)->toBe([]);
+});

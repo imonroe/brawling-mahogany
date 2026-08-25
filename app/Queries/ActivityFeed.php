@@ -122,13 +122,9 @@ final class ActivityFeed
          * asks for `deals.view` and nothing else. Only `property.added` and
          * `property.status_changed` reach the property itself.
          *
-         * ## And the deal-context rule, which is separate
-         *
-         * `deal_id` is set on every event belonging to a deal, whatever its
-         * subject — F2.5 logs a contact against a person and *optionally* a
-         * deal. So a person-subjected event can carry deal context, and
-         * somebody without `deals.view` must not read it even though they hold
-         * `people.view`.
+         * Both rules — the subject allowlist and the deal-context one — live in
+         * `visibleToViewer()` below, so the callers that do not come through
+         * here get them too.
          */
         return $this->visibleToViewer($query);
     }
@@ -141,8 +137,21 @@ final class ActivityFeed
      * own limit — and a filter written into one caller is a filter the next
      * caller is written without. That sentence has now been proved twice on
      * this one class: once when S10 reused `query()` behind a different screen
-     * gate, and once here, where a `people.view`-only reader saw the **deal**
+     * gate, and once on S31, where a `people.view`-only reader saw the **deal**
      * a contact was logged against and a link to a page answering 403.
+     *
+     * ## The one reader that deliberately does not call this
+     *
+     * `DealOverviewController::recentActivity()` reads `forDeal($deal)` and
+     * applies nothing, which is right: every row it returns belongs to the
+     * deal the reader is already standing on, and `DealPolicy::view` has
+     * answered `deals.view` before the page renders. The subject rules would
+     * be redundant there and the deal-context rule would be a second, weaker
+     * spelling of the policy that already ran.
+     *
+     * So it is not *"apply this everywhere"* — it is *"apply this wherever the
+     * screen's own gate does not already answer the question"*, which is every
+     * caller that mixes surfaces.
      *
      * @param  Builder<ActivityEvent>  $query
      * @return Builder<ActivityEvent>
