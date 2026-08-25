@@ -77,8 +77,9 @@ final class RenderMessage
              */
             malformed: array_values(array_unique([
                 ...MergeFields::strayBraceRuns($template->subject),
-                // Markup, so only an unclosed opening counts — nested CSS
-                // braces are ordinary email.
+                // Markup, so `<style>` and `<script>` blocks come out before
+                // the braces are counted — their nested rules are ordinary
+                // email. Everything outside them is held to the full check.
                 ...MergeFields::strayBraceRuns($template->body_html, markup: true),
                 ...MergeFields::strayBraceRuns($template->body_text),
             ])),

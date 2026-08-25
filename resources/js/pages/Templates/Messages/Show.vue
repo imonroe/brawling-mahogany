@@ -403,6 +403,21 @@ function sendTest(): void {
                                 placeholder="Your team’s verified address"
                                 :disabled="!can.update"
                             />
+                            <!--
+                                Stored and read by nothing yet. Sending
+                                identities are #94, and until they land this
+                                field changes no address on any message — say
+                                so, rather than accepting an address in
+                                silence. The same standard the merge field
+                                picker holds: a deferred thing is named with
+                                its slice, not left to look like it works.
+                            -->
+                            <p class="text-[11px] text-muted-foreground">
+                                Saved with the template and not used yet — the
+                                team’s sending identity is what every message
+                                goes out from until per-template addresses are
+                                verified.
+                            </p>
                             <p
                                 v-if="form.errors.from_identity"
                                 class="text-[11px] text-state-danger"

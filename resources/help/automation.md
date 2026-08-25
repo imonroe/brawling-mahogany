@@ -50,6 +50,11 @@ Two of them are listed and cannot be filled in yet — the next deadline and the
 client's status page link — because the features behind them have not been
 built. The editor says so, and refuses to save a template using one.
 
+**“Send from” is saved and not used yet.** Every message goes out from the
+team’s sending identity. Per-template addresses need a verified sending domain,
+which is not built — the field is there so a template written today does not
+have to be revisited, and the editor says so underneath it.
+
 **Every message carries a plain-text version.** It is what a watch, a screen
 reader, and an inbox with images turned off will show, and it is not optional.
 

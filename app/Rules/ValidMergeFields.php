@@ -40,9 +40,11 @@ use Illuminate\Contracts\Validation\ValidationRule;
 final readonly class ValidMergeFields implements ValidationRule
 {
     /**
-     * @param  bool  $markup  Whether this field may legitimately carry nested
-     *                        braces — a `<style>` block's CSS closes two rules
-     *                        with `}}`. See `MergeFields::OPENING_RUN`.
+     * @param  bool  $markup  Whether this field may legitimately carry a
+     *                        `<style>` or `<script>` block, whose contents are
+     *                        taken out before the braces are counted. Both
+     *                        halves of the check still apply to the rest of
+     *                        the body. See `MergeFields::MARKUP_BLOCKS`.
      */
     public function __construct(private bool $markup = false) {}
 

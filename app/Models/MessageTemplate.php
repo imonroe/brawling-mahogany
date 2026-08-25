@@ -78,6 +78,40 @@ class MessageTemplate extends Model
          * in the request that happened to be found.
          */
         static::saving(function (self $template): void {
+            /*
+             * The channel and the recipient rule are a pair, so **either half
+             * moving** is a reason to look — and this check sits above the
+             * early return for that reason alone.
+             *
+             * PRD F12.2 keeps push internal, so a push template addressed to a
+             * client is the state the rule exists to prevent. Refused rather
+             * than cleared: unlike a subject, which a channel with none simply
+             * does not have, there is no answer to *"who did you mean
+             * instead"* worth picking on somebody's behalf.
+             *
+             * Watching only `channel` caught the rule moving under a channel
+             * and never the channel moving under a rule — which is exactly the
+             * finding `ActionDefinition::booted()` records one class over,
+             * added in the commit before this pair existed. A new pair
+             * inherits the lesson or it does not; watching one end is how it
+             * does not.
+             */
+            if ($template->isDirty('channel') || $template->isDirty('recipient_rule')) {
+                $rule = RecipientRule::tryFromArray($template->recipient_rule);
+
+                if ($rule !== null && ! array_key_exists(
+                    $rule->type->value,
+                    RecipientRuleType::optionsFor($template->channel),
+                )) {
+                    throw ChannelMismatch::cannotCarryRecipient($template->channel, $rule->type);
+                }
+            }
+
+            /*
+             * Everything below is about the **channel** moving specifically:
+             * clearing the columns the new channel does not carry, and
+             * refusing to strand the automations pointed at it.
+             */
             if (! $template->isDirty('channel')) {
                 return;
             }
@@ -97,27 +131,6 @@ class MessageTemplate extends Model
 
             if (! $template->channel->hasHtmlBody()) {
                 $template->body_html = null;
-            }
-
-            /*
-             * The recipient rule is narrowed by channel the same way, and is
-             * **refused** rather than cleared.
-             *
-             * PRD F12.2 keeps push internal, so a push template addressed to a
-             * client is the state that rule exists to prevent — and unlike a
-             * subject, which a channel with none simply does not have, there
-             * is no answer to *"who did you mean instead"* that we could pick
-             * for somebody. The front door already refuses it in validation;
-             * this is for the callers the block exists for, #92's
-             * instantiation and a pack install.
-             */
-            $rule = RecipientRule::tryFromArray($template->recipient_rule);
-
-            if ($rule !== null && ! array_key_exists(
-                $rule->type->value,
-                RecipientRuleType::optionsFor($template->channel),
-            )) {
-                throw ChannelMismatch::cannotCarryRecipient($template->channel, $rule->type);
             }
 
             if (! $template->exists) {

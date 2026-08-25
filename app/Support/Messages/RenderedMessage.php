@@ -45,14 +45,6 @@ final readonly class RenderedMessage
     }
 
     /**
-     * @return list<string>
-     */
-    public function problems(): array
-    {
-        return [...$this->malformed, ...$this->unknown, ...$this->unresolved];
-    }
-
-    /**
      * @return array<string, mixed>
      */
     public function toArray(): array

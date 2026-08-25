@@ -62,7 +62,7 @@ class MessageTemplateTestMail extends Mailable
                 'bodyHtml' => $this->rendered->bodyHtml,
                 'bodyText' => $this->rendered->bodyText,
                 /*
-                 * The three lists separately, not `problems()`.
+                 * The three lists separately, never flattened into one.
                  *
                  * They have three different fixes, and one label for all of
                  * them said the wrong thing about two: a malformed entry is

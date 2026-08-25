@@ -655,6 +655,21 @@ it('refuses a client recipient left on an internal channel, at the model', funct
             ->toThrow(ChannelMismatch::class);
     });
 
+    /*
+     * …and from the **other end**: the rule moving under a channel that
+     * cannot carry it. The first version of this guard sat inside the
+     * `isDirty('channel')` early return, so it caught one direction only —
+     * which is the finding `ActionDefinition` records one class over, in the
+     * commit immediately before this pair existed.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $push = MessageTemplate::factory()->push()->create(['team_id' => $this->team->getKey()]);
+
+        expect(fn () => $push->forceFill([
+            'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+        ])->save())->toThrow(ChannelMismatch::class);
+    });
+
     // The control: the same change with an internal rule is allowed.
     app(TeamContext::class)->runFor($this->team, function () use ($template): void {
         $template->forceFill([

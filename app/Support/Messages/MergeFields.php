@@ -279,7 +279,21 @@ final class MergeFields
         }
 
         if ($markup) {
-            $body = (string) preg_replace(self::MARKUP_BLOCKS, '', $body);
+            $stripped = preg_replace(self::MARKUP_BLOCKS, '', $body);
+
+            /*
+             * A PCRE failure fails **closed**.
+             *
+             * `preg_replace` returns null when the engine gives up — a
+             * backtrack limit, a pathological body — and `(string) null` is
+             * `''`, which is a body with no braces in it and therefore a clean
+             * save on the one field this check exists for. `CLAUDE.md` records
+             * that direction twice already: an exclusion list fails open, and
+             * did. Scanning the unstripped body may refuse a valid `<style>`
+             * block, which is a message somebody can act on rather than a
+             * silent yes.
+             */
+            $body = $stripped ?? $body;
         }
 
         $remainder = (string) preg_replace(self::TOKEN_PATTERN, '', $body);

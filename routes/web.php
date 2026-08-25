@@ -546,7 +546,17 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * unsaved draft — the preview's whole job is showing what is in the form
      * rather than what is in the database.
      */
+    /*
+     * Throttled too, and more loosely: this is the route somebody presses
+     * while typing. It accepts up to 300 KB across three fields and scans all
+     * of it — taking `<style>` blocks out of a markup body is quadratic on an
+     * unclosed one, measured at 483ms against 65ms for the same size of
+     * ordinary email. It needs an authenticated member of the team, so the
+     * bound is somebody heating their own instance; a ceiling is still cheaper
+     * than finding out.
+     */
     Route::post('templates/messages/{messageTemplate}/preview', [MessageTemplateController::class, 'preview'])
+        ->middleware('throttle:60,1')
         ->name('message-templates.preview');
     /*
      * Throttled, because this is the first route in the product that sends
