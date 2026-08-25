@@ -89,7 +89,7 @@ class ExportTeamData implements ShouldQueue
                     'last_name' => $membership->last_name,
                     'email' => $membership->email,
                     'phone' => $membership->phone,
-                    'status' => $membership->status->value,
+                    'status' => $membership->status?->value,
                     'is_vendor' => $membership->is_vendor,
                     'notes' => $membership->notes,
                     'vendor' => [

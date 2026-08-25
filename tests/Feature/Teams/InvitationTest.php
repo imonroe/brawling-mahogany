@@ -515,16 +515,243 @@ it('lets a contact in the directory accept an invitation', function (): void {
         'password_confirmation' => 'a-long-enough-password',
     ])->assertRedirect(route('dashboard'));
 
-    // One membership, upgraded rather than duplicated — so her notes and her
-    // lifecycle history survive her getting a login, which is what the team
-    // expects and the only reason the row was worth keeping.
+    // One membership, upgraded rather than duplicated — so her notes survive
+    // her getting a login, which is what the team expects and the only reason
+    // the row was worth keeping.
     $membership = TeamMembership::withoutTeamScope()
         ->where('team_id', $this->team->getKey())
         ->whereRaw('lower(email) = ?', ['claire@example.test'])
         ->sole();
 
     expect($membership->notes)->toBe('Met at the open house.')
-        ->and($membership->person->hasCredentials())->toBeTrue();
+        ->and($membership->person->hasCredentials())->toBeTrue()
+        /*
+         * **Her lifecycle does not survive, and that is the point** (#162).
+         *
+         * `firstOrCreate` reuses the row and its insert half never runs, so
+         * Claire's `lead` was carried onto a colleague — where IA §8 has
+         * nothing to say about her, and where S32 refuses the field, so
+         * nobody could clean it up. It stayed invisible while she held access
+         * and came back as a blue **Lead** pill the day it was revoked, on a
+         * row the Leads tab excludes. Joining the team ends being a prospect.
+         */
+        ->and($membership->status)->toBeNull();
+});
+
+it('leaves a client a client when they are given a status page login', function (): void {
+    /*
+     * Found by review on #162, and a regression the fix itself introduced.
+     *
+     * Clearing the lifecycle on accept is right for somebody **joining the
+     * team**. The members screen also invites `Contact` and `Status Viewer` —
+     * roles a *client* holds, carrying no team-surface permission — and
+     * clearing it for those erased a classification a human typed. The row
+     * that came back drew no badge at all (`carriesAccess` false, so no roles;
+     * `status` null, so no lifecycle) and left the Clients tab, for the
+     * ordinary act of giving a client access to their own status page.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::StatusViewer->value)->sole();
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'active',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    $token = $this->token;
+    $owner = auth()->user();
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$token}", [
+        'first_name' => 'Claire',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect();
+
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['claire@example.test'])
+        ->sole();
+
+    expect($membership->status)->toBe(App\Enums\PersonLifecycleState::Active)
+        ->and($membership->carriesAccess())->toBeFalse();
+
+    $this->actingAs($owner);
+    app(TeamContext::class)->set($this->team);
+
+    // And still findable where a team looks for their clients.
+    $this->get('/people?segment=clients')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $row = collect($page->toArray()['props']['people']['data'])
+                ->firstWhere('id', $membership->getKey());
+
+            expect($row)->not->toBeNull()
+                ->and($row['status'])->toBe('active');
+        });
+});
+
+it('gives a client a lifecycle when the invitation is their first record', function (): void {
+    /*
+     * The same hole one step further out, found by review on #162.
+     *
+     * Round 3 stopped the clear from erasing an *existing* lifecycle, but the
+     * `firstOrCreate` insert had already lost the `active` it used to write —
+     * so a client who was not already in the directory arrived with no
+     * lifecycle at all, and no roles to draw instead, and their row said
+     * nothing whatsoever about somebody the team had just invited. The whole
+     * suite was green with that in place.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::StatusViewer->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'new-client@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Nadia',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect();
+
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['new-client@example.test'])
+        ->sole();
+
+    expect($membership->status)->toBe(App\Enums\PersonLifecycleState::Active)
+        ->and($membership->carriesAccess())->toBeFalse();
+});
+
+it('does not die accepting an invitation to a role that has since been archived', function (): void {
+    /*
+     * `$invitation->role` is null for a soft-deleted role, so asking it
+     * anything is fatal. Unreachable until S75 makes roles archivable, which
+     * is exactly when nobody will be looking here — so the question is asked
+     * `withTrashed()`, the way the accept path already reads role keys for
+     * its audit entry.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'heather@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    $role->delete();
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$this->token}", [
+        'first_name' => 'Heather',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect();
+
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['heather@example.test'])
+        ->sole();
+
+    /*
+     * And the row says something. Round 5 found the first version surviving
+     * the 500 and producing a membership with **no badge of any kind**: the
+     * role was resolved `withTrashed()` and answered *yes* to granting access,
+     * so the lifecycle was cleared — while `carriesAccess()`, which excludes
+     * an archived role, answered *no*, so there were no roles to draw either.
+     * One question, two halves, opposite answers. An archived role grants
+     * nothing, and this asserts both halves agree on that.
+     */
+    expect($membership->carriesAccess())->toBeFalse()
+        ->and($membership->status)->toBe(App\Enums\PersonLifecycleState::Active);
+});
+
+it('keeps a former colleague off the Leads tab they were once on', function (): void {
+    /*
+     * The other end of the same path, found by review on #162 and measured
+     * end to end: create a lead, invite her, revoke her. Before the lifecycle
+     * became nullable, the stale `lead` resurfaced on revocation.
+     */
+    $role = Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole();
+
+    $this->post('/people', [
+        'first_name' => 'Claire',
+        'email' => 'claire@example.test',
+        'status' => 'lead',
+    ])->assertSessionHasNoErrors();
+
+    $this->post('/settings/members/invitations', [
+        'email' => 'claire@example.test',
+        'role_id' => $role->getKey(),
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertSent(TeamInvitationMail::class, function (TeamInvitationMail $mail): bool {
+        $this->token = $mail->token;
+
+        return true;
+    });
+
+    $token = $this->token;
+    $owner = auth()->user();
+
+    auth()->logout();
+    app(TeamContext::class)->set(null);
+
+    $this->post("/invitations/{$token}", [
+        'first_name' => 'Claire',
+        'password' => 'a-long-enough-password',
+        'password_confirmation' => 'a-long-enough-password',
+    ])->assertRedirect(route('dashboard'));
+
+    $membership = TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->whereRaw('lower(email) = ?', ['claire@example.test'])
+        ->sole();
+
+    $membership->revoke();
+
+    $this->actingAs($owner);
+    app(TeamContext::class)->set($this->team);
+
+    $this->get('/people?segment=leads')
+        ->assertOk()
+        ->assertInertia(function ($page) use ($membership): void {
+            $rows = collect($page->toArray()['props']['people']['data']);
+
+            expect($rows->firstWhere('id', $membership->getKey()))->toBeNull();
+        });
+
+    expect($membership->refresh()->status)->toBeNull();
 });
 
 /**

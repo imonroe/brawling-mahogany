@@ -31,6 +31,13 @@ final class PeopleDirectory
             // Only the login is still needed from `people` — S31's "no login"
             // state asks whether they can sign in, and nothing else does.
             ->with('person:id,password')
+            /*
+             * `carriesAccess()` walks roles → permissions and the badge reads
+             * the role name, so both are loaded once for the page rather than
+             * twice per row. `PeopleIndexBudgetTest` is what holds it: 25 rows
+             * cost what 2 rows cost.
+             */
+            ->with('roles.permissions')
             ->orderBy('team_memberships.last_name')
             ->orderBy('team_memberships.first_name')
             ->paginate(self::PER_PAGE)
@@ -76,17 +83,35 @@ final class PeopleDirectory
 
         $query = match ($segment) {
             PersonSegment::All => $query,
+            /*
+             * `notColleagues()`, which is `isColleague()` in SQL — the same
+             * question the badge beside the row asks (#162).
+             *
+             * This used to be `notCarryingAccess()`, which revocation does not
+             * enter. So a former colleague recorded as the past client they
+             * now are was drawn as a contact and filtered as a colleague, and
+             * appeared on no segment but All: the reclassification was
+             * editable, audited, and invisible.
+             *
+             * The lifecycle filter alone would very nearly do it now that a
+             * colleague's `status` is null. Very nearly is the problem: it
+             * would put anybody whose row predates the backfill, or whose
+             * roles were attached by something that did not think about the
+             * column, back on the Clients tab.
+             */
             PersonSegment::Clients => $query
                 ->whereIn('team_memberships.status', [
                     PersonLifecycleState::Active->value,
                     PersonLifecycleState::PastClient->value,
                 ])
-                ->notCarryingAccess(),
+                ->notColleagues(),
             PersonSegment::Vendors => $query->where('team_memberships.is_vendor', true),
-            PersonSegment::Leads => $query->where('team_memberships.status', PersonLifecycleState::Lead->value),
-            PersonSegment::Team => $query
-                ->whereNull('team_memberships.revoked_at')
-                ->carryingAccess(),
+            // Same pair, same reason. The segment is how a team decides who
+            // to chase, and a colleague is not on that list.
+            PersonSegment::Leads => $query
+                ->where('team_memberships.status', PersonLifecycleState::Lead->value)
+                ->notColleagues(),
+            PersonSegment::Team => $query->colleagues(),
         };
 
         if ($search !== '') {
@@ -118,7 +143,34 @@ final class PeopleDirectory
             'lastName' => $membership->last_name,
             'email' => $membership->email,
             'phone' => $membership->phone,
-            'status' => $membership->status->value,
+            /*
+             * Nullable, and null is not "unknown" — it is *this person has no
+             * place on the client lifecycle* (#162). A colleague holds it; so
+             * does a former colleague nobody has reclassified yet. A screen
+             * with nothing to say about somebody says nothing.
+             */
+            'status' => $membership->status?->value,
+            /*
+             * Three independent facts, each drawn when it is true, rather than
+             * one badge standing in for all of them (#162).
+             *
+             * `carriesAccess` is what the role badges hang on, so the People
+             * row says what `/settings/members` says about the same person —
+             * including after revocation, where the first fix swapped the
+             * roles out for a lifecycle nobody had chosen and reproduced the
+             * original bug on a different row.
+             *
+             * `isColleague` is `carriesAccess` **and** not revoked, and is the
+             * question the form asks: whether the lifecycle is theirs to set.
+             */
+            'carriesAccess' => $membership->carriesAccess(),
+            'isColleague' => $membership->isColleague(),
+            /*
+             * What the team calls them, for the badge a colleague gets
+             * instead. `/settings/members` shows the same thing, so the two
+             * screens describe somebody the same way.
+             */
+            'roles' => $membership->roles->map(fn ($role): string => $role->name)->values()->all(),
             'isVendor' => $membership->is_vendor,
             // S31's "no login" state. Most of this directory has none, and the
             // screen says so rather than implying an account exists.
@@ -135,10 +187,13 @@ final class PeopleDirectory
         return [
             ...self::row($membership),
             'notes' => $membership->notes,
-            'roles' => $membership->roles->map(fn ($role): array => [
-                'key' => $role->key,
-                'name' => $role->name,
-            ])->all(),
+            /*
+             * No keyed `roles` shape here any more. It carried `key` and
+             * `name` for every role and **nothing rendered either** — the same
+             * finding CLAUDE.md records about an eager-load: name the cell
+             * that reads it, and if there is not one, that is the finding.
+             * `row()` now carries the names, which is what the badge draws.
+             */
             'vendor' => [
                 'specialties' => $membership->vendor_specialties ?? [],
                 'typicalCost' => $membership->vendor_typical_cost,

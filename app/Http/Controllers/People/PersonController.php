@@ -58,7 +58,13 @@ class PersonController extends Controller
     {
         $this->authorize('view', $membership);
 
-        $membership->load(['person', 'roles']);
+        /*
+         * `roles.permissions`, not just `roles`: the badge asks
+         * `isColleague()`, which walks the permissions — and without the
+         * nested load that is a lazy query per role. Found by review on #162,
+         * measured rather than argued.
+         */
+        $membership->load(['person', 'roles.permissions']);
 
         /*
          * Shaped by `ActivityFeed`, not here.
@@ -135,9 +141,17 @@ class PersonController extends Controller
         if ($membership->carriesAccess()) {
             $this->authorize('manageAccess', $membership);
 
+            // Already revoked: `handle()` is idempotent, so nothing is
+            // re-stamped and nothing is audited twice. Say which happened
+            // rather than reporting an act that did not take place.
+            $alreadyRevoked = $membership->isRevoked();
+
             $revoke->handle($membership);
 
-            Inertia::flash('toast', ['type' => 'success', 'message' => __('Access revoked.')]);
+            Inertia::flash('toast', [
+                'type' => 'success',
+                'message' => $alreadyRevoked ? __('Access was already revoked.') : __('Access revoked.'),
+            ]);
 
             return to_route('people.index');
         }

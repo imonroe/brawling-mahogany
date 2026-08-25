@@ -269,6 +269,18 @@ it('sorts a group by urgency, with the undated below the dated', function (): vo
 });
 
 it('derives overdue rather than storing it', function (): void {
+    /*
+     * Frozen at midday UTC, which is 06:00 in Denver on the same date.
+     *
+     * Every test team is `America/Denver`, and `state()` reads today in the
+     * **team's** calendar — so `now()->subDay()`, which is yesterday in UTC,
+     * is still *today* in Denver for the six hours after UTC midnight. This
+     * seeded a task the fixture calls late that the product correctly calls
+     * due today, and the file failed every night between 00:00 and 06:00 UTC.
+     * CI caught it on a documentation-only commit at 00:17.
+     */
+    $this->freezeAt('2026-08-25 12:00:00');
+
     [$deal, , $stages] = taskDeal(1);
 
     taskOn($deal, $stages[0], ['title' => 'Late', 'due_date' => now()->subDay()]);
@@ -298,6 +310,10 @@ it('does not call a task due today overdue', function (): void {
      * #71. `DateChip` still draws it in the danger tone, which is urgency and
      * a different question from state (§7.2).
      */
+    // Midday UTC, so the team's calendar day and the server's agree — see
+    // the note on 'derives overdue rather than storing it' above.
+    $this->freezeAt('2026-08-25 12:00:00');
+
     [$deal, , $stages] = taskDeal(1);
 
     taskOn($deal, $stages[0], ['title' => 'Due today', 'due_date' => now()]);

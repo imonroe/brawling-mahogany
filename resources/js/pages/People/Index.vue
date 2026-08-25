@@ -139,7 +139,7 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                 >
                     <Link
                         :href="`/people/${person.id}`"
-                        class="flex min-h-11 items-center gap-3 px-4 py-2.5 transition-colors duration-150 ease-out hover:bg-accent/60"
+                        class="flex min-h-11 flex-wrap items-center gap-3 px-4 py-2.5 transition-colors duration-150 ease-out hover:bg-accent/60"
                     >
                         <PersonAvatar :person="person" :size="30" />
                         <span class="flex min-w-0 flex-1 flex-col">
@@ -162,7 +162,41 @@ const isFiltered = computed(() => search.value.trim().length > 0);
                             label="Vendor"
                             dotless
                         />
-                        <StatusBadge domain="person" :state="person.status" />
+                        <!--
+                            Three facts, each drawn when it is true (#162).
+
+                            The first fix made these one badge with an
+                            `v-else`, and the fallback branch drew a lifecycle
+                            value nobody had chosen: a revoked colleague came
+                            back as a green *Client*, which is the bug this
+                            issue reported. `status` is nullable now, so a
+                            person the lifecycle does not describe simply has
+                            no lifecycle badge.
+
+                            The roles hang on `carriesAccess`, so this row
+                            says what `/settings/members` and the console say
+                            about the same person, revoked or not.
+                        -->
+                        <template v-if="person.carriesAccess">
+                            <StatusBadge
+                                v-for="role in person.roles"
+                                :key="role"
+                                tone="neutral"
+                                :label="role"
+                                dotless
+                            />
+                        </template>
+                        <StatusBadge
+                            v-if="person.status && !person.isColleague"
+                            domain="person"
+                            :state="person.status"
+                        />
+                        <StatusBadge
+                            v-if="person.isRevoked"
+                            tone="danger"
+                            label="Revoked"
+                            dotless
+                        />
                     </Link>
                 </li>
             </ul>

@@ -98,6 +98,38 @@ const UI_ALLOWED = new Map<string, string[]>([
     ['resources/js/components/ui/sheet/SheetOverlay.vue', ['bg-black']],
 ]);
 
+/**
+ * A file's **code**, with its commentary removed.
+ *
+ * A colour that is not applied cannot ship, and prose is where a rule gets
+ * explained: this very repository quotes `#3B5C8F` and `bg-blue-500` in
+ * `CLAUDE.md` and the Design System while forbidding both. The same argument
+ * `routeTargets.test.ts` makes for stripping comments before it looks for a
+ * dead link — *"a `/tasks` in a comment cannot 404"* — and for the same
+ * reason: a scan that flags an explanation of the rule teaches people to stop
+ * writing explanations.
+ *
+ * **What forced it.** `HEX_COLOUR` is `#[0-9a-fA-F]{3,8}`, and an issue
+ * reference is a `#` followed by digits — so `(#162)` in a comment is
+ * indistinguishable from the colour `#162`, which is a real one. Every issue
+ * number in this repository is three digits now, and every one of them is
+ * hexadecimal, so without this the next comment citing an issue fails the
+ * build for talking about it. Rewording that one comment would have left the
+ * trap for the next person, who finds it in CI rather than locally.
+ *
+ * The rule itself is untouched: a raw colour anywhere in code still fails.
+ */
+function stripCommentary(source: string): string {
+    return source
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
+function codeIn(file: string): string {
+    return stripCommentary(readFileSync(file, 'utf8'));
+}
+
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
 
@@ -120,7 +152,7 @@ describe('token discipline', () => {
             .map((file) => {
                 const allowed = UI_ALLOWED.get(file) ?? [];
                 const matches = (
-                    readFileSync(file, 'utf8').match(PALETTE_CLASS) ?? []
+                    codeIn(file).match(PALETTE_CLASS) ?? []
                 ).filter((match) => !allowed.includes(match));
 
                 return { file, matches };
@@ -175,11 +207,46 @@ describe('token discipline', () => {
         }
     });
 
+    /*
+     * The positive control for `codeIn()`, and the reason it is a test rather
+     * than something checked by hand once.
+     *
+     * A scan that matches nothing looks exactly like a clean codebase — the
+     * failure mode `routeTargets.test.ts` records twice over. Stripping
+     * comments is one edit away from stripping everything, so both halves are
+     * pinned here: what must survive the strip, and what must not.
+     *
+     * Against the real `stripCommentary`, not a copy of it. Review on #162
+     * found this asserting about an inline duplicate, which cannot fail for
+     * the edit it exists to catch.
+     */
+    it('drops commentary and keeps code', () => {
+        const stripped = stripCommentary;
+
+        // Prose about the rule, and an issue reference, are not colours.
+        expect(
+            stripped('/* never write #3B5C8F or bg-blue-500 */'),
+        ).not.toMatch(HEX_COLOUR);
+        expect(stripped('<!-- the badge, since (#162) -->')).not.toMatch(
+            HEX_COLOUR,
+        );
+        expect(stripped('// bg-blue-500 is banned')).not.toMatch(PALETTE_CLASS);
+
+        // Code is code, however it is written.
+        expect(stripped('const c = "#3B5C8F";')).toMatch(HEX_COLOUR);
+        expect(stripped('<div class="bg-blue-500" />')).toMatch(PALETTE_CLASS);
+        // A URL is not a line comment — over-stripping here would blank the
+        // file and pass everything.
+        expect(
+            stripped('const u = "https://x.test"; const c = "#abc";'),
+        ).toMatch(HEX_COLOUR);
+    });
+
     it.each(ROOTS)('uses no Tailwind palette class in %s', (root) => {
         const offenders = sourceFiles(root)
             .map((file) => ({
                 file,
-                matches: readFileSync(file, 'utf8').match(PALETTE_CLASS),
+                matches: codeIn(file).match(PALETTE_CLASS),
             }))
             .filter((result) => result.matches !== null)
             .map((result) => `${result.file}: ${result.matches!.join(', ')}`);
@@ -191,7 +258,7 @@ describe('token discipline', () => {
         const offenders = sourceFiles(root)
             .map((file) => ({
                 file,
-                matches: readFileSync(file, 'utf8').match(HEX_COLOUR),
+                matches: codeIn(file).match(HEX_COLOUR),
             }))
             .filter((result) => result.matches !== null)
             .map((result) => `${result.file}: ${result.matches!.join(', ')}`);

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests;
 
 use App\Actions\Teams\ProvisionTeam;
-use App\Enums\PersonLifecycleState;
 use App\Enums\SystemRole;
 use App\Http\Middleware\ResolveCurrentTeam;
 use App\Models\Person;
@@ -138,7 +137,8 @@ abstract class TestCase extends BaseTestCase
                 'first_name' => fake()->firstName(),
                 'last_name' => fake()->lastName(),
                 'email' => $person->email,
-                'status' => PersonLifecycleState::Active,
+                // A colleague holds no lifecycle value (#162), the way
+                // `AcceptInvitation` leaves one.
                 'joined_at' => now(),
             ]);
 

@@ -13,7 +13,21 @@ export type PersonRow = {
     lastName: string | null;
     email: string | null;
     phone: string | null;
-    status: string;
+    /**
+     * IA §8's lifecycle, or **null** where it does not apply (#162).
+     *
+     * Null is not "unknown": it is *this person has no place on the client
+     * lifecycle*, which is what a colleague holds and what a former colleague
+     * holds until the team says what they are now. A screen with nothing to
+     * say about somebody says nothing.
+     */
+    status: string | null;
+    /** Whether the role badges apply — team access, revoked or not (#162). */
+    carriesAccess: boolean;
+    /** `carriesAccess` and not revoked: whether the lifecycle is theirs to set. */
+    isColleague: boolean;
+    /** What the team calls them, when they are on it. Empty for a contact. */
+    roles: string[];
     isVendor: boolean;
     /** Most of this directory has none, and S31 says so rather than implying one. */
     hasLogin: boolean;
@@ -31,7 +45,6 @@ export type VendorFields = {
 
 export type PersonDetail = PersonRow & {
     notes: string | null;
-    roles: { key: string; name: string }[];
     vendor: VendorFields;
     joinedAt: string | null;
     revokedAt: string | null;

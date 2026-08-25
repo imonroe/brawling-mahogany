@@ -64,13 +64,28 @@ const entries = computed(() =>
 /** The person this screen is about — the modal never has to ask. */
 const subject = computed(() => ({ id: props.membership.id, name: name.value }));
 
+/**
+ * One button, two acts, and only one of them deletes anything (#162).
+ *
+ * A membership carrying team access is never deleted — PRD F1.3 keeps
+ * historical attribution, and since #140 the name on every event that person
+ * authored lives on this row. `destroy()` revokes it instead. So the confirm
+ * promised that "your notes about them are deleted" for an act that deletes
+ * nothing, and offered it to a `people.manage` holder who gets a 403.
+ */
+const revokesAccess = computed(() => props.membership.carriesAccess);
+
+const canRemove = computed(() =>
+    revokesAccess.value ? can('team.members.manage') : can('people.manage'),
+);
+
 function remove(): void {
     // IA §10: name the object and the consequence.
-    if (
-        !window.confirm(
-            `Remove ${name.value} from this team? Their record stays with any other team that knows them, and your notes about them are deleted.`,
-        )
-    ) {
+    const question = revokesAccess.value
+        ? `Revoke ${name.value}’s access to this team? Their record stays here, and everything they did stays attributed to them.`
+        : `Remove ${name.value} from this team? Their record stays with any other team that knows them, and your notes about them are deleted.`;
+
+    if (!window.confirm(question)) {
         return;
     }
 
@@ -108,10 +123,32 @@ function remove(): void {
                     <div class="flex items-center gap-3 px-4 py-3">
                         <PersonAvatar :person="membership" :size="46" />
                         <div class="flex min-w-0 flex-col gap-1">
-                            <StatusBadge
-                                domain="person"
-                                :state="membership.status"
-                            />
+                            <!-- Three facts, each drawn when true — see S30. -->
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <template v-if="membership.carriesAccess">
+                                    <StatusBadge
+                                        v-for="role in membership.roles"
+                                        :key="role"
+                                        tone="neutral"
+                                        :label="role"
+                                        dotless
+                                    />
+                                </template>
+                                <StatusBadge
+                                    v-if="
+                                        membership.status &&
+                                        !membership.isColleague
+                                    "
+                                    domain="person"
+                                    :state="membership.status"
+                                />
+                                <StatusBadge
+                                    v-if="membership.isRevoked"
+                                    tone="danger"
+                                    label="Revoked"
+                                    dotless
+                                />
+                            </div>
                             <p
                                 v-if="!membership.hasLogin"
                                 class="text-[11px] text-muted-foreground"
@@ -214,10 +251,14 @@ function remove(): void {
                     </p>
                 </Card>
 
-                <div v-if="can('people.manage')" class="flex">
-                    <AppButton variant="ghost" @click="remove"
-                        >Remove from team</AppButton
-                    >
+                <!-- Nothing left to revoke once access has ended. -->
+                <div
+                    v-if="canRemove && !(revokesAccess && membership.isRevoked)"
+                    class="flex"
+                >
+                    <AppButton variant="ghost" @click="remove">{{
+                        revokesAccess ? 'Revoke access' : 'Remove from team'
+                    }}</AppButton>
                 </div>
             </div>
 

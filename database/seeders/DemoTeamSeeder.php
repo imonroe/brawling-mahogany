@@ -59,7 +59,10 @@ class DemoTeamSeeder extends Seeder
             $team->memberships()->where('person_id', $owner->getKey())->first()
                 ?->forceFill($ownerDetails)->save();
 
-            $this->attach($team, $member, SystemRole::TeamMember, PersonLifecycleState::Active, $memberDetails);
+            // No lifecycle: a colleague has no place on IA §8's contact
+            // vocabulary, and the column says so rather than holding `active`
+            // and reading as *Client* (#162).
+            $this->attach($team, $member, SystemRole::TeamMember, null, $memberDetails);
 
             [$client, $clientDetails] = $this->person('claire@example.test', 'Claire', 'Nakamura', canSignIn: false);
             [$lead, $leadDetails] = $this->person('lee@example.test', 'Lee', 'Okonkwo', canSignIn: false);
@@ -269,7 +272,7 @@ class DemoTeamSeeder extends Seeder
     /**
      * @param  array{first_name: string, last_name: string, email: string, phone: string}  $details
      */
-    private function attach(Team $team, Person $person, SystemRole $role, PersonLifecycleState $status, array $details): TeamMembership
+    private function attach(Team $team, Person $person, SystemRole $role, ?PersonLifecycleState $status, array $details): TeamMembership
     {
         $membership = TeamMembership::query()->firstOrCreate(
             ['team_id' => $team->getKey(), 'person_id' => $person->getKey()],

@@ -104,14 +104,26 @@ final class SavePerson
                 $this->activity->record(
                     subject: $person,
                     eventType: 'person.status_changed',
-                    summary: $previousStatus->label().' → '.$membership->status->label(),
+                    summary: self::lifecycleLabel($previousStatus).' → '.self::lifecycleLabel($membership->status),
                     source: ActivitySource::System,
-                    payload: ['from' => $previousStatus->value, 'to' => $membership->status->value],
+                    payload: ['from' => $previousStatus?->value, 'to' => $membership->status?->value],
                 );
             }
 
             return $membership;
         });
+    }
+
+    /**
+     * What to call the absence of a lifecycle, in a sentence a person reads.
+     *
+     * Null is the state a colleague is in (#162), and the transition out of it
+     * is the one this event exists to record: somebody left the team and the
+     * team said what they are now.
+     */
+    private static function lifecycleLabel(?PersonLifecycleState $status): string
+    {
+        return $status?->label() ?? 'No lifecycle';
     }
 
     /**
