@@ -26,7 +26,7 @@ withDefaults(
     { breadcrumbs: () => [], unreadNotifications: false },
 );
 
-defineEmits<{ 'toggle-sidebar': []; 'log-contact': [] }>();
+defineEmits<{ 'toggle-sidebar': []; 'log-contact': []; search: [] }>();
 
 const { can } = usePermissions();
 </script>
@@ -72,8 +72,9 @@ const { can } = usePermissions();
 
         <button
             type="button"
-            class="hidden h-8 w-[300px] items-center gap-2 rounded-md border px-2.5 text-left md:flex"
+            class="hidden h-8 w-[300px] items-center gap-2 rounded-md border px-2.5 text-left transition-colors duration-150 ease-out hover:bg-accent/60 md:flex"
             aria-label="Search"
+            @click="$emit('search')"
         >
             <Search class="size-3.5 text-muted-foreground" aria-hidden="true" />
             <span class="flex-1 text-13 text-muted-foreground">Search</span>

@@ -21,6 +21,7 @@ use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
 use App\Http\Controllers\Properties\PropertyController;
 use App\Http\Controllers\Properties\PropertyDealController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
 use App\Http\Controllers\WorkController;
@@ -378,6 +379,15 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         Route::delete('properties/{property}/deals/{dealLink}', [PropertyDealController::class, 'remove'])
             ->name('properties.deals.remove');
     });
+
+    /*
+     * S07 — the global search overlay (F9.3, #82).
+     *
+     * JSON, because the overlay opens over whatever screen somebody is on and
+     * an Inertia visit would replace it. `q` in the query string so a search
+     * is a GET that can be retried and cached by nothing.
+     */
+    Route::get('search', SearchController::class)->name('search');
 
     /*
      * The sidebar's remaining destinations (IA §5.1). Each renders a

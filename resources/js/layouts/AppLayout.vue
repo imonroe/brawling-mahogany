@@ -15,6 +15,7 @@ import ImpersonationBanner from '@/components/app/ImpersonationBanner.vue';
 import LogContactDialog from '@/components/app/LogContactDialog.vue';
 import MobileTabBar from '@/components/app/MobileTabBar.vue';
 import PendingInvitationBanner from '@/components/app/PendingInvitationBanner.vue';
+import SearchOverlay from '@/components/app/SearchOverlay.vue';
 import TopBar from '@/components/app/TopBar.vue';
 import { Toaster } from '@/components/ui/sonner';
 import { setTeamTimeZone } from '@/lib/formatters';
@@ -74,6 +75,9 @@ const invitations = computed<PendingInvitation[]>(() =>
  */
 const logging = ref(false);
 
+/** S07's overlay (#82). Mounted by the shell, because ⌘K works anywhere. */
+const searching = ref(false);
+
 const collapsed = ref(page.props.sidebarOpen === false);
 
 watch(collapsed, (value) => {
@@ -108,6 +112,7 @@ watch(collapsed, (value) => {
                     :breadcrumbs="breadcrumbs"
                     @toggle-sidebar="collapsed = !collapsed"
                     @log-contact="logging = true"
+                    @search="searching = true"
                 />
                 <main class="min-h-0 flex-1 overflow-y-auto">
                     <slot />
@@ -117,6 +122,7 @@ watch(collapsed, (value) => {
 
         <MobileTabBar />
         <LogContactDialog v-model:open="logging" />
+        <SearchOverlay v-model:open="searching" />
         <Toaster />
     </div>
 </template>
