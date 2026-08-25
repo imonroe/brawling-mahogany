@@ -45,6 +45,21 @@ final class GateRegistry
         DateReachedEvaluator::class,      // Slice 4, #109
     ];
 
+    /**
+     * The types that need no `configuration` to work.
+     *
+     * Both are answered entirely from the stage they are on: one from
+     * `gates.is_met`, which the confirmation route writes, and one from the
+     * stage's own required tasks. Everything else needs a field, a role, a
+     * category or a date that S43 cannot yet ask for.
+     *
+     * @var list<string>
+     */
+    private const CONFIGURATION_FREE = [
+        'manual_confirmation',
+        'required_tasks_complete',
+    ];
+
     public function __construct(private readonly Container $container) {}
 
     /**
@@ -82,5 +97,60 @@ final class GateRegistry
     public static function types(): array
     {
         return array_map(fn (string $evaluator): string => $evaluator::type(), self::EVALUATORS);
+    }
+
+    /**
+     * The types S43 can fully specify **today**.
+     *
+     * Not the same list as `types()`, and the difference is the whole point.
+     * Five of the seven evaluators read a `configuration` — a field name, a
+     * role, a key date, a document category — and S43 has no editor for any of
+     * them. A gate composed without its configuration is one no evaluator can
+     * ever answer: `GateVerdict::notYetWired()` says so in its own refusal
+     * text, *"it cannot clear on its own — override it with a reason if the
+     * deal needs to move."*
+     *
+     * Which is `CLAUDE.md`'s S17 finding — *"a row nothing can reach is a rule
+     * nobody is following"* — reintroduced one layer up. The confirmation
+     * route removed it at the runtime layer; a picker offering all seven would
+     * hand somebody a two-click way to build a stage that only an **override**
+     * can pass, and an override is the audited exception, not a workflow step.
+     *
+     * `types()` stays the full list, because instantiation and the packs that
+     * will carry configured gates need every one of them. This is what a
+     * **person choosing from a dropdown** may pick, and it grows when the
+     * editor for a type's configuration does.
+     *
+     * @return array<string, string>
+     */
+    public static function selectableOptions(): array
+    {
+        return array_filter(
+            self::options(),
+            fn (string $type): bool => in_array($type, self::CONFIGURATION_FREE, true),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
+     * The same list, as `value => label`, for S43's picker.
+     *
+     * Not a lookup beside the registry: the label lives on the evaluator, so
+     * *"adding a gate type means adding a class"* covers being selectable and
+     * being legible at once. Ordered as `EVALUATORS` is — the four that work
+     * today first, then the three whose slices have not landed, which is the
+     * order somebody choosing one wants them in.
+     *
+     * @return array<string, string>
+     */
+    public static function options(): array
+    {
+        $options = [];
+
+        foreach (self::EVALUATORS as $evaluator) {
+            $options[$evaluator::type()] = $evaluator::label();
+        }
+
+        return $options;
     }
 }

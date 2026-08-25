@@ -39,4 +39,22 @@ enum DealSide: string implements HasLabel
             self::Other => 'Other',
         };
     }
+
+    /**
+     * Whether a deal of this side has offers at all (IA §5.2 · S22 · #73).
+     *
+     * *"The Offers tab is hidden when empty and the deal type has no offers."*
+     * A rental placement does not grow an empty Offers tab — a landlord and a
+     * tenant sign a lease, and nobody makes an offer on one.
+     *
+     * Read off the **side** rather than a `has_offers` column on `deal_types`,
+     * because the side already answers it and a second place to record the
+     * same fact is a second place for it to be wrong. `Other` is true: an
+     * unclassified type showing a tab nobody uses costs a tab, and hiding one
+     * somebody needs costs them the feature with no way to ask for it.
+     */
+    public function hasOffers(): bool
+    {
+        return $this !== self::Rent;
+    }
 }

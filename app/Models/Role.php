@@ -38,7 +38,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property bool $is_system
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Permission> $permissions
  */
-#[Fillable(['team_id', 'key', 'name', 'description', 'is_system'])]
+/*
+ * **Not `team_id`, and not `key` or `is_system` either.** `BelongsToTeam`'s
+ * rule is that a request body must never choose a tenant, and this table is
+ * the sharper case: `Role` carries no global scope (the five shipped roles
+ * have no team), so a fillable `team_id` is a request choosing whose role it
+ * is with nothing behind it to refuse. `key` is what every permission check is
+ * written against and `is_system` is what makes a row uneditable — both are
+ * derived by `RoleController`, never typed.
+ */
+#[Fillable(['name', 'description'])]
 class Role extends Model
 {
     /** @use HasFactory<RoleFactory> */
@@ -108,6 +117,21 @@ class Role extends Model
         }
 
         return array_keys($keys);
+    }
+
+    /**
+     * Who holds this role (S75 · #88).
+     *
+     * The count S75 shows **before** somebody archives a role, because a role
+     * held by four people is a role whose archiving takes four people's
+     * access with it — the same rule S76 set for deal types, where the in-use
+     * count is shown before the choice rather than reported after it.
+     *
+     * @return BelongsToMany<TeamMembership, $this>
+     */
+    public function memberships(): BelongsToMany
+    {
+        return $this->belongsToMany(TeamMembership::class, 'membership_role');
     }
 
     /**

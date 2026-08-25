@@ -134,8 +134,16 @@ it('renders the people index within its query budget at 500 rows', function (): 
      * are one query for the page however many rows it holds — the growth test
      * below is what proves that, and it is the one that would catch this
      * becoming per-row.
+     *
+     * **23 rather than 22 since #80**, and the extra one is not this screen's
+     * at all: Design System §10.4 puts the My Work count in the sidebar beside
+     * the link, on every screen, so `HandleInertiaRequests` counts it once per
+     * request. A number that is only right on `/work` is wrong everywhere
+     * else, which is worse than no number — so the query is the price of the
+     * count being true, and it is paid here, on `/deals`, and on everything
+     * else wearing the shell.
      */
-    expect($queries)->toBeLessThanOrEqual(22);
+    expect($queries)->toBeLessThanOrEqual(23);
 });
 
 it('does not grow its query count with the directory', function (): void {

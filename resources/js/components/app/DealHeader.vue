@@ -62,7 +62,14 @@ export type DealHeaderProps = {
      * on a deal and a tab reading `80` when all eighty are done says the
      * opposite of what happened.
      */
-    counts: { people: number; properties: number; tasks: number };
+    counts: {
+        people: number;
+        properties: number;
+        tasks: number;
+        offers: number;
+    };
+    /** Whether this deal's type has offers at all (IA §5.2 · #73). */
+    hasOffers: boolean;
     /** Null when no single workflow is unambiguously the one to advance. */
     advance: { workflowId: string; stageId: string } | null;
 };
@@ -113,6 +120,22 @@ const tabs = computed<TabSpec[]>(() => [
         count: props.deal.counts.properties,
         arrivesWith: null,
     },
+    /*
+         IA §5.2: *"hidden when empty and the deal type has no offers."* Two
+         conditions, and both are needed — a rental placement does not grow an
+         empty Offers tab, and a listing shows one before the first offer
+         arrives so somebody can record it.
+    */
+    ...(props.deal.hasOffers || props.deal.counts.offers > 0
+        ? [
+              {
+                  label: 'Offers',
+                  segment: 'offers',
+                  count: props.deal.counts.offers,
+                  arrivesWith: null,
+              },
+          ]
+        : []),
     {
         label: 'Documents',
         segment: 'documents',

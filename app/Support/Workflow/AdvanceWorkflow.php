@@ -14,6 +14,7 @@ use App\Models\Task;
 use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
+use App\Support\Workflow\Gates\Evaluators\ManualConfirmationEvaluator;
 use App\Support\Workflow\Gates\GateRegistry;
 use App\Support\Workflow\Gates\GateVerdict;
 use Illuminate\Support\Facades\DB;
@@ -368,6 +369,428 @@ final class AdvanceWorkflow
     }
 
     /**
+     * Tick a manual gate — the routine way past one (PRD §4.4 F4.8 · #67).
+     *
+     * ## The hole this closes
+     *
+     * `ManualConfirmationEvaluator` answers by reading `gates.is_met`, and
+     * until now the **only** writer of that column was the cache refresh at
+     * the bottom of this file, which reads the evaluator. A manual gate could
+     * therefore never clear on its own: the sole way past the most common gate
+     * type in the product was an **override** — the act IA §7 reserves for
+     * *"the condition should have been met and was not"*, with an audit entry
+     * and a follow-up task each time.
+     *
+     * That is precisely the shape `CLAUDE.md` records from S17: *"a row
+     * nothing can reach is a rule nobody is following"*, and *"when a gate
+     * type, a state or a flag has exactly one way to be satisfied, check that
+     * the way is the one somebody would actually take."* `GatePolicy::update`
+     * even carried the docblock *"Ticking a manual gate is ordinary deal
+     * work"* — for a permission no route ever asked for. Nothing failed,
+     * because each half worked.
+     *
+     * ## Confirming is not overriding, and the record has to keep them apart
+     *
+     * IA §8: **overridden is not a kind of met.** This writes `is_met` and
+     * never touches `overridden`, exactly as `override()` writes the flag and
+     * never touches this column. Six weeks later the record still distinguishes
+     * *the survey came back* from *somebody decided to proceed without it* —
+     * and §12.2's override metric goes on measuring processes that failed
+     * rather than gates people had no other way to clear.
+     *
+     * It needs no reason for the same reason: confirming asserts the ordinary
+     * fact the gate asks about, and a product that demanded a paragraph for it
+     * would train people to type "done" forty times a deal.
+     *
+     * ## It does not advance
+     *
+     * The argument `override()` makes, unchanged. Clearing one of three
+     * blocking gates must not move the deal past the other two.
+     *
+     * ## Only a manual gate
+     *
+     * Every other evaluator derives its answer from something real — the
+     * required tasks, a populated field, a document. Letting somebody tick one
+     * of those would make `is_met` a claim rather than a cache, and the next
+     * advance would overwrite it from the evaluator anyway, which is the worst
+     * of both: a control that appears to work and silently does not.
+     *
+     * @throws GateNotOnWorkflow when the gate belongs to a different workflow
+     */
+    public function confirm(Workflow $workflow, Gate $gate, Person $actor): ConfirmResult
+    {
+        return $this->setConfirmation($workflow, $gate, $actor, confirmed: true);
+    }
+
+    /**
+     * Untick one, because a person who ticked the wrong row needs a way back.
+     *
+     * The mirror of `DealTasks::reopen()` and, like it, a separate verb rather
+     * than a boolean on an edit: *"I confirmed the survey"* and *"I confirmed
+     * the wrong thing"* are different events, and only one of them is somebody
+     * correcting themselves.
+     *
+     * It refuses once the stage has moved on. A completed stage's gates are
+     * what happened, not a question still open, and unticking one would
+     * rewrite history to say a stage advanced over a gate that was never met —
+     * which is what `overridden` exists to record honestly.
+     *
+     * @throws GateNotOnWorkflow when the gate belongs to a different workflow
+     */
+    public function unconfirm(Workflow $workflow, Gate $gate, Person $actor): ConfirmResult
+    {
+        return $this->setConfirmation($workflow, $gate, $actor, confirmed: false);
+    }
+
+    /**
+     * Mark a stage **not applicable to this deal** (PRD §4.4 F4.12 · #70).
+     *
+     * ## Skip is not Override, and the difference is the whole point
+     *
+     * IA §7, flagged as legally material: **Override** means the gate should
+     * have been met and was not, and you are proceeding anyway. **Skip** means
+     * the stage does not apply at all. PRD §14.2 A9 names the case — *"cash
+     * and unusual deals need skippable stages"* — and a cash purchase
+     * genuinely has no appraisal contingency. Forcing an override there would
+     * fill §12.2's override metric with deals that differ rather than
+     * processes that failed, which is the same as not measuring it.
+     *
+     * So this writes `stages.skipped_reason` and never touches
+     * `gates.overridden`, exactly as `override()` writes the flag and never
+     * touches this column.
+     *
+     * ## It moves the pointer only when it has to
+     *
+     * Skipping the stage a team is standing on is an advance-shaped act: the
+     * next stage activates and `current_stage_id` follows, because a workflow
+     * whose current stage is skipped has nowhere to be. Skipping a **future**
+     * stage moves nothing — it is a note about a stage the team has not
+     * reached, and the pointer is still correct.
+     *
+     * @throws SkipNeedsAReason when the reason is missing or too short
+     * @throws StageNotOnWorkflow when the stage belongs to a different workflow
+     */
+    public function skip(
+        Workflow $workflow,
+        Stage $stage,
+        Person $actor,
+        string $reason,
+    ): StageChangeResult {
+        $reason = trim($reason);
+
+        if (mb_strlen($reason) < self::MINIMUM_REASON_LENGTH) {
+            throw SkipNeedsAReason::atLeast(self::MINIMUM_REASON_LENGTH);
+        }
+
+        return DB::transaction(function () use ($workflow, $stage, $actor, $reason): StageChangeResult {
+            [$workflow, $stage] = $this->lockedPair($workflow, $stage);
+
+            if (! $workflow->isRunning()) {
+                return StageChangeResult::refused($workflow->state->advanceRefusal());
+            }
+
+            if ($stage->state === StageState::Skipped) {
+                return StageChangeResult::refused('That stage is already skipped.');
+            }
+
+            if ($stage->state === StageState::Complete) {
+                return StageChangeResult::refused(
+                    'That stage is already complete. A stage that was worked cannot be marked not applicable — reopen it first if it was finished by mistake.',
+                );
+            }
+
+            $wasCurrent = $workflow->current_stage_id === $stage->getKey();
+
+            $stage->transitionTo(StageState::Skipped);
+            $stage->forceFill([
+                'skipped_reason' => $reason,
+                // Not `completed_by`: nobody completed this. The audit entry
+                // below is what names who decided it did not apply.
+                'actual_end' => now(),
+            ])->save();
+
+            $next = $wasCurrent ? $this->nextWorkableStage($workflow, $stage) : null;
+            $workflowCompleted = false;
+
+            if ($wasCurrent) {
+                if ($next instanceof Stage) {
+                    $next->transitionTo(StageState::Active);
+                    $next->forceFill(['actual_start' => now()])->save();
+                } else {
+                    $workflowCompleted = true;
+                }
+
+                $workflow->forceFill(['current_stage_id' => $next?->getKey()]);
+
+                if ($workflowCompleted) {
+                    $workflow->transitionTo(WorkflowState::Completed);
+                    $workflow->forceFill(['actual_end' => now()]);
+                }
+
+                $workflow->save();
+            }
+
+            $deal = $workflow->deal;
+
+            /*
+             * Its own event type, like `gate.overridden`. `lib/activity.ts`
+             * tints a row from the type, and a marker that has to be
+             * recognised by reading the summary is not a marker.
+             *
+             * The summary names the stage and never the reason — the reason
+             * is in the audit entry, which has the retention and the access
+             * control for it. The same split `override()` makes.
+             */
+            $this->activity->record(
+                subject: $workflow,
+                eventType: 'stage.skipped',
+                summary: "Skipped {$stage->name}",
+                actor: $actor,
+                deal: $deal,
+            );
+
+            if ($workflowCompleted) {
+                $this->activity->record(
+                    subject: $workflow,
+                    eventType: 'workflow.completed',
+                    summary: "Completed {$workflow->name}",
+                    actor: $actor,
+                    deal: $deal,
+                );
+            }
+
+            $this->audit->record(
+                action: 'workflow.stage_skipped',
+                auditable: $stage,
+                teamId: $workflow->team_id,
+                actorPersonId: $actor->getKey(),
+                reason: $reason,
+                after: [
+                    'stage_id' => $stage->getKey(),
+                    'stage_name' => $stage->name,
+                    'workflow_id' => $workflow->getKey(),
+                    'activated_stage_id' => $next?->getKey(),
+                ],
+            );
+
+            return StageChangeResult::applied(
+                stage: $stage,
+                current: $wasCurrent ? $next : $workflow->activeStage(),
+                workflowCompleted: $workflowCompleted,
+            );
+        });
+    }
+
+    /**
+     * Undo the last thing the workflow finished with (F4.12 · #70).
+     *
+     * *"People are wrong sometimes, and the alternative is a workaround that
+     * leaves no trace."* An inspection stage closes, the report comes back
+     * with a second issue, and the work reopens — #70's own example, and the
+     * reason `Stage::stateTransitions()` already lets `complete` return to
+     * `active`.
+     *
+     * ## Only the most recent one
+     *
+     * Reopening stage 3 of 8 while stage 6 is active has no defensible
+     * meaning: either three completed stages silently un-complete, or the
+     * workflow holds two active stages, and neither is what anybody asked
+     * for. So this reopens the **last** stage that finished, which makes it
+     * exactly "undo the last advance" — and repeating it walks backwards one
+     * stage at a time, which is the same thing said slowly.
+     *
+     * ## The workflow stays completed, because it stays terminal
+     *
+     * `Workflow::stateTransitions()` decided this before #70 existed and said
+     * why: *"reopen the inspection stage" is a real request, "un-complete the
+     * entire sale" is not.* A completed workflow is refused here rather than
+     * quietly reopened, because a stage made active inside a workflow that
+     * `handle()` will not advance is a dead end — the shape of defect this
+     * codebase keeps finding, where each half works and the pair does not.
+     *
+     * ## What does not un-happen
+     *
+     * An action that already fired stays fired: a client emailed when the
+     * stage first completed must not be emailed again on the second advance.
+     * Nothing here can enforce that yet — `action_instances` is Slice 3's
+     * table — so the contract is recorded rather than implemented, and the
+     * dedupe belongs on the sending side, keyed by the stage and the action
+     * rather than by a count of advances.
+     *
+     * @throws StageNotOnWorkflow when the stage belongs to a different workflow
+     */
+    public function reopen(
+        Workflow $workflow,
+        Stage $stage,
+        Person $actor,
+    ): StageChangeResult {
+        return DB::transaction(function () use ($workflow, $stage, $actor): StageChangeResult {
+            [$workflow, $stage] = $this->lockedPair($workflow, $stage);
+
+            if (! $workflow->isRunning()) {
+                return StageChangeResult::refused(
+                    $workflow->state === WorkflowState::Completed
+                        ? 'That workflow is finished. Reopening a stage inside it would leave the stage somewhere the deal can never advance from.'
+                        : $workflow->state->advanceRefusal(),
+                );
+            }
+
+            if (! in_array($stage->state, [StageState::Complete, StageState::Skipped], true)) {
+                return StageChangeResult::refused('That stage has not been finished, so there is nothing to reopen.');
+            }
+
+            $last = $this->lastFinishedStage($workflow);
+
+            if (! $last instanceof Stage || $last->getKey() !== $stage->getKey()) {
+                return StageChangeResult::refused(
+                    'Only the most recently finished stage can be reopened. Reopen the ones after it first.',
+                );
+            }
+
+            /*
+             * Read **before** anything is written.
+             *
+             * `activeStage()` answers from the loaded `stages` collection when
+             * there is one and from a query when there is not, so asking it
+             * after `$stage` has been made active gets the stage being
+             * reopened — and the displacement below then quietly does nothing,
+             * leaving the workflow with two stages in progress. It survived
+             * for a round only because `lastFinishedStage()` happened to
+             * lazy-load the relation on its way past; a refactor that stopped
+             * touching the property changed the answer of a line ten below it.
+             */
+            $displaced = $workflow->activeStage();
+
+            $wasSkipped = $stage->state === StageState::Skipped;
+
+            /*
+             * A skipped stage returns through `pending`, because that is what
+             * the map allows and what the state means: it was never worked, so
+             * it goes back to the queue before it goes back to being the work.
+             */
+            if ($wasSkipped) {
+                $stage->transitionTo(StageState::Pending);
+
+                // Saved between the two hops on purpose: `HasStateMachine`'s
+                // guard reads the **stored** state, so two transitions in one
+                // save read as the single illegal one they add up to.
+                $stage->save();
+            }
+
+            $stage->transitionTo(StageState::Active);
+            $stage->forceFill([
+                'actual_end' => null,
+                'completed_by' => null,
+                'skipped_reason' => null,
+                'actual_start' => $stage->actual_start ?? now(),
+            ])->save();
+
+            // Whatever the team was standing on goes back in the queue. There
+            // is always one, because a running workflow has a current stage.
+            if ($displaced instanceof Stage && $displaced->getKey() !== $stage->getKey()) {
+                $displaced->transitionTo(StageState::Pending);
+                $displaced->forceFill(['actual_start' => null])->save();
+            }
+
+            $workflow->forceFill(['current_stage_id' => $stage->getKey()])->save();
+
+            $this->activity->record(
+                subject: $workflow,
+                eventType: 'stage.reopened',
+                summary: "Reopened {$stage->name}",
+                actor: $actor,
+                deal: $workflow->deal,
+            );
+
+            $this->audit->record(
+                action: 'workflow.stage_reopened',
+                auditable: $stage,
+                teamId: $workflow->team_id,
+                actorPersonId: $actor->getKey(),
+                after: [
+                    'stage_id' => $stage->getKey(),
+                    'stage_name' => $stage->name,
+                    'workflow_id' => $workflow->getKey(),
+                    'was' => $wasSkipped ? StageState::Skipped->value : StageState::Complete->value,
+                    'displaced_stage_id' => $displaced?->getKey(),
+                ],
+            );
+
+            return StageChangeResult::applied(stage: $stage, current: $stage);
+        });
+    }
+
+    /**
+     * Both rows under lock, and the stage proved to be this workflow's.
+     *
+     * The same pairing `override()` does for a gate, and for the same reason:
+     * without the ownership check a stage id from another team's workflow is
+     * a cross-tenant write that the global scope alone does not stop, because
+     * both rows can be inside the acting team.
+     *
+     * @return array{0: Workflow, 1: Stage}
+     *
+     * @throws StageNotOnWorkflow
+     */
+    private function lockedPair(Workflow $workflow, Stage $stage): array
+    {
+        $workflow = Workflow::query()
+            ->whereKey($workflow->getKey())
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $stage = Stage::query()->whereKey($stage->getKey())->lockForUpdate()->firstOrFail();
+
+        if ($stage->workflow_id !== $workflow->getKey()) {
+            throw StageNotOnWorkflow::for($stage, $workflow);
+        }
+
+        return [$workflow, $stage];
+    }
+
+    /**
+     * The next stage a team could actually work, skipping the skipped.
+     *
+     * `stageAfter()` returns the literal next row, which is right for an
+     * advance — it has no reason to walk past anything. Skipping the current
+     * stage does: a team that marked three financing stages inapplicable on a
+     * cash deal should land on the fourth, not stop on the second and have to
+     * skip it again.
+     */
+    private function nextWorkableStage(Workflow $workflow, Stage $from): ?Stage
+    {
+        $candidate = $workflow->stageAfter($from);
+
+        while ($candidate instanceof Stage && $candidate->state === StageState::Skipped) {
+            $candidate = $workflow->stageAfter($candidate);
+        }
+
+        return $candidate;
+    }
+
+    /** The last stage, in the workflow's own order, that is complete or skipped. */
+    /**
+     * The stage a reopen would take, or null when there is none.
+     *
+     * **Behind the current one, not merely finished.** A `skip()` may be
+     * applied to a *future* stage — it is a note that the stage does not
+     * apply to this deal, and moves nothing — so "finished" alone selects a
+     * stage the workflow has not reached. Reopening one of those made the
+     * workflow jump **forward**: the skipped stage four became current, the
+     * stage the team was actually standing on was displaced back to `pending`
+     * with its `actual_start` nulled, and the deal silently skipped the work
+     * in between.
+     *
+     * `StageTimeline` draws the Reopen control from `Stage::isReopenableIn()`
+     * for exactly this reason — one rule, so the button and the service cannot
+     * disagree about which row it belongs on.
+     */
+    private function lastFinishedStage(Workflow $workflow): ?Stage
+    {
+        return Stage::reopenableIn($workflow);
+    }
+
+    /**
      * Why this gate cannot be overridden, or null when it can.
      *
      * Four sentences rather than one, because each names a different thing to
@@ -375,6 +798,129 @@ final class AdvanceWorkflow
      * using override, target under 15%"* is unreadable if the column also
      * holds overrides of gates that were never in the way.
      */
+    /**
+     * Both halves of confirming, because the only difference is the boolean.
+     *
+     * Written once so the two verbs cannot drift apart on the questions that
+     * are the same for both — whose workflow, is it running, is it the stage
+     * we are standing on, and is it the one gate type this applies to.
+     */
+    private function setConfirmation(
+        Workflow $workflow,
+        Gate $gate,
+        Person $actor,
+        bool $confirmed,
+    ): ConfirmResult {
+        return DB::transaction(function () use ($workflow, $gate, $actor, $confirmed): ConfirmResult {
+            $workflow = Workflow::query()
+                ->whereKey($workflow->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /*
+             * Re-read under the lock, the way `override()` does. Two people
+             * ticking the same row from two screens produce one activity entry
+             * and one "already confirmed", rather than two entries claiming
+             * two different people did it.
+             */
+            $gate = Gate::query()->whereKey($gate->getKey())->lockForUpdate()->firstOrFail();
+            $stage = $gate->stage;
+
+            if (! $stage instanceof Stage || $stage->workflow_id !== $workflow->getKey()) {
+                throw GateNotOnWorkflow::for($gate, $workflow);
+            }
+
+            if (! $workflow->isRunning()) {
+                return ConfirmResult::refused($workflow->state->advanceRefusal());
+            }
+
+            $refusal = $this->confirmationRefusal($gate, $stage, $confirmed);
+
+            if ($refusal !== null) {
+                return ConfirmResult::refused($refusal);
+            }
+
+            /*
+             * `overridden` is deliberately untouched, in both directions.
+             * IA §8 keeps met and overridden apart, and a gate that was
+             * overridden and is now genuinely met should read as both — the
+             * override is what happened, and no later tick unhappens it.
+             */
+            /*
+             * `met_by` and `met_at` alongside, because **this** is what those
+             * columns were reserved for.
+             *
+             * `evaluateGates()`'s own note calls them the record of *"a human
+             * ticking something"*, and until this route existed nothing in the
+             * application wrote either — the cache refresh sets `is_met` from
+             * an evaluator, which is not a person. So `Gate::metBy()` resolved
+             * to null forever and two columns sat dead beside the one this
+             * service had learned to move.
+             *
+             * Cleared on the way back, for the reason the flag is: an unticked
+             * gate that still names who ticked it is a record disagreeing with
+             * itself.
+             */
+            $gate->forceFill([
+                'is_met' => $confirmed,
+                'met_by' => $confirmed ? $actor->getKey() : null,
+                'met_at' => $confirmed ? now() : null,
+            ])->save();
+
+            $deal = $workflow->deal;
+
+            $this->activity->record(
+                subject: $workflow,
+                eventType: $confirmed ? 'gate.confirmed' : 'gate.unconfirmed',
+                summary: $confirmed
+                    ? "Confirmed {$gate->label} on {$stage->name}"
+                    : "Took back the confirmation of {$gate->label} on {$stage->name}",
+                actor: $actor,
+                deal: $deal,
+            );
+
+            /*
+             * No audit entry, and that is the line rather than an oversight.
+             * PRD §9 lists what `audit_log` covers — auth, permission changes,
+             * **gate overrides**, document access, extractions, impersonation
+             * — and confirming is the ordinary path, done many times a deal.
+             * Writing every tick into an append-only table with its own
+             * retention would bury the overrides it exists to make findable.
+             * The timeline is the record for this, and it names the actor.
+             */
+
+            return ConfirmResult::confirmed($gate);
+        });
+    }
+
+    /**
+     * Why a confirmation cannot be written, or null when it can.
+     */
+    private function confirmationRefusal(Gate $gate, Stage $stage, bool $confirmed): ?string
+    {
+        if ($gate->gate_type !== ManualConfirmationEvaluator::type()) {
+            /*
+             * Every other evaluator derives its answer from something real, so
+             * a tick would be a claim rather than a cache — and the next
+             * advance would overwrite it from the evaluator anyway.
+             */
+            return "{$gate->label} is not something to tick — it clears when the thing it checks is true.";
+        }
+
+        if (! $stage->isInProgress()) {
+            return "{$stage->name} is not the stage this workflow is in, so confirming a requirement "
+                .'on it would change nothing about what happens next.';
+        }
+
+        if ($gate->is_met === $confirmed) {
+            return $confirmed
+                ? "{$gate->label} is already confirmed. Advance when you are ready."
+                : "{$gate->label} is not confirmed, so there is nothing to take back.";
+        }
+
+        return null;
+    }
+
     private function overrideRefusal(Gate $gate, Stage $stage): ?string
     {
         if (! $stage->isInProgress()) {

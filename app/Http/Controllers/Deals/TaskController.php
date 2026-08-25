@@ -284,7 +284,7 @@ class TaskController extends Controller
                  */
                 'state' => $task->state()->value,
                 'isRequired' => $task->is_required,
-                'dueDate' => $task->due_date?->toIso8601String(),
+                'dueDate' => $task->due_date?->toDateString(),
                 'completedAt' => $task->completed_at?->toIso8601String(),
                 'completedByName' => $names->name($task->completed_by),
                 'assigneeId' => $task->assignee_id,

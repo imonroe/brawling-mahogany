@@ -48,6 +48,7 @@ import {
     Workflow as WorkflowIcon,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import AddNoteDialog from '@/components/app/AddNoteDialog.vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AttachWorkflowDialog from '@/components/app/AttachWorkflowDialog.vue';
 import Card from '@/components/app/Card.vue';
@@ -134,6 +135,9 @@ const { can } = usePermissions();
 const { openAdvance } = useAdvanceDialog();
 
 const attaching = ref(false);
+
+/** F4.11's note dialog (#72). Its own flag: writing a note is not attaching. */
+const noting = ref(false);
 
 const dealUrl = computed(() => `/deals/${props.dealHeader.id}`);
 
@@ -389,8 +393,18 @@ function advance(workflow: WorkflowCard): void {
 
                 <Card title="Activity" class="flex-1">
                     <template #action>
-                        <TextLink :href="`${dealUrl}/people`"
-                            >Everyone on this deal</TextLink
+                        <!--
+                            F4.11's note (#72). IA §7: a note is **written**
+                            and a contact is **logged** — different records,
+                            different verbs, and this screen offers the one
+                            that belongs to a deal.
+                        -->
+                        <AppButton
+                            v-if="can('deals.manage')"
+                            variant="ghost"
+                            size="compact"
+                            @click="noting = true"
+                            >Add note</AppButton
                         >
                     </template>
                     <EmptyState
@@ -553,4 +567,6 @@ function advance(workflow: WorkflowCard): void {
     </div>
 
     <AttachWorkflowDialog v-model:open="attaching" :deal-id="dealHeader.id" />
+
+    <AddNoteDialog v-model:open="noting" :deal-url="dealUrl" />
 </template>

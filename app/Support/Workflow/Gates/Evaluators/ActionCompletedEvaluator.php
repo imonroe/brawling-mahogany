@@ -21,6 +21,11 @@ final class ActionCompletedEvaluator implements GateEvaluator
         return 'action_completed';
     }
 
+    public static function label(): string
+    {
+        return 'Action completed';
+    }
+
     public function evaluate(Gate $gate): GateVerdict
     {
         return GateVerdict::notYetWired(

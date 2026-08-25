@@ -202,9 +202,47 @@ class TeamMembership extends Model
         return array_keys($keys);
     }
 
+    /**
+     * Does this membership hold the **shipped** role with this key?
+     *
+     * `team_id === null` is the load-bearing half, and leaving it out was a
+     * real hole rather than a tidy-up. `RoleController` derives a new role's
+     * key from its name, so a team composing one called *"Team Owner"* got
+     * `team_owner` — a key the unique index over `(team_id, key)` permits,
+     * because the shipped row's `team_id` is null. Matching on key alone then
+     * made that counterfeit indistinguishable from the real thing wherever the
+     * product asks *"is this person an owner"*, and the sharpest consequence
+     * was `RevokeMembership`'s last-owner guard counting it: revoke the only
+     * genuine owner and the team is locked out of its own settings.
+     *
+     * Refusing the colliding name is the other half and lives in the
+     * controller. This is the half that holds however the row got there.
+     */
     public function hasRole(string $key): bool
     {
-        return $this->roles->contains(fn (Role $role): bool => $role->key === $key);
+        return $this->roles->contains(
+            fn (Role $role): bool => $role->key === $key && $role->team_id === null,
+        );
+    }
+
+    /**
+     * The same question as a scope, for the callers that count rather than ask.
+     *
+     * `hasRole()` reads a loaded collection; this is the query, and both had to
+     * learn the `team_id` half at once — the memberships screen refuses to
+     * revoke the last owner by asking `hasRole()`, and decides who *else* is
+     * one with a query. A guard whose two halves disagree about what an owner
+     * is refuses the wrong person and permits the wrong revoke.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeHoldingSystemRole(Builder $query, string $key): Builder
+    {
+        return $query->whereHas(
+            'roles',
+            fn ($roles) => $roles->where('roles.key', $key)->whereNull('roles.team_id'),
+        );
     }
 
     /**

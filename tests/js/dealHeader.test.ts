@@ -38,7 +38,8 @@ const deal: DealHeaderProps = {
     sideLabel: 'Sell',
     clientName: 'Emily Bosart',
     location: { city: 'Indianapolis', state: 'IN' },
-    counts: { people: 3, properties: 2, tasks: 5 },
+    counts: { people: 3, properties: 2, tasks: 5, offers: 0 },
+    hasOffers: true,
     advance: { workflowId: 'wf-1', stageId: 'stage-1' },
 };
 
@@ -82,6 +83,7 @@ describe('DealHeader', () => {
             'Dates',
             'People',
             'Properties',
+            'Offers',
             'Documents',
         ]);
 
@@ -99,6 +101,32 @@ describe('DealHeader', () => {
         expect(tabs[3].element.tagName).toBe('BUTTON');
         expect(tabs[3].attributes('disabled')).toBeDefined();
         expect(tabs[4].attributes('href')).toBe('/deals/deal-1/people');
+        // Offers since S22 (#73).
+        expect(tabs[6].element.tagName).toBe('A');
+        expect(tabs[6].attributes('href')).toBe('/deals/deal-1/offers');
+    });
+
+    it('hides Offers only when the deal type has none and none were recorded', () => {
+        /*
+         * IA §5.2: *"hidden when empty and the deal type has no offers."*
+         * **Two** conditions, and dropping either one is the mistake worth a
+         * test — a rental placement must not grow an empty Offers tab, and a
+         * deal that somehow holds one must not hide the tab that shows it.
+         */
+        const labels = (overrides: Partial<DealHeaderProps>) =>
+            header(overrides)
+                .findAll('[data-slot="tab"]')
+                .map((tab) => tab.text().replace(/\d+$/, ''));
+
+        expect(
+            labels({ hasOffers: false, counts: { ...deal.counts, offers: 0 } }),
+        ).not.toContain('Offers');
+
+        // Recorded on a deal type that does not expect them: still shown,
+        // because hiding it would hide the offers themselves.
+        expect(
+            labels({ hasOffers: false, counts: { ...deal.counts, offers: 2 } }),
+        ).toContain('Offers');
     });
 
     it('shows a count only on the tabs that are lists of something', () => {

@@ -99,3 +99,49 @@ it('keeps the page components mirroring the routes in PascalCase', function (): 
         }
     }
 });
+
+/**
+ * A **day** is never given an instant on the wire (issue 165).
+ *
+ * A `date`-cast column carries a calendar day. `toIso8601String()` stamps it
+ * midnight **UTC**, and every screen renders in the team's zone — so a task
+ * due the 25th drew as *"Aug 24"* for a team in Denver, in the danger tone, a
+ * day early. Five payloads had it; the browser half of the fix lives in
+ * `formatters.ts`, and the two only work as a pair.
+ *
+ * The columns come from the models rather than a list here, so casting a new
+ * one to `date` puts it under the rule without anybody remembering to.
+ */
+it('never sends a date-cast column as an instant', function (): void {
+    $days = [];
+
+    foreach ((new Finder)->files()->in([base_path('app/Models')])->name('*.php') as $model) {
+        preg_match_all(
+            "/'(\w+)'\s*=>\s*'date',/",
+            (string) file_get_contents($model->getPathname()),
+            $matches,
+        );
+
+        $days = [...$days, ...$matches[1]];
+    }
+
+    // The rule is worthless if it is watching nothing.
+    expect($days)->not->toBeEmpty();
+
+    $offenders = [];
+
+    foreach ((new Finder)->files()->in([base_path('app')])->name('*.php') as $file) {
+        foreach (explode("\n", (string) file_get_contents($file->getPathname())) as $number => $line) {
+            foreach (array_unique($days) as $day) {
+                if (preg_match('/\b'.preg_quote($day, '/').'\??->toIso8601String\(\)/', $line) === 1) {
+                    $offenders[] = $file->getRelativePathname().':'.($number + 1).' ('.$day.')';
+                }
+            }
+        }
+    }
+
+    expect($offenders)->toBe(
+        [],
+        'A date column is a day: send it with toDateString(). Only an instant keeps its instant.',
+    );
+});

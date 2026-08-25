@@ -52,6 +52,9 @@ export type TimelineStage = {
     actualStart: string | null;
     actualEnd: string | null;
     skippedReason: string | null;
+    /** Whether F4.12's two verbs apply to this row — the server decides (#70). */
+    canSkip: boolean;
+    canReopen: boolean;
     hasOverride: boolean;
     tasks: { total: number; complete: number; items: StageTask[] };
     gates: GateSummary[];
@@ -72,6 +75,9 @@ const props = defineProps<{
 const emit = defineEmits<{
     toggle: [];
     advance: [];
+    /** F4.12 — mark this stage not applicable, or undo the last advance (#70). */
+    skip: [];
+    reopen: [];
     /** A task on this stage was ticked, or unticked (S17, #71). */
     complete: [taskId: string, completed: boolean];
 }>();
@@ -509,6 +515,24 @@ const footerLine = computed(() => {
                             producing: the server answers 403, so the button was
                             offering an act it could not perform.
                         -->
+                        <!--
+                            F4.12's skip, beside Advance and never instead of
+                            it (#70). IA §7 keeps the verbs apart, so this one
+                            is a quiet ghost button: skipping is the unusual
+                            answer, and a stage that does not apply is rarer
+                            than a stage that is not finished.
+                        -->
+                        <AppButton
+                            v-if="
+                                advanceRefusal === null &&
+                                stage.canSkip &&
+                                can('stage.skip')
+                            "
+                            variant="ghost"
+                            size="compact"
+                            @click="emit('skip')"
+                            >Skip</AppButton
+                        >
                         <AppButton
                             v-if="
                                 advanceRefusal === null &&
@@ -529,13 +553,45 @@ const footerLine = computed(() => {
                     -->
                     <div
                         v-else-if="stage.state === 'skipped'"
-                        class="border-t bg-muted px-3.5 py-2.5 text-xs text-muted-foreground"
+                        class="flex items-center gap-3 border-t bg-muted px-3.5 py-2.5 text-xs text-muted-foreground"
                         data-slot="skip-reason"
                     >
-                        {{
+                        <span class="min-w-0 flex-1">{{
                             stage.skippedReason ??
                             'Skipped. No reason was recorded.'
-                        }}
+                        }}</span>
+                        <AppButton
+                            v-if="stage.canReopen && can('workflow.advance')"
+                            variant="ghost"
+                            size="compact"
+                            @click="emit('reopen')"
+                            >Reopen</AppButton
+                        >
+                    </div>
+
+                    <!--
+                        Undoing the last advance (#70). Only ever on the stage
+                        the workflow most recently finished with — the server
+                        decides which that is, because "only the most recent
+                        one" is a rule `AdvanceWorkflow::reopen()` enforces and
+                        a second copy here would drift the first time either
+                        changed.
+                    -->
+                    <div
+                        v-else-if="stage.canReopen && can('workflow.advance')"
+                        class="flex items-center gap-3 border-t bg-muted px-3.5 py-2.5"
+                        data-slot="reopen"
+                    >
+                        <span
+                            class="min-w-0 flex-1 text-xs text-muted-foreground"
+                            >Finished too soon?</span
+                        >
+                        <AppButton
+                            variant="ghost"
+                            size="compact"
+                            @click="emit('reopen')"
+                            >Reopen</AppButton
+                        >
                     </div>
                 </template>
             </div>

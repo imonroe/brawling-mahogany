@@ -253,6 +253,27 @@ One verb per action, used identically everywhere it appears. The right column is
 
 > [!warning] Override and Skip are different, and the difference matters legally
 > **Override** means the gate should have been met and was not, and you are proceeding anyway. It demands a reason, writes an audit entry, and creates a follow-up task. **Skip** means the stage does not apply to this deal at all. Conflating them in a label destroys the audit trail's meaning.
+>
+> Built in Slice 2 (#69, #70), and the separation runs all the way down:
+> different permissions (`workflow.override`, `stage.skip`), different routes,
+> different audit actions, and different columns — `gates.overridden` versus
+> `stages.skipped_reason`. **Skip creates no follow-up task**, deliberately: an
+> override defers an obligation, and a cash purchase's appraisal contingency is
+> not late, it is absent. On the feed a skip is neutral for the same reason,
+> where an override is amber.
+>
+> **Reopen** is the third verb and the quiet one: it returns the stage the
+> workflow most recently finished with — completed or skipped — to `active`,
+> and puts the stage after it back to `pending`. Only the most recent one,
+> because reopening stage 3 while stage 6 is active either un-completes three
+> stages silently or leaves the workflow with two active ones. Repeating it
+> walks backwards a stage at a time. It is authorized as an **advance**, since
+> it waives nothing and marks nothing inapplicable — it undoes one.
+>
+> A **finished workflow** refuses a reopen. `Workflow`'s own state map settled
+> that before #70 existed: *"reopen the inspection stage" is a real request,
+> "un-complete the entire sale" is not* — and a stage made active inside a
+> workflow that cannot advance is a dead end.
 
 ---
 

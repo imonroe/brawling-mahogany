@@ -59,6 +59,19 @@ const UNGATED_ROUTES = [
     // `Impersonation::stop()` returns immediately when the session key is
     // absent, so a caller who is not impersonating gets a no-op.
     'impersonation.destroy',
+
+    /*
+     * Where everybody lands (#79). Five things redirect here — impersonation
+     * in and out, the team switcher, and both invitation paths — so a 403
+     * strands somebody the moment they sign in, and somebody with a team and
+     * no `deals.view` has a shell and simply nothing to be shown in it.
+     *
+     * Not ungated in substance: `DashboardController` asks `viewAny` on
+     * `Deal` and hands back the empty state when the answer is no, and
+     * `TeamDashboard` is never called at all in that case. What it does not
+     * do is *throw*, which is the only thing this test can see.
+     */
+    'dashboard',
 ];
 
 /**

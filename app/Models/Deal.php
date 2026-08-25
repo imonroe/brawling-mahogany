@@ -235,6 +235,17 @@ class Deal extends Model
     }
 
     /**
+     * The team's working record of terms and dates (S22 · #73). **Not the
+     * contract** — PRD §10 leaves the executed document in CTM.
+     *
+     * @return HasMany<Offer, $this>
+     */
+    public function offers(): HasMany
+    {
+        return $this->hasMany(Offer::class);
+    }
+
+    /**
      * Many, deliberately (F4.7).
      *
      * PRD §7.5: the rough data model gave a deal one workflow and contradicted

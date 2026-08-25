@@ -73,6 +73,7 @@ function person(overrides: Partial<PersonRow> = {}): PersonRow {
         isColleague: false,
         roles: [],
         isVendor: false,
+        vendor: null,
         hasLogin: false,
         isRevoked: false,
         ...overrides,
@@ -89,6 +90,8 @@ function directory(rows: PersonRow[]) {
             ],
             emptyMessage: 'Nobody here yet.',
             search: '',
+            vendorFilters: { specialty: '', area: '' },
+            specialties: [],
             people: {
                 data: rows,
                 current_page: 1,
@@ -115,6 +118,7 @@ function detail(overrides: Partial<PersonDetail> = {}): PersonDetail {
         notes: null,
         vendor: {
             specialties: [],
+            lastUsedAt: null,
             typicalCost: null,
             serviceArea: null,
             rating: null,

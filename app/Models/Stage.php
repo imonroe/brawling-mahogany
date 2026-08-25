@@ -95,6 +95,14 @@ class Stage extends Model
      * second issue, and the work reopens. A terminal `complete` would force a
      * duplicate workflow to hold work that belongs on the original.
      *
+     * `active` and `blocked` return to `pending` for the other half of that
+     * same reopen, and for nothing else. Reopening the stage behind the one a
+     * team is standing on has to put the standing-on one somewhere, and the
+     * only honest answer is back in the queue: it is upcoming again, it has no
+     * `actual_start` any more, and the pointer has moved off it. Without this
+     * the workflow would hold two active stages, which is the state the
+     * `current_stage_id` pointer exists to make impossible.
+     *
      * @return array<string, list<string>>
      */
     public static function stateTransitions(): array
@@ -108,11 +116,13 @@ class Stage extends Model
                 StageState::Blocked->value,
                 StageState::Complete->value,
                 StageState::Skipped->value,
+                StageState::Pending->value,
             ],
             StageState::Blocked->value => [
                 StageState::Active->value,
                 StageState::Complete->value,
                 StageState::Skipped->value,
+                StageState::Pending->value,
             ],
             StageState::Complete->value => [
                 StageState::Active->value,
@@ -189,5 +199,43 @@ class Stage extends Model
     public function isInProgress(): bool
     {
         return in_array($this->state->value, StageState::inProgress(), true);
+    }
+
+    /**
+     * The one stage in this workflow a reopen may take, or null.
+     *
+     * F4.12's rule is *"only the most recently finished stage"*, and the word
+     * doing the work is **most recently**. Two places need the answer —
+     * `AdvanceWorkflow::reopen()` refuses anything else, and `StageTimeline`
+     * decides which row draws the control — and a rail that worked it out for
+     * itself would be a second copy drifting from the first.
+     *
+     * ## Behind the current stage, not merely finished
+     *
+     * `skip()` may be applied to a **future** stage: it is a note that the
+     * stage does not apply to this deal, and it deliberately moves nothing. So
+     * "finished, highest sort order" selects a stage the workflow has not
+     * reached — and reopening one made the workflow jump *forward*, with the
+     * stage the team was actually standing on displaced back to `pending` and
+     * its `actual_start` nulled. The work in between was silently skipped, by
+     * the verb that exists to undo a skip.
+     *
+     * Un-skipping a future stage is a real thing somebody may want and is not
+     * this verb; nothing offers it yet.
+     */
+    public static function reopenableIn(Workflow $workflow): ?self
+    {
+        $stages = $workflow->relationLoaded('stages')
+            ? $workflow->stages
+            : $workflow->stages()->get();
+
+        $current = $stages->first(fn (self $stage): bool => $stage->isInProgress());
+
+        return $stages
+            ->filter(fn (self $stage): bool => $stage->isFinished())
+            ->filter(fn (self $stage): bool => ! $current instanceof self
+                || $stage->sort_order < $current->sort_order)
+            ->sortByDesc('sort_order')
+            ->first();
     }
 }

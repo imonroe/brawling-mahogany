@@ -300,7 +300,7 @@ function anyPermissionTestsIn(string $contents): int
 function membershipHolding(Team $team, string ...$permissionKeys): TeamMembership
 {
     return app(TeamContext::class)->runFor($team, function () use ($team, $permissionKeys): TeamMembership {
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => 'composed_'.Str::lower(Str::random(8)),
             'name' => 'Composed '.Str::random(4),

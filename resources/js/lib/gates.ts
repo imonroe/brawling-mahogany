@@ -104,8 +104,12 @@ export function gateResolutionLink(
          * be able to see the whole checklist to know what they are walking
          * into, and every group is on the page already.
          *
-         * `gate`, `gate_config` and `awaiting_slice` still resolve to nothing,
-         * their screens being S23 and S43. A dead link is worse than a
+         * `gate` still resolves to nothing, and now deliberately rather than
+         * for want of a screen: a manual gate is cleared **in place**, by the
+         * Confirm button `isConfirmable()` below decides — sending somebody to
+         * another page to tick one box would be the worst version of it.
+         * `gate_config` and `awaiting_slice` resolve to nothing too, their
+         * screens being S43 and a later slice. A dead link is worse than a
          * sentence. `tests/js/routeTargets.test.ts` holds this by reading the
          * source, because it is the second time the link has been written:
          * once on S15's own `linkFor()`, and again here when the two screens'
@@ -118,6 +122,46 @@ export function gateResolutionLink(
         default:
             return null;
     }
+}
+
+/**
+ * Whether this gate is one somebody can simply tick (F4.8).
+ *
+ * A **manual confirmation** and nothing else. Every other evaluator derives
+ * its answer from something real — the required tasks, a populated field, a
+ * document — so a tick would be a claim rather than a cache, and the next
+ * advance would overwrite it from the evaluator anyway. That is a control that
+ * appears to work and silently does not.
+ *
+ * This is the routine path past the most common gate type in the product, and
+ * for two slices it did not exist: `is_met` had no writer but the advance's
+ * own cache refresh, so the only way past a manual gate was an **override** —
+ * the act IA §7 reserves for a condition that should have been met and was
+ * not. The audited exception was standing in for the ordinary path.
+ *
+ * A display concern only. `AdvanceWorkflow::confirm()` refuses each of these
+ * cases in its own words, and is the only thing that decides.
+ */
+export function isConfirmable(gate: GateSummary): boolean {
+    return gate.gateType === 'manual_confirmation' && !gate.met;
+}
+
+/**
+ * Whether this gate is one somebody can **untick**.
+ *
+ * The way back, and it has to exist: a person who ticked the wrong row needs
+ * one, and `AdvanceWorkflow::unconfirm()` was written for it. Without a
+ * control the service, the route, the refusal strings and the
+ * `gate.unconfirmed` timeline descriptor are all unreachable from the product
+ * — which is exactly the shape of the bug this pair was built to close, one
+ * verb over.
+ *
+ * A **met** manual gate, and only while its stage is still the one in
+ * progress. The service refuses the rest; this decides which row draws the
+ * control.
+ */
+export function isUnconfirmable(gate: GateSummary): boolean {
+    return gate.gateType === 'manual_confirmation' && gate.met;
 }
 
 /**

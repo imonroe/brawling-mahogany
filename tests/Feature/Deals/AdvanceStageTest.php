@@ -104,7 +104,7 @@ function advanceModalMemberWith(array $permissions, string $roleKey): Person
             'joined_at' => now(),
         ]);
 
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => $roleKey,
             'name' => Str::headline($roleKey),

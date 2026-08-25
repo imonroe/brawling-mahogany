@@ -26,8 +26,15 @@ obvious precedent to copy"*, which is where the difference between a state and a
 presentation of one had to be settled — and **tasks (S17, S27)**, the feature
 both practitioners named independently as the thing their tools lack, and the
 screen that gave `required_tasks_complete` a way to clear that is not an
-override. Its remaining screens — offers, the dashboard, My Work, and the
-templates UI — are still open under epic #3.
+override. Since then: skip and reopen (S23's siblings, #70), notes (#72), **My
+Work** (S11, #80), **the team dashboard** (S10, #79) and the p95 budget that
+holds it (#89), **global search and the vendor directory** (S07, S34, #82,
+#83), **offers** (S22, #73), **private file storage and the photo gallery**
+(S38, #63) — which is the service Slice 3's documents will sit on — and
+**the templates and roles UI** (S39–S43, S75, #84–#86, #88). What is left in
+epic #3 is **#87, the seeded template packs**, and it is blocked on #11 rather
+than on code: the mechanism is built, and a pack whose stages somebody invented
+would teach a process nobody follows.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -74,8 +81,21 @@ These come from PRD §8 and should guide the eventual build:
 - **Template vs. instance split.** Every process entity has a definition layer (`workflow_templates`, `stage_templates`, `gate_templates`, `task_templates`) and a separate runtime layer (`workflows`, `stages`, `gates`, `tasks`). Instantiating a template snapshots it — later template edits must never rewrite an in-flight deal.
 - **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`App\Support\Workflow\AdvanceWorkflow`) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly. **Built in Slice 2**, and held by two tests rather than by memory: `tests/Unit/SingleMutationPathTest.php` reads the source of everything in `app/`, `routes/` and `database/`, and `HasStateMachine`'s `saving` hook refuses an illegal transition however the attribute was written — a source-reading guard alone was walked past three ways in review.
 - **Gate evaluation is data-driven.** One small evaluator per gate type (manual confirmation, required tasks complete, document present, field populated, action completed, date reached, approval), resolved by `gate_type`. Adding a gate type means adding a class, not touching advancement logic.
-- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
-- **A lookup is archived, never deleted.** Deal types (S76) is the first of these and sets the pattern for roles (S75), template packs, and every other lookup screen: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
+- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Twelve models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a thirteenth means adding a reason there, which is the point. (This said *six* for several slices after the list had grown past it — a count in prose beside a list in code is a count that goes stale, and the list is the authority.)
+- **A lookup is archived, never deleted.** Deal types (S76) is the first of these and set the pattern roles (S75, #88) then followed, and template packs and every other lookup screen after them: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
+
+  **The count is scoped even when the row is not.** Roles and workflow
+  templates both have a *shared* half — the five system roles and the pack
+  templates carry no `team_id` at all — so a count taken off them without the
+  scope tells one team how many people or how many running deals **every other
+  team** has. `WorkflowTemplate::inUseCount()` records that as the mistake it
+  nearly was. A shared row's count is a per-team question, always.
+
+  **And an in-use count does not always mean "careful".** On S41 it means the
+  opposite: instantiation snapshotted, so the twelve deals running on a
+  template will *not* change when it is edited, and the number exists to say
+  so. A team that believes editing a template fixes a live deal will edit the
+  template instead of fixing the deal.
 - **A link out, never a copy of what is on the other end.** PRD §10: MLS
   listing data is licensed, and *"v1 stores links only, never ingested listing
   content."* `external_links` is a label and a URL and deliberately has no
@@ -119,6 +139,55 @@ These come from PRD §8 and should guide the eventual build:
   eighth cannot be written without one. The four that subject an event to a
   workflow pass `deal:` explicitly. Adding an event type with a deal behind it
   means answering which of those two it is.
+
+- **A shared table's key is a shared namespace, and a derived key can collide
+  into it.** `roles` has no global scope — the five shipped roles carry no
+  `team_id` — so the unique index is over `(team_id, key)` and a team's own row
+  may take a key a system row already has. S75 derives a role's key from its
+  name, and `Str::slug('Team Owner', '_')` is exactly `team_owner`.
+
+  Every check written as `roles.key = 'team_owner'` then treated the
+  counterfeit as the real thing, and the sharpest consequence was
+  `RevokeMembership` counting it among the "other owners" — revoke the only
+  genuine owner and the team is locked out of its own settings. The two halves
+  of the fix are both needed: the **name is refused** at the controller, and
+  `TeamMembership::hasRole()` and `scopeHoldingSystemRole()` ask for a null
+  `team_id`, which holds however a row got there.
+
+  Before deriving an identifier into a table anything shares, ask what already
+  lives in that namespace.
+
+- **A polymorphic child is reached by nothing.** No foreign key points at
+  `documents.documentable_id` or `external_links.linkable_id`, so nothing
+  cascades — and `records:purge` finds a row by its `deleted_at`, which a
+  document whose *parent* was deleted does not have. Deleting a property left
+  its photos as live rows pointing at nothing and their bytes on the disk
+  permanently, past F6.4's promise that a deletion deletes.
+
+  `HasExternalLinks` and `HasDocuments` both put the sweep on the **parent's
+  own `deleting` hook** rather than in the controller, for the reason ADR 0002
+  already records: a rule written into one caller is a rule the second caller
+  is written without, and Slice 3 makes deals documentable. And **a file lives
+  on a disk the row-level sweep never touches** — `records:purge` deletes a
+  purged team's `documents` rows, so the bytes have to be deleted beside them
+  and the disk's team directory swept as well.
+
+- **A shared read filtered per screen is filtered once, then never again.**
+  `ActivityFeed::query()` is the widest read in the product, and its filtering
+  lived half in the query and half in the *screen's* policy gate: `/activity`
+  asks `people.view`, and that covered person-subjected events for exactly as
+  long as the feed had one caller. S10's dashboard panel reuses the same query
+  behind a `deals.view` gate, so a composed *"deals but not the client
+  directory"* role read a client's name and a free-text contact note on the
+  screen they land on, with a link to a person page answering 403.
+
+  **And an exclusion list fails open.** The filter was `!=` per surface with a
+  docblock warning that *"a subject type with no rule is visible to everyone
+  who can open the feed"* — which came true twice over. It is an allowlist now:
+  `subjectPermissions()` names every subject type with the permission it needs,
+  a type not named is excluded, and `ActivityFeedIsolationTest` reads every
+  `subject:` in `app/` and fails the build when one has no rule. Same shape as
+  the purge cascade in ADR 0002, and the same lesson.
 
 - **A staging table needs its own sweep.** `records:purge` finds a row by its
   `deleted_at`, so everything somebody *deleted* is covered — and a table whose
@@ -272,6 +341,24 @@ These come from PRD §8 and should guide the eventual build:
   the one somebody would actually take. `DocumentPresentEvaluator` is the next
   one (#104), and `ApprovalEvaluator` after it.
 
+  **`ManualConfirmationEvaluator` was the same hole, and it survived S17 by
+  being invisible in a second way.** It answers by reading `gates.is_met`, and
+  the only writer of that column was `AdvanceWorkflow`'s own cache refresh —
+  which reads the evaluator. So the most common gate type in the product could
+  not clear on its own either, and it had a *tell* that the tasks one did not:
+  `GatePolicy::update` already existed, carrying the docblock *"Ticking a
+  manual gate is ordinary deal work"*, asked for by no route. **A policy method
+  nothing calls is the same finding as a gate nothing can clear**, one layer
+  up. `AuthorizationCoverageTest` reads routes and asks whether each
+  authorizes; nothing asks the question the other way round.
+
+  `AdvanceWorkflow::confirm()` and `unconfirm()` close it, beside `override()`
+  and for the same reason the four artefacts live there: `is_met` and
+  `overridden` are the distinction IA §8 insists on, so the file that writes
+  one has to be the file that writes the other. `SingleMutationPathTest` now
+  guards `is_met` as well, which is #77's widening repeated rather than its
+  hazard written down again.
+
 - **Completing is not editing, and the routes say so.** `POST` and `DELETE` on
   `deals/{deal}/tasks/{task}/completion`, beside the `PATCH` that edits the
   task. A boolean inside the edit would make *"I fixed a typo in the title"*
@@ -328,6 +415,7 @@ These come from PRD §8 and should guide the eventual build:
 | `npm run check` | Wayfinder, ESLint, Prettier, `vue-tsc`, Vitest |
 | `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
 | `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it (`--demote-last` to skip the only-administrator warning). Audited |
+| `php artisan db:seed --class='Database\Seeders\PerformanceFixtureSeeder'` | G8's volumes in a database you can open (PRD §9): 25 active deals mid-flight, 500 past clients, 2,000 activity events. Sign in as `perf@example.test` / `password`. Deliberately **not** part of `migrate:fresh --seed` — a developer wanting a demo team does not want 2,000 events on every schema change |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 | `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation, with no mail transport and no session (ADR 0003). `--team=<slug>` when the address is invited to more than one. Rotates the token, so it replaces any link already sent. Audited |
 | `php artisan auth:reset-link <email>` | Print a single-use password reset link for an existing account (ADR 0003). Starts a reset; only the account holder can finish one. Audited |

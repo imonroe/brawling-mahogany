@@ -22,6 +22,11 @@ final class ManualConfirmationEvaluator implements GateEvaluator
         return 'manual_confirmation';
     }
 
+    public static function label(): string
+    {
+        return 'Manual confirmation';
+    }
+
     public function evaluate(Gate $gate): GateVerdict
     {
         if ($gate->is_met) {

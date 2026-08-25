@@ -25,6 +25,8 @@ import {
     Activity,
     ArrowRight,
     CircleCheck,
+    CircleSlash,
+    FileSignature,
     Flag,
     House,
     Import,
@@ -37,6 +39,8 @@ import {
     MessageSquare,
     PenLine,
     Phone,
+    RotateCcw,
+    Scale,
     ShieldAlert,
     Star,
     Trash2,
@@ -99,6 +103,50 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * that looks like every other row is a bypassed gate nobody finds.
      */
     'gate.overridden': { icon: ShieldAlert, tone: 'warning' },
+    /*
+     * Ticking a manual gate. **Neutral, not success** — §7.3 tints a
+     * *completion*, and clearing one of three blockers completes nothing. It
+     * is also the row that has to read as plainly different from the
+     * `state-warning` override directly above it: IA §8 keeps met and
+     * overridden apart, and a feed that tinted them alike would undo that
+     * distinction at exactly the point somebody is scanning for it.
+     */
+    'gate.confirmed': { icon: CircleCheck, tone: 'neutral' },
+    'gate.unconfirmed': { icon: CircleSlash, tone: 'neutral' },
+
+    /*
+     * Skip and Reopen (PRD F4.12 · IA §7 · #70), and both are **neutral**.
+     *
+     * The override above earns amber because something that should have
+     * happened did not. Neither of these is that. A skipped stage did not
+     * apply to this deal at all — §7.4 badges it neutral and IA §8 hides it
+     * from the client entirely — and tinting it like an override on the feed
+     * would rebuild, in colour, exactly the conflation IA §7 calls legally
+     * material. Reopening is somebody correcting themselves, which the product
+     * would rather encourage than mark.
+     *
+     * Distinct glyphs, though: both are unusual enough to be worth finding
+     * without reading the summary.
+     */
+    /*
+     * A note somebody wrote (F4.11 · #72). Neutral, and `PenLine` because it
+     * is the one row on the feed whose text a person typed rather than the
+     * product describing something that happened.
+     */
+    'note.added': { icon: PenLine, tone: 'neutral' },
+
+    /*
+     * Offers (S22, #73). All three neutral, including the one that records an
+     * acceptance: §7.3 tints a **completion**, and an accepted offer is not
+     * the deal completing — it is the moment the deal acquires its dates. The
+     * completion on this feed is the closing, which is a stage advance.
+     */
+    'offer.added': { icon: FileSignature, tone: 'neutral' },
+    'offer.status_changed': { icon: Scale, tone: 'neutral' },
+    'offer.removed': { icon: Trash2, tone: 'neutral' },
+
+    'stage.skipped': { icon: CircleSlash, tone: 'neutral' },
+    'stage.reopened': { icon: RotateCcw, tone: 'neutral' },
 
     // The rest, neutral by Design System §7.3's own rule.
     'workflow.started': { icon: Activity, tone: 'neutral' },

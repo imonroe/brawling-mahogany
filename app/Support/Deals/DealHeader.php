@@ -66,7 +66,17 @@ final class DealHeader
                 'people' => $deal->participants->count(),
                 'properties' => $deal->propertyLinks->count(),
                 'tasks' => self::openTasks($deal),
+                'offers' => $deal->offers()->count(),
             ],
+            /*
+             * Whether this deal's type has offers at all (IA §5.2 · #73).
+             *
+             * The tab is *"hidden when empty and the deal type has no
+             * offers"*, which is two conditions and needs both facts — the
+             * count above, and this. A rental placement does not grow an empty
+             * Offers tab.
+             */
+            'hasOffers' => $deal->dealType?->side->hasOffers() ?? true,
             'advance' => self::advanceTarget($deal),
         ];
     }

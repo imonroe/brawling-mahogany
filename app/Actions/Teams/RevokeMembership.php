@@ -93,7 +93,7 @@ final class RevokeMembership
             ->where('team_id', $membership->team_id)
             ->whereKeyNot($membership->getKey())
             ->whereNull('revoked_at')
-            ->whereHas('roles', fn ($query) => $query->where('roles.key', SystemRole::TeamOwner->value))
+            ->holdingSystemRole(SystemRole::TeamOwner->value)
             ->whereHas('person', fn ($query) => $query->whereNotNull('password'))
             ->count();
     }

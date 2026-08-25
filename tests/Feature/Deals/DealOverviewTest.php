@@ -125,7 +125,7 @@ function overviewReadOnlyMember(): Person
             'joined_at' => now(),
         ]);
 
-        $role = Role::query()->create([
+        $role = Role::factory()->create([
             'team_id' => $team->getKey(),
             'key' => 'read_only',
             'name' => 'Read Only',
@@ -791,6 +791,7 @@ it('gives the people and properties tabs the same header the overview has', func
             'people' => 1,
             'properties' => 1,
             'tasks' => 0,
+            'offers' => 0,
         ]);
 
     expect($header($people))->toBe($header($overview))

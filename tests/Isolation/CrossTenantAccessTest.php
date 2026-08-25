@@ -103,7 +103,7 @@ it('fails validation rather than writing when a form names a foreign id', functi
     ['a' => $a, 'b' => $b] = twoTeams();
 
     // A role belonging to the *other* team, offered to this team's invite form.
-    $foreignRole = Role::query()->create([
+    $foreignRole = Role::factory()->create([
         'team_id' => $b['team']->getKey(),
         'key' => 'their_custom_role',
         'name' => 'Their Custom Role',
