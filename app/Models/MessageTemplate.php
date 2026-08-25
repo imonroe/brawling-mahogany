@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\MessageChannel;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
+use App\Support\Messages\ChannelMismatch;
 use App\Support\Messages\RecipientRule;
 use Database\Factories\MessageTemplateFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -57,6 +58,61 @@ class MessageTemplate extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        /*
+         * The channel is half of a pair, and this is the third caller.
+         *
+         * `SaveAutomationRequest` and `ActionDefinition::booted()` both refuse
+         * an automation whose action does not match its template's channel —
+         * and both look at the *automation* end. Editing the **template's**
+         * channel reaches the same broken state from the other side, and
+         * `ActionDefinition::saving` never fires because no automation row is
+         * being written. A `send_email` automation was left pointing at a push
+         * template through the front door, with a 302.
+         *
+         * This is the same finding this codebase keeps making — a rule written
+         * into one caller is a rule the next caller is written without — so
+         * the invariant goes where both ends have to pass: on the model, not
+         * in the request that happened to be found.
+         */
+        static::saving(function (self $template): void {
+            if (! $template->isDirty('channel')) {
+                return;
+            }
+
+            /*
+             * A channel that carries no subject must not leave one behind.
+             *
+             * `MessageTemplateRules` marks the field `prohibited` rather than
+             * optional because *"a stored subject on a channel that never
+             * renders one is a promise the product does not keep"* —
+             * `prohibited` stops the write and nothing cleared the column, so
+             * a template switched to push kept its old subject and HTML body.
+             */
+            if (! $template->channel->hasSubject()) {
+                $template->subject = null;
+            }
+
+            if (! $template->channel->hasHtmlBody()) {
+                $template->body_html = null;
+            }
+
+            if (! $template->exists) {
+                return;
+            }
+
+            $stranded = $template->liveActionDefinitions()->get()->first(
+                fn (ActionDefinition $automation): bool => $automation->action_type->channel() !== null
+                    && $automation->action_type->channel() !== $template->channel,
+            );
+
+            if ($stranded instanceof ActionDefinition) {
+                throw ChannelMismatch::wouldStrand($stranded->action_type, $template->channel);
+            }
+        });
+    }
+
     /**
      * The automations standing on this template.
      *
@@ -65,6 +121,28 @@ class MessageTemplate extends Model
     public function actionDefinitions(): HasMany
     {
         return $this->hasMany(ActionDefinition::class);
+    }
+
+    /**
+     * The automations somebody could actually still reach.
+     *
+     * `WorkflowTemplateController::destroy()` soft-deletes the workflow
+     * template and touches neither its stages nor their automations, so the
+     * plain relation counts automations that exist on no screen. The number
+     * S45 shows is the one thing that screen is for — *"3 automations keep it
+     * and go on sending it"* about three nobody can open is worse than no
+     * number, because Frontend conventions §4 puts the count before the choice
+     * precisely so it can be acted on.
+     *
+     * One relation, read by the count **and** by the channel guard above, so
+     * the number on the list and the rule that refuses an edit cannot disagree
+     * about which automations are real.
+     *
+     * @return HasMany<ActionDefinition, $this>
+     */
+    public function liveActionDefinitions(): HasMany
+    {
+        return $this->actionDefinitions()->whereHas('stageTemplate.workflowTemplate');
     }
 
     /**
@@ -81,7 +159,7 @@ class MessageTemplate extends Model
      */
     public function inUseCount(): int
     {
-        return $this->actionDefinitions()->count();
+        return $this->liveActionDefinitions()->count();
     }
 
     public function isArchived(): bool
@@ -109,14 +187,5 @@ class MessageTemplate extends Model
     public function recipientRule(): RecipientRule
     {
         return RecipientRule::fromArray($this->recipient_rule);
-    }
-
-    /**
-     * @param  Builder<self>  $query
-     * @return Builder<self>
-     */
-    public function scopeOnChannel(Builder $query, MessageChannel $channel): Builder
-    {
-        return $query->where('channel', $channel);
     }
 }

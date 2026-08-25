@@ -31,4 +31,12 @@ class UpdateMessageTemplateRequest extends FormRequest
 
         return $this->messageTemplateRules($template instanceof MessageTemplate ? $template : null);
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return $this->messageTemplateMessages();
+    }
 }

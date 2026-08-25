@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Models\Property;
 use App\Support\Formatting\Format;
-use Illuminate\Support\Carbon;
 
 /**
  * The server-side mirror of `lib/formatters.ts` (IA §10 · issue #90).
@@ -67,32 +66,4 @@ it('has nothing to say about a property that is not there', function (): void {
     // on one resolves to an empty string the preview then reports.
     expect(Format::addressOneLine(null))->toBe('')
         ->and(Format::addressLines(null))->toBe(['line1' => '', 'line2' => '']);
-});
-
-it('gives a client the year only when it differs from theirs', function (): void {
-    /*
-     * IA §10's client date. "Thursday, August 20" reads as this year, so one
-     * about next January has to say which.
-     */
-    // `formatters.test.ts`'s own instants, verbatim.
-    $now = Carbon::parse('2026-01-04T00:00:00Z');
-
-    expect(Format::dateForClient(Carbon::parse('2026-08-20T18:00:00Z'), 'America/Denver', $now))
-        ->toBe('Thursday, August 20')
-        ->and(Format::dateForClient(Carbon::parse('2027-08-20T18:00:00Z'), 'America/Denver', $now))
-        ->toBe('Friday, August 20, 2027');
-});
-
-it('renders in the team’s timezone rather than the worker’s', function (): void {
-    /*
-     * A message is composed by a queue worker running in UTC, and a stamp at
-     * 01:00 UTC is the previous evening in Denver. PRD §9: storage is UTC and
-     * display is the team's zone — and this is the case where "display" happens
-     * somewhere with no browser to ask.
-     */
-    $instant = Carbon::parse('2026-08-21 01:00', 'UTC');
-    $now = Carbon::parse('2026-08-20 15:00', 'UTC');
-
-    expect(Format::dateForClient($instant, 'America/Denver', $now))->toBe('Thursday, August 20')
-        ->and(Format::dateForClient($instant, 'UTC', $now))->toBe('Friday, August 21');
 });

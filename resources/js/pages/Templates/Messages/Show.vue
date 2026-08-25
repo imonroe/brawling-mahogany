@@ -29,7 +29,7 @@
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { Send } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
@@ -57,6 +57,8 @@ type Preview = {
     bodyText: string;
     unresolved: string[];
     unknown: string[];
+    /** Brace runs that were never a pair — `{{ client_name }` with one dropped. */
+    malformed: string[];
     isComplete: boolean;
     dealId: string | null;
     recipients: string[];
@@ -80,7 +82,17 @@ const props = defineProps<{
     };
     mergeFields: MergeFieldRow[];
     channels: Record<string, string>;
-    recipientRules: Record<string, string>;
+    /**
+     * Keyed by channel — see the S45 list for why.
+     *
+     * This screen is where the hazard bites hardest: `hasSubject` and
+     * `hasHtml` below are reactive on the form's channel, and this was a prop
+     * carrying the **saved** one. Two of the three channel-dependent
+     * narrowings updated as the reader typed and the third did not, which is
+     * `docs/Frontend conventions.md` §3's *"a filtered list's props are not
+     * its filters"* in its cleanest form.
+     */
+    recipientRules: Record<string, Record<string, string>>;
     participantRoles: Record<string, string>;
     deals: { id: string; name: string }[];
     preview: Preview | null;
@@ -123,6 +135,17 @@ const form = useForm<{
 
 const hasSubject = computed(() => form.channel === 'email');
 const hasHtml = computed(() => form.channel === 'email');
+
+const rulesForChannel = computed<Record<string, string>>(
+    () => props.recipientRules[form.channel] ?? {},
+);
+
+watch(rulesForChannel, (rules) => {
+    if (!(form.recipient_rule.type in rules)) {
+        form.recipient_rule.type = Object.keys(rules)[0] ?? '';
+    }
+});
+
 const needsParticipantRole = computed(
     () => form.recipient_rule.type === 'participant_role',
 );
@@ -291,6 +314,7 @@ function sendTest(): void {
                                 v-model="form.channel"
                                 :options="channels"
                                 size="default"
+                                :disabled="!can.update"
                             />
                             <p
                                 v-if="form.errors.channel"
@@ -305,8 +329,9 @@ function sendTest(): void {
                             <AppSelect
                                 id="recipient"
                                 v-model="form.recipient_rule.type"
-                                :options="recipientRules"
+                                :options="rulesForChannel"
                                 size="default"
+                                :disabled="!can.update"
                             />
                             <!--
                                 A rule, never an address. A template holding an
@@ -336,6 +361,7 @@ function sendTest(): void {
                                 :options="participantRoles"
                                 size="default"
                                 placeholder="Choose a role"
+                                :disabled="!can.update"
                             />
                             <p
                                 v-if="
@@ -544,6 +570,17 @@ function sendTest(): void {
                         -->
                         <Alert v-if="!preview.isComplete" variant="destructive">
                             <AlertDescription>
+                                <!--
+                                    First, because it is the one that renders
+                                    into the client's inbox verbatim: the
+                                    substitution has no pair to replace.
+                                -->
+                                <span v-if="preview.malformed.length > 0">
+                                    There is a stray
+                                    {{ preview.malformed.join(' and ') }} in
+                                    here — a merge field needs both braces at
+                                    both ends.
+                                </span>
                                 <span v-if="preview.unknown.length > 0">
                                     No such merge field:
                                     {{ preview.unknown.join(', ') }}.

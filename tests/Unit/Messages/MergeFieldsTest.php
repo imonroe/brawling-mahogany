@@ -55,6 +55,31 @@ it('finds a malformed token as well as a well-formed one', function (): void {
         ->and(MergeFields::isWellFormed(''))->toBeFalse();
 });
 
+/**
+ * The typo that used to save clean and reach a client's inbox.
+ *
+ * `TOKEN_PATTERN` was loose about what sits *between* the braces and strict
+ * about the braces themselves, which is half a defence: an unclosed run
+ * matched nothing, so the validator saw a clean template, the renderer had
+ * nothing to substitute, and `isComplete()` said the message was fine —
+ * pre-arming #93's approval gate to release it.
+ */
+it('finds a brace run that was never a pair', function (string $body, array $expected): void {
+    expect(MergeFields::strayBraceRuns($body))->toBe($expected);
+})->with([
+    'a dropped closing brace' => ['Hi {{ client_name }', ['{{']],
+    'no closing at all' => ['Hi {{client_name', ['{{']],
+    'a split opening brace' => ['Hi { { client_name }}', ['}}']],
+
+    // The controls. A well-formed token has nothing left over, and a third
+    // brace is a token followed by a literal one — which renders as somebody
+    // probably meant and is not what this exists to catch.
+    'well formed (control)' => ['Hi {{ client_name }}', []],
+    'a trailing literal brace (control)' => ['Hi {{ client_name }}}', []],
+    'no braces at all (control)' => ['Hi there', []],
+    'a lone closing brace (control)' => ['a } b', []],
+]);
+
 it('reads several bodies at once and reports each token once', function (): void {
     // A template is a subject and two bodies, and a token in all three is one
     // problem rather than three.

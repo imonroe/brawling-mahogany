@@ -429,11 +429,35 @@ These come from PRD §8 and should guide the eventual build:
   colleague's session.
 
 - **A validator that scans for well-formed tokens is blind to the dangerous
-  ones.** `{{ client name }}` is not a merge field, so a scan that extracted
-  valid tokens and checked those against the registry would see nothing wrong
-  and let the braces through into a client's inbox. `MergeFields::extract()` is
-  deliberately loose — anything between double braces — and well-formedness is
-  checked afterwards, against what it found.
+  ones, and loosening it halfway is worse than not loosening it.**
+  `{{ client name }}` is not a merge field, so a scan that extracted valid
+  tokens and checked those against the registry would see nothing wrong and let
+  the braces through into a client's inbox. `MergeFields::extract()` is
+  therefore loose about anything between double braces, and well-formedness is
+  checked afterwards.
+
+  That covered *what sits between* the braces and not the braces themselves, so
+  `{{ client_name }` — one brace dropped, the likeliest typo of the lot —
+  matched nothing, saved with no errors, rendered verbatim, and came back
+  `isComplete() === true`, which is the flag #93's approval gate is built on.
+  `MergeFields::strayBraceRuns()` removes every matched pair and reports what
+  is left, because what is left is by definition unbalanced. When a check is
+  loosened to catch a malformed case, ask which half of the shape it actually
+  loosened.
+
+- **Both ends of a pair need the rule, and the count of callers is never two.**
+  An automation's action type and its template's channel have to agree.
+  `SaveAutomationRequest` refuses a mismatch, `ActionDefinition::booted()`
+  refuses it again for callers no request reaches — and editing the
+  **template's** channel reached the same broken state from the other side with
+  a 302, because `ActionDefinition::saving` never fires when no automation row
+  is written. The invariant lives on `MessageTemplate::booted()` too now.
+
+  A guard reading a team-scoped model is a second version of the same trap:
+  `MessageTemplate::query()` inside that hook answered *"is this visible to
+  whoever is in context"* rather than *"what is this row pointing at"*, and
+  returned null — read as "nothing to check" — for exactly the callers the hook
+  exists for.
 
 - **An email is the first thing this product renders without a browser.**
   Frontend conventions §3 says nothing formats a date or an address itself

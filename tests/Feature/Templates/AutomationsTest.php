@@ -334,6 +334,81 @@ it('edits and removes an automation', function (): void {
     expect(ActionDefinition::query()->whereKey($automation->getKey())->exists())->toBeFalse();
 });
 
+it('keeps an automation switched off when a patch omits the flag', function (): void {
+    /*
+     * The dialog always sends it, so only a hand-written or later caller hits
+     * this — but on an update the sane default is *keep*, not *activate*, and
+     * this is the flag that decides whether something fires.
+     */
+    [$template, $stage] = automationStage();
+
+    $automation = app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): ActionDefinition => ActionDefinition::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'stage_template_id' => $stage->getKey(),
+            'is_active' => false,
+        ]),
+    );
+
+    $this->patch(automationUrl($template, $stage)."/{$automation->getKey()}", [
+        'trigger' => AutomationTrigger::StageStart->value,
+        'action_type' => AutomationActionType::CreateTask->value,
+        'executionMode' => 'automatic',
+        'config' => ['taskTitle' => 'Order the survey'],
+    ])->assertRedirect();
+
+    expect($automation->fresh()->is_active)->toBeFalse();
+
+    // The control: a new one is on, because that is what creating means.
+    $this->post(automationUrl($template, $stage), [
+        'trigger' => AutomationTrigger::StageStart->value,
+        'action_type' => AutomationActionType::CreateTask->value,
+        'executionMode' => 'automatic',
+        'config' => ['taskTitle' => 'Book the photographer'],
+    ])->assertRedirect();
+
+    /*
+     * Found by what it holds, not by `latest()`. Both rows are created inside
+     * the same second, so ordering by `created_at` picks whichever the planner
+     * felt like returning — and this control passed or failed on that.
+     */
+    $created = ActionDefinition::query()
+        ->whereJsonContains('config->taskTitle', 'Book the photographer')
+        ->sole();
+
+    expect($created->is_active)->toBeTrue();
+});
+
+it('guards an archived template from a context that is not the row’s team', function (): void {
+    /*
+     * `MessageTemplate` is `BelongsToTeam`, so a **scoped** read inside the
+     * hook answered *"is this visible to whoever happens to be in context"*
+     * rather than *"what is this row pointing at"* — and returned null, which
+     * the guard read as "nothing to check" and let straight through.
+     *
+     * The callers the hook exists for are exactly the ones at risk: #92's
+     * instantiation and a pack install run under another team's context or
+     * none at all.
+     */
+    [, $stage] = automationStage();
+
+    $archived = emailTemplate(['archived_at' => now()]);
+
+    [$other] = $this->teamWithMember();
+
+    // Team B's context, writing team A's row. The composite foreign key still
+    // refuses a genuinely cross-tenant pointer; what used to be skipped is the
+    // archived check, which is half of why the hook is there.
+    app(TeamContext::class)->runFor($other, function () use ($stage, $archived): void {
+        expect(fn () => ActionDefinition::factory()->sendingEmail()->create([
+            'team_id' => $this->team->getKey(),
+            'stage_template_id' => $stage->getKey(),
+            'message_template_id' => $archived->getKey(),
+        ]))->toThrow(ArchivedReferenceException::class);
+    });
+});
+
 it('shows a stage’s automations on the template editor', function (): void {
     [$template, $stage] = automationStage();
     $message = emailTemplate(['name' => 'Property listed']);

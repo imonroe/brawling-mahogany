@@ -127,9 +127,35 @@ watch(
             props.automation?.actionType ?? Object.keys(props.actions)[0] ?? '';
         form.message_template_id = props.automation?.messageTemplateId ?? null;
         form.executionMode = props.automation?.executionMode ?? 'automatic';
+        /*
+         * Every key filled from the stored config or from a default — never a
+         * spread of the stored object behind a cast.
+         *
+         * A `create_task` automation stores one key, so spreading it leaves
+         * the other three `undefined`, which is precisely what the comment on
+         * the form's type says must not happen: `AppSelect` models
+         * `string | null`, and `undefined` is a different value to the
+         * compiler and an unbound control at runtime. The cast said otherwise.
+         */
+        const stored = props.automation?.config ?? {};
+
         form.config = {
-            ...(props.automation?.config ?? {}),
-        } as typeof form.config;
+            gateTemplateId:
+                typeof stored.gateTemplateId === 'string'
+                    ? stored.gateTemplateId
+                    : null,
+            taskTitle:
+                typeof stored.taskTitle === 'string' ? stored.taskTitle : '',
+            taskDueOffsetDays:
+                stored.taskDueOffsetDays === undefined ||
+                stored.taskDueOffsetDays === null
+                    ? ''
+                    : String(stored.taskDueOffsetDays),
+            instruction:
+                typeof stored.instruction === 'string'
+                    ? stored.instruction
+                    : '',
+        };
         form.is_active = props.automation?.isActive ?? true;
     },
     { immediate: true },

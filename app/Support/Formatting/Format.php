@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Support\Formatting;
 
 use App\Models\Property;
-use DateTimeInterface;
-use Illuminate\Support\Carbon;
 
 /**
  * IA §10's formatting rules, on the server.
@@ -29,6 +27,11 @@ use Illuminate\Support\Carbon;
  * `tests/js/formatters.test.ts` does, which is what keeps the pair honest. A
  * rule that lands here without landing there is the failure mode, and the
  * shared examples are what makes it visible.
+ *
+ * **One rule, because one rule is what a message needs today.** A client date
+ * belongs here the moment a merge field renders one, and the only date field
+ * F5.6 names is `next_deadline`, which waits on Slice 4 (#109). Writing it now
+ * would be a rule no caller uses sitting behind a test that reads as coverage.
  */
 final class Format
 {
@@ -61,30 +64,5 @@ final class Format
         $lines = self::addressLines($property);
 
         return implode(', ', array_filter([$lines['line1'], $lines['line2']]));
-    }
-
-    /**
-     * IA §10 client date: full month and day, and the year **only when it
-     * differs** from the year the reader is in.
-     *
-     * The mirror of `formatDateForClient()`. A client email saying "Thursday,
-     * August 20" reads as this year; one about next January has to say so.
-     *
-     * Rendered in the team's timezone (PRD §9), which the caller passes,
-     * because a message is composed by a queue worker running in UTC and
-     * "tomorrow" is a calendar fact rather than a 24-hour one.
-     */
-    public static function dateForClient(?DateTimeInterface $value, string $timezone, ?DateTimeInterface $relativeTo = null): string
-    {
-        if (! $value instanceof DateTimeInterface) {
-            return '';
-        }
-
-        $date = Carbon::instance($value)->setTimezone($timezone);
-        $now = Carbon::instance($relativeTo ?? Carbon::now())->setTimezone($timezone);
-
-        return $date->year === $now->year
-            ? $date->format('l, F j')
-            : $date->format('l, F j, Y');
     }
 }

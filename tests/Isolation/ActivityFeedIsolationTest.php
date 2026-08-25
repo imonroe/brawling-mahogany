@@ -206,6 +206,33 @@ it('never shows a person-subjected event to somebody who may not see people', fu
 });
 
 /**
+ * The pattern the subject scan runs, in **one** place.
+ *
+ * It was written out twice — once in the scan and once in the probes that
+ * prove the scan behaves — which is this branch's own recurring finding
+ * applied to the guard on the guard: edit the scan's copy and the probes go on
+ * passing, against the pattern they no longer describe.
+ *
+ * A property chain, and **never a method call**. `subject:` is
+ * `RecordActivity`'s named argument and it is always handed a model —
+ * `$deal`, `$membership->person`. It is not the only named argument in the
+ * codebase called `subject` any more: Slice 3's `RenderedMessage(subject: …)`
+ * is an email's subject line, and the first version of this pattern read
+ * `$template->channel->hasSubject()` as a subject type called `HasSubject`.
+ *
+ * The trailing lookahead is what separates them, and all three forbidden
+ * characters earn their place — the engine backtracks off the end of a
+ * rejected call and matches a shorter prefix of the same chain otherwise.
+ * Without `-`, `$template->channel->hasSubject()` came back as `Channel`;
+ * without `\w`, it came back as `HasSubjec`. Forbidding all three means the
+ * pattern matches a whole chain or nothing at all.
+ *
+ * That is safe rather than a hole: a relation *call* returns a builder, not a
+ * model, so it is never something `RecordActivity` could be given.
+ */
+const ACTIVITY_SUBJECT_PATTERN = '/subject:\s*\$([A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)*)(?![\w(\-])/';
+
+/**
  * The shape probes for the scan above.
  *
  * `SingleMutationPathTest`'s rule, applied here: *"a pattern added without one
@@ -219,11 +246,7 @@ it('never shows a person-subjected event to somebody who may not see people', fu
  * narrowing got wrong.
  */
 it('matches an activity subject and never a method call', function (string $source, ?string $expected): void {
-    preg_match(
-        '/subject:\s*\$([A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)*)(?![\w(\-])/',
-        $source,
-        $match,
-    );
+    preg_match(ACTIVITY_SUBJECT_PATTERN, $source, $match);
 
     expect($match[1] ?? null)->toBe($expected);
 })->with([
@@ -257,31 +280,7 @@ it('gives every subject type the feed carries a permission rule', function (): v
         ->filter(fn ($file): bool => $file->getExtension() === 'php')
         ->map(fn ($file): string => (string) file_get_contents($file->getPathname()));
 
-    /*
-     * A property chain, and **never a method call**.
-     *
-     * `subject:` is `RecordActivity`'s named argument and it is always handed
-     * a model — `$deal`, `$membership->person`. It is not the only named
-     * argument in the codebase called `subject` any more: Slice 3's
-     * `RenderedMessage(subject: …)` is an email's subject line, and the first
-     * version of this pattern read `$template->channel->hasSubject()` as a
-     * subject type called `HasSubject`.
-     *
-     * The trailing lookahead is what separates them, and all three forbidden
-     * characters earn their place — the engine backtracks off the end of a
-     * rejected call and matches a shorter prefix of the same chain otherwise.
-     * Without `-`, `$template->channel->hasSubject()` came back as `Channel`;
-     * without `\w`, it came back as `HasSubjec`. Forbidding all three means
-     * the pattern matches a whole chain or nothing at all.
-     *
-     * That is safe rather than a hole: a relation *call* returns a builder,
-     * not a model, so it is never something `RecordActivity` could be given.
-     */
-    preg_match_all(
-        '/subject:\s*\$([A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)*)(?![\w(\-])/',
-        $sources->implode("\n"),
-        $matches,
-    );
+    preg_match_all(ACTIVITY_SUBJECT_PATTERN, $sources->implode("\n"), $matches);
 
     $subjects = collect($matches[1])->unique()->values();
 

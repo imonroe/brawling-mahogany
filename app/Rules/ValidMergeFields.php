@@ -26,11 +26,16 @@ use Illuminate\Contracts\Validation\ValidationRule;
  *     called unknown, because "there is no such field" would be a lie that
  *     sends somebody looking for a spelling mistake.
  *  3. **A malformed token** — `{{ client name }}`, `{{}}`, `{{ Client_Name }}`.
- *     These are the dangerous ones: they are not tokens at all, so a
- *     validator that scanned for *well-formed* tokens and checked those
- *     against the registry would see nothing wrong and let the braces through
- *     into somebody's inbox. {@see MergeFields::extract()} is deliberately
- *     loose for this reason.
+ *     These are not tokens at all, so a validator that scanned for
+ *     *well-formed* tokens and checked those against the registry would see
+ *     nothing wrong and let the braces through into somebody's inbox.
+ *     {@see MergeFields::extract()} is deliberately loose for this reason.
+ *  4. **An unbalanced brace run** — `{{ client_name }` with a brace dropped,
+ *     which is the likeliest typo of the four and the one that got past the
+ *     first version of this rule. Loosening what sits *between* the braces
+ *     does nothing when the braces themselves do not pair, so the leftovers
+ *     are checked separately by {@see MergeFields::strayBraceRuns()} — and
+ *     first, because everything after it reads a template that looks clean.
  */
 final readonly class ValidMergeFields implements ValidationRule
 {
@@ -38,6 +43,21 @@ final readonly class ValidMergeFields implements ValidationRule
     {
         if (! is_string($value) || $value === '') {
             return;
+        }
+
+        /*
+         * Checked first, because it is the one that used to pass.
+         *
+         * The loose extraction below only loosened *what is between* the
+         * braces; `{{ client_name }` with a brace dropped matches nothing at
+         * all, so every check after this saw a clean template and the braces
+         * went out to a client verbatim.
+         */
+        foreach (MergeFields::strayBraceRuns($value) as $run) {
+            $fail(sprintf(
+                'There is a stray “%s” here. A merge field needs both braces at both ends, like {{ client_name }}.',
+                $run,
+            ));
         }
 
         foreach (MergeFields::extract($value) as $token) {

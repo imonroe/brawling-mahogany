@@ -206,10 +206,14 @@ than 24 hours from now — which is what a contingency deadline actually means.
 
 > [!note] An email is rendered without a browser, so there is a second copy
 > `App\Support\Formatting\Format` is the server-side mirror of the rules an
-> email actually needs — the address block and the client date — and it exists
-> because Slice 3's messages are the first surface this product renders without
-> a browser. Everything before them was rendered by the page, so one file held
-> every rule.
+> email actually needs, and it exists because Slice 3's messages are the first
+> surface this product renders without a browser. Everything before them was
+> rendered by the page, so one file held every rule.
+>
+> **Today that is the address block and nothing else.** A client date belongs
+> there the moment a merge field renders one, and the only date field PRD F5.6
+> names waits on Slice 4 — writing it early is a rule with no caller sitting
+> behind a test that reads as coverage.
 >
 > It is kept **deliberately small**: only the rules a message uses, so the
 > surface that can drift is the smallest one that does the job. What keeps the

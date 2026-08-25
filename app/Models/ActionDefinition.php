@@ -11,7 +11,6 @@ use App\Support\Messages\ChannelMismatch;
 use App\Support\Tenancy\ArchivedReferenceException;
 use Database\Factories\ActionDefinitionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -96,7 +95,24 @@ class ActionDefinition extends Model
                 return;
             }
 
-            $template = MessageTemplate::query()->whereKey($definition->message_template_id)->first();
+            /*
+             * Unscoped, and that is the whole point.
+             *
+             * `MessageTemplate` is `BelongsToTeam`, so a scoped read here
+             * answers *"is this template visible to whoever happens to be in
+             * context"* rather than *"what is this row pointing at"* — and a
+             * caller running under another team's context, or none, got null
+             * and skipped both checks below. The callers this hook exists for
+             * are exactly those: #92's instantiation and a pack install.
+             *
+             * Safe **because** the composite foreign key and the CHECK
+             * constraint already guarantee the template belongs to this
+             * definition's team; lifting the scope cannot reach a row those
+             * would refuse.
+             */
+            $template = MessageTemplate::withoutTeamScope()
+                ->whereKey($definition->message_template_id)
+                ->first();
 
             if (! $template instanceof MessageTemplate) {
                 return;
@@ -202,8 +218,4 @@ class ActionDefinition extends Model
      * @param  Builder<self>  $query
      * @return Builder<self>
      */
-    public function scopeActive(Builder $query): Builder
-    {
-        return $query->where('is_active', true);
-    }
 }

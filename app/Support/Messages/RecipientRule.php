@@ -24,16 +24,6 @@ final readonly class RecipientRule
         public ?ParticipantRole $participantRole = null,
     ) {}
 
-    public static function participantRole(ParticipantRole $role): self
-    {
-        return new self(RecipientRuleType::ParticipantRole, $role);
-    }
-
-    public static function of(RecipientRuleType $type): self
-    {
-        return new self($type);
-    }
-
     /**
      * Read a stored rule, refusing anything that is not one.
      *

@@ -22,6 +22,23 @@ use RuntimeException;
  */
 final class ChannelMismatch extends RuntimeException
 {
+    /**
+     * The same mismatch, reached from the template's end.
+     *
+     * Editing a template's channel is the third caller — see
+     * `MessageTemplate::booted()`. The message names what would break rather
+     * than what was written, because the person here is editing words and has
+     * probably forgotten an automation points at them.
+     */
+    public static function wouldStrand(AutomationActionType $action, MessageChannel $channel): self
+    {
+        return new self(sprintf(
+            'An automation of type [%s] is using this template, and it cannot send on the [%s] channel.',
+            $action->value,
+            $channel->value,
+        ));
+    }
+
     public static function between(AutomationActionType $action, MessageChannel $channel): self
     {
         $wanted = $action->channel();

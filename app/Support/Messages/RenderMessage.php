@@ -68,6 +68,18 @@ final class RenderMessage
             bodyText: (string) $this->substitute($template->body_text, $values, self::asText(...)),
             unresolved: $unresolved,
             unknown: $unknown,
+            /*
+             * The braces that were never a pair, and therefore never a token
+             * the loop above could see. `{{ client_name }` renders **as
+             * written** — the substitution has nothing to replace — so it is
+             * the one kind of problem that reaches a client looking exactly
+             * like a bug in our product.
+             */
+            malformed: MergeFields::strayBraceRuns(
+                $template->subject,
+                $template->body_html,
+                $template->body_text,
+            ),
         );
     }
 

@@ -71,6 +71,18 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'the bug, not the fix.',
     ],
 
+    'Models/ActionDefinition.php' => [
+        'count' => 1,
+        'reason' => 'Reading the message template this automation points at, to refuse an '.
+            'archived one or a channel mismatch. Scoped, it answers "is this visible to '.
+            'whoever happens to be in context" rather than "what is this row pointing '.
+            'at" — and the callers the hook exists for (#92 instantiation, a pack '.
+            'install) are exactly the ones running under another team\'s context or '.
+            'none, where it returned null and skipped both checks. Reading tenant data '.
+            'unscoped is safe here only because the composite foreign key and the CHECK '.
+            'constraint already guarantee the template belongs to this row\'s team.',
+    ],
+
     'Support/TwoFactorMandate.php' => [
         'count' => 1,
         'reason' => 'PRD §9 makes 2FA mandatory for a Team Owner of *any* team. Asking '.

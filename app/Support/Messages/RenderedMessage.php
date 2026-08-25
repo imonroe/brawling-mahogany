@@ -17,6 +17,7 @@ final readonly class RenderedMessage
     /**
      * @param  list<string>  $unresolved  Registered fields with nothing behind them on this deal.
      * @param  list<string>  $unknown  Tokens no field answers to — a template written before a rename, or a typo.
+     * @param  list<string>  $malformed  Unbalanced brace runs: `{{ client_name }` with a brace dropped.
      */
     public function __construct(
         public ?string $subject,
@@ -24,19 +25,23 @@ final readonly class RenderedMessage
         public string $bodyText,
         public array $unresolved = [],
         public array $unknown = [],
+        public array $malformed = [],
     ) {}
 
     /**
      * Whether this is safe to put in front of a client.
      *
-     * Both lists matter and they fail differently: an unknown token is a
-     * template that was never valid, and an unresolved one is a template that
+     * Three lists, failing three different ways. An **unknown** token is a
+     * template that was never valid. An **unresolved** one is a template that
      * is valid and a deal that has not got there yet — "See the listing at ."
-     * on a deal with no MLS link. Neither may be sent.
+     * on a deal with no MLS link. A **malformed** one is a brace run that was
+     * never a token at all, which is the case that used to pass: the
+     * substitution leaves the braces in the body, so the client reads the
+     * template's internals. None of the three may be sent.
      */
     public function isComplete(): bool
     {
-        return $this->unresolved === [] && $this->unknown === [];
+        return $this->unresolved === [] && $this->unknown === [] && $this->malformed === [];
     }
 
     /**
@@ -44,7 +49,7 @@ final readonly class RenderedMessage
      */
     public function problems(): array
     {
-        return [...$this->unknown, ...$this->unresolved];
+        return [...$this->malformed, ...$this->unknown, ...$this->unresolved];
     }
 
     /**
@@ -58,6 +63,7 @@ final readonly class RenderedMessage
             'bodyText' => $this->bodyText,
             'unresolved' => $this->unresolved,
             'unknown' => $this->unknown,
+            'malformed' => $this->malformed,
             'isComplete' => $this->isComplete(),
         ];
     }

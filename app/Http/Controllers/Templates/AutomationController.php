@@ -30,7 +30,7 @@ class AutomationController extends Controller
     {
         $automation = new ActionDefinition;
 
-        $automation->fill($this->attributes($request));
+        $automation->fill($this->attributes($request, activeByDefault: true));
 
         $automation->forceFill([
             /*
@@ -51,7 +51,8 @@ class AutomationController extends Controller
 
     public function update(SaveAutomationRequest $request, WorkflowTemplate $template, StageTemplate $stageTemplate, ActionDefinition $actionDefinition): RedirectResponse
     {
-        $actionDefinition->fill($this->attributes($request))->save();
+        // Keeping, not activating. See `attributes()`.
+        $actionDefinition->fill($this->attributes($request, activeByDefault: $actionDefinition->is_active))->save();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Automation saved.')]);
 
@@ -84,9 +85,16 @@ class AutomationController extends Controller
      * always written together. Writing one without the other is how a row
      * reaches the state the CHECK constraint refuses.
      *
+     * `$activeByDefault` is what the flag falls back to when the request does
+     * not carry it, and the two callers want different answers: a new
+     * automation is on, and an edit **keeps what it had**. Defaulting an
+     * update to `true` silently turned a switched-off automation back on — the
+     * dialog always sends the key, so only a hand-written or later caller hit
+     * it, and this is the flag that decides whether something fires.
+     *
      * @return array<string, mixed>
      */
-    private function attributes(SaveAutomationRequest $request): array
+    private function attributes(SaveAutomationRequest $request, bool $activeByDefault): array
     {
         $validated = $request->validated();
         $mode = $validated['executionMode'];
@@ -98,7 +106,7 @@ class AutomationController extends Controller
             'config' => $validated['config'] ?? [],
             'is_manual' => $mode === 'manual',
             'requires_approval' => $mode === 'approval',
-            'is_active' => $validated['is_active'] ?? true,
+            'is_active' => $validated['is_active'] ?? $activeByDefault,
         ];
     }
 }

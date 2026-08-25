@@ -91,19 +91,6 @@ enum AutomationActionType: string implements HasLabel
     }
 
     /**
-     * Whether this action can reach somebody outside the team.
-     *
-     * The one that decides whether the approval queue (F5.7) and the send
-     * rails (F5.9) apply. *"An automation that emails the wrong client the
-     * wrong thing damages a real relationship and cannot be recalled"* — a
-     * task created on a deal does not.
-     */
-    public function reachesOutsideTheTeam(): bool
-    {
-        return $this === self::SendEmail;
-    }
-
-    /**
      * Whether the action is presented to a human rather than fired (F5.4).
      *
      * F5.4 wants both *"recorded identically once done"*, so this is about

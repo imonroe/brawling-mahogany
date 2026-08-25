@@ -14,6 +14,7 @@ use App\Models\StageTemplate;
 use App\Models\TeamMembership;
 use App\Models\WorkflowTemplate;
 use App\Support\Deals\DealRoster;
+use App\Support\Messages\ChannelMismatch;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\Mail;
 
@@ -160,6 +161,39 @@ it('refuses a malformed token, which is the one a strict scan would miss', funct
         'body_text' => 'Hello {{ client name }}',
         'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
     ])->assertSessionHasErrors('body_text');
+});
+
+/**
+ * The one a strict scan cannot see, because it is not a token at all.
+ *
+ * A dropped brace is the likeliest typo in something hand-typed, and it used
+ * to save with no errors, render literally into a client's inbox, and report
+ * `isComplete() === true`.
+ */
+it('refuses a merge field with a brace missing', function (): void {
+    $this->post('/templates/messages', [
+        'name' => 'Broken',
+        'channel' => MessageChannel::Email->value,
+        'subject' => 'Hi {{ client_name }',
+        'body_text' => 'ok',
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ])->assertSessionHasErrors('subject');
+
+    expect(MessageTemplate::query()->count())->toBe(0);
+});
+
+it('refuses a subject carrying a line break', function (): void {
+    // A subject is a mail header. Symfony folds a newline into encoded words
+    // rather than injecting one, so this is not an exploit — it is the rule
+    // the merged values are already held to, applied to the other half of the
+    // same string.
+    $this->post('/templates/messages', [
+        'name' => 'Injected',
+        'channel' => MessageChannel::Email->value,
+        'subject' => "Your inspection\r\nBcc: attacker@example.test",
+        'body_text' => 'ok',
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ])->assertSessionHasErrors('subject');
 });
 
 it('refuses a field that exists and cannot resolve yet, naming its slice', function (): void {
@@ -452,6 +486,122 @@ it('refuses to test a template on a channel with no mail transport', function ()
         ->assertStatus(422);
 
     Mail::assertNothingSent();
+});
+
+/**
+ * The template's own PATCH was the **third** caller of the channel pairing
+ * rule, and it was written without it.
+ *
+ * `SaveAutomationRequest` and `ActionDefinition::booted()` both refuse a
+ * mismatch from the automation's end; `ActionDefinition::saving` never fires
+ * when no automation row is being written. A `send_email` automation was left
+ * pointing at a push template through the front door, with a 302.
+ */
+it('refuses a channel change that would strand the automations on it', function (): void {
+    $template = messageTemplate(['name' => 'Property listed']);
+
+    $workflowTemplate = WorkflowTemplate::factory()->create(['team_id' => $this->team->getKey()]);
+    $stage = StageTemplate::factory()->create(['workflow_template_id' => $workflowTemplate->getKey()]);
+
+    ActionDefinition::factory()->sendingEmail()->create([
+        'team_id' => $this->team->getKey(),
+        'stage_template_id' => $stage->getKey(),
+        'message_template_id' => $template->getKey(),
+    ]);
+
+    $this->patch("/templates/messages/{$template->getKey()}", [
+        'name' => 'Property listed',
+        'channel' => MessageChannel::Push->value,
+        'body_text' => 'ok',
+        'recipient_rule' => ['type' => RecipientRuleType::TeamOwner->value],
+    ])->assertSessionHasErrors('channel');
+
+    expect($template->fresh()->channel)->toBe(MessageChannel::Email);
+});
+
+it('lets the channel change once nothing is standing on it', function (): void {
+    // The control. A rule that refused every channel change would be a
+    // different bug, and "no errors" alone passes on a refusal too.
+    $template = messageTemplate();
+
+    $this->patch("/templates/messages/{$template->getKey()}", [
+        'name' => $template->name,
+        'channel' => MessageChannel::Push->value,
+        'body_text' => 'ok',
+        'recipient_rule' => ['type' => RecipientRuleType::TeamOwner->value],
+    ])->assertSessionHasNoErrors();
+
+    expect($template->fresh()->channel)->toBe(MessageChannel::Push)
+        // …and the columns the new channel does not carry are cleared rather
+        // than left behind. `prohibited` stops the write; nothing cleared them.
+        ->and($template->fresh()->subject)->toBeNull()
+        ->and($template->fresh()->body_html)->toBeNull();
+});
+
+it('holds the channel pairing on the model, for callers no request reaches', function (): void {
+    $template = messageTemplate();
+
+    $workflowTemplate = WorkflowTemplate::factory()->create(['team_id' => $this->team->getKey()]);
+    $stage = StageTemplate::factory()->create(['workflow_template_id' => $workflowTemplate->getKey()]);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($stage, $template): void {
+        ActionDefinition::factory()->sendingEmail()->create([
+            'team_id' => $this->team->getKey(),
+            'stage_template_id' => $stage->getKey(),
+            'message_template_id' => $template->getKey(),
+        ]);
+
+        // No request in sight — which is the point. #92's instantiation and a
+        // pack install are the callers this has to hold for.
+        expect(fn () => $template->forceFill(['channel' => MessageChannel::Push])->save())
+            ->toThrow(ChannelMismatch::class);
+    });
+});
+
+/**
+ * The number S45 exists to show has to be a number somebody can chase down.
+ */
+it('stops counting automations nobody can reach any more', function (): void {
+    $template = messageTemplate();
+
+    $workflowTemplate = WorkflowTemplate::factory()->create(['team_id' => $this->team->getKey()]);
+    $stage = StageTemplate::factory()->create(['workflow_template_id' => $workflowTemplate->getKey()]);
+
+    ActionDefinition::factory()->sendingEmail()->count(3)->create([
+        'team_id' => $this->team->getKey(),
+        'stage_template_id' => $stage->getKey(),
+        'message_template_id' => $template->getKey(),
+    ]);
+
+    // The control: they count while the workflow template is live.
+    expect($template->inUseCount())->toBe(3);
+
+    $this->delete("/templates/{$workflowTemplate->getKey()}")->assertRedirect();
+
+    // `WorkflowTemplateController::destroy` soft-deletes the template and
+    // touches neither its stages nor their automations, so three automations
+    // on no screen were still being reported to the reader as "keeping" it.
+    expect($template->fresh()->inUseCount())->toBe(0);
+
+    $this->get('/templates/messages')
+        ->assertInertia(fn ($page) => $page->where('templates.0.inUse', 0));
+});
+
+it('offers every channel’s recipient rules, so the picker can narrow with the form', function (): void {
+    /*
+     * Sending only the saved channel's rules made the picker offer
+     * combinations the validator refused — and on S46, where `hasSubject` and
+     * `hasHtml` are reactive, it made two of three narrowings live and the
+     * third stale.
+     */
+    $this->get('/templates/messages')
+        ->assertInertia(fn ($page) => $page
+            ->has('recipientRules.email')
+            ->has('recipientRules.push')
+            ->has('recipientRules.email.primary_contact')
+            // PRD F12.2: push is internal and carries nothing client-facing.
+            ->missing('recipientRules.push.primary_contact')
+            ->has('recipientRules.push.team_owners'));
 });
 
 it('refuses the whole screen to somebody without templates.manage', function (): void {

@@ -72,7 +72,12 @@ class MessageTemplateController extends Controller
             // One query for the page, not one per row — the shape a screen
             // whose whole job is a count per row is most likely to grow an
             // N+1 in (`DealTypesBudgetTest`'s finding, one screen over).
-            ->withCount('actionDefinitions')
+            //
+            // **Live** automations: a soft-deleted workflow template takes its
+            // stages' automations off every screen without deleting them, and
+            // a count somebody cannot chase down is noise in the one place the
+            // product asked them to think.
+            ->withCount('liveActionDefinitions')
             ->orderBy('channel')
             ->orderBy('name')
             ->get();
@@ -80,7 +85,7 @@ class MessageTemplateController extends Controller
         return Inertia::render('Templates/Messages/Index', [
             'templates' => $templates->map(self::row(...))->values()->all(),
             'channels' => MessageChannel::selectableOptions(),
-            'recipientRules' => RecipientRuleType::options(),
+            'recipientRules' => self::recipientRulesByChannel(),
             'participantRoles' => ParticipantRole::options(),
             'can' => [
                 'manage' => $request->user()?->can('create', MessageTemplate::class) ?? false,
@@ -272,8 +277,20 @@ class MessageTemplateController extends Controller
     {
         $team = $this->team();
 
+        /*
+         * Named columns and no relations. The list renders `displayName()`,
+         * which reads two of this table's own columns — and the deal that is
+         * actually previewed loads what it needs itself, through
+         * `MergeContext::forCurrentStageOf()` and `MergeFields::resolve()`.
+         *
+         * Eager-loading participants and properties here hydrated a hundred
+         * models so that one of them could be rendered. `CLAUDE.md`: *"Before
+         * adding a `with()`, name the cell that reads it; if there isn't one,
+         * that is the finding."* It is a fixed per-page cost, so a query-count
+         * budget would not have found it either.
+         */
         $deals = Deal::query()
-            ->with(['participants.membership', 'propertyLinks.property'])
+            ->select(['id', 'team_id', 'name', 'generated_name', 'updated_at'])
             ->orderByDesc('updated_at')
             ->limit(25)
             ->get();
@@ -303,7 +320,7 @@ class MessageTemplateController extends Controller
                 MergeFields::all(),
             ),
             'channels' => MessageChannel::selectableOptions(),
-            'recipientRules' => RecipientRuleType::optionsFor($template->channel),
+            'recipientRules' => self::recipientRulesByChannel(),
             'participantRoles' => ParticipantRole::options(),
             'deals' => $deals->map(fn (Deal $row): array => [
                 'id' => $row->getKey(),
@@ -320,6 +337,34 @@ class MessageTemplateController extends Controller
                 'update' => $request->user()?->can('update', $template) ?? false,
             ],
         ]);
+    }
+
+    /**
+     * Every channel's recipient rules, so the page can narrow as the channel
+     * changes rather than as the row is saved.
+     *
+     * Sent whole, keyed by channel, the way `automationShapes` already is one
+     * screen over. Sending the rules for the *saved* channel is the hazard
+     * Frontend conventions §3 names — the props are the last response that
+     * landed, and on this screen two of the three channel-dependent
+     * narrowings (`hasSubject`, `hasHtml`) are reactive while the third was
+     * not. An email template switched to push went on offering client
+     * recipients that the validator then refused, and a push template
+     * switched to email could not pick one until it had been saved.
+     *
+     * @return array<string, array<string, string>>
+     */
+    private static function recipientRulesByChannel(): array
+    {
+        $rules = [];
+
+        foreach (MessageChannel::selectableOptions() as $value => $label) {
+            $channel = MessageChannel::from($value);
+
+            $rules[$value] = RecipientRuleType::optionsFor($channel);
+        }
+
+        return $rules;
     }
 
     /**
@@ -389,7 +434,7 @@ class MessageTemplateController extends Controller
              * rather than reported after it — the rule every lookup screen in
              * this product follows.
              */
-            'inUse' => (int) ($template->getAttribute('action_definitions_count')
+            'inUse' => (int) ($template->getAttribute('live_action_definitions_count')
                 ?? $template->inUseCount()),
             'url' => '/templates/messages/'.$template->getKey(),
         ];

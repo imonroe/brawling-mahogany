@@ -548,7 +548,15 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      */
     Route::post('templates/messages/{messageTemplate}/preview', [MessageTemplateController::class, 'preview'])
         ->name('message-templates.preview');
+    /*
+     * Throttled, because this is the first route in the product that sends
+     * anything. It can only reach the person who pressed it, so the blast
+     * radius is their own inbox — but F5.9's per-team rate limit is a named
+     * launch blocker (#96) and a send path with no ceiling at all is the shape
+     * that blocker exists to refuse.
+     */
     Route::post('templates/messages/{messageTemplate}/test', [MessageTemplateController::class, 'test'])
+        ->middleware('throttle:10,1')
         ->name('message-templates.test');
 
     Route::scopeBindings()->group(function (): void {

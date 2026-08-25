@@ -53,6 +53,22 @@ final class MergeFields
     private const WELL_FORMED = '/^[a-z][a-z0-9_]*$/';
 
     /**
+     * A brace run that is not part of a matched pair.
+     *
+     * `TOKEN_PATTERN` is loose about *what is between* the braces and strict
+     * about the braces themselves, which turned out to be exactly half a
+     * defence. `{{ client_name }` matches nothing, so the validator saw a
+     * clean template and the renderer left the braces in a client's inbox —
+     * and `RenderedMessage::isComplete()` said the message was fine, which is
+     * the flag #93's approval gate is built on.
+     *
+     * Dropping one brace is the likeliest typo in a token somebody hand-types,
+     * so it is checked after the pairs are removed rather than by widening the
+     * pattern: what is left over is by definition unbalanced.
+     */
+    private const BRACE_RUN = '/\{\{|\}\}/';
+
+    /**
      * @return list<MergeField>
      */
     public static function all(): array
@@ -217,6 +233,39 @@ final class MergeFields
             static fn (array $match): string => $replace(trim($match[1])),
             $body,
         );
+    }
+
+    /**
+     * The unbalanced brace runs left over once every matched pair is removed.
+     *
+     * `{{ client_name }` and `{{client_name` leave a `{{`; `{ { client_name }}`
+     * leaves a `}}`. A single stray `}` is not reported — `{{ client_name }}}`
+     * is a token followed by a literal brace, which renders as somebody
+     * probably meant and is not the failure this exists to catch.
+     *
+     * @return list<string>
+     */
+    public static function strayBraceRuns(?string ...$bodies): array
+    {
+        $found = [];
+
+        foreach ($bodies as $body) {
+            if ($body === null || $body === '') {
+                continue;
+            }
+
+            $remainder = (string) preg_replace(self::TOKEN_PATTERN, '', $body);
+
+            preg_match_all(self::BRACE_RUN, $remainder, $matches);
+
+            foreach ($matches[0] as $run) {
+                if (! in_array($run, $found, true)) {
+                    $found[] = $run;
+                }
+            }
+        }
+
+        return $found;
     }
 
     /**

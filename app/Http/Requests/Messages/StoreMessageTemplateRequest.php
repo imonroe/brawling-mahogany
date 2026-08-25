@@ -23,4 +23,12 @@ class StoreMessageTemplateRequest extends FormRequest
     {
         return $this->messageTemplateRules();
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return $this->messageTemplateMessages();
+    }
 }

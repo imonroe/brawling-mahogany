@@ -49,10 +49,28 @@ trait MessageTemplateRules
                 // PRD §7.12 names and nothing sends, and a template on a
                 // channel with no transport can never leave the building.
                 Rule::in(array_keys(MessageChannel::selectableOptions())),
+                $this->channelTheAutomationsCanUse($ignoring),
             ],
 
             'subject' => $channel?->hasSubject() === true
-                ? ['required', 'string', 'max:200', new ValidMergeFields]
+                ? [
+                    'required',
+                    'string',
+                    'max:200',
+                    /*
+                     * A subject line is a mail **header**, and the merged
+                     * values are already stripped of CR and LF on the way into
+                     * one. The template's own text was held to no such rule —
+                     * so a subject carrying a newline stored, rendered, and
+                     * reached the envelope. Symfony folds it into encoded
+                     * words rather than injecting a header, so this is not an
+                     * exploit; it is the same rule applied to the other half
+                     * of the same string, and a mangled subject in the preview
+                     * either way.
+                     */
+                    'not_regex:/[\r\n]/',
+                    new ValidMergeFields,
+                ]
                 : ['prohibited'],
 
             'body_html' => $channel?->hasHtmlBody() === true
@@ -81,6 +99,61 @@ trait MessageTemplateRules
              * less legibly.
              */
             'from_identity' => ['nullable', 'email:rfc', 'max:255'],
+        ];
+    }
+
+    /**
+     * A channel change must not strand the automations already standing on
+     * this template.
+     *
+     * `MessageTemplate::booted()` is what actually holds the invariant, for
+     * every caller. This exists so the person editing gets a sentence on the
+     * field instead of an exception — the model throws, and a throw is a 500
+     * to somebody who changed a dropdown.
+     */
+    private function channelTheAutomationsCanUse(?MessageTemplate $ignoring): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($ignoring): void {
+            $channel = is_string($value) ? MessageChannel::tryFrom($value) : null;
+
+            if (! $ignoring instanceof MessageTemplate || $channel === null || $channel === $ignoring->channel) {
+                return;
+            }
+
+            $stranded = $ignoring->liveActionDefinitions()->get()->filter(
+                fn ($automation): bool => $automation->action_type->channel() !== null
+                    && $automation->action_type->channel() !== $channel,
+            );
+
+            if ($stranded->isNotEmpty()) {
+                $fail(sprintf(
+                    '%s %s using this template and cannot send on this channel. Point %s at another template first.',
+                    $stranded->count(),
+                    $stranded->count() === 1 ? 'automation is' : 'automations are',
+                    $stranded->count() === 1 ? 'it' : 'them',
+                ));
+            }
+        };
+    }
+
+    /**
+     * The refusals that would otherwise name an attribute rather than a
+     * reason.
+     *
+     * *"The selected recipient rule.type is invalid"* tells somebody nothing:
+     * the rule they picked is a real rule, and what is wrong is that this
+     * channel cannot carry it. IA §10 — an error says what happened, then what
+     * to do.
+     *
+     * @return array<string, string>
+     */
+    protected function messageTemplateMessages(): array
+    {
+        return [
+            'recipient_rule.type.in' => 'A push notification goes to the team, never to a client — PRD keeps it an internal channel.',
+            'subject.prohibited' => 'This channel has no subject line.',
+            'body_html.prohibited' => 'This channel carries plain text only.',
+            'subject.not_regex' => 'A subject is a single line — take the line break out.',
         ];
     }
 

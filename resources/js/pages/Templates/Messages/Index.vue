@@ -20,7 +20,7 @@
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { Archive, Plus, RotateCcw } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
@@ -48,7 +48,15 @@ const props = defineProps<{
     templates: TemplateRow[];
     /** `value => label`, the shape every screen takes an enum in. */
     channels: Record<string, string>;
-    recipientRules: Record<string, string>;
+    /**
+     * Keyed by channel, because which rules are offered depends on it.
+     *
+     * PRD F12.2 keeps push internal, so a push template may not be addressed
+     * to a client — and sending only the current channel's rules made the
+     * picker offer combinations the validator then refused. The page narrows;
+     * the server is not asked again for a choice the reader has already made.
+     */
+    recipientRules: Record<string, Record<string, string>>;
     participantRoles: Record<string, string>;
     can: { manage: boolean };
 }>();
@@ -62,6 +70,8 @@ defineOptions({
 const creating = ref(false);
 const busyId = ref<string | null>(null);
 
+const firstChannel = Object.keys(props.channels)[0] ?? 'email';
+
 const form = useForm<{
     name: string;
     channel: string;
@@ -70,11 +80,13 @@ const form = useForm<{
     recipient_rule: { type: string; participantRole: string | null };
 }>({
     name: '',
-    channel: Object.keys(props.channels)[0] ?? 'email',
+    channel: firstChannel,
     subject: '',
     body_text: '',
     recipient_rule: {
-        type: Object.keys(props.recipientRules)[0] ?? 'primary_contact',
+        type:
+            Object.keys(props.recipientRules[firstChannel] ?? {})[0] ??
+            'primary_contact',
         participantRole: null,
     },
 });
@@ -86,6 +98,21 @@ const form = useForm<{
  * that narrows" means one screen over.
  */
 const hasSubject = computed(() => form.channel === 'email');
+
+/** Narrowed by the channel *in the form*, not the one last saved. */
+const rulesForChannel = computed<Record<string, string>>(
+    () => props.recipientRules[form.channel] ?? {},
+);
+
+/*
+ * A choice that stops being offered must stop being held, or the reader is
+ * shown an error about a control that no longer lists the value causing it.
+ */
+watch(rulesForChannel, (rules) => {
+    if (!(form.recipient_rule.type in rules)) {
+        form.recipient_rule.type = Object.keys(rules)[0] ?? '';
+    }
+});
 
 const needsParticipantRole = computed(
     () => form.recipient_rule.type === 'participant_role',
@@ -217,7 +244,7 @@ function restore(template: TemplateRow): void {
                         <AppSelect
                             id="new_recipient"
                             v-model="form.recipient_rule.type"
-                            :options="recipientRules"
+                            :options="rulesForChannel"
                             size="default"
                         />
                         <p
