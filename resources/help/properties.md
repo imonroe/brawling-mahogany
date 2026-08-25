@@ -53,5 +53,5 @@ the property the deal is actually about — and it is what the deal is named
 after.
 
 On a buyer's deal, the others are candidates, each marked with where it stands:
-shortlisted, viewed, passed. When one is accepted, promote it to subject and
+interested, shortlisted, passed. When one is accepted, promote it to subject and
 the deal renames itself.

@@ -37,6 +37,6 @@ morning and nobody has pressed Advance since, this number has not caught up.
 Re-checking every requirement on every deal on every page load would cost more
 than the number is worth. Open a deal and you get the live answer.
 
-**Due in 14 days** counts tasks, not closings. Key dates arrive in a later
+**Due in 14 days** counts tasks, not closings. Dates and deadlines arrive in a later
 release, and until they do a heading claiming a closing date would be claiming
 something the app does not know.

@@ -44,7 +44,10 @@ const UNGATED_ROUTES = [
     'teams.switch',
 
     /*
-     * The manual (S92, #170), which asks only that somebody is signed in.
+     * The manual (S92, #170), which asks only that somebody is signed in —
+     * and is outside `verified`, `two-factor` and `team` as well, so an owner
+     * held at 2FA enrolment can read the article about 2FA enrolment.
+     * `HelpTest` asserts that middleware stack directly.
      *
      * A help section gated on `deals.view` cannot explain what a deal is to
      * the person deciding whether to ask for that permission, and a Contact

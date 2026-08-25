@@ -45,9 +45,9 @@ Before making architectural decisions or writing code, read [`docs/Product Requi
 | [`Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) | Scope, personas, features, data model, architecture, release slices, compliance, open questions/decisions |
 | [`Information Architecture.md`](docs/Information%20Architecture.md) | **The naming authority.** Code names, internal labels, and client-facing labels for every concept |
 | [`Screen Inventory.md`](docs/Screen%20Inventory.md) | The full screen list, mapped to PRD feature IDs |
+| [`resources/help/*.md`](resources/help) | **The user manual** (S92). Not part of `docs/` and deliberately so: `docs/` is the engineering record and this is what a person reads inside the app — different reader, different register. A change to what somebody *does* needs a pass over both |
 | [`Build Plan.md`](docs/Build%20Plan.md) | The build order, the critical path, and the map to the GitHub issue backlog |
 | [`Design System.md`](docs/Design%20System.md) / [`Design references.md`](docs/Design%20references.md) | Visual/UI direction |
-| [`Screen Inventory.md`](docs/Screen%20Inventory.md) §B, S92 | **The user manual** lives in `resources/help/*.md`, not in `docs/` — different reader, different register. `docs/` is the engineering record; `resources/help/` is what a person reads inside the app. A feature that changes what somebody does needs a pass over both |
 | [`Frontend conventions.md`](docs/Frontend%20conventions.md) | Where things live in `resources/js`, the component governance rules, the formatters, and the content rules |
 | [`Testing.md`](docs/Testing.md) | The four test suites, the conventions every slice inherits, and the tests that hold project rules |
 | [`Environment and secrets.md`](docs/Environment%20and%20secrets.md) | Which secrets exist per environment, and how they are rotated |

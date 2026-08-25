@@ -99,6 +99,40 @@ Route::get('no-team', function () {
     ->name('teams.none');
 
 /*
+ * S92 — the manual (#170).
+ *
+ * **`auth` alone, outside `verified`, `two-factor` and `team`**, and each
+ * exclusion is a case somebody is actually in.
+ *
+ * PRD §9 makes 2FA mandatory for a Team Owner, so an un-enrolled owner is held
+ * at the enrolment screen — and *Signing in and your account* is the article
+ * that explains enrolment, recovery codes and what to do when the phone is the
+ * thing you lost. Leaving the manual inside `two-factor` locks the one person
+ * who needs that page out of it.
+ *
+ * `team` is the same argument one step earlier: somebody invited but not yet
+ * in a team lands on `/no-team`, and *What this is for* is what tells them
+ * what they have been invited to.
+ *
+ * `verified` goes for the same reason — an unverified account is somebody
+ * mid-signup, which is exactly when a manual is worth reading.
+ *
+ * The shell renders without a team already: `HandleInertiaRequests` returns
+ * null for `team` and omits `counts` and `lookups` until one resolves, which
+ * is what `/no-team` relies on.
+ *
+ * `{article}` is constrained to a slug, so the only thing reaching
+ * `HelpLibrary` is something that could name a file; anything else is a 404
+ * from the router rather than a lookup.
+ */
+Route::middleware('auth')->group(function (): void {
+    Route::get('help', [HelpController::class, 'index'])->name('help.index');
+    Route::get('help/{article}', [HelpController::class, 'show'])
+        ->where('article', '[a-z0-9-]+')
+        ->name('help.show');
+});
+
+/*
  * The tenant application.
  *
  * `two-factor` before `team`: PRD §9 makes 2FA mandatory for a Team Owner, and
@@ -120,23 +154,6 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * *against a person* and the person is what the URL has to carry.
      */
     Route::get('activity', [ActivityController::class, 'index'])->name('activity.index');
-
-    /*
-     * S92 — the manual (#170).
-     *
-     * Inside `auth` and outside everything else. A help section gated on a
-     * feature's own permission cannot explain that feature to the person
-     * deciding whether to ask for it — see `HelpController` and the exemption
-     * `AuthorizationCoverageTest` carries for these two names.
-     *
-     * `{article}` is constrained to a slug so the only thing that reaches
-     * `HelpLibrary` is something that could name a file; anything else is a
-     * 404 from the router rather than a lookup.
-     */
-    Route::get('help', [HelpController::class, 'index'])->name('help.index');
-    Route::get('help/{article}', [HelpController::class, 'show'])
-        ->where('article', '[a-z0-9-]+')
-        ->name('help.show');
 
     // S30, S31, S32 — the people directory.
     Route::get('people', [PersonController::class, 'index'])->name('people.index');

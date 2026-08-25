@@ -85,6 +85,63 @@ it('is readable by somebody with no permissions at all', function (): void {
     $this->get('/help/welcome')->assertOk();
 });
 
+it('reaches the owner stranded at two-factor enrolment', function (): void {
+    /*
+     * The case that moved these routes out of the tenant group.
+     *
+     * PRD §9 makes 2FA mandatory for a Team Owner, so an un-enrolled owner is
+     * held at the enrolment screen — and *Signing in and your account* is the
+     * article explaining enrolment, recovery codes, and what to do when the
+     * phone is the thing you lost. Inside `two-factor`, the manual locked out
+     * the one person who most needed that page.
+     *
+     * The control matters: the same person is asserted to be redirected away
+     * from an ordinary screen, so a passing case here cannot be the mandate
+     * quietly not applying.
+     */
+    [$team, $owner] = $this->teamWithOwner();
+
+    $this->actingAsPerson($owner, $team);
+
+    $this->get('/dashboard')->assertRedirect(route('security.edit'));
+
+    $this->get('/help')->assertOk();
+    $this->get('/help/signing-in')->assertOk();
+});
+
+it('is gated on being signed in and on nothing else', function (): void {
+    /*
+     * The claim this PR makes in five places, asserted where it actually
+     * lives — the route's middleware — rather than through a request.
+     *
+     * The behavioural version of the `team` half cannot be written honestly in
+     * this suite: `TeamContext` is an in-memory singleton, so a test that
+     * signs in a teamless person after `beforeEach` has resolved a team is
+     * asserting against harness state rather than against the product. The
+     * two-factor half *can* be, and is, above.
+     *
+     * `verified`, `two-factor` and `team` are each excluded for a case
+     * somebody is genuinely in: mid-signup, held at 2FA enrolment, or invited
+     * and not yet in a team. All three are moments when a manual is worth
+     * more than usual, and all three would have been locked out.
+     */
+    $routes = collect(app('router')->getRoutes()->getRoutes())
+        ->filter(fn ($route): bool => in_array($route->getName(), ['help.index', 'help.show'], true));
+
+    expect($routes)->toHaveCount(2);
+
+    foreach ($routes as $route) {
+        $middleware = $route->gatherMiddleware();
+
+        // No message argument: Pest reads extra arguments to `toContain` as
+        // further values to look for, not as a failure message.
+        expect($middleware)->toContain('auth')
+            ->and($middleware)->not->toContain('two-factor')
+            ->and($middleware)->not->toContain('team')
+            ->and($middleware)->not->toContain('verified');
+    }
+});
+
 it('keeps the manual behind the sign-in screen', function (): void {
     auth()->logout();
 
@@ -280,6 +337,13 @@ it('uses the product’s own vocabulary', function (): void {
         'workspace' => 'Team',
         'organization' => 'Team',
         'service provider' => 'Vendor',
+        /*
+         * IA §11 line 450 bans this **in the UI** specifically — *"Dates &
+         * Deadlines, not Key dates"*, and it is Emily's exact phrase. The
+         * manual is UI text, so it is bound by it, and the first draft said
+         * *"key dates"* four times.
+         */
+        'key date' => 'Dates & Deadlines',
     ];
 
     $offences = [];
@@ -307,23 +371,98 @@ it('never promises a screen the reader cannot reach', function (): void {
      * most common instruction is *"Deals → New deal"*, and the arrow is what
      * makes it a promise.
      */
-    $built = collect(app(HelpLibrary::class)->all())
-        ->reject(fn ($article): bool => $article->isPlanned());
+    $planned = collect(app(HelpLibrary::class)->all())
+        ->filter(fn ($article): bool => $article->isPlanned())
+        ->keys();
 
     $navigable = ['Deals', 'People', 'Properties', 'Templates', 'Settings',
         'Activity', 'My Work', 'Calendar', 'Keep in Touch', 'Help'];
 
     $offences = [];
+    $checked = 0;
 
-    foreach ($built as $slug => $article) {
-        preg_match_all('/\*\*([A-Z][A-Za-z ]+) →/', $article->html, $matches);
+    /*
+     * Read from the **Markdown source**, not from `$article->html`.
+     *
+     * The first version of this ran `/\*\*(...) →/` over the rendered HTML,
+     * where `**Deals → New deal**` has already become
+     * `<strong>Deals → New deal</strong>`. It matched **nothing**, on every
+     * article, and passed — which is the same silence the link guard was
+     * caught in. Mutation-tested: appending `**Dashboards → Reports**` to an
+     * article now fails this.
+     */
+    foreach (File::files(resource_path('help')) as $file) {
+        if (in_array(Str::before($file->getFilename(), '.md'), $planned->all(), true)) {
+            continue;
+        }
+
+        preg_match_all(
+            '/\*\*([A-Z][A-Za-z ]+?)\s*→/u',
+            (string) File::get($file->getPathname()),
+            $matches,
+        );
 
         foreach ($matches[1] as $destination) {
+            $checked++;
+
             if (! in_array(trim($destination), $navigable, true)) {
-                $offences[] = "{$slug} sends the reader to '{$destination}', which is not in the sidebar";
+                $offences[] = sprintf(
+                    '%s sends the reader to "%s", which is not in the sidebar',
+                    $file->getFilename(),
+                    trim($destination),
+                );
             }
         }
     }
 
+    // The scan has to be finding instructions, or it is asserting over an
+    // empty list — which is exactly how the first version passed.
+    expect($checked)->toBeGreaterThanOrEqual(4);
+
     expect($offences)->toBe([], implode('; ', $offences));
+});
+
+it('gives the contents list ids that match the headings', function (): void {
+    /*
+     * The two were derived separately — one from the Markdown, one from the
+     * rendered HTML — and disagreed the moment a heading held a character
+     * CommonMark escapes. `## Dates & Deadlines` produced `dates-deadlines`
+     * in the contents list and `dates-amp-deadlines` on the heading, because
+     * `strip_tags` leaves `&amp;` for `Str::slug` to read as a word. A
+     * contents link that scrolls nowhere is the most obvious defect a manual
+     * can have.
+     *
+     * Also asserts the duplicate case, which two identical headings in one
+     * article would otherwise collapse onto the first.
+     */
+    $path = resource_path('help/zz-anchors.md');
+
+    File::put($path, "---\ntitle: Anchors\nsummary: Probe.\nsection: getting-started\norder: 97\n---\n\n"
+        ."## Dates & Deadlines\n\nOne.\n\n## What it will do\n\nTwo.\n\n## What it will do\n\nThree.\n");
+
+    $reset = function (): void {
+        (new ReflectionClass(HelpLibrary::class))->setStaticPropertyValue('articles', null);
+    };
+
+    $reset();
+
+    try {
+        $article = app(HelpLibrary::class)->find('zz-anchors');
+
+        expect($article)->not->toBeNull();
+
+        // No message argument: Pest reads a second argument to `toContain`
+        // as another needle, not as a failure message.
+        foreach ($article->headings as $heading) {
+            expect($article->html)->toContain('<h2 id="'.$heading['id'].'">');
+        }
+
+        $ids = collect($article->headings)->pluck('id');
+
+        expect($ids->all())->toBe(['dates-deadlines', 'what-it-will-do', 'what-it-will-do-2'])
+            ->and($ids->unique()->count())->toBe($ids->count());
+    } finally {
+        File::delete($path);
+        $reset();
+    }
 });

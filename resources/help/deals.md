@@ -46,7 +46,7 @@ the state, the stage, and the counts.
 | **Overview**   | Where the deal is, what is blocking it, and what happened lately  |
 | **Timeline**   | Every stage in order, expandable, with its requirements and tasks |
 | **Tasks**      | The checklist — see [Tasks](/help/tasks)                          |
-| **Dates**      | Key dates and deadlines — _arriving in a later release_           |
+| **Dates**      | Dates and deadlines — _arriving in a later release_               |
 | **People**     | Everybody on the deal and their part in it                        |
 | **Properties** | The subject property, and any others in play                      |
 | **Offers**     | What has been offered and where each one stands                   |

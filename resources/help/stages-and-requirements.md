@@ -29,19 +29,22 @@ clear one, the deal has not moved; you press Advance again.
 
 ## The kinds of requirement
 
-| Kind                        | Clears when                                                |
-| --------------------------- | ---------------------------------------------------------- |
-| **Manual confirmation**     | Somebody ticks it                                          |
-| **Required tasks complete** | Every required task on the stage is done                   |
-| **Field populated**         | A named field on the deal or property has a value          |
-| **Approval**                | Somebody holding a named role approves it                  |
-| **Document present**        | A document of the right kind is attached — _later release_ |
-| **Action completed**        | An automated step has run — _later release_                |
-| **Date reached**            | A key date has passed — _later release_                    |
+Seven exist in the engine. **Two can be built in the template editor today**,
+and they are the two that can actually clear:
 
-The last three are visible and selectable but cannot yet clear on their own,
-so a deal that meets one needs an override to move past it. That is temporary
-and each one says so when you look at it.
+| Kind                        | Clears when                              |
+| --------------------------- | ---------------------------------------- |
+| **Manual confirmation**     | Somebody ticks it                        |
+| **Required tasks complete** | Every required task on the stage is done |
+
+The other five — approval, field populated, document present, action
+completed, date reached — each need a piece of configuration the editor cannot
+yet ask for, so the editor does not offer them. That is deliberate: a
+requirement built without its configuration is one nothing can ever clear, and
+a stage carrying one could only be got past by overriding it every time.
+
+If a template from a pack carries one of those, you will see it on the deal
+and it will say why it cannot clear on its own.
 
 ## Confirming a requirement
 

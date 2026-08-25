@@ -219,7 +219,9 @@ final class HelpLibrary
     {
         [$frontmatter, $body] = $this->split($contents);
 
-        $html = $this->converter()->convert($body)->getContent();
+        [$html, $headings] = $this->anchor(
+            $this->converter()->convert($body)->getContent(),
+        );
 
         return new HelpArticle(
             slug: $slug,
@@ -227,8 +229,8 @@ final class HelpLibrary
             summary: $frontmatter['summary'] ?? '',
             section: $frontmatter['section'] ?? 'getting-started',
             order: (int) ($frontmatter['order'] ?? 99),
-            html: $this->withHeadingAnchors($html),
-            headings: $this->headings($body),
+            html: $html,
+            headings: $headings,
             arrivesWith: $frontmatter['arrives_with'] ?? null,
         );
     }
@@ -273,48 +275,77 @@ final class HelpLibrary
     }
 
     /**
-     * The `##` headings, for the on-page contents list.
+     * Give every heading an id, and return the contents list built from the
+     * **same** pass.
      *
-     * Read from the **Markdown** rather than the rendered HTML, because that
-     * is where the heading text is unambiguous — a parsed `<h2>` may carry
-     * inline code or a link, and the contents list wants the words.
+     * One pass rather than two, and that is the whole point. This was two
+     * functions — one reading the Markdown for the contents list, one
+     * rewriting the HTML — each slugging its own copy of the text, and they
+     * disagreed the moment a heading contained a character CommonMark
+     * escapes: `## Dates & Deadlines` gave the contents list
+     * `dates-deadlines` and the heading `dates-amp-deadlines`, because
+     * `strip_tags` leaves `&amp;` behind for `Str::slug` to read as a word.
+     * A contents link that scrolls nowhere is the most obvious possible
+     * defect in a manual.
      *
-     * @return list<array{level: int, text: string, id: string}>
+     * Deriving both from one traversal makes them agree by construction,
+     * which is the same rule this codebase applies to every other pair of
+     * things that must not drift.
+     *
+     * **Duplicates are numbered.** Two `## What it will do` headings in one
+     * article — which the *Coming later* pages plausibly grow — would
+     * otherwise produce two identical ids, and every link to the second one
+     * would land on the first.
+     *
+     * @return array{0: string, 1: list<array{level: int, text: string, id: string}>}
      */
-    private function headings(string $body): array
+    private function anchor(string $html): array
     {
-        preg_match_all('/^(#{2,3})\s+(.+)$/m', $body, $matches, PREG_SET_ORDER);
+        $headings = [];
+        $seen = [];
 
-        return array_map(fn (array $match): array => [
-            'level' => mb_strlen($match[1]),
-            'text' => $this->plain($match[2]),
-            'id' => Str::slug($this->plain($match[2])),
-        ], $matches);
-    }
-
-    /**
-     * The same ids on the rendered headings, so the contents list can link to
-     * them. CommonMark's own heading-permalink extension would do this, and is
-     * heavier than one `preg_replace_callback` for the one thing it is needed
-     * for here.
-     */
-    private function withHeadingAnchors(string $html): string
-    {
-        return (string) preg_replace_callback(
+        $html = (string) preg_replace_callback(
             '/<h([23])>(.*?)<\/h\1>/s',
-            function (array $match): string {
-                $id = Str::slug($this->plain(strip_tags($match[2])));
+            function (array $match) use (&$headings, &$seen): string {
+                $text = $this->plain($match[2]);
+                $id = Str::slug($text);
+
+                // A heading of only punctuation slugs to nothing; number it
+                // rather than emitting `id=""`, which no link can reach.
+                if ($id === '') {
+                    $id = 'section';
+                }
+
+                $seen[$id] = ($seen[$id] ?? 0) + 1;
+
+                if ($seen[$id] > 1) {
+                    $id .= '-'.$seen[$id];
+                }
+
+                $headings[] = ['level' => (int) $match[1], 'text' => $text, 'id' => $id];
 
                 return "<h{$match[1]} id=\"{$id}\">{$match[2]}</h{$match[1]}>";
             },
             $html,
         );
+
+        return [$html, $headings];
     }
 
-    /** Heading text without its Markdown emphasis or code marks. */
+    /**
+     * A heading's words, with its markup and its entities resolved.
+     *
+     * `html_entity_decode` is the half that was missing: the text arrives from
+     * rendered HTML, where CommonMark has already escaped `&`, `<` and `"`,
+     * and `Str::slug` reads `&amp;` as the word *amp*.
+     */
     private function plain(string $text): string
     {
-        return trim(str_replace(['`', '*', '_'], '', $text));
+        return trim(html_entity_decode(
+            strip_tags($text),
+            ENT_QUOTES | ENT_HTML5,
+            'UTF-8',
+        ));
     }
 
     private function converter(): MarkdownConverter

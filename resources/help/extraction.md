@@ -15,7 +15,7 @@ Nothing. Dates and tasks are entered by hand.
 
 ## What it will do
 
-Read an executed contract and propose the key dates. Read an inspection report
+Read an executed contract and propose the dates and deadlines. Read an inspection report
 and propose a task list.
 
 ## Nothing lands without you confirming it
