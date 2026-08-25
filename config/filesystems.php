@@ -49,6 +49,39 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Everything a customer uploads (PRD §4.6 F6.4 · issue #63).
+         *
+         * **No public buckets. Every download authorized and short-lived.**
+         * Private by construction: no `url`, no `visibility`, and nothing that
+         * could serve a file without going through the controller that checks
+         * the policy and writes the audit entry.
+         *
+         * Local by default so a fresh clone and CI work with no credentials;
+         * `FILESYSTEM_DOCUMENTS=spaces` in staging and production. The driver
+         * changes, the rule does not.
+         */
+        'documents' => [
+            'driver' => 'local',
+            'root' => storage_path('app/documents'),
+            'throw' => false,
+            'report' => false,
+        ],
+
+        'spaces' => [
+            'driver' => 's3',
+            'key' => env('SPACES_KEY'),
+            'secret' => env('SPACES_SECRET'),
+            'region' => env('SPACES_REGION', 'nyc3'),
+            'bucket' => env('SPACES_BUCKET'),
+            'endpoint' => env('SPACES_ENDPOINT'),
+            'use_path_style_endpoint' => false,
+            // Never public, and never given a URL to be public with.
+            'visibility' => 'private',
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

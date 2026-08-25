@@ -20,6 +20,7 @@ use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
+use App\Http\Controllers\Properties\PhotoController;
 use App\Http\Controllers\Properties\PropertyController;
 use App\Http\Controllers\Properties\PropertyDealController;
 use App\Http\Controllers\SearchController;
@@ -395,6 +396,29 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::delete('properties/{property}/deals/{dealLink}', [PropertyDealController::class, 'remove'])
             ->name('properties.deals.remove');
+
+        /*
+         * S38 — a property's photographs (F6.4–F6.6, #63).
+         *
+         * The product's **only** upload path in this slice, and it hangs off a
+         * property rather than a deal on purpose: #63's residual window is
+         * closed by restricting the context, because a photographed cheque is
+         * an image and the content scan is #100's work.
+         *
+         * `download` is a route rather than a presigned object-store URL. PRD
+         * §9 makes document access an audited event, and an entry written when
+         * a link was minted records an intention rather than a read.
+         */
+        Route::post('properties/{property}/photos', [PhotoController::class, 'store'])
+            ->name('properties.photos.store');
+        Route::patch('properties/{property}/photos', [PhotoController::class, 'reorder'])
+            ->name('properties.photos.reorder');
+        Route::post('properties/{property}/photos/{photo}/primary', [PhotoController::class, 'setPrimary'])
+            ->name('properties.photos.primary');
+        Route::delete('properties/{property}/photos/{photo}', [PhotoController::class, 'destroy'])
+            ->name('properties.photos.destroy');
+        Route::get('properties/{property}/photos/{photo}', [PhotoController::class, 'download'])
+            ->name('properties.photos.show');
     });
 
     /*

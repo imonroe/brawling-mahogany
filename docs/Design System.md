@@ -975,7 +975,7 @@ Beyond shadcn and its own dependencies. Keep this list short and justify every a
 | TanStack Table | Data tables | shadcn's Data Table is a recipe over it |
 | VueUse | Composables | Breakpoints, storage, event listeners |
 | date-fns | Formatting | Reka's calendar uses `@internationalized/date` separately |
-| A sortable library | S38, S41, S42 | Pick one, use it everywhere |
+| ~~A sortable library~~ | S38, S41, S42 | **Decided in S38 (#63): none.** Explicit move controls instead — see §13.2's note below |
 | TipTap | S46 merge-field editor | Only if a simpler token-insert textarea proves insufficient |
 | A PDF renderer | S52, S66 | pdf.js based |
 | A calendar library | S57 | Evaluate against building the month grid by hand |
@@ -1409,6 +1409,24 @@ resources/js/
 └── lib/             utils, formatters, the state token map
 ```
 
+
+> [!note] The sortable library, and why there is not one
+> Decided while building S38 (#63), which was the first screen to need
+> reordering. **None — explicit move controls.**
+>
+> Three reasons, in order of weight. Drag-and-drop needs a keyboard path to be
+> usable at all, so shipping it means building the buttons *as well as* the
+> drag; a photo gallery reorders perfectly well with two of them. §13.2 rule 3
+> admits a third-party library only when nothing composes, and here something
+> does. And the reorder endpoint takes **the whole order at once** rather than
+> a move-one request — a reorder is one intention, and two adjacent swaps
+> racing each other produce an order neither person chose — which is the same
+> API whether a drag or a button produced it.
+>
+> S41 and S42 order longer lists than twenty photographs and may overturn this.
+> It is deliberately cheap to overturn: the endpoint does not change, only what
+> calls it.
+
 ### 13.2 Rules
 
 1. **Need a component? Check shadcn-vue first.** It is probably there.
@@ -1504,7 +1522,7 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 - [x] Build `StatusBadge` against the section 2.4 table ✅ 2026-08-21
 - [x] Build S13 end to end and confirm 20 rows is the honest desktop number ✅ 2026-08-24 — #78; §4.3 now carries the measured budget rather than the estimate
 - [x] Design the mobile collapse for the shell before the PWA slice ✅ 2026-08-21 — built; still to be judged on a real phone
-- [ ] Choose the sortable library, needed by S38, S41, and S42 📅 2026-09-07
+- [x] ~~Choose the sortable library, needed by S38, S41, and S42~~ — **decided with S38 (#63): none.** See §13.2
 - [ ] Decide the calendar approach for S57 📅 2026-09-14
 
 ## Sources

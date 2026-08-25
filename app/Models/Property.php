@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -128,6 +129,26 @@ class Property extends Model
         $parcel = trim((string) (is_scalar($value) ? $value : ''));
 
         return $parcel === '' ? null : $parcel;
+    }
+
+    /**
+     * This property's photographs (S38 · #63).
+     *
+     * A gallery image is a `document` with category `photo`, per PRD §7.14 —
+     * *"`Photos` should be the general document table with a category"* — so
+     * Slice 3's document module sits on this rather than beside it.
+     *
+     * Named `photos` because scoped route binding resolves a child through a
+     * relation named for the parameter: `/properties/{property}/photos/{photo}`
+     * looks for exactly this method.
+     *
+     * @return MorphMany<Document, $this>
+     */
+    public function photos(): MorphMany
+    {
+        return $this->morphMany(Document::class, 'documentable')
+            ->orderBy('sort_order')
+            ->orderBy('created_at');
     }
 
     /**
