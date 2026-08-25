@@ -19,6 +19,7 @@ use App\Http\Controllers\Deals\StageStateController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\HelpController;
+use App\Http\Controllers\Messages\MessageTemplateController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Settings\RoleController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
+use App\Http\Controllers\Templates\AutomationController;
 use App\Http\Controllers\Templates\StageTemplateController;
 use App\Http\Controllers\Templates\TemplateController;
 use App\Http\Controllers\WorkController;
@@ -512,6 +514,69 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * nested route authorizes against the **workflow template**, because a
      * guard on the parent with a door beside it is not a guard.
      */
+    /*
+     * S45, S46 — message templates (F5.5, F5.6, #90).
+     *
+     * **Registered before `templates/{template}`**, and the order is
+     * load-bearing: Laravel matches in registration order, so a
+     * `templates/{template}` declared first would swallow `templates/messages`
+     * and answer a 404 for a screen that exists.
+     *
+     * The path says *messages* where the Screen Inventory said *emails*. PRD
+     * §7.12 is the correction — a template carries a channel, and `push` is
+     * one of them — so a route named after one channel would be wrong the
+     * first time somebody wrote a push template. There is **no destroy
+     * route**: an automation points at a template, so a template is archived
+     * and never deleted (Frontend conventions §4).
+     */
+    Route::get('templates/messages', [MessageTemplateController::class, 'index'])
+        ->name('message-templates.index');
+    /*
+     * Throttled for the same reason `preview` is, and reasoned about as its
+     * pair: these two run the identical merge-field scan over the identical
+     * 300 KB of body, and then write. A ceiling on the route that computes and
+     * none on the routes that compute *and* write is half an answer.
+     */
+    Route::post('templates/messages', [MessageTemplateController::class, 'store'])
+        ->middleware('throttle:60,1')
+        ->name('message-templates.store');
+    Route::get('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'show'])
+        ->name('message-templates.show');
+    Route::patch('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'update'])
+        ->middleware('throttle:60,1')
+        ->name('message-templates.update');
+    Route::post('templates/messages/{messageTemplate}/archive', [MessageTemplateController::class, 'archive'])
+        ->name('message-templates.archive');
+    Route::post('templates/messages/{messageTemplate}/restore', [MessageTemplateController::class, 'restore'])
+        ->name('message-templates.restore');
+    /*
+     * The live preview and the test send. Both POST because both carry the
+     * unsaved draft — the preview's whole job is showing what is in the form
+     * rather than what is in the database.
+     */
+    /*
+     * Throttled too, and more loosely: this is the route somebody presses
+     * while typing. It accepts up to 300 KB across three fields and scans all
+     * of it — taking `<style>` blocks out of a markup body is quadratic on an
+     * unclosed one, measured at 483ms against 65ms for the same size of
+     * ordinary email. It needs an authenticated member of the team, so the
+     * bound is somebody heating their own instance; a ceiling is still cheaper
+     * than finding out.
+     */
+    Route::post('templates/messages/{messageTemplate}/preview', [MessageTemplateController::class, 'preview'])
+        ->middleware('throttle:60,1')
+        ->name('message-templates.preview');
+    /*
+     * Throttled, because this is the first route in the product that sends
+     * anything. It can only reach the person who pressed it, so the blast
+     * radius is their own inbox — but F5.9's per-team rate limit is a named
+     * launch blocker (#96) and a send path with no ceiling at all is the shape
+     * that blocker exists to refuse.
+     */
+    Route::post('templates/messages/{messageTemplate}/test', [MessageTemplateController::class, 'test'])
+        ->middleware('throttle:10,1')
+        ->name('message-templates.test');
+
     Route::scopeBindings()->group(function (): void {
         Route::get('templates', [TemplateController::class, 'index'])->name('templates.index');
         Route::post('templates', [TemplateController::class, 'store'])->name('templates.store');
@@ -536,6 +601,22 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('templates.stages.tasks.store');
         Route::delete('templates/{template}/stages/{stageTemplate}/tasks/{taskTemplate}', [StageTemplateController::class, 'removeTask'])
             ->name('templates.stages.tasks.destroy');
+
+        /*
+         * S44 — automations on a stage (F5.1–F5.4, #91).
+         *
+         * The path segment reads `automations` because that is the only word
+         * for the thing (IA §11); the bound parameter is `{actionDefinition}`
+         * because `scopeBindings()` derives the relation name from it, and the
+         * relation is `StageTemplate::actionDefinitions()`. The table keeps
+         * PRD §6.2's name.
+         */
+        Route::post('templates/{template}/stages/{stageTemplate}/automations', [AutomationController::class, 'store'])
+            ->name('templates.stages.automations.store');
+        Route::patch('templates/{template}/stages/{stageTemplate}/automations/{actionDefinition}', [AutomationController::class, 'update'])
+            ->name('templates.stages.automations.update');
+        Route::delete('templates/{template}/stages/{stageTemplate}/automations/{actionDefinition}', [AutomationController::class, 'destroy'])
+            ->name('templates.stages.automations.destroy');
     });
 
     /*
