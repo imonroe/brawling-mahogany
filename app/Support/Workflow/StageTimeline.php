@@ -154,8 +154,8 @@ final readonly class StageTimeline
              * formats them; IA §10 fixes the rule and `lib/formatters.ts` owns
              * it, so nothing here spells a date.
              */
-            'plannedStart' => $stage->planned_start?->toIso8601String(),
-            'plannedEnd' => $stage->planned_end?->toIso8601String(),
+            'plannedStart' => $stage->planned_start?->toDateString(),
+            'plannedEnd' => $stage->planned_end?->toDateString(),
             'actualStart' => $stage->actual_start?->toIso8601String(),
             'actualEnd' => $stage->actual_end?->toIso8601String(),
 
@@ -199,7 +199,7 @@ final readonly class StageTimeline
                 'title' => $task->title,
                 'state' => $task->state()->value,
                 'isRequired' => $task->is_required,
-                'dueDate' => $task->due_date?->toIso8601String(),
+                'dueDate' => $task->due_date?->toDateString(),
             ])->values()->all(),
         ];
     }

@@ -982,3 +982,24 @@ it('counts what is open on the Tasks tab, not what the deal holds', function ():
     $this->get("/deals/{$deal->getKey()}/people")
         ->assertInertia(fn ($page) => $page->where('dealHeader.counts.tasks', 1));
 });
+
+it('sends a due date as a day, not as midnight UTC', function (): void {
+    /*
+     * Issue #165, and the server half of a fix whose two halves fail as a
+     * pair. `toIso8601String()` stamped a `date` column midnight **UTC**, and
+     * every screen renders in the team's calendar — so a task due the 25th
+     * reached Denver as the evening of the 24th and drew as *"Aug 24"*, in the
+     * danger tone, beside a badge that correctly said Open.
+     *
+     * `tests/js/formatters.test.ts` holds the other half: a bare date is read
+     * as a day rather than as an instant. `CodeDisciplineTest` stops a sixth
+     * payload from reintroducing this one.
+     */
+    [$deal, , $stages] = taskDeal(1);
+
+    taskOn($deal, $stages[0], ['title' => 'Inspection', 'due_date' => '2026-08-25']);
+
+    $this->get("/deals/{$deal->getKey()}/tasks")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('groups.0.tasks.0.dueDate', '2026-08-25'));
+});
