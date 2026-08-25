@@ -1,0 +1,329 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Support\Help\HelpLibrary;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
+
+/**
+ * S92 — the manual (issue #170).
+ *
+ * Most of this file is not about rendering. Documentation rots in one specific
+ * way — it goes on describing a product that has moved — and the only defence
+ * that survives contact with a year of development is a test that reads the
+ * prose and checks it against the application. So the cases that matter here
+ * are the ones that fail when the *app* changes and nobody remembered the
+ * manual.
+ */
+beforeEach(function (): void {
+    [$this->team, $this->member] = $this->teamWithMember();
+    $this->actingAsPerson($this->member, $this->team);
+});
+
+it('renders the contents, grouped in the order somebody meets the product', function (): void {
+    $response = $this->get('/help')->assertOk();
+
+    $sections = $response->viewData('page')['props']['sections'];
+
+    // Getting started first, planned features last — the order somebody needs
+    // them rather than alphabetical or by how much work each took.
+    expect(collect($sections)->pluck('key')->all())
+        ->toBe(['getting-started', 'deals', 'people', 'setup', 'coming-later']);
+
+    expect(collect($sections)->flatMap(fn (array $s): array => $s['articles'])->count())
+        ->toBeGreaterThanOrEqual(15);
+});
+
+it('renders one article, with its headings for the contents list', function (): void {
+    $response = $this->get('/help/stages-and-requirements')->assertOk();
+
+    $article = $response->viewData('page')['props']['article'];
+
+    expect($article['title'])->toBe('Stages and requirements')
+        ->and($article['html'])->toContain('<h2 id="advancing">')
+        ->and(collect($article['headings'])->pluck('id'))->toContain('advancing');
+});
+
+it('walks the manual in order', function (): void {
+    // `Next` is genuinely the next thing to learn, not the next thing
+    // alphabetically — which is the whole reason the ordering is explicit.
+    $response = $this->get('/help/welcome')->assertOk();
+
+    expect($response->viewData('page')['props']['previous'])->toBeNull()
+        ->and($response->viewData('page')['props']['next']['slug'])->toBe('signing-in');
+});
+
+it('answers 404 for an article that does not exist', function (): void {
+    $this->get('/help/no-such-article')->assertNotFound();
+});
+
+it('is readable by somebody with no permissions at all', function (): void {
+    /*
+     * The manual asks only that you are signed in. A help section gated on
+     * `deals.view` cannot explain what a deal is to the person deciding
+     * whether to ask for that permission, and a Contact given a login has as
+     * much reason to read *Signing in* as an owner does.
+     *
+     * Asserted with a membership holding **no** roles, which is the emptiest
+     * a signed-in person can be.
+     */
+    $bare = App\Models\Person::factory()->create();
+
+    app(App\Support\Tenancy\TeamContext::class)->runFor($this->team, function () use ($bare): void {
+        App\Models\TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $bare->getKey(),
+            'first_name' => 'Nobody',
+            'joined_at' => now(),
+        ]);
+    });
+
+    $this->actingAsPerson($bare, $this->team);
+
+    $this->get('/help')->assertOk();
+    $this->get('/help/welcome')->assertOk();
+});
+
+it('keeps the manual behind the sign-in screen', function (): void {
+    auth()->logout();
+
+    $this->get('/help')->assertRedirect('/login');
+});
+
+it('strips raw HTML rather than rendering it', function (): void {
+    /*
+     * Repository content today, so this is not an injection boundary — and it
+     * is configured as one because the audience for these files is people
+     * editing prose, and the output reaches the browser through `v-html`.
+     *
+     * Asserted against a real file written for the test rather than against
+     * the converter in isolation, because the question is what the *route*
+     * returns.
+     */
+    $path = resource_path('help/zz-probe.md');
+
+    File::put($path, "---\ntitle: Probe\nsection: getting-started\norder: 98\n---\n\n"
+        ."<script>alert(1)</script>\n\nOrdinary text.\n");
+
+    // The library memoises per process; this test writes a file after the
+    // suite may already have read the directory.
+    (function (): void {
+        $reflection = new ReflectionClass(HelpLibrary::class);
+        $reflection->setStaticPropertyValue('articles', null);
+    })();
+
+    try {
+        $html = $this->get('/help/zz-probe')->assertOk()
+            ->viewData('page')['props']['article']['html'];
+
+        expect($html)->not->toContain('<script')
+            ->and($html)->toContain('Ordinary text.');
+    } finally {
+        File::delete($path);
+
+        $reflection = new ReflectionClass(HelpLibrary::class);
+        $reflection->setStaticPropertyValue('articles', null);
+    }
+});
+
+it('never links to a route the application does not have', function (): void {
+    /*
+     * **The guard that keeps the manual true.**
+     *
+     * Documentation rots by going on describing a product that has moved, and
+     * an internal link is the part that rots first and most visibly — a reader
+     * following one lands on a 404 and learns that the manual cannot be
+     * trusted, which is worse than the missing sentence.
+     *
+     * So every `](/...)` in every article is resolved against the real route
+     * table. This fails on the day a route is renamed, in the pull request
+     * that renames it, which is the only moment anybody can cheaply fix it.
+     */
+    $routes = collect(app('router')->getRoutes()->getRoutes())
+        ->filter(fn ($route): bool => in_array('GET', $route->methods(), true))
+        ->map(fn ($route): string => '/'.ltrim((string) $route->uri(), '/'));
+
+    $articles = array_keys(app(HelpLibrary::class)->all());
+
+    $broken = [];
+    $checked = 0;
+
+    foreach (File::files(resource_path('help')) as $file) {
+        preg_match_all('/\]\((\/[^)#\s]*)/', (string) File::get($file->getPathname()), $matches);
+
+        foreach ($matches[1] as $link) {
+            $checked++;
+
+            /*
+             * A link **into the manual** is checked against the articles, not
+             * against the route.
+             *
+             * `/help/{article}` matches any single segment, so a route-level
+             * check waves through `/help/anything-at-all` — and it did: the
+             * first draft of these files linked to `/help/logging-a-contact`,
+             * an article that does not exist, and this test passed over it. A
+             * guard blind to the most likely broken link in the files it
+             * guards is not a guard.
+             */
+            if (Str::startsWith($link, '/help/')) {
+                if (! in_array(Str::after($link, '/help/'), $articles, true)) {
+                    $broken[] = $file->getFilename().': '.$link.' (no such article)';
+                }
+
+                continue;
+            }
+
+            $resolves = $routes->contains(function (string $uri) use ($link): bool {
+                // A route with a parameter matches any single segment there,
+                // so `/help/{article}` covers `/help/tasks`.
+                $pattern = '#^'.preg_replace('/\\\{[^}]+\\\}/', '[^/]+', preg_quote($uri, '#')).'$#';
+
+                return (bool) preg_match($pattern, $link);
+            });
+
+            if (! $resolves) {
+                $broken[] = $file->getFilename().': '.$link;
+            }
+        }
+    }
+
+    // The scan has to be finding links: a pattern that quietly stopped
+    // matching would make the assertion below pass over an empty list.
+    expect($checked)->toBeGreaterThanOrEqual(4);
+
+    expect($broken)->toBe([], 'These help articles link somewhere that does not exist: '
+        .implode(', ', $broken));
+});
+
+it('gives every article the frontmatter the index needs', function (): void {
+    /*
+     * A file missing `section` lands in Getting started by default and a file
+     * missing `order` sorts last — neither throws, because a typo in prose
+     * should not take a screen down. That safety is exactly why it needs a
+     * test: without one, a mis-sectioned article is invisible rather than
+     * broken.
+     */
+    $articles = app(HelpLibrary::class)->all();
+
+    expect($articles)->not->toBeEmpty();
+
+    $sections = collect(HelpLibrary::SECTIONS)->pluck('key');
+
+    foreach ($articles as $slug => $article) {
+        expect($article->title)->not->toBe('', "{$slug} has no title")
+            ->and($article->summary)->not->toBe('', "{$slug} has no summary")
+            ->and($sections->contains($article->section))->toBeTrue(
+                "{$slug} names section '{$article->section}', which is not one of the five",
+            )
+            ->and($article->order)->toBeLessThan(99, "{$slug} has no order");
+
+        // The slug is the URL, so it has to survive being one.
+        expect(Str::slug($slug))->toBe($slug, "{$slug} is not URL-safe");
+    }
+});
+
+it('marks every planned feature as planned, on both screens', function (): void {
+    /*
+     * #170 asks for placeholders. The risk with a placeholder is not that it
+     * is missing — it is that it reads as documentation for something that
+     * exists, and somebody goes looking for a screen that is not there.
+     *
+     * So everything in the Coming later section carries `arrives_with`, which
+     * is what draws the badge on the index and the banner on the article.
+     */
+    $articles = app(HelpLibrary::class)->all();
+
+    $planned = collect($articles)->filter(
+        fn ($article): bool => $article->section === 'coming-later',
+    );
+
+    expect($planned)->not->toBeEmpty();
+
+    foreach ($planned as $slug => $article) {
+        expect($article->isPlanned())->toBeTrue(
+            "{$slug} is in Coming later but is not marked with `arrives_with`, "
+            .'so it renders as though the feature exists',
+        );
+    }
+
+    // And nothing outside that section is marked planned, which would be the
+    // same confusion in the other direction.
+    $misplaced = collect($articles)->filter(
+        fn ($article): bool => $article->isPlanned() && $article->section !== 'coming-later',
+    );
+
+    expect($misplaced->keys()->all())->toBe([]);
+});
+
+it('uses the product’s own vocabulary', function (): void {
+    /*
+     * IA §11 is *"one concept, one word"*, and it binds user-facing text.
+     * A manual is the most user-facing text there is — it is where somebody
+     * learns what the words mean — so a manual that says *"project"* or
+     * *"to-do"* teaches a vocabulary the app does not use, and every screen
+     * afterwards reads as slightly wrong.
+     *
+     * Only the unambiguous ones are checked. *Step* and *Item* are ordinary
+     * English that IA §11 bans as **synonyms for Stage and Task**, and a scan
+     * for them would fire on "the next step in the wizard", which is not the
+     * mistake.
+     */
+    $banned = [
+        'project' => 'Deal',
+        'milestones' => 'Stage (or Milestone in the narrow sense only)',
+        'blueprint' => 'Template',
+        'to-do' => 'Task',
+        'nurture' => 'Keep in Touch',
+        'drip' => 'Keep in Touch',
+        'portal' => 'Status Page',
+        'workspace' => 'Team',
+        'organization' => 'Team',
+        'service provider' => 'Vendor',
+    ];
+
+    $offences = [];
+
+    foreach (File::files(resource_path('help')) as $file) {
+        $contents = mb_strtolower((string) File::get($file->getPathname()));
+
+        foreach ($banned as $word => $instead) {
+            if (str_contains($contents, $word)) {
+                $offences[] = sprintf('%s says "%s" — use %s', $file->getFilename(), $word, $instead);
+            }
+        }
+    }
+
+    expect($offences)->toBe([], implode('; ', $offences));
+});
+
+it('never promises a screen the reader cannot reach', function (): void {
+    /*
+     * The other half of the placeholder rule.
+     *
+     * An article outside *Coming later* describes something that exists, so
+     * anything it tells the reader to open has to be openable. The phrase this
+     * catches is a heading or sentence naming a nav destination — the manual's
+     * most common instruction is *"Deals → New deal"*, and the arrow is what
+     * makes it a promise.
+     */
+    $built = collect(app(HelpLibrary::class)->all())
+        ->reject(fn ($article): bool => $article->isPlanned());
+
+    $navigable = ['Deals', 'People', 'Properties', 'Templates', 'Settings',
+        'Activity', 'My Work', 'Calendar', 'Keep in Touch', 'Help'];
+
+    $offences = [];
+
+    foreach ($built as $slug => $article) {
+        preg_match_all('/\*\*([A-Z][A-Za-z ]+) →/', $article->html, $matches);
+
+        foreach ($matches[1] as $destination) {
+            if (! in_array(trim($destination), $navigable, true)) {
+                $offences[] = "{$slug} sends the reader to '{$destination}', which is not in the sidebar";
+            }
+        }
+    }
+
+    expect($offences)->toBe([], implode('; ', $offences));
+});

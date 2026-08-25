@@ -47,6 +47,7 @@ Before making architectural decisions or writing code, read [`docs/Product Requi
 | [`Screen Inventory.md`](docs/Screen%20Inventory.md) | The full screen list, mapped to PRD feature IDs |
 | [`Build Plan.md`](docs/Build%20Plan.md) | The build order, the critical path, and the map to the GitHub issue backlog |
 | [`Design System.md`](docs/Design%20System.md) / [`Design references.md`](docs/Design%20references.md) | Visual/UI direction |
+| [`Screen Inventory.md`](docs/Screen%20Inventory.md) §B, S92 | **The user manual** lives in `resources/help/*.md`, not in `docs/` — different reader, different register. `docs/` is the engineering record; `resources/help/` is what a person reads inside the app. A feature that changes what somebody does needs a pass over both |
 | [`Frontend conventions.md`](docs/Frontend%20conventions.md) | Where things live in `resources/js`, the component governance rules, the formatters, and the content rules |
 | [`Testing.md`](docs/Testing.md) | The four test suites, the conventions every slice inherits, and the tests that hold project rules |
 | [`Environment and secrets.md`](docs/Environment%20and%20secrets.md) | Which secrets exist per environment, and how they are rotated |

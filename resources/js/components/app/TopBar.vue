@@ -106,6 +106,11 @@ const { can } = usePermissions();
             label="Notifications"
             :unread="unreadNotifications"
         />
-        <IconButton :icon="CircleQuestionMark" label="Help" />
+        <!--
+            S92 (#170). An anchor rather than a button, so it can be
+            middle-clicked into a tab — which is what people do to a help icon
+            when they want to keep the thing they were reading.
+        -->
+        <IconButton :icon="CircleQuestionMark" label="Help" href="/help" />
     </header>
 </template>

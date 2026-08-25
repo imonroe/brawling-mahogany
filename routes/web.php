@@ -18,6 +18,7 @@ use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
+use App\Http\Controllers\HelpController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
@@ -119,6 +120,23 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * *against a person* and the person is what the URL has to carry.
      */
     Route::get('activity', [ActivityController::class, 'index'])->name('activity.index');
+
+    /*
+     * S92 — the manual (#170).
+     *
+     * Inside `auth` and outside everything else. A help section gated on a
+     * feature's own permission cannot explain that feature to the person
+     * deciding whether to ask for it — see `HelpController` and the exemption
+     * `AuthorizationCoverageTest` carries for these two names.
+     *
+     * `{article}` is constrained to a slug so the only thing that reaches
+     * `HelpLibrary` is something that could name a file; anything else is a
+     * 404 from the router rather than a lookup.
+     */
+    Route::get('help', [HelpController::class, 'index'])->name('help.index');
+    Route::get('help/{article}', [HelpController::class, 'show'])
+        ->where('article', '[a-z0-9-]+')
+        ->name('help.show');
 
     // S30, S31, S32 — the people directory.
     Route::get('people', [PersonController::class, 'index'])->name('people.index');
