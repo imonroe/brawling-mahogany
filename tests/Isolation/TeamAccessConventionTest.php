@@ -134,6 +134,16 @@ const SANCTIONED_TEAM_ROLE_KEY_USES = [
             'hard-coded list #142 removed.',
     ],
 
+    'Support/Messages/ResolveRecipients.php' => [
+        'count' => 1,
+        'reason' => 'A `team_owner` recipient rule resolves to the people holding the '.
+            'shipped Team Owner role, by name and through holdingSystemRole() — which asks '.
+            'for a null team_id, so a team’s own role named "Team Owner" is not one. That '.
+            'is the S75 finding: Str::slug("Team Owner", "_") is exactly this key. The rule '.
+            'is deliberately about the named role rather than about a permission, because '.
+            'it is the address a team always has and the one the sandbox rail redirects to.',
+    ],
+
     'Models/Role.php' => [
         'count' => 1,
         'reason' => 'assignableWithinTeam() keeps Super Administrator off a team’s own '.

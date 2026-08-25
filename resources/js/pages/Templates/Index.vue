@@ -64,8 +64,16 @@ function copy(template: TemplateRow): void {
             title="Templates"
             subtitle="What your team intends to happen, before a deal makes it real"
         >
-            <template v-if="can.manage" #actions>
-                <AppButton @click="creating = !creating">{{
+            <template #actions>
+                <!--
+                    S45 lives under Templates rather than in the sidebar: a
+                    message template is a template, and IA §5.1 does not grow a
+                    second nav item for the second kind of one.
+                -->
+                <AppButton variant="ghost" href="/templates/messages"
+                    >Message templates</AppButton
+                >
+                <AppButton v-if="can.manage" @click="creating = !creating">{{
                     creating ? 'Cancel' : 'New template'
                 }}</AppButton>
             </template>

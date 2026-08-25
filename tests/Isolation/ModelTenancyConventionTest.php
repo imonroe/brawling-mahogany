@@ -86,6 +86,31 @@ const TEAM_AGNOSTIC_MODELS = [
     App\Models\StageTemplate::class,
     App\Models\GateTemplate::class,
     App\Models\TaskTemplate::class,
+
+    /*
+     * The seventh of that shape, and the one that had to *earn* it (Slice 3,
+     * issue #91).
+     *
+     * An automation hangs off a `stage_template`, so its `team_id` mirrors its
+     * parent's: null on a pack row every team shares, set on one a team wrote.
+     * A global scope would hide the shared ones from everybody, which is the
+     * same argument the six above make.
+     *
+     * What is different is that this row **points at a team-scoped table**.
+     * `message_templates` is fully scoped — it holds a team's own words to
+     * their own clients — so a shared automation naming one would send that
+     * team's words from every other team on the platform. Being outside the
+     * scope is therefore not free here, and two database constraints pay for
+     * it: a composite foreign key over `(team_id, message_template_id)`, and a
+     * CHECK that a row with no team may not name a template at all. The second
+     * is the one that matters, because Postgres foreign keys are MATCH SIMPLE
+     * and a null `team_id` satisfies one without checking anything.
+     *
+     * It carries no customer data itself: a trigger, an action type, and a
+     * task title. The moment one holds a fact about a person it belongs in
+     * `action_instances`, which is team-scoped by construction.
+     */
+    App\Models\ActionDefinition::class,
 ];
 
 /**

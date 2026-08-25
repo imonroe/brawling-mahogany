@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Templates;
 
+use App\Enums\AutomationActionType;
+use App\Enums\AutomationTrigger;
 use App\Http\Controllers\Controller;
+use App\Models\ActionDefinition;
 use App\Models\GateTemplate;
+use App\Models\MessageTemplate;
 use App\Models\StageTemplate;
 use App\Models\TaskTemplate;
 use App\Models\Team;
@@ -82,6 +86,11 @@ class TemplateController extends Controller
             'stageTemplates' => fn ($query) => $query->orderBy('sort_order'),
             'stageTemplates.gateTemplates' => fn ($query) => $query->orderBy('sort_order'),
             'stageTemplates.taskTemplates' => fn ($query) => $query->orderBy('sort_order'),
+            'stageTemplates.actionDefinitions' => fn ($query) => $query->orderBy('sort_order'),
+            // Eager-loaded because `ActionDefinition::describe()` names the
+            // template — and a relation nothing renders is a relation nothing
+            // thinks to seed, which is S13's finding. This one is rendered.
+            'stageTemplates.actionDefinitions.messageTemplate',
         ]);
 
         return Inertia::render('Templates/Show', [
@@ -116,6 +125,22 @@ class TemplateController extends Controller
                         'isRequired' => $task->is_required,
                         'dueOffsetDays' => $task->due_offset_days,
                     ])->values()->all(),
+                    'automations' => $stage->actionDefinitions->map(fn (ActionDefinition $automation): array => [
+                        'id' => $automation->getKey(),
+                        'trigger' => $automation->trigger->value,
+                        'actionType' => $automation->action_type->value,
+                        'messageTemplateId' => $automation->message_template_id,
+                        'config' => $automation->configuration(),
+                        // One answer rather than two booleans — the pair the
+                        // table refuses to hold at once.
+                        'executionMode' => $automation->executionMode(),
+                        'isActive' => $automation->is_active,
+                        'description' => $automation->describe(),
+                        // An automation that sends words and has none. The
+                        // pointer is nulled rather than cascaded when a
+                        // template is hard-deleted, so this is reachable.
+                        'isComplete' => $automation->isComplete(),
+                    ])->values()->all(),
                 ])->values()->all(),
             ],
             /*
@@ -132,6 +157,37 @@ class TemplateController extends Controller
              * specify is offerable.
              */
             'gateTypeLabels' => GateRegistry::options(),
+            /*
+             * S44's pickers (#91). Selectable rather than complete, for the
+             * reason `GateRegistry` gives one line above: a trigger nothing
+             * can raise and an action nothing can execute build automations
+             * that silently never fire.
+             */
+            'automationTriggers' => AutomationTrigger::selectableOptions(),
+            'automationActions' => AutomationActionType::selectableOptions(),
+            /*
+             * Which actions need words, and on which channel — so the editor
+             * can narrow to the templates that fit rather than offering every
+             * template to every action. Sent as data rather than duplicated in
+             * the page, because `SaveAutomationRequest` refuses the pairs this
+             * table forbids and a second copy would drift from it.
+             */
+            'automationShapes' => collect(AutomationActionType::cases())
+                ->filter(fn (AutomationActionType $type): bool => $type->isAvailable())
+                ->mapWithKeys(fn (AutomationActionType $type): array => [$type->value => [
+                    'needsMessageTemplate' => $type->needsMessageTemplate(),
+                    'channel' => $type->channel()?->value,
+                    'isManual' => $type->isManual(),
+                ]])->all(),
+            'messageTemplates' => MessageTemplate::query()
+                ->selectable()
+                ->orderBy('name')
+                ->get()
+                ->map(fn (MessageTemplate $message): array => [
+                    'id' => $message->getKey(),
+                    'name' => $message->name,
+                    'channel' => $message->channel->value,
+                ])->values()->all(),
             'can' => [
                 // A system template is readable and never editable: one pack
                 // is shared by every team.

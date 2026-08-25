@@ -76,4 +76,17 @@ class StageTemplate extends Model
     {
         return $this->hasMany(TaskTemplate::class)->orderBy('sort_order');
     }
+
+    /**
+     * The automations on this stage (#91).
+     *
+     * The fourth thing a stage template carries, beside its gates and its
+     * tasks: what should *happen* when the stage starts or completes.
+     *
+     * @return HasMany<ActionDefinition, $this>
+     */
+    public function actionDefinitions(): HasMany
+    {
+        return $this->hasMany(ActionDefinition::class)->orderBy('sort_order');
+    }
 }

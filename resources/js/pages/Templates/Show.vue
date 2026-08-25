@@ -28,6 +28,11 @@ import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import AppSelect from '@/components/app/AppSelect.vue';
+import AutomationDialog from '@/components/app/AutomationDialog.vue';
+import type {
+    AutomationShape,
+    AutomationValues,
+} from '@/components/app/AutomationDialog.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
@@ -57,6 +62,7 @@ type Stage = {
     clientFacingLabel: string | null;
     gates: Gate[];
     tasks: TaskRow[];
+    automations: AutomationValues[];
 };
 
 const props = defineProps<{
@@ -82,6 +88,12 @@ const props = defineProps<{
      * with its name whether or not this screen could have built it.
      */
     gateTypeLabels: Record<string, string>;
+    /** S44's pickers (#91), selectable rather than complete — see the controller. */
+    automationTriggers: Record<string, string>;
+    automationActions: Record<string, string>;
+    /** Which actions need words, and on which channel. */
+    automationShapes: Record<string, AutomationShape>;
+    messageTemplates: { id: string; name: string; channel: string }[];
     can: { update: boolean };
 }>();
 
@@ -189,6 +201,41 @@ function addTask(stage: Stage): void {
 
 function removeTask(stage: Stage, task: TaskRow): void {
     router.delete(`${base}/stages/${stage.id}/tasks/${task.id}`, {
+        preserveScroll: true,
+    });
+}
+
+/*
+ * S44 — one dialog for the whole screen rather than one per stage.
+ *
+ * Which stage it is adding to travels in `automationStage`, the same way
+ * `addingTo` carries it for gates. A dialog per stage would be four mounted
+ * modals holding four dirty forms for a control somebody uses one at a time.
+ */
+const automationStage = ref<Stage | null>(null);
+const editingAutomation = ref<AutomationValues | null>(null);
+const automationOpen = ref(false);
+
+function openAutomation(
+    stage: Stage,
+    automation: AutomationValues | null,
+): void {
+    automationStage.value = stage;
+    editingAutomation.value = automation;
+    automationOpen.value = true;
+}
+
+function removeAutomation(stage: Stage, automation: AutomationValues): void {
+    // What is *not* a consequence is the part people fear here, so it is said.
+    if (
+        !window.confirm(
+            `Remove this automation? Deals already running keep theirs. ${automation.description}`,
+        )
+    ) {
+        return;
+    }
+
+    router.delete(`${base}/stages/${stage.id}/automations/${automation.id}`, {
         preserveScroll: true,
     });
 }
@@ -451,13 +498,92 @@ function remove(): void {
                         </li>
                     </ul>
 
-                    <AppButton
-                        v-if="can.update && addingTaskTo !== stage.id"
-                        variant="ghost"
-                        size="compact"
-                        @click="addingTaskTo = stage.id"
-                        >Add task</AppButton
+                    <!--
+                        S44 — what happens by itself on this stage (#91).
+                        Below the tasks because it is the least-often edited of
+                        the three, and because an automation usually refers to
+                        a requirement or a task that has to exist first.
+                    -->
+                    <ul
+                        v-if="stage.automations.length > 0"
+                        class="flex flex-col gap-1"
                     >
+                        <li
+                            v-for="automation in stage.automations"
+                            :key="automation.id"
+                            class="flex items-center gap-2 text-xs text-muted-foreground"
+                        >
+                            <span class="min-w-0 flex-1 truncate">{{
+                                automation.description
+                            }}</span>
+                            <!--
+                                An automation that sends words and has none —
+                                reachable, because hard-deleting a template
+                                nulls the pointer rather than cascading. Shown
+                                rather than left to look like it will run.
+                            -->
+                            <StatusBadge
+                                v-if="!automation.isComplete"
+                                tone="warning"
+                                label="Needs a template"
+                                dotless
+                            />
+                            <StatusBadge
+                                v-else-if="
+                                    automation.executionMode === 'approval'
+                                "
+                                tone="info"
+                                label="Needs approving"
+                                dotless
+                            />
+                            <StatusBadge
+                                v-else-if="
+                                    automation.executionMode === 'manual'
+                                "
+                                tone="neutral"
+                                label="Prompt"
+                                dotless
+                            />
+                            <StatusBadge
+                                v-if="!automation.isActive"
+                                tone="neutral"
+                                label="Off"
+                                dotless
+                            />
+                            <template v-if="can.update">
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    @click="openAutomation(stage, automation)"
+                                    >Edit</AppButton
+                                >
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :aria-label="`Remove ${automation.description}`"
+                                    @click="removeAutomation(stage, automation)"
+                                    >×</AppButton
+                                >
+                            </template>
+                        </li>
+                    </ul>
+
+                    <div class="flex flex-wrap gap-2">
+                        <AppButton
+                            v-if="can.update && addingTaskTo !== stage.id"
+                            variant="ghost"
+                            size="compact"
+                            @click="addingTaskTo = stage.id"
+                            >Add task</AppButton
+                        >
+                        <AppButton
+                            v-if="can.update"
+                            variant="ghost"
+                            size="compact"
+                            @click="openAutomation(stage, null)"
+                            >Add automation</AppButton
+                        >
+                    </div>
 
                     <form
                         v-if="can.update && addingTaskTo === stage.id"
@@ -502,5 +628,23 @@ function remove(): void {
                 >
             </form>
         </Card>
+
+        <AutomationDialog
+            v-if="automationStage"
+            v-model:open="automationOpen"
+            :template-id="template.id"
+            :stage-template-id="automationStage.id"
+            :automation="editingAutomation"
+            :triggers="automationTriggers"
+            :actions="automationActions"
+            :shapes="automationShapes"
+            :message-templates="messageTemplates"
+            :gates="
+                automationStage.gates.map((gate) => ({
+                    id: gate.id,
+                    label: gate.label,
+                }))
+            "
+        />
     </div>
 </template>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Mail;
 
+use App\Mail\MessageTemplateTestMail;
 use App\Mail\TeamInvitationMail;
 
 /**
@@ -71,6 +72,21 @@ final class EmailIndependence
             ],
             'note' => 'The invitee can accept in-app; the inviter and the operator can both '
                 .'issue the link directly; and the console can issue one with no session at all.',
+        ],
+
+        'message-template-test' => [
+            'label' => 'Checking what a message template will actually look like',
+            'sends' => MessageTemplateTestMail::class,
+            'alternatives' => [
+                // S46's preview, which renders the same draft against the same
+                // real deal through the same `RenderMessage` — including the
+                // list of merge fields with nothing behind them.
+                'route:message-templates.preview',
+            ],
+            'note' => 'The preview is the same render, in the app. A test send only exists to '
+                .'show what a mail client does with it, and it can reach nobody but the person '
+                .'who asked for it — so an install with no mail transport loses the rendering '
+                .'check and none of the content check.',
         ],
 
         'password-reset' => [
