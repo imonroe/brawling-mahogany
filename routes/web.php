@@ -18,6 +18,7 @@ use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
+use App\Http\Controllers\HelpController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
@@ -96,6 +97,40 @@ Route::get('no-team', function () {
 })
     ->middleware('auth')
     ->name('teams.none');
+
+/*
+ * S92 — the manual (#170).
+ *
+ * **`auth` alone, outside `verified`, `two-factor` and `team`**, and each
+ * exclusion is a case somebody is actually in.
+ *
+ * PRD §9 makes 2FA mandatory for a Team Owner, so an un-enrolled owner is held
+ * at the enrolment screen — and *Signing in and your account* is the article
+ * that explains enrolment, recovery codes and what to do when the phone is the
+ * thing you lost. Leaving the manual inside `two-factor` locks the one person
+ * who needs that page out of it.
+ *
+ * `team` is the same argument one step earlier: somebody invited but not yet
+ * in a team lands on `/no-team`, and *What this is for* is what tells them
+ * what they have been invited to.
+ *
+ * `verified` goes for the same reason — an unverified account is somebody
+ * mid-signup, which is exactly when a manual is worth reading.
+ *
+ * The shell renders without a team already: `HandleInertiaRequests` returns
+ * null for `team` and omits `counts` and `lookups` until one resolves, which
+ * is what `/no-team` relies on.
+ *
+ * `{article}` is constrained to a slug, so the only thing reaching
+ * `HelpLibrary` is something that could name a file; anything else is a 404
+ * from the router rather than a lookup.
+ */
+Route::middleware('auth')->group(function (): void {
+    Route::get('help', [HelpController::class, 'index'])->name('help.index');
+    Route::get('help/{article}', [HelpController::class, 'show'])
+        ->where('article', '[a-z0-9-]+')
+        ->name('help.show');
+});
 
 /*
  * The tenant application.

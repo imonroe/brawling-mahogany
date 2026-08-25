@@ -43,6 +43,24 @@ const UNGATED_ROUTES = [
     // else is a 404.
     'teams.switch',
 
+    /*
+     * The manual (S92, #170), which asks only that somebody is signed in —
+     * and is outside `verified`, `two-factor` and `team` as well, so an owner
+     * held at 2FA enrolment can read the article about 2FA enrolment.
+     * `HelpTest` asserts that middleware stack directly.
+     *
+     * A help section gated on `deals.view` cannot explain what a deal is to
+     * the person deciding whether to ask for that permission, and a Contact
+     * given a login has as much reason to read *Signing in* as an owner does.
+     *
+     * There is also nothing to authorize: the content is repository files,
+     * identical on every install, carrying no customer data and no `team_id`.
+     * `HelpLibrary` reads `resources/help` and nothing else — a slug that
+     * names no file is a 404 rather than a probe.
+     */
+    'help.index',
+    'help.show',
+
     // Somebody's own account, gated by `auth` rather than by a team policy —
     // they must reach it with no membership at all, which is exactly the case
     // the 2FA mandate strands them in.

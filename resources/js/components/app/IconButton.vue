@@ -9,6 +9,7 @@
  * The icon alone never carries meaning — a label is required, for screen
  * readers and for the pointer tooltip.
  */
+import { Link } from '@inertiajs/vue3';
 import type { Component } from 'vue';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +17,14 @@ type Props = {
     icon: Component;
     label: string;
     unread?: boolean;
+    /**
+     * Renders an Inertia `Link` instead of a `button`.
+     *
+     * A control that navigates has to be an anchor: middle-click, open in a
+     * new tab, and "copy link" are things people do to the help icon in
+     * particular, and a `button` silently does none of them.
+     */
+    href?: string;
     class?: string;
 };
 
@@ -23,8 +32,10 @@ const props = defineProps<Props>();
 </script>
 
 <template>
-    <button
-        type="button"
+    <component
+        :is="props.href ? Link : 'button'"
+        :type="props.href ? undefined : 'button'"
+        :href="props.href"
         :aria-label="label"
         :title="label"
         :class="
@@ -46,5 +57,5 @@ const props = defineProps<Props>();
             class="absolute top-[11px] right-[11px] size-2 rounded-full bg-destructive ring-2 ring-background md:top-[5px] md:right-[5px]"
             aria-hidden="true"
         />
-    </button>
+    </component>
 </template>

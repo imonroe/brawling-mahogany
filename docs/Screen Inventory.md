@@ -78,6 +78,7 @@ tags:
 | S06 | App shell and sidebar | global | Team | Collapsed, mobile bottom bar, permission-hidden sections, impersonation banner, **pending-invitation banner** (ADR 0003) | F1.2 | 1 | **L** |
 | S07 | Global search overlay | global | Team | Empty, no results, grouped results, recent | F9.3 | 2 | M |
 | S08 | Notification panel | global | Team | Empty, unread, grouped, mark all read | F5.3 | 3 | M |
+| S92 | Help | `/help`, `/help/{article}` | Team | Contents, one article, planned feature, unknown article (404) | — | 2 | S |
 | S09 | Team switcher | global | Team | Single team (hidden), multiple, no access, **invitation waiting** (accept in-app, no link needed — ADR 0003) | F1.4 | 1 | S |
 
 > [!note] S06 is the highest-leverage screen in the inventory
@@ -119,6 +120,19 @@ tags:
 | S27 | Add and edit task | modal | TC | New, edit, assign, due date, required flag. **Built.** One modal for both verbs; **Complete** is deliberately not in it, because IA §7 makes it its own act with its own route and its own audit consequence | F4.10 | 2 | S |
 | S28 | Attach workflow | modal | Team | Template picker, pack filter, preview stages, already attached | F4.1 | 2 | M |
 | S29 | Close deal | modal | Agent | Outcome select, transition to Keep in Touch, fell through | F3.8 | 6 | S |
+
+> [!note] S92 is a new screen, and it is content rather than a feature
+> The Screen Inventory did not have a Help screen. #170 added one, and the interesting decisions are all about **where the words live** rather than what the page does.
+>
+> **Markdown files in `resources/help/`, not rows and not components.** #170 asks for documentation *"which can be updated and improved as we continue development"*, and that phrase decides the storage. A page written as a Vue component is a page only a frontend developer can correct; a page in a database needs an editor screen, a permission, an audit decision and a migration before anybody can fix a typo. A file is a diff — reviewed the way `docs/` is reviewed, and landing in the same pull request as the change it describes, which is the only arrangement under which documentation stays true. `league/commonmark` ships with Laravel, so this adds no dependency.
+>
+> **`auth` alone — outside `verified`, `two-factor` and `team` as well as outside every policy**, which is the one place this screen departs from every other in the shell. The first cut left it inside the tenant group, and review found the case that matters: PRD §9 holds an un-enrolled Team Owner at the enrolment screen, and *Signing in and your account* is the article explaining enrolment and recovery codes — so the manual locked out the one person who needed that page. `team` and `verified` are the same argument at other moments (invited but not yet in a team; mid-signup), and all three are when a manual is worth more than usual. On top of that, a help section gated on `deals.view` cannot explain what a deal is to the person deciding whether to ask for that permission. Articles name the permission a feature needs instead. Held by a middleware assertion rather than by the comment, because that claim was made in five places and was false in all five.
+>
+> **Planned features are documented, not omitted.** #170 asks for placeholders and the literal reading is the right one: a manual with a gap teaches nothing, while one that says *"documents arrive in a later release"* answers the question somebody opened it with — and stops that question reaching Emily by phone. Seven articles carry `arrives_with`, which draws a badge on the contents page and a banner on the article, and a test holds the two halves together: everything in *Coming later* must be marked, and nothing outside it may be.
+>
+> **The prose styles are written from tokens rather than pulled in.** `@tailwindcss/typography` would style the body in one class and would bring its own greys, which Design System §13.2 rule 5 forbids. Hand-writing them against the same tokens is why the manual looks like the app rather than like a README.
+>
+> Three guards keep it honest as the product moves, and **two of the three shipped broken and were caught by review**, which is the argument for having written them at all. Every internal link is resolved: against the **articles** for `/help/…` and against the route table otherwise, because `/help/{article}` matches any segment and a route-level check waved through a dead link on the first draft. Every article is checked for the IA §11 vocabulary, because a manual is where somebody learns what the words mean — it fired on a paragraph naming banned words in order to disclaim them, and later on *key dates*, which IA §11 bans in the UI in Emily's own phrase. And every `**Section →**` instruction is checked against the sidebar; the first version of that ran its pattern over the *rendered* HTML, where `**` has already become `<strong>`, so it matched nothing on every article and passed. Each now carries a floor on what its scan found, which is the assertion that would have caught it.
 
 > [!note] S26's two clicks are the specification, and they are measured
 > Once the modal is open and the person is known, a saved entry is **pick the type, then Log it**. `tests/js/logContactDialog.test.ts` mounts it and counts, because a requirement stated in prose is a requirement that erodes one field at a time.

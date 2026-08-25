@@ -9,6 +9,7 @@ use App\Listeners\ReportFailedJob;
 use App\Models\Passkey;
 use App\Models\Person;
 use App\Support\Database\BlueprintMacros;
+use App\Support\Help\HelpLibrary;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Queue\Events\JobFailed;
@@ -37,6 +38,13 @@ class AppServiceProvider extends ServiceProvider
          * shared Inertia props, and the policies all resolve it from here.
          */
         $this->app->singleton(TeamContext::class);
+
+        /*
+         * The manual (S92), memoised for the life of the request rather than
+         * per resolution — two calls in one controller action would otherwise
+         * read twenty-two files twice.
+         */
+        $this->app->singleton(HelpLibrary::class);
     }
 
     /**
