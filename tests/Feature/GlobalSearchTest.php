@@ -182,3 +182,23 @@ it('gives each group its own permission, now that a team composes roles', functi
     // The group is absent rather than empty: nothing tells them one exists.
     expect($types)->toBe(['deal']);
 });
+
+it('treats an underscore as a character rather than a wildcard', function (): void {
+    /*
+     * `_` and `%` are `like` wildcards, so `__` matched every row of every
+     * group — a two-character query returning the whole team reads as a broken
+     * search rather than a literal one. Not a security question, since the
+     * scope still answers whose data it is; a precision one, and `_` is
+     * ordinary in an email local part.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'Underscore_Deal']);
+        Deal::factory()->create(['team_id' => $this->team->getKey(), 'name' => 'Something else entirely']);
+    });
+
+    $names = collect($this->getJson('/search?q=e_D')->assertOk()->json()['groups'])
+        ->flatMap(fn (array $group): array => array_column($group['results'], 'label'));
+
+    expect($names)->toContain('Underscore_Deal')
+        ->and($names)->not->toContain('Something else entirely');
+});

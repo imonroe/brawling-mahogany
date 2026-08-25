@@ -3,13 +3,21 @@
 declare(strict_types=1);
 
 use App\Enums\ActivitySource;
+use App\Enums\PersonLifecycleState;
 use App\Models\ActivityEvent;
 use App\Models\Deal;
 use App\Models\DealType;
+use App\Models\Permission;
 use App\Models\Person;
+use App\Models\Role;
 use App\Models\Team;
+use App\Models\TeamMembership;
+use App\Queries\ActivityFeed;
 use App\Support\Activity\RecordActivity;
+use App\Support\Permissions;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 /**
  * S12 and S26 across the tenant boundary (PRD §8.2 · ADR 0002 · issue #81).
@@ -109,4 +117,146 @@ it('never leaks a deal name through the feed’s deal label', function (): void 
             'deal_id' => $theirDeal->getKey(),
         ]))->toThrow(Illuminate\Database\QueryException::class);
     });
+});
+
+it('never shows a person-subjected event to somebody who may not see people', function (): void {
+    /*
+     * The **other** axis this file exists for: not the wrong team, the wrong
+     * colleague.
+     *
+     * A person-subjected event is a contact log (F2.5) — a client's name, and
+     * a free-text note about what was said. `/activity` gates on `people.view`
+     * at the **screen**, and that covered it for exactly as long as the feed
+     * had one caller. S10's dashboard panel reuses the same query behind a
+     * `deals.view` gate, so a composed *"deals but not the client directory"*
+     * role got the client's full name and the note on the screen they land on,
+     * with a link to a person page that answers 403.
+     *
+     * `ActivityFeed::query()`'s own docblock predicted it — *"the next surface
+     * the feed reaches into needs its own rule … a subject type with no rule
+     * is visible to everyone who can open the feed"* — and there was a rule
+     * for deals and one for properties and none for people.
+     *
+     * So the rule lives in the query rather than in either screen: a filter
+     * written into a caller is a filter the next caller is written without,
+     * which is exactly what happened.
+     */
+    $client = null;
+
+    app(TeamContext::class)->runFor($this->team, function () use (&$client): void {
+        $client = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => Person::factory()->create()->getKey(),
+            'first_name' => 'Marguerite',
+            'last_name' => 'Vanterpool',
+            'status' => PersonLifecycleState::Active,
+            'joined_at' => now(),
+        ]);
+
+        // Subjected to the **person**, which is what `ContactLogController`
+        // does — F2.5 logs a contact against a person, and the membership is
+        // how the feed resolves the name to show.
+        app(RecordActivity::class)->record(
+            subject: $client->person,
+            eventType: 'contact.logged',
+            summary: 'Discussed her budget and the second mortgage',
+            source: ActivitySource::Manual,
+        );
+    });
+
+    $narrow = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($narrow): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $narrow->getKey(),
+            'first_name' => 'Dana',
+            'last_name' => 'Alvarez',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [
+                Permissions::VIEW_DEALS,
+                Permissions::MANAGE_DEALS,
+            ])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($narrow, $this->team);
+
+    // The control: they *can* open the dashboard, so an absent name below is
+    // the filter working rather than the page refusing.
+    $dashboard = $this->get('/dashboard')->assertOk();
+
+    expect($dashboard->getContent())->not->toContain('Vanterpool')
+        ->and($dashboard->getContent())->not->toContain('second mortgage');
+
+    // And the screen whose gate used to be the only thing protecting it still
+    // refuses them outright, which is the behaviour that must not change.
+    $this->get('/activity')->assertForbidden();
+});
+
+it('gives every subject type the feed carries a permission rule', function (): void {
+    /*
+     * The guard on the guard, and the reason the filter is an **allowlist**.
+     *
+     * It was three `!=` rules with a docblock warning that *"a subject type
+     * with no rule is visible to everyone who can open the feed"* — and the
+     * warning came true, twice: the person rule was missing outright, and the
+     * dashboard then reused the query behind a different screen gate. An
+     * exclusion list fails open, which is the lesson ADR 0002 already records
+     * from the purge cascade.
+     *
+     * So this reads every `subject:` argument in `app/` and fails when one
+     * names a class `subjectPermissions()` does not. A fifth subject type in a
+     * later slice is invisible until somebody gives it a rule — and this test
+     * says so at the moment it is added, rather than a reviewer noticing.
+     */
+    $sources = collect(File::allFiles(app_path()))
+        ->filter(fn ($file): bool => $file->getExtension() === 'php')
+        ->map(fn ($file): string => (string) file_get_contents($file->getPathname()));
+
+    preg_match_all('/subject:\s*\$([A-Za-z_>\-]+)/', $sources->implode("\n"), $matches);
+
+    $subjects = collect($matches[1])->unique()->values();
+
+    // The scan has to be finding things: a pattern that quietly stopped
+    // matching would make the assertion below pass over an empty list.
+    expect($subjects->count())->toBeGreaterThanOrEqual(4);
+
+    /*
+     * `$membership->person` and `$link->deal` resolve to the same four classes
+     * as the bare variables, so the check is on the tail of each expression.
+     */
+    $resolved = $subjects
+        ->map(fn (string $expression): string => (string) Str::afterLast($expression, '>'))
+        ->map(fn (string $name): string => Str::studly(Str::singular($name)))
+        ->unique()
+        ->reject(fn (string $class): bool => in_array($class, [
+            // Not subjects: `participant` and `link` are the *rows*, and the
+            // expressions above take `->deal` off them.
+            'Participant', 'Link',
+        ], true))
+        ->values();
+
+    $named = collect(ActivityFeed::subjectPermissions())
+        ->keys()
+        ->map(fn (string $morph): string => class_basename($morph));
+
+    $missing = $resolved->reject(fn (string $class): bool => $named->contains($class));
+
+    expect($missing->all())->toBe([], sprintf(
+        'These subject types have no permission rule in ActivityFeed::subjectPermissions(), '
+        .'so the feed would either hide them from everyone or show them to anyone: %s',
+        $missing->implode(', '),
+    ));
 });

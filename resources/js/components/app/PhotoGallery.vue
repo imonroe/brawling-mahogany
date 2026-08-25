@@ -212,7 +212,7 @@ function remove(photo: Photo): void {
                 id="photo-upload"
                 ref="input"
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                 class="text-xs"
                 @change="upload"
             />

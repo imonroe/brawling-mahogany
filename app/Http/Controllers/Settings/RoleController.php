@@ -253,26 +253,40 @@ class RoleController extends Controller
             }
 
             /*
-             * **Only on create.** `update()` does not recompute the key — the
-             * key is what every permission check and every `membership_role`
-             * row is written against, so renaming a role must not change what
-             * it means. Checking uniqueness on an edit therefore refused a
-             * rename against a key nothing would write, and told somebody a
-             * role by that name existed when the only thing that matched was
-             * an old name's slug.
+             * **Uniqueness is asked of the key on create and of the name on
+             * edit**, because those are the two different things that can
+             * collide.
+             *
+             * `update()` does not recompute the key — the key is what every
+             * permission check and every `membership_role` row is written
+             * against, so renaming a role must not change what it means. So
+             * checking the *key* on an edit refused a rename against a key
+             * nothing would write, and reported a role by that name existing
+             * when the only match was an old name's slug.
+             *
+             * Skipping the check entirely was the first correction and was
+             * worse: two roles could then both be called "Deal Lead" while
+             * keyed `deal_lead` and `closer`, which is a list nobody can read
+             * and a permission matrix nobody can audit. The name is what a
+             * person picks a role by, so on an edit the name is what has to be
+             * unique.
              */
-            if ($editing instanceof Role) {
-                return;
-            }
+            $teamId = app(TeamContext::class)->requireId(Role::class);
 
             $taken = Role::query()
                 ->withTrashed()
-                ->where('team_id', app(TeamContext::class)->requireId(Role::class))
-                ->where('key', $key)
+                ->where('team_id', $teamId)
+                ->when(
+                    $editing instanceof Role,
+                    fn ($query) => $query
+                        ->whereRaw('lower(name) = ?', [mb_strtolower($value)])
+                        ->whereKeyNot($editing?->getKey()),
+                    fn ($query) => $query->where('key', $key),
+                )
                 ->exists();
 
             if ($taken) {
-                $fail('This team already has a role with that internal name. Archived ones still count — restore it instead.');
+                $fail('This team already has a role by that name. Archived ones still count — restore it instead.');
             }
         };
     }

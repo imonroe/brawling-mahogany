@@ -81,7 +81,7 @@ These come from PRD §8 and should guide the eventual build:
 - **Template vs. instance split.** Every process entity has a definition layer (`workflow_templates`, `stage_templates`, `gate_templates`, `task_templates`) and a separate runtime layer (`workflows`, `stages`, `gates`, `tasks`). Instantiating a template snapshots it — later template edits must never rewrite an in-flight deal.
 - **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`App\Support\Workflow\AdvanceWorkflow`) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly. **Built in Slice 2**, and held by two tests rather than by memory: `tests/Unit/SingleMutationPathTest.php` reads the source of everything in `app/`, `routes/` and `database/`, and `HasStateMachine`'s `saving` hook refuses an illegal transition however the attribute was written — a source-reading guard alone was walked past three ways in review.
 - **Gate evaluation is data-driven.** One small evaluator per gate type (manual confirmation, required tasks complete, document present, field populated, action completed, date reached, approval), resolved by `gate_type`. Adding a gate type means adding a class, not touching advancement logic.
-- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
+- **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Twelve models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a thirteenth means adding a reason there, which is the point. (This said *six* for several slices after the list had grown past it — a count in prose beside a list in code is a count that goes stale, and the list is the authority.)
 - **A lookup is archived, never deleted.** Deal types (S76) is the first of these and set the pattern roles (S75, #88) then followed, and template packs and every other lookup screen after them: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
 
   **The count is scoped even when the row is not.** Roles and workflow
@@ -171,6 +171,23 @@ These come from PRD §8 and should guide the eventual build:
   on a disk the row-level sweep never touches** — `records:purge` deletes a
   purged team's `documents` rows, so the bytes have to be deleted beside them
   and the disk's team directory swept as well.
+
+- **A shared read filtered per screen is filtered once, then never again.**
+  `ActivityFeed::query()` is the widest read in the product, and its filtering
+  lived half in the query and half in the *screen's* policy gate: `/activity`
+  asks `people.view`, and that covered person-subjected events for exactly as
+  long as the feed had one caller. S10's dashboard panel reuses the same query
+  behind a `deals.view` gate, so a composed *"deals but not the client
+  directory"* role read a client's name and a free-text contact note on the
+  screen they land on, with a link to a person page answering 403.
+
+  **And an exclusion list fails open.** The filter was `!=` per surface with a
+  docblock warning that *"a subject type with no rule is visible to everyone
+  who can open the feed"* — which came true twice over. It is an allowlist now:
+  `subjectPermissions()` names every subject type with the permission it needs,
+  a type not named is excluded, and `ActivityFeedIsolationTest` reads every
+  `subject:` in `app/` and fails the build when one has no rule. Same shape as
+  the purge cascade in ADR 0002, and the same lesson.
 
 - **A staging table needs its own sweep.** `records:purge` finds a row by its
   `deleted_at`, so everything somebody *deleted* is covered — and a table whose

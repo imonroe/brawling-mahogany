@@ -10,6 +10,7 @@ use App\Models\Deal;
 use App\Models\Person;
 use App\Models\Property;
 use App\Models\TeamMembership;
+use App\Models\Workflow;
 use App\Support\Activity\ActorDirectory;
 use App\Support\Permissions;
 use Illuminate\Contracts\Pagination\CursorPaginator;
@@ -69,52 +70,89 @@ final class ActivityFeed
         }
 
         /*
-         * The screen is gated on `people.view` (ActivityEventPolicy::viewAny),
+         * The screen is gated on `people.view` (`ActivityEventPolicy::viewAny`),
          * and a feed is the one place where events about several parts of the
-         * product arrive together.
+         * product arrive together — so the *screen's* gate is never enough.
          *
-         * **A rule per surface the feed can reach into, and there are two.**
+         * ## An allowlist, because an exclusion list fails open
          *
-         * A deal-context event needs `deals.view`. `deal_id` is set on every
-         * event that belongs to a deal (`RecordActivity` fills it from the
-         * subject when the subject is a deal), so that rule is one `whereNull`.
+         * This was three `!=` rules, one per surface, and the docblock warned
+         * that *"a subject type with no rule is visible to everyone who can
+         * open the feed."* The warning came true twice: the person rule was
+         * simply missing, and S10's dashboard panel then reused this query
+         * behind a `deals.view` gate — so a composed *"deals but not the client
+         * directory"* role read a client's name and a free-text contact note
+         * on the screen they land on, with a link to a person page answering
+         * 403. That is the leak #82 and #88 closed in the search box, one
+         * screen over.
          *
-         * An event **subjected to a property** needs `properties.view`, which
-         * is its own permission key and its own policy — `people.view` does
-         * not open a property, and an earlier version of this comment claimed
-         * it did. A viewer without it read the address in the summary, read it
-         * again as the subject label, and was offered a link to a 403.
+         * So the shape is inverted. Every subject type the product writes is
+         * named here with the permission it needs, and a type **not** named is
+         * excluded — which is the rule ADR 0002 records for the purge cascade
+         * after an exclusion list failed open there too. A fifth subject type
+         * added in a later slice is invisible until somebody gives it a rule,
+         * and `ActivityFeedIsolationTest` fails the build rather than waiting
+         * for a reviewer to notice.
          *
-         * Subjected to, not named after. `property.linked`, `property.promoted`,
-         * `property.unlinked` and `property.interest_recorded` are all
-         * subjected to the **deal** — they are things that happened to a deal,
-         * involving a property — and the rule above already covers them, which
-         * is right: `DealPropertyPolicy::viewAny` asks for `deals.view` and
-         * nothing else. Only `property.added` and `property.status_changed`
-         * reach the property itself.
+         * ## Subjected to, not named after
          *
-         * Both shipped roles hold all three permissions, so today neither rule
-         * changes anything; a team's own composed role (PRD F2.3) is what they
-         * exist for. That is also why they are written now rather than when
-         * somebody notices — the role that needs them is one a customer
-         * composes, not one we ship and would test.
+         * `property.linked`, `property.promoted`, `property.unlinked` and
+         * `property.interest_recorded` are subjected to the **deal** — they are
+         * things that happened to a deal, involving a property — so they take
+         * the deal's permission, which is right: `DealPropertyPolicy::viewAny`
+         * asks for `deals.view` and nothing else. Only `property.added` and
+         * `property.status_changed` reach the property itself.
          *
-         * **The next surface the feed reaches into needs its own rule.** There
-         * is no general per-surface filter to fall through to, and a subject
-         * type with no rule is visible to everyone who can open the feed.
+         * ## And the deal-context rule, which is separate
+         *
+         * `deal_id` is set on every event belonging to a deal, whatever its
+         * subject — F2.5 logs a contact against a person and *optionally* a
+         * deal. So a person-subjected event can carry deal context, and
+         * somebody without `deals.view` must not read it even though they hold
+         * `people.view`.
          */
+        $query->where(function (Builder $inner): void {
+            foreach (self::subjectPermissions() as $morphClass => $permission) {
+                if ($this->viewerCanSee($permission)) {
+                    $inner->orWhere('subject_type', $morphClass);
+                }
+            }
+
+            // Nothing visible at all: an impossible predicate rather than an
+            // unconstrained query, because an empty `where` group matches
+            // everything.
+            $inner->orWhereRaw('1 = 0');
+        });
+
         if (! $this->viewerCanSeeDeals()) {
             $query->whereNull('deal_id');
         }
 
-        if (! $this->viewerCanSee(Permissions::VIEW_PROPERTIES)) {
-            // No `whereNull('subject_type')` beside it: the column is
-            // `NOT NULL`, so the branch would never be taken and would read as
-            // a case somebody had considered.
-            $query->where('subject_type', '!=', (new Property)->getMorphClass());
-        }
-
         return $query;
+    }
+
+    /**
+     * Every subject type the feed can carry, and the permission it needs.
+     *
+     * The list is exhaustive by construction: `ActivityFeedIsolationTest`
+     * reads every `subject:` argument in `app/` and fails when one resolves to
+     * a class this map does not name. A type added without a rule is invisible
+     * rather than public, which is the failure direction ADR 0002 asks for.
+     *
+     * `Workflow` takes `deals.view` because a workflow is a deal's process —
+     * there is no separate permission for one, and `WorkflowPolicy` asks the
+     * same key.
+     *
+     * @return array<string, string> morph class => permission key
+     */
+    public static function subjectPermissions(): array
+    {
+        return [
+            (new Deal)->getMorphClass() => Permissions::VIEW_DEALS,
+            (new Workflow)->getMorphClass() => Permissions::VIEW_DEALS,
+            (new Person)->getMorphClass() => Permissions::VIEW_PEOPLE,
+            (new Property)->getMorphClass() => Permissions::VIEW_PROPERTIES,
+        ];
     }
 
     /**

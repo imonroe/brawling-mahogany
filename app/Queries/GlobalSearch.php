@@ -65,7 +65,24 @@ final class GlobalSearch
             return [];
         }
 
-        $like = '%'.mb_strtolower($term).'%';
+        /*
+         * `%` and `_` escaped, because they are `like` wildcards and a person
+         * typing them means the characters.
+         *
+         * `__` matched every row of every group — a two-character query that
+         * returns the whole team reads as a broken search rather than a
+         * literal one, and `_` is ordinary in a street name or an email local
+         * part. Not a security question (the scope still answers whose data it
+         * is), a precision one.
+         *
+         * The backslash is Postgres's default `like` escape, so no `ESCAPE`
+         * clause is needed; it is doubled first so a typed backslash survives.
+         */
+        $like = '%'.str_replace(
+            ['\\', '%', '_'],
+            ['\\\\', '\\%', '\\_'],
+            mb_strtolower($term),
+        ).'%';
 
         /*
          * **Each group behind its own permission.**

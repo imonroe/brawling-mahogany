@@ -252,3 +252,37 @@ it('refuses a second role with the same name in one team', function (): void {
         fn (): int => Role::query()->where('key', 'listing_coordinator')->count(),
     ))->toBe(1);
 });
+
+it('refuses a rename onto a name this team already uses', function (): void {
+    /*
+     * The regression a previous fix introduced, and the reason uniqueness has
+     * to be asked of two different things.
+     *
+     * `update()` does not recompute the key — the key is what every permission
+     * check is written against, so a rename must not change what a role means.
+     * Checking the *key* on an edit therefore refused a rename against a key
+     * nothing would write. Skipping the check entirely was worse: two roles
+     * both called "Deal Lead", keyed `deal_lead` and `closer`, is a list
+     * nobody can read and a matrix nobody can audit.
+     */
+    $this->post('/settings/roles', ['name' => 'Deal Lead'])->assertRedirect();
+    $this->post('/settings/roles', ['name' => 'Closer'])->assertRedirect();
+
+    $closer = app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): Role => Role::query()->where('key', 'closer')->sole(),
+    );
+
+    $this->patch("/settings/roles/{$closer->getKey()}", ['name' => 'Deal Lead'])
+        ->assertSessionHasErrors('name');
+
+    expect($closer->fresh()->name)->toBe('Closer');
+
+    // And renaming to something free still works, keeping its original key —
+    // which is the half the check must not break.
+    $this->patch("/settings/roles/{$closer->getKey()}", ['name' => 'Closing Coordinator'])
+        ->assertRedirect();
+
+    expect($closer->fresh()->name)->toBe('Closing Coordinator')
+        ->and($closer->fresh()->key)->toBe('closer');
+});
