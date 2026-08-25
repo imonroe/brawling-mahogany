@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Activity\ActivityController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
 use App\Http\Controllers\Deals\DealIndexController;
 use App\Http\Controllers\Deals\DealOverviewController;
@@ -97,7 +98,7 @@ Route::get('no-team', function () {
  * than their dashboard.
  */
 Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function (): void {
-    Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::put('teams/current', [TeamSwitchController::class, 'update'])->name('teams.switch');
 
