@@ -401,7 +401,7 @@ These come from PRD §8 and should guide the eventual build:
 - All environment variables and secrets should be stored in a gitignored .env file in the root of the project. They should be passed into the container which uses them transparently.
 - Branching strategy. The `main` branch is for tagged releases only. Feature branches should target the `dev` branch for merging. When we have accumulated enough work in the `dev` branch to cut a tagged release, we'll do a PR to merge `dev` into `main`. That will keep things clean and give us a target for deployments.
 - Try to re-use components when possible to try to keep everything DRY.  Prefer pre-built components to rolling your own when practical.
-- Keeping the documentation up to date is critical.  For every PR, make sure that any documentation which needs to be updated, gets updated.  Documentation is part of the development process here, so it's imperative that we keep it as accurate as possible.
+- Keeping the documentation up to date is critical.  For every PR, make sure that any documentation which needs to be updated, gets updated.  Documentation is part of the development process here, so it's imperative that we keep it as accurate as possible.  This includes: user-facing documentation and help files, developer documenation, PRD, ADRs, Design system, and your own documentation, such as CLAUDE.md, etc.  
 
 ## Working in the codebase
 
