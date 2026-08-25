@@ -338,9 +338,14 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 >   did before any of this and is deliberately unchanged, but it is a guess, and
 >   for the `Contact` role — *"known to the team, with no access of any kind"*,
 >   which is a lender or an inspector as readily as a client — it is the wrong
->   one. `SavePerson::create` answers the same question with `Lead`. Neither
->   answer is right for a professional contact, and issue #167 is where the
->   fifth state, or the second flag, gets decided.
+>   one. `SavePerson::create` answers the same question with `Lead`.
+>
+> A professional contact has **no lifecycle**: they are in or out, engaged
+> across many deals, never promoted from one state to another. So the answer is
+> not a fifth state here — it is a badge drawn from the vocabulary that already
+> describes them, `ParticipantRole` (§13.3's flag and specialties, and PRD §6.3's
+> per-deal roles). Issue #167 is where that lands; until it does, these two
+> paths guess, visibly and correctably, on S32.
 >
 > An **archived** role grants nothing, on both sides of that question: a
 > membership whose only role is archived carries no access, so it is not a
