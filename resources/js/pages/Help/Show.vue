@@ -29,7 +29,8 @@ import Card from '@/components/app/Card.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 
-type Card = {
+/** A neighbour article, as the index renders it. Not the `Card` component. */
+type ArticleCard = {
     slug: string;
     title: string;
     summary: string;
@@ -46,8 +47,8 @@ const props = defineProps<{
         html: string;
         headings: { level: number; text: string; id: string }[];
     };
-    previous: Card | null;
-    next: Card | null;
+    previous: ArticleCard | null;
+    next: ArticleCard | null;
 }>();
 
 /*
@@ -95,14 +96,19 @@ const showContents = computed(() => contents.value.length >= 3);
         </p>
 
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
-            <Card class="min-w-0 flex-1" body-class="px-5 py-4 md:px-6 md:py-5">
-                <article class="help-prose" v-html="article.html" />
-            </Card>
-
+            <!--
+                The contents come **first in the DOM** and are moved to the
+                right visually, rather than the other way round. Reading order
+                is what a keyboard and a screen reader follow, and a contents
+                list reached only after the article it indexes has already been
+                read is not a contents list. It also sticks on a wide screen,
+                because the longest article scrolls it away exactly when it
+                starts being useful.
+            -->
             <Card
                 v-if="showContents"
                 title="On this page"
-                class="w-full shrink-0 lg:w-56"
+                class="w-full shrink-0 lg:sticky lg:top-4 lg:order-2 lg:w-56"
             >
                 <ul class="flex flex-col px-4 py-3">
                     <li v-for="heading in contents" :key="heading.id">
@@ -113,6 +119,13 @@ const showContents = computed(() => contents.value.length >= 3);
                         >
                     </li>
                 </ul>
+            </Card>
+
+            <Card
+                class="min-w-0 flex-1 lg:order-1"
+                body-class="px-5 py-4 md:px-6 md:py-5"
+            >
+                <article class="help-prose" v-html="article.html" />
             </Card>
         </div>
 

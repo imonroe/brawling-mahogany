@@ -156,6 +156,11 @@ it('strips raw HTML rather than rendering it', function (): void {
      * Asserted against a real file written for the test rather than against
      * the converter in isolation, because the question is what the *route*
      * returns.
+     *
+     * **The file has to be written before this test's first help request.**
+     * `HelpLibrary` is a container singleton, so the directory listing is
+     * memoised for the rest of the test once anything has read it — a `get`
+     * placed above the `File::put` makes this 404 rather than fail loudly.
      */
     $path = resource_path('help/zz-probe.md');
 
@@ -208,10 +213,35 @@ it('never links to a route the application does not have', function (): void {
     $intoTheManual = 0;
 
     foreach (File::files(resource_path('help')) as $file) {
-        preg_match_all('/\]\((\/[^)#\s]*)/', (string) File::get($file->getPathname()), $matches);
+        /*
+         * Every link, not only the absolute ones.
+         *
+         * The first version matched `](/…` alone, which is blind to
+         * `[tasks](tasks.md)` — the reflex spelling when you are editing a
+         * directory of Markdown files, and one that renders to a genuinely
+         * dead href: the route constrains `{article}` to `[a-z0-9-]+`, so the
+         * dot makes `/help/tasks.md` a 404. A guard whose premise is that
+         * links rot first cannot be blind to the spelling an author reaches
+         * for.
+         */
+        preg_match_all('/\]\(([^)\s]+)/', (string) File::get($file->getPathname()), $matches);
 
         foreach ($matches[1] as $link) {
             $checked++;
+
+            // A fragment is a position on the page, and a query string is not
+            // part of what the router matches.
+            $link = Str::before(Str::before($link, '#'), '?');
+
+            if ($link === '') {
+                continue;
+            }
+
+            if (! Str::startsWith($link, '/')) {
+                $broken[] = $file->getFilename().': '.$link.' (relative — links are absolute paths)';
+
+                continue;
+            }
 
             /*
              * A link **into the manual** is checked against the articles, not
@@ -248,11 +278,12 @@ it('never links to a route the application does not have', function (): void {
      * link in the manual today points *into the manual*, so the app-route
      * branch executes zero times — a single total would look like coverage the
      * route half does not have. What protects that half meanwhile is the
-     * static-only rule above, not this floor.
+     * static-only rule above, not this floor. (A third line asserting
+     * `$checked - $intoTheManual >= 0` stood here for a round and was
+     * arithmetic: the second counter only ever increments after the first.)
      */
     expect($checked)->toBeGreaterThanOrEqual(4)
-        ->and($intoTheManual)->toBeGreaterThanOrEqual(4)
-        ->and($checked - $intoTheManual)->toBeGreaterThanOrEqual(0);
+        ->and($intoTheManual)->toBeGreaterThanOrEqual(4);
 
     expect($broken)->toBe([], 'These help articles link somewhere that does not exist: '
         .implode(', ', $broken));
@@ -392,11 +423,18 @@ it('never promises a screen the reader cannot reach', function (): void {
      * `ActivityFeedIsolationTest`: derive it, so the guard fails in the pull
      * request that renames the nav.
      */
-    preg_match_all(
-        "/label: '([^']+)'/",
-        (string) File::get(resource_path('js/lib/navigation.ts')),
-        $labels,
-    );
+    $navigation = (string) File::get(resource_path('js/lib/navigation.ts'));
+
+    /*
+     * Comments stripped first, the way `routeTargets.test.ts` does and for the
+     * same reason. A commented-out entry — `// removed 2026: { label:
+     * 'Reports', … }` — would otherwise legitimise an arrow pointing at a
+     * screen that no longer exists, which is a silent pass rather than a loud
+     * failure and so the worse direction for this guard to be wrong in.
+     */
+    $navigation = (string) preg_replace(['#/\*.*?\*/#s', '#//[^\n]*#'], '', $navigation);
+
+    preg_match_all("/label: '([^']+)'/", $navigation, $labels);
 
     $navigable = $labels[1];
 
@@ -422,6 +460,12 @@ it('never promises a screen the reader cannot reach', function (): void {
         }
 
         /*
+         * Only the **first** segment of a chain is checked: `**Settings →
+         * Roles → New role**` asks about Settings, because Roles and New role
+         * are inside a screen rather than in the sidebar and there is nothing
+         * to check them against. The promise this guard makes is that the
+         * reader can find the door, not every handle behind it.
+         *
          * `**Destination → …**` is the shape, and the shape is load-bearing:
          * `**Deals** → New deal` (bold on the first word only) and a lowercase
          * destination both escape this. Mutation-tested, and written down here

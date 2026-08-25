@@ -19,8 +19,12 @@ records have a login attached.
 
 ## What the segments hold
 
+Five tabs: **All**, **Clients**, **Leads**, **Team** and **Vendors**. Leads is
+the Clients list narrowed to the people you have not started working for yet,
+which is the list worth working through on a slow morning.
+
 **Clients** are the people you are working for. They carry a lifecycle —
-_Lead_, _Active_, _Past client_, _Archived_ — which is the arc a client moves
+_Lead_, _Client_, _Past Client_, _Archived_ — which is the arc somebody moves
 along and which you set as they move.
 
 **Team** is your colleagues. They do not carry a lifecycle, because a
@@ -33,9 +37,14 @@ photographers, lenders, title officers. See
 
 ## Adding somebody
 
-**Add person** takes a name and whatever contact details you have. Nothing but
-the first name is required, because a name and a phone number scribbled during
-a showing is a real contact and refusing to store it helps nobody.
+**Add person** takes a name and whatever contact details you have. The first
+name is the only thing you have to type, because a name and a phone number
+scribbled during a showing is a real contact and refusing to store it helps
+nobody.
+
+The status is not blank, though: it starts at **Lead**, and that is true of a
+vendor as much as a client. If you are adding an inspector rather than
+somebody you are chasing, it is worth setting.
 
 ## Importing a list
 

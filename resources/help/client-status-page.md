@@ -11,8 +11,10 @@ account and without calling you.
 
 ## What exists today
 
-The **client-visible** toggle on notes, and the milestone labels on template
-stages. Both are the raw material; the page that renders them is still to come.
+The **client-visible** toggle on notes, which works today. Template stages also
+carry a milestone label, which is where the client-facing wording will come
+from — though nothing on any screen can set one yet. The page that renders
+either of them is still to come.
 
 ## How it will get to them
 

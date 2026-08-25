@@ -68,6 +68,10 @@ people's access with it.
 | `team.audit.view`                       | The audit log                                   |
 | `team.export`                           | Exporting the team's data                       |
 
+The screen lists a few more than this — the ones belonging to features that
+have not arrived yet, like the calendar and Keep in Touch. They tick and save
+like any other; they simply have nothing to open until the feature does.
+
 `workflow.advance` and `workflow.override` are deliberately separate. Somebody
 should be able to move deals along all day without being able to decide a
 survey was unnecessary.

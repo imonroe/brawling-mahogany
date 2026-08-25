@@ -95,11 +95,15 @@ final class HelpLibrary
      * that needs clearing to show a corrected sentence is a cache that will be
      * found stale by somebody reading the wrong instructions.
      *
-     * An *instance* property, bound as a singleton in `AppServiceProvider`, so
-     * "per request" is true under a long-running worker as well. It was
-     * `static` for one round, which is precisely a cross-request cache — and
-     * the tell was in the tests, which reached in with
-     * `ReflectionClass::setStaticPropertyValue` to undo it.
+     * An *instance* property, bound as a singleton in `AppServiceProvider`,
+     * rather than a `static` one — which is precisely a cross-request cache,
+     * whatever the sentence above says, and the tell was in the tests, which
+     * reached in with `ReflectionClass::setStaticPropertyValue` to undo it.
+     *
+     * The lifetime is the **container's**, so it is one request under FPM and
+     * one sandboxed request under Octane. A `queue:work` container lives for
+     * the worker's whole life; nothing queued reads the manual, and if
+     * something ever does, that is the moment to reconsider.
      *
      * @return array<string, HelpArticle>
      */

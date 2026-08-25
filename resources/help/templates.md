@@ -27,9 +27,11 @@ deal needs fixing, fix the deal.
 
 ## Building one
 
-**Templates → New template**, then add stages in order. Each stage takes a
-name, a description, an expected duration, and — if it is worth telling the
-client about — a milestone label.
+**Templates → New template**, then add stages in order. A stage takes a name,
+and that is all the editor asks for today. A stage also carries a description,
+an expected duration and a milestone label — the fields the client-facing view
+will read — but nothing on any screen can set them yet, so a stage you build
+here has a name and its contents.
 
 Reorder with the move controls. There is no drag-and-drop, deliberately: a
 reorder is sent as one whole intention, so two people rearranging at once
@@ -40,12 +42,17 @@ Under each stage, add:
 **Tasks** — the things to do. Mark the ones that must be finished before the
 stage can end as required.
 
-**Requirements** — the conditions that gate the stage. Two kinds can be built
-today: _manual confirmation_, which somebody ticks, and _required tasks
-complete_, which clears itself when the required tasks are done. The other
-kinds need configuration the editor cannot yet ask for, so they are not
-offered — a requirement built without its configuration is one nothing can
-ever clear.
+**Gates** — the conditions that must clear before the stage can end. The
+button says **Add gate**, and the word changes on purpose: here you are
+configuring a condition, and on a deal the same thing is shown as a
+_requirement_, because "2 requirements not met" is what somebody looking at a
+stuck deal wants to read.
+
+Two kinds can be built today: _manual confirmation_, which somebody ticks, and
+_required tasks complete_, which clears itself when the required tasks are
+done. The other kinds need configuration the editor cannot yet ask for, so
+they are not offered — a gate built without its configuration is one nothing
+can ever clear.
 
 ## Packs
 

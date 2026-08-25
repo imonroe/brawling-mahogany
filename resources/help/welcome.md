@@ -34,13 +34,13 @@ it, a person when you are looking them up.
 A few terms mean something specific here, and the app is consistent about
 them. Learning the five is worth the two minutes.
 
-| Word            | What it means                                                                             |
-| --------------- | ----------------------------------------------------------------------------------------- |
-| **Deal**        | One transaction — a sale, a purchase, or a rental placement                               |
-| **Stage**       | A period within a deal, like _Under Contract_. It has a start, an end, and work inside it |
-| **Task**        | A single thing somebody has to do                                                         |
-| **Requirement** | A condition that must be true before a stage can finish                                   |
-| **Advance**     | Moving a deal from one stage to the next                                                  |
+| Word            | What it means                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Deal**        | One transaction — a sale, a purchase, or a rental placement                                                            |
+| **Stage**       | A period within a deal, like _Under Contract_. It has a start, an end, and work inside it                              |
+| **Task**        | A single thing somebody has to do                                                                                      |
+| **Requirement** | A condition that must be true before a stage can finish. Called a **gate** where you build one, in the template editor |
+| **Advance**     | Moving a deal from one stage to the next                                                                               |
 
 You will also meet **Template** — a process written down once so it can be
 reused — and **Workflow**, which is what you get when a template is applied to

@@ -40,7 +40,7 @@ a deal, and editing its wording is something you do once.
 Completing records who did it and when. Ticking something already ticked
 changes nothing and does not record it twice.
 
-**Reopen** unticks it if you were wrong.
+Tick it again to untick it, if you were wrong.
 
 ## Assignment and dates
 
