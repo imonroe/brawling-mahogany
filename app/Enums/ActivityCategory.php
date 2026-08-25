@@ -67,7 +67,14 @@ enum ActivityCategory: string implements HasLabel
             // prefix only helps once the prefix is claimed, and an unclaimed
             // one fails `ActivityCategoryTest` — which is the test working,
             // and the comment having promised something it could not do.
-            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task'],
+            //
+            // `note` joins them with F4.11 (#72), and belongs here rather
+            // than under Contact Log for the reason IA §7 separates the two
+            // verbs: a contact is **logged** — something that already happened
+            // with a person — and a note is **written** about the deal. A
+            // reader filtering to Contact Log is looking for "when did we last
+            // speak to them", and a note about the lockbox code is not that.
+            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note'],
             self::People => ['person'],
             self::Properties => ['property'],
         };

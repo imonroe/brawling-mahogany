@@ -9,6 +9,7 @@ use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
 use App\Http\Controllers\Deals\DealTimelineController;
 use App\Http\Controllers\Deals\DealWizardController;
+use App\Http\Controllers\Deals\NoteController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
@@ -231,6 +232,18 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::post('deals/{deal}/workflows/{workflow}/override', [OverrideGateController::class, 'store'])
             ->name('deals.workflows.override');
+
+        /*
+         * F4.11 — a note on a deal (#72).
+         *
+         * Nested under the deal because a note is *about* one, and inside
+         * `scopeBindings()` with everything else here. IA §7: a note is
+         * **written** and a contact is **logged** — `people/{membership}/
+         * contacts` is the other verb, and they are deliberately not one
+         * endpoint with a type flag.
+         */
+        Route::post('deals/{deal}/notes', [NoteController::class, 'store'])
+            ->name('deals.notes.store');
 
         /*
          * F4.12 — the two stage verbs that are not Advance (#70).

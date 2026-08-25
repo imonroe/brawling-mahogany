@@ -116,6 +116,13 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * Distinct glyphs, though: both are unusual enough to be worth finding
      * without reading the summary.
      */
+    /*
+     * A note somebody wrote (F4.11 · #72). Neutral, and `PenLine` because it
+     * is the one row on the feed whose text a person typed rather than the
+     * product describing something that happened.
+     */
+    'note.added': { icon: PenLine, tone: 'neutral' },
+
     'stage.skipped': { icon: CircleSlash, tone: 'neutral' },
     'stage.reopened': { icon: RotateCcw, tone: 'neutral' },
 
