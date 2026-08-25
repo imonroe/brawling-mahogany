@@ -26,7 +26,8 @@ sale itself can run side by side, at their own pace.
 ## How a deal gets its name
 
 Deals name themselves, from the subject property's street and the client's
-surname. _"1420 Pearl St Sale"_. It updates as the facts change: link a
+surname. _"1420 Pearl St · Bosart Sale"_ — or just _"Bosart Purchase"_ for a
+buyer who has not settled on a house yet. It updates as the facts change: link a
 property, promote a different one to subject, or change the client, and the
 name follows.
 

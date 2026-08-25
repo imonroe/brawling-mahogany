@@ -14,7 +14,8 @@ its requirements are satisfied.
 
 ## Advancing
 
-Press **Advance stage** on any deal screen. One of two things happens.
+Press **Advance stage**, which sits on every deal screen as long as exactly
+one workflow is running on the deal. One of two things happens.
 
 If everything is clear, the deal moves on. The stage you were in completes,
 the next one starts, and the timeline records it.

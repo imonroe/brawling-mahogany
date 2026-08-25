@@ -11,11 +11,12 @@ categories, client visibility, and a viewer.
 
 ## What exists today
 
-Two upload points, and only two: **photographs on a property**, and the CSV a
-contact import reads. Photographs are private — served through the app rather
-than from a public address, with every view recorded. See
-[Properties](/help/properties). An import's CSV is held only long enough to
-finish the import; see [People](/help/people).
+Two upload points, and only two: **photographs on a property**, and the
+contact list an import reads — a CSV, a vCard, or a Google Contacts export.
+Photographs are private, served through the app rather than from a public
+address, with every view recorded. See [Properties](/help/properties). An
+import's file is held only long enough to finish the import; see
+[People](/help/people).
 
 Everything else is still to come.
 

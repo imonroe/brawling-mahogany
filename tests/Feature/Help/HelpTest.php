@@ -227,6 +227,21 @@ it('never links to a route the application does not have', function (): void {
         preg_match_all('/\]\(([^)\s]+)/', (string) File::get($file->getPathname()), $matches);
 
         foreach ($matches[1] as $link) {
+            /*
+             * A link out is not this test's business.
+             *
+             * The widened pattern is what makes the relative case visible, and
+             * it also catches `https://`, `mailto:` and the `](` inside an
+             * image. Refusing those would fail the build on three legitimate
+             * spellings and — worse — call an absolute URL *relative*, sending
+             * the author looking for a path they did not write. A manual wants
+             * outbound links and screenshots; the rule here is only that an
+             * internal link resolves.
+             */
+            if (Str::contains($link, ['://', 'mailto:', 'tel:'])) {
+                continue;
+            }
+
             $checked++;
 
             // A fragment is a position on the page, and a query string is not
@@ -237,8 +252,16 @@ it('never links to a route the application does not have', function (): void {
                 continue;
             }
 
+            /*
+             * A relative link renders to a dead href rather than to a missing
+             * one: `{article}` is constrained to `[a-z0-9-]+`, so the dot in
+             * `](tasks.md)` makes `/help/tasks.md` a 404. It is also the
+             * reflex spelling in a directory of Markdown files, which is why
+             * it is named in the message rather than lumped in with the rest.
+             */
             if (! Str::startsWith($link, '/')) {
-                $broken[] = $file->getFilename().': '.$link.' (relative — links are absolute paths)';
+                $broken[] = $file->getFilename().': '.$link
+                    .' (relative — an internal link is an absolute path)';
 
                 continue;
             }
@@ -261,6 +284,17 @@ it('never links to a route the application does not have', function (): void {
                     $broken[] = $file->getFilename().': '.$link.' (no such article)';
                 }
 
+                continue;
+            }
+
+            /*
+             * A screenshot is a link too. A manual is the one document set
+             * that wants images, and the spelling is `](`, so an absolute path
+             * naming a real file under `public/` resolves as surely as a route
+             * does — and one naming a file that is not there is exactly the
+             * rot this test exists to catch.
+             */
+            if (File::exists(public_path(ltrim($link, '/')))) {
                 continue;
             }
 
@@ -431,8 +465,13 @@ it('never promises a screen the reader cannot reach', function (): void {
      * 'Reports', … }` — would otherwise legitimise an arrow pointing at a
      * screen that no longer exists, which is a silent pass rather than a loud
      * failure and so the worse direction for this guard to be wrong in.
+     *
+     * Line comments go **first**: with the block pass leading, a block-comment
+     * opener written inside a `//` comment pairs with the next real closer and
+     * swallows the entries between them. That fails loudly on the floor below
+     * rather than passing, but it fails while blaming an article.
      */
-    $navigation = (string) preg_replace(['#/\*.*?\*/#s', '#//[^\n]*#'], '', $navigation);
+    $navigation = (string) preg_replace(['#//[^\n]*#', '#/\*.*?\*/#s'], '', $navigation);
 
     preg_match_all("/label: '([^']+)'/", $navigation, $labels);
 

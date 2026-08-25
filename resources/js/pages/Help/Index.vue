@@ -81,8 +81,16 @@ defineProps<{
                                     dotless
                                 />
                             </span>
+                            <!--
+                                Wrapped, not truncated. Every summary is a
+                                whole sentence written to answer "is this the
+                                article I want", and an ellipsis in the middle
+                                of one takes away the half that answers it.
+                                Two lines is the ceiling, so a long summary
+                                cannot push the rows apart.
+                            -->
                             <span
-                                class="truncate text-[11px] text-muted-foreground"
+                                class="line-clamp-2 text-[11px] text-muted-foreground"
                                 >{{ article.summary }}</span
                             >
                         </span>

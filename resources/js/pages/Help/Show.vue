@@ -108,7 +108,7 @@ const showContents = computed(() => contents.value.length >= 3);
             <Card
                 v-if="showContents"
                 title="On this page"
-                class="w-full shrink-0 lg:sticky lg:top-4 lg:order-2 lg:w-56"
+                class="w-full shrink-0 lg:sticky lg:top-4 lg:order-2 lg:max-h-[calc(100vh-8rem)] lg:w-56 lg:overflow-y-auto"
             >
                 <ul class="flex flex-col px-4 py-3">
                     <li v-for="heading in contents" :key="heading.id">

@@ -19,13 +19,19 @@ records have a login attached.
 
 ## What the segments hold
 
-Five tabs: **All**, **Clients**, **Leads**, **Team** and **Vendors**. Leads is
-the Clients list narrowed to the people you have not started working for yet,
-which is the list worth working through on a slow morning.
+Five tabs, in this order: **All**, **Clients**, **Vendors**, **Team**,
+**Leads**.
 
-**Clients** are the people you are working for. They carry a lifecycle —
-_Lead_, _Client_, _Past Client_, _Archived_ — which is the arc somebody moves
-along and which you set as they move.
+Everybody who is not a colleague carries a lifecycle — _Lead_, _Client_,
+_Past Client_, _Archived_ — which is the arc somebody moves along and which you
+set as they move. The tabs cut that arc up rather than nesting:
+
+**Leads** are the people at the start of it, and it is the list worth working
+through on a slow morning.
+
+**Clients** are the people you are working for now or have worked for —
+_Client_ and _Past Client_. A lead is **not** on this tab, and neither is
+somebody archived; both are on **All**.
 
 **Team** is your colleagues. They do not carry a lifecycle, because a
 colleague is not a lead who might become a past client — they are in the team
@@ -42,19 +48,23 @@ name is the only thing you have to type, because a name and a phone number
 scribbled during a showing is a real contact and refusing to store it helps
 nobody.
 
-The status is not blank, though: it starts at **Lead**, and that is true of a
-vendor as much as a client. If you are adding an inspector rather than
-somebody you are chasing, it is worth setting.
+The status is not blank, though. It starts at **Lead**, and there is no option
+meaning _"not on the lifecycle"_ for somebody new — so an inspector you add
+here lands on the **Leads** tab beside the people you are chasing. Tick
+**Vendor** and they appear on the Vendors tab as well, which is where you will
+actually look for them.
 
 ## Importing a list
 
-**Import** takes a CSV and walks you through mapping its columns onto fields.
+**Import** takes a CSV, a vCard, or a Google Contacts export, and walks you
+through mapping its columns onto fields.
 It shows you what it will do before it does it, reports which rows it could
 not read and why by row number, and lets you fix and re-upload rather than
 starting over.
 
-Uploads nobody comes back to finish are cleaned up after thirty days — the
-file is the sensitive part, and a half-finished import is over however it was
+The file goes as soon as the import finishes, and every import record is
+cleared out after thirty days whether it finished or not — the uploaded list
+is the sensitive part, and a sitting at the computer is over however it was
 left.
 
 ## A person's page
