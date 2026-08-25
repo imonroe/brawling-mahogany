@@ -531,11 +531,19 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      */
     Route::get('templates/messages', [MessageTemplateController::class, 'index'])
         ->name('message-templates.index');
+    /*
+     * Throttled for the same reason `preview` is, and reasoned about as its
+     * pair: these two run the identical merge-field scan over the identical
+     * 300 KB of body, and then write. A ceiling on the route that computes and
+     * none on the routes that compute *and* write is half an answer.
+     */
     Route::post('templates/messages', [MessageTemplateController::class, 'store'])
+        ->middleware('throttle:60,1')
         ->name('message-templates.store');
     Route::get('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'show'])
         ->name('message-templates.show');
     Route::patch('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'update'])
+        ->middleware('throttle:60,1')
         ->name('message-templates.update');
     Route::post('templates/messages/{messageTemplate}/archive', [MessageTemplateController::class, 'archive'])
         ->name('message-templates.archive');

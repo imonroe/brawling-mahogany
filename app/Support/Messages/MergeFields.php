@@ -10,6 +10,7 @@ use App\Models\ExternalLink;
 use App\Models\Property;
 use App\Models\Stage;
 use App\Support\Formatting\Format;
+use RuntimeException;
 
 /**
  * The merge fields a template may use, and what each resolves to (F5.6).
@@ -217,7 +218,14 @@ final class MergeFields
                 continue;
             }
 
-            preg_match_all(self::TOKEN_PATTERN, $body, $matches);
+            /*
+             * A failure here reports **no tokens**, which reads as a template
+             * with no merge fields at all — so an unknown field would pass
+             * validation. The same fail-open direction as the two above.
+             */
+            if (preg_match_all(self::TOKEN_PATTERN, $body, $matches) === false) {
+                throw new RuntimeException('The merge fields in this message could not be read.');
+            }
 
             foreach ($matches[1] as $raw) {
                 $token = trim($raw);
@@ -251,11 +259,17 @@ final class MergeFields
      */
     public static function substitute(string $body, callable $replace): string
     {
-        return (string) preg_replace_callback(
+        /*
+         * A PCRE failure returns null, and `(string) null` is an **empty
+         * message**. The body with its braces still in it is wrong and
+         * visible; an empty one is wrong and silent, and this is the last step
+         * before the words go out.
+         */
+        return preg_replace_callback(
             self::TOKEN_PATTERN,
             static fn (array $match): string => $replace(trim($match[1])),
             $body,
-        );
+        ) ?? $body;
     }
 
     /**
@@ -296,7 +310,15 @@ final class MergeFields
             $body = $stripped ?? $body;
         }
 
-        $remainder = (string) preg_replace(self::TOKEN_PATTERN, '', $body);
+        /*
+         * And the same direction on the pair-removal, which the first fix left
+         * behind: a null here would have become `''`, a body with no braces in
+         * it, and a clean save. Falling back to the **unremoved** body means a
+         * well-formed token's own braces are reported as stray — a message
+         * about the wrong thing, which is still a message rather than a
+         * silent yes.
+         */
+        $remainder = preg_replace(self::TOKEN_PATTERN, '', $body) ?? $body;
 
         preg_match_all(self::BRACE_RUN, $remainder, $matches);
 
