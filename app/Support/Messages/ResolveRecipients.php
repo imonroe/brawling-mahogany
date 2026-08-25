@@ -92,6 +92,22 @@ final class ResolveRecipients
     }
 
     /**
+     * The team's owners, by name rather than through a rule.
+     *
+     * Public because the sandbox rail needs the same answer for a different
+     * question: F5.9 redirects **every** message to the team owner, whoever
+     * the message was addressed to, and asking that through a recipient rule
+     * would be asking the wrong object. One implementation either way — the
+     * `holdingSystemRole()` subtlety below is not worth having twice.
+     *
+     * @return Collection<int, TeamMembership>
+     */
+    public function teamOwners(Team $team): Collection
+    {
+        return $this->owners($team);
+    }
+
+    /**
      * @return Collection<int, TeamMembership>
      */
     private function owners(Team $team): Collection

@@ -28,6 +28,12 @@ use Illuminate\Support\Carbon;
  * @property string|null $sending_identity_email
  * @property string|null $signature_block
  * @property string $timezone
+ * @property Carbon|null $sends_disabled_at
+ * @property string|null $sends_disabled_reason
+ * @property bool $sandbox_mode
+ * @property int $hourly_send_limit
+ * @property int $daily_send_limit
+ * @property Carbon|null $approval_required_until
  * @property array<string, mixed>|null $settings
  * @property Carbon|null $suspended_at
  * @property Carbon|null $purge_after
@@ -58,6 +64,9 @@ class Team extends Model
     {
         return [
             'settings' => 'array',
+            'sandbox_mode' => 'boolean',
+            'sends_disabled_at' => 'datetime',
+            'approval_required_until' => 'datetime',
             'suspended_at' => 'datetime',
             'purge_after' => 'datetime',
         ];
@@ -77,13 +86,31 @@ class Team extends Model
     }
 
     /**
-     * The safety rails live in `settings` (PRD §4.5 F5.9).
+     * F5.9's hard switch (PRD §4.5 · issue #96).
      *
-     * They are read from Slice 3 onward; the accessor exists now so nothing
-     * has to guess at the key later.
+     * Read off its own column rather than out of `settings`, which is where
+     * Slice 1 parked it *"so nothing has to guess at the key later"*. This is
+     * later: a safety control in a JSON blob cannot answer *"which teams are
+     * halted right now"*, which is the question somebody asks during the
+     * incident this switch exists for. The migration carried the old value
+     * across.
      */
     public function sendsAreDisabled(): bool
     {
-        return (bool) ($this->settings['no_sends'] ?? false);
+        return $this->sends_disabled_at !== null;
+    }
+
+    /**
+     * F5.7's *"default to approval for a team's first 30 days"*, as a fact
+     * rather than as advice in the documentation.
+     *
+     * While this holds, every message waits for a human whatever its
+     * automation says — the period when a team's templates are least tested
+     * is the period their clients are most exposed to them.
+     */
+    public function approvalIsMandatory(?Carbon $at = null): bool
+    {
+        return $this->approval_required_until !== null
+            && $this->approval_required_until->isAfter($at ?? Carbon::now());
     }
 }
