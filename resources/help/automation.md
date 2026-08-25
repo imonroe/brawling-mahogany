@@ -15,7 +15,7 @@ does not depend on remembering to send it.
 **You can write the messages and set up the automations. Nothing sends them.**
 
 That is deliberate rather than half-finished. An email to the wrong client
-cannot be recalled, so the parts that decide *whether* something goes out — the
+cannot be recalled, so the parts that decide _whether_ something goes out — the
 review queue, the rate limit, the switch that stops everything — are being
 built as one piece with the part that actually sends. Until all of it works,
 none of it does.
@@ -33,7 +33,7 @@ Nothing you write is wasted, and nothing you write is going anywhere yet.
 
 ## Message templates
 
-They live under **Templates**, on the *Message templates* link at the top of
+They live under **Templates**, on the _Message templates_ link at the top of
 that screen.
 
 **Who it goes to is a rule, not an address.** A template says "the seller" or
@@ -77,12 +77,12 @@ completes, or a requirement clears.
 
 **How it runs** — and this is the one worth reading:
 
-- *Fires on its own.* No human sees it before it goes.
-- *Needs approving first.* The app prepares the message with the right
+- _Fires on its own._ No human sees it before it goes.
+- _Needs approving first._ The app prepares the message with the right
   recipient and the right words, and somebody releases it. **This is the one to
   reach for**, and it is what a new team's messages do regardless for their
   first month.
-- *Prompts somebody to do it.* No automatic send at all — a person is told it
+- _Prompts somebody to do it._ No automatic send at all — a person is told it
   is time.
 
 The form narrows as you answer, and it will not let you build a combination

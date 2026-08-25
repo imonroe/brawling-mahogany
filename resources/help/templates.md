@@ -78,7 +78,7 @@ purpose: making the process tell the client what is happening without anybody
 remembering to.
 
 **Message templates** are the words. The link at the top of this screen opens
-them. Who a message goes to is a *rule* — "the seller", "the deal's main
+them. Who a message goes to is a _rule_ — "the seller", "the deal's main
 contact" — worked out per deal when it sends, so one template serves every
 deal.
 
