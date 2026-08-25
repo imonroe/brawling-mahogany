@@ -656,7 +656,9 @@ function sendTest(): void {
                         <div v-if="template.channel === 'email'" class="flex">
                             <AppButton
                                 variant="ghost"
-                                :disabled="testing || dealId === null"
+                                :disabled="
+                                    testing || dealId === null || !can.update
+                                "
                                 @click="sendTest"
                             >
                                 <Send class="size-4" aria-hidden="true" />

@@ -69,25 +69,27 @@ final class MergeFields
     private const BRACE_RUN = '/\{\{|\}\}/';
 
     /**
-     * The half of that check a body of **markup** may legitimately trip.
+     * What a body of **markup** may legitimately contain braces inside.
      *
      * `<style>@media (max-width:600px){.c{width:100%}}</style>` is ordinary
      * email CSS — Design System §12 wants a `<style>` block as a progressive
      * enhancement — and it closes two nested rules with `}}`. Reporting that
      * as a stray brace refused a valid template on the one field HTML email is
-     * written into, which is a regression the first version of this check
-     * introduced.
+     * written into.
      *
-     * An unclosed **opening** run has no such collision: nothing in CSS or
-     * HTML produces `{{`, and it is the half that catches every realistic
-     * typo — `{{ client_name }` and `{{client_name` both leave one. A body of
-     * markup is therefore held to the opening half only.
+     * The first fix for that dropped the closing half of the check on markup
+     * fields, and **gave up more than it looked like**: `{ client_name }}`,
+     * one opening brace instead of two, is exactly as likely as
+     * `{{ client_name }` and needs no odd spacing to produce. It saved clean,
+     * rendered the braces into a client's inbox, and reported itself complete
+     * — which is round 1's original finding, alive on the one field that
+     * matters most.
      *
-     * What that gives up is `{ { client_name }}` **inside HTML**, which
-     * renders as visible nonsense rather than as a merge attempt, and is still
-     * caught in the subject and the plain-text alternative.
+     * So the blocks come out instead and **both halves stay**. Only
+     * `strayBraceRuns()` strips them; `extract()` does not, so an unknown
+     * merge field written inside a `<style>` block is still refused by name.
      */
-    private const OPENING_RUN = '/\{\{/';
+    private const MARKUP_BLOCKS = '#<(style|script)\b[^>]*>.*?</\1\s*>#is';
 
     /**
      * @return list<MergeField>
@@ -264,8 +266,9 @@ final class MergeFields
      * is a token followed by a literal brace, which renders as somebody
      * probably meant and is not the failure this exists to catch.
      *
-     * `$markup` narrows the check to unclosed **openings**, for a field that
-     * may legitimately carry nested CSS braces. See {@see self::OPENING_RUN}.
+     * `$markup` takes `<style>` and `<script>` blocks out first, for a field
+     * that may legitimately carry nested CSS braces inside one. See
+     * {@see self::MARKUP_BLOCKS}.
      *
      * @return list<string>
      */
@@ -275,9 +278,13 @@ final class MergeFields
             return [];
         }
 
+        if ($markup) {
+            $body = (string) preg_replace(self::MARKUP_BLOCKS, '', $body);
+        }
+
         $remainder = (string) preg_replace(self::TOKEN_PATTERN, '', $body);
 
-        preg_match_all($markup ? self::OPENING_RUN : self::BRACE_RUN, $remainder, $matches);
+        preg_match_all(self::BRACE_RUN, $remainder, $matches);
 
         $found = [];
 

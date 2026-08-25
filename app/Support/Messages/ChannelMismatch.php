@@ -6,6 +6,7 @@ namespace App\Support\Messages;
 
 use App\Enums\AutomationActionType;
 use App\Enums\MessageChannel;
+use App\Enums\RecipientRuleType;
 use RuntimeException;
 
 /**
@@ -36,6 +37,22 @@ final class ChannelMismatch extends RuntimeException
             'An automation of type [%s] is using this template, and it cannot send on the [%s] channel.',
             $action->value,
             $channel->value,
+        ));
+    }
+
+    /**
+     * A recipient rule the channel is not allowed to carry.
+     *
+     * PRD F12.2: push is an internal channel and carries nothing
+     * client-facing. Refused rather than rewritten, because there is no
+     * *"who did you mean instead"* worth guessing on somebody's behalf.
+     */
+    public static function cannotCarryRecipient(MessageChannel $channel, RecipientRuleType $rule): self
+    {
+        return new self(sprintf(
+            'A [%s] template cannot be addressed to [%s].',
+            $channel->value,
+            $rule->value,
         ));
     }
 

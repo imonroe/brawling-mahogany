@@ -61,7 +61,17 @@ class MessageTemplateTestMail extends Mailable
                 'templateName' => $this->template->name,
                 'bodyHtml' => $this->rendered->bodyHtml,
                 'bodyText' => $this->rendered->bodyText,
-                'problems' => $this->rendered->problems(),
+                /*
+                 * The three lists separately, not `problems()`.
+                 *
+                 * They have three different fixes, and one label for all of
+                 * them said the wrong thing about two: a malformed entry is
+                 * the literal string `{{`, so the author's own test email read
+                 * *"These merge fields had nothing behind them: {{."*
+                 */
+                'malformed' => $this->rendered->malformed,
+                'unknown' => $this->rendered->unknown,
+                'unresolved' => $this->rendered->unresolved,
             ],
         );
     }

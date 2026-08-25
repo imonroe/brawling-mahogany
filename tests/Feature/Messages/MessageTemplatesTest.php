@@ -198,6 +198,24 @@ it('saves an HTML body carrying a media query', function (): void {
     expect(MessageTemplate::query()->sole()->body_html)->toContain('@media');
 });
 
+it('refuses an HTML body with one brace dropped, outside a style block', function (): void {
+    /*
+     * The mirror image of the typo round 1 caught, and the one the first
+     * markup relaxation gave away: `{ client_name }}` needs no odd spacing to
+     * produce, saves clean, and renders the braces into a client's inbox.
+     */
+    $this->post('/templates/messages', [
+        'name' => 'Broken markup',
+        'channel' => MessageChannel::Email->value,
+        'subject' => 'ok',
+        'body_html' => '<p>Hi { client_name }}, we are moving on.</p>',
+        'body_text' => 'ok',
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ])->assertSessionHasErrors('body_html');
+
+    expect(MessageTemplate::query()->count())->toBe(0);
+});
+
 it('refuses a subject carrying a line break', function (): void {
     // A subject is a mail header. Symfony folds a newline into encoded words
     // rather than injecting one, so this is not an exploit — it is the rule
@@ -461,6 +479,37 @@ it('previews the draft’s channel, not the one last saved', function (): void {
             ->where('preview.recipients', ['Emily Bosart']));
 });
 
+it('says nobody rather than naming the last saved rule’s recipients', function (): void {
+    /*
+     * One click into editing: the role picker carries a placeholder and does
+     * not auto-select, so *"a participant in a named role"* with no role is an
+     * ordinary state of the form. Falling back to the saved rule showed the
+     * previous rule's answer under a form that said something else — the
+     * preview naming one person and the send reaching another, which is the
+     * sentence this screen exists to prevent.
+     */
+    $template = messageTemplate([
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ]);
+
+    $deal = previewDeal();
+
+    // The control first: the saved rule really does resolve to somebody, so
+    // an empty list below cannot be passing for the wrong reason.
+    $this->post("/templates/messages/{$template->getKey()}/preview", [
+        'deal' => $deal->getKey(),
+        'body_text' => 'x',
+    ])->assertInertia(fn ($page) => $page->where('preview.recipients', ['Emily Bosart']));
+
+    $this->post("/templates/messages/{$template->getKey()}/preview", [
+        'deal' => $deal->getKey(),
+        'body_text' => 'x',
+        'recipient_rule' => ['type' => RecipientRuleType::ParticipantRole->value],
+    ])
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('preview.recipients', []));
+});
+
 it('shows a merge field with nothing behind it rather than sending over it', function (): void {
     $template = messageTemplate();
     $deal = previewDeal();
@@ -585,6 +634,36 @@ it('lets the channel change once nothing is standing on it', function (): void {
         // than left behind. `prohibited` stops the write; nothing cleared them.
         ->and($template->fresh()->subject)->toBeNull()
         ->and($template->fresh()->body_html)->toBeNull();
+});
+
+it('refuses a client recipient left on an internal channel, at the model', function (): void {
+    /*
+     * PRD F12.2 keeps push internal. The block already clears a subject and an
+     * HTML body a channel does not carry; the recipient rule is narrowed the
+     * same way and is **refused** rather than rewritten, because there is no
+     * "who did you mean instead" worth guessing for somebody.
+     *
+     * Unreachable through the front door — validation refuses it and the page
+     * resets the picker — so this is for the callers the block exists for.
+     */
+    $template = messageTemplate([
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ]);
+
+    app(TeamContext::class)->runFor($this->team, function () use ($template): void {
+        expect(fn () => $template->forceFill(['channel' => MessageChannel::Push])->save())
+            ->toThrow(ChannelMismatch::class);
+    });
+
+    // The control: the same change with an internal rule is allowed.
+    app(TeamContext::class)->runFor($this->team, function () use ($template): void {
+        $template->forceFill([
+            'channel' => MessageChannel::Push,
+            'recipient_rule' => ['type' => RecipientRuleType::TeamOwner->value],
+        ])->save();
+    });
+
+    expect($template->fresh()->channel)->toBe(MessageChannel::Push);
 });
 
 it('holds the channel pairing on the model, for callers no request reaches', function (): void {

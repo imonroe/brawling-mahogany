@@ -60,6 +60,27 @@ final readonly class RecipientRule
     }
 
     /**
+     * The same read, for a caller that has a *draft* rather than a stored row.
+     *
+     * S46's preview posts whatever is in the form, and "a participant in a
+     * named role, role not chosen yet" is one click into editing rather than
+     * an exotic state — `AppSelect` carries a placeholder and does not
+     * auto-select. Null rather than an exception, because the preview's job is
+     * to answer honestly about an unfinished rule, and its honest answer is
+     * *nobody yet*.
+     *
+     * @param  array<string, mixed>  $rule
+     */
+    public static function tryFromArray(array $rule): ?self
+    {
+        try {
+            return self::fromArray($rule);
+        } catch (MalformedRecipientRule) {
+            return null;
+        }
+    }
+
+    /**
      * @return array<string, string>
      */
     public function toArray(): array

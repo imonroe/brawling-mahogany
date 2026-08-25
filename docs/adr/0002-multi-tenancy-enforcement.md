@@ -189,15 +189,29 @@ Two things the implementation added that the decision did not name:
   `team_memberships` and left the row holding credentials. See *The hole the
   layers do not cover* for why the reversal, and what it generalises to.
 
-  Twelve models now carry no `team_id`, each recorded with a reason in the
+  Thirteen models now carry no `team_id`, each recorded with a reason in the
   isolation suite: `people` (a login is one per human), `teams` (the boundary
   itself), `roles` (the five system roles have no team), `permissions` (flat
   and identical everywhere), `audit_log` (outlives the team it describes),
-  `passkeys` (a credential belongs to a human, not a tenancy), and the six
+  `passkeys` (a credential belongs to a human, not a tenancy), the six
   definition-layer tables added in Slice 2 — `deal_types`, `template_packs`,
   and the four `*_template` tables — where a null `team_id` means a system row
-  every team can see. **None of the twelve holds customer data**, which is the
-  property that makes them safe and the one `people` used to break.
+  every team can see, and `action_definitions` in Slice 3, which mirrors its
+  stage template's team for the same reason. **None of the thirteen holds
+  customer data**, which is the property that makes them safe and the one
+  `people` used to break.
+
+  `action_definitions` is the first of them that **points at a team-scoped
+  table**, and that is a new shape for this paragraph rather than another
+  instance of it. A shared automation naming one team's `message_template`
+  would send that team's words, with their signature, from every other team on
+  the platform — so being outside the scope is not free here, and two database
+  constraints pay for it: a composite foreign key over
+  `(team_id, message_template_id)`, and a `CHECK` that a row with no team may
+  not name a template at all. The second is the load-bearing one, because a
+  Postgres foreign key is **MATCH SIMPLE** and a null `team_id` satisfies one
+  without checking anything. A later exemption that points at scoped data has
+  to show the same working.
 - **Which teams a person may resolve is one question with one answer**
   (issue #142). Layer 3 asks `Person::activeTeams()` before it will resolve a
   team from a session, so "is this person on the team" is a tenancy decision

@@ -25,10 +25,19 @@
         This is a test of “{{ $templateName }}” from {{ $teamName }}. No client received it.
     </p>
 
-    @if (count($problems) > 0)
+    @if (count($malformed) > 0 || count($unknown) > 0 || count($unresolved) > 0)
         <p style="margin:0 0 12px;padding:12px 16px;background:#fdecec;border-radius:6px;font-size:14px;color:#7a1b1a;">
-            These merge fields had nothing behind them on the deal you chose:
-            {{ implode(', ', $problems) }}.
+            @if (count($malformed) > 0)
+                A merge field is missing a brace, so it went out as written —
+                look for “{{ implode('” and “', $malformed) }}”.
+            @endif
+            @if (count($unknown) > 0)
+                No merge field is called {{ implode(', ', $unknown) }}.
+            @endif
+            @if (count($unresolved) > 0)
+                These had nothing behind them on the deal you chose:
+                {{ implode(', ', $unresolved) }}.
+            @endif
         </p>
     @endif
 

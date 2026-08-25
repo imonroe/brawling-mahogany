@@ -90,17 +90,36 @@ it('finds a brace run that was never a pair', function (string $body, array $exp
  * An unclosed **opening** has no such collision: nothing in CSS or HTML
  * produces `{{`.
  */
-it('lets a markup body carry nested CSS braces and still catches the typo', function (): void {
-    $css = '<style>@media (max-width:600px){.card{width:100%}}</style>';
+it('takes the style block out rather than half the check', function (string $body, array $expected): void {
+    expect(MergeFields::strayBraceRuns($body, markup: true))->toBe($expected);
+})->with([
+    // The regression the first fix caused: Design System §12 allows a
+    // `<style>` block, and nested rules close with `}}`.
+    'a media query' => ['<style>@media (max-width:600px){.card{width:100%}}</style><p>Hi {{ client_name }}</p>', []],
+    'keyframes' => ['<style>@keyframes p{0%{opacity:0}100%{opacity:1}}</style>', []],
 
-    expect(MergeFields::strayBraceRuns($css, markup: true))->toBe([])
-        // The same string in the plain-text alternative is not CSS, and there
-        // the closing half still applies.
-        ->and(MergeFields::strayBraceRuns($css))->toBe(['}}']);
+    /*
+     * The two the *second* fix had to keep. Dropping the closing half for
+     * markup would have let both through — and `{ client_name }}` needs no odd
+     * spacing at all, which makes it exactly as likely as the opening-side
+     * typo the check was written for. That is round 1's blocker, alive on the
+     * one field HTML email is written into.
+     */
+    'one opening brace' => ['<p>Hi { client_name }}</p>', ['}}']],
+    'a split opening brace' => ['<p>Hi { { client_name }}</p>', ['}}']],
+    'a dropped closing brace' => ['<p>Hi {{ client_name }</p>', ['{{']],
+    'a typo outside a style block that is fine inside one' => [
+        '<style>.a{b:c}}</style><p>Hi {{ client_name }</p>',
+        ['{{'],
+    ],
+    'well formed (control)' => ['<p>Hi {{ client_name }}</p>', []],
+]);
 
-    // The typo the check exists for is caught either way.
-    expect(MergeFields::strayBraceRuns('<p>Hi {{ client_name }</p>', markup: true))->toBe(['{{'])
-        ->and(MergeFields::strayBraceRuns('Hi {{ client_name }'))->toBe(['{{']);
+it('only strips markup for the brace check, never for the field scan', function (): void {
+    // An unknown merge field written inside a `<style>` block is still refused
+    // by name: `extract()` does not strip, so the token is still found.
+    expect(MergeFields::extract('<style>.a{content:"{{ nonsense }}"}</style>'))
+        ->toBe(['nonsense']);
 });
 
 it('reads several bodies at once and reports each token once', function (): void {

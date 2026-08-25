@@ -21,6 +21,7 @@ use App\Support\Audit\AuditLogger;
 use App\Support\Messages\MergeContext;
 use App\Support\Messages\MergeField;
 use App\Support\Messages\MergeFields;
+use App\Support\Messages\RecipientRule;
 use App\Support\Messages\RenderedMessage;
 use App\Support\Messages\RenderMessage;
 use App\Support\Messages\ResolveRecipients;
@@ -361,15 +362,24 @@ class MessageTemplateController extends Controller
     }
 
     /**
-     * The rule the draft is addressed to, falling back to the saved one.
+     * The rule the draft is addressed to.
      *
-     * A rule that cannot resolve is refused by `RecipientRule::fromArray()`
-     * rather than shrugged off, so a half-typed one on the way through the
-     * preview would throw — which is why an incomplete draft rule falls back
-     * rather than being trusted.
+     * Falls back to the saved rule only when the draft names **no rule at
+     * all** — an older page, or a caller that did not send one. A draft that
+     * names a rule is used as it stands, *including* a half-finished one.
+     *
+     * The first version fell back whenever the draft was incomplete, and
+     * "incomplete" turned out to be one click into editing: the role picker
+     * carries a placeholder and does not auto-select, so choosing *a
+     * participant in a named role* and pressing Refresh showed the **previous**
+     * rule's recipients underneath a form that said something else. That is
+     * the failure this screen's own test is written around — the preview
+     * naming one person and the send reaching another — reached from the other
+     * side. An unfinished rule resolves to nobody, and this screen already
+     * treats an empty recipient list as the answer worth showing.
      *
      * @param  array<string, mixed>  $draft
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
     private function draftRecipientRule(array $draft, MessageTemplate $template): array
     {
@@ -379,22 +389,12 @@ class MessageTemplateController extends Controller
             return $template->recipient_rule;
         }
 
-        $type = RecipientRuleType::tryFrom($rule['type']);
-
-        if ($type === null) {
-            return $template->recipient_rule;
-        }
-
-        if ($type->needsParticipantRole() && ! is_string($rule['participantRole'] ?? null)) {
-            return $template->recipient_rule;
-        }
-
         return array_filter([
-            'type' => $type->value,
-            'participantRole' => $type->needsParticipantRole()
-                ? (string) $rule['participantRole']
+            'type' => $rule['type'],
+            'participantRole' => is_string($rule['participantRole'] ?? null)
+                ? $rule['participantRole']
                 : null,
-        ], fn (?string $value): bool => $value !== null);
+        ], fn (mixed $value): bool => $value !== null);
     }
 
     /**
@@ -444,9 +444,21 @@ class MessageTemplateController extends Controller
             return [];
         }
 
+        /*
+         * `tryFromArray`, because this may be a **draft** rule somebody is
+         * still typing. "A participant in a named role" with no role yet is
+         * one click into editing, and it reaches nobody — which is a true
+         * answer, and one this panel already knows how to render.
+         */
+        $rule = RecipientRule::tryFromArray($template->recipient_rule);
+
+        if ($rule === null) {
+            return [];
+        }
+
         return array_values(
             app(ResolveRecipients::class)
-                ->for($template->recipientRule(), $deal, $team)
+                ->for($rule, $deal, $team)
                 ->map(fn (TeamMembership $membership): string => $membership->fullName())
                 ->all(),
         );

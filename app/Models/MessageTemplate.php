@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\MessageChannel;
+use App\Enums\RecipientRuleType;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use App\Support\Messages\ChannelMismatch;
@@ -96,6 +97,27 @@ class MessageTemplate extends Model
 
             if (! $template->channel->hasHtmlBody()) {
                 $template->body_html = null;
+            }
+
+            /*
+             * The recipient rule is narrowed by channel the same way, and is
+             * **refused** rather than cleared.
+             *
+             * PRD F12.2 keeps push internal, so a push template addressed to a
+             * client is the state that rule exists to prevent — and unlike a
+             * subject, which a channel with none simply does not have, there
+             * is no answer to *"who did you mean instead"* that we could pick
+             * for somebody. The front door already refuses it in validation;
+             * this is for the callers the block exists for, #92's
+             * instantiation and a pack install.
+             */
+            $rule = RecipientRule::tryFromArray($template->recipient_rule);
+
+            if ($rule !== null && ! array_key_exists(
+                $rule->type->value,
+                RecipientRuleType::optionsFor($template->channel),
+            )) {
+                throw ChannelMismatch::cannotCarryRecipient($template->channel, $rule->type);
             }
 
             if (! $template->exists) {
