@@ -238,19 +238,21 @@ it('never links to a route the application does not have', function (): void {
              * outbound links and screenshots; the rule here is only that an
              * internal link resolves.
              */
-            if (Str::contains($link, ['://', 'mailto:', 'tel:'])) {
-                continue;
-            }
-
-            $checked++;
-
             // A fragment is a position on the page, and a query string is not
-            // part of what the router matches.
+            // part of what the router matches. Stripped **before** the scheme
+            // check below, so a broken path cannot hide behind a URL sitting
+            // in its own query string.
             $link = Str::before(Str::before($link, '#'), '?');
 
             if ($link === '') {
                 continue;
             }
+
+            if (Str::contains($link, ['://', 'mailto:', 'tel:'])) {
+                continue;
+            }
+
+            $checked++;
 
             /*
              * A relative link renders to a dead href rather than to a missing
@@ -294,7 +296,9 @@ it('never links to a route the application does not have', function (): void {
              * does — and one naming a file that is not there is exactly the
              * rot this test exists to catch.
              */
-            if (File::exists(public_path(ltrim($link, '/')))) {
+            $asset = realpath(public_path(ltrim($link, '/')));
+
+            if ($asset !== false && is_file($asset) && Str::startsWith($asset, (string) realpath(public_path()))) {
                 continue;
             }
 

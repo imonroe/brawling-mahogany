@@ -52,25 +52,29 @@ people's access with it.
 
 ## What the permissions open
 
-| Permission                              | Opens                                           |
-| --------------------------------------- | ----------------------------------------------- |
-| `deals.view` / `deals.manage`           | Seeing and editing deals                        |
-| `workflow.advance`                      | Advancing a stage, and confirming a requirement |
-| `workflow.override`                     | Overriding a requirement with a reason          |
-| `stage.skip`                            | Marking a stage not applicable                  |
-| `people.view` / `people.manage`         | The directory                                   |
-| `people.import`                         | Importing a CSV                                 |
-| `properties.view` / `properties.manage` | Properties                                      |
-| `templates.manage`                      | Templates                                       |
-| `settings.manage`                       | Team settings                                   |
-| `team.members.manage`                   | Inviting and removing people                    |
-| `team.roles.manage`                     | This screen                                     |
-| `team.audit.view`                       | The audit log                                   |
-| `team.export`                           | Exporting the team's data                       |
+| Permission                              | Opens                                        |
+| --------------------------------------- | -------------------------------------------- |
+| `deals.view` / `deals.manage`           | Seeing and editing deals                     |
+| `workflow.advance`                      | Advancing a stage, and ticking a manual gate |
+| `workflow.override`                     | Overriding an unmet gate, with a reason      |
+| `stage.skip`                            | Marking a stage not applicable               |
+| `people.view` / `people.manage`         | The directory                                |
+| `people.import`                         | Importing contacts from a file or Google     |
+| `properties.view` / `properties.manage` | Properties                                   |
+| `templates.manage`                      | Templates                                    |
+| `settings.manage`                       | Team settings                                |
+| `team.members.manage`                   | Inviting and removing people                 |
+| `team.roles.manage`                     | This screen                                  |
+| `team.audit.view`                       | The audit log                                |
+| `team.export`                           | Exporting the team's data                    |
 
 The screen lists a few more than this — the ones belonging to features that
 have not arrived yet, like the calendar and Keep in Touch. They tick and save
 like any other; they simply have nothing to open until the feature does.
+
+The screen says **gate** where a deal says _requirement_ — same thing, and the
+word changes with the context: here you are handing out an ability, and there
+somebody is looking at what is in their way.
 
 `workflow.advance` and `workflow.override` are deliberately separate. Somebody
 should be able to move deals along all day without being able to decide a

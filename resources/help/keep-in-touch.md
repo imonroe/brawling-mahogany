@@ -11,7 +11,7 @@ that is worth their time.
 
 ## What exists today
 
-The **Past client** lifecycle state, and the contact log. You can record that
+The **Past Client** lifecycle state, and the contact log. You can record that
 you called somebody; the app does not yet remind you to.
 
 ## What it will do

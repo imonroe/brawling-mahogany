@@ -71,8 +71,12 @@ describe('the manual’s pages', () => {
         expect(cards[1].classes()).toContain('lg:order-1');
 
         // And it sticks, because the longest article scrolls it out of reach
-        // exactly when it starts being useful.
+        // exactly when it starts being useful — capped and scrollable, so an
+        // article with more headings than fit the viewport does not put its
+        // last entries somewhere unreachable.
         expect(cards[0].classes()).toContain('lg:sticky');
+        expect(cards[0].classes()).toContain('lg:overflow-y-auto');
+        expect(cards[0].classes()).toContain('lg:max-h-[calc(100vh-8rem)]');
 
         const links = page
             .findAll('a[href^="#"]')
