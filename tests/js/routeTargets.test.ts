@@ -58,7 +58,7 @@ import { describe, expect, it } from 'vitest';
  * this because the test failed on an import, that is the pattern being blunt
  * rather than your code being wrong — narrow the pattern, do not delete it.
  */
-const UNBUILT_DEAL_TABS = ['dates', 'documents', 'offers'];
+const UNBUILT_DEAL_TABS = ['dates', 'documents'];
 
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
@@ -141,7 +141,7 @@ describe('route targets', () => {
         const dead = [
             'return `${dealUrl.value}/dates`;',
             "return dealUrl.value + '/dates';",
-            "return '/deals/' + deal.id + '/offers';",
+            "return '/deals/' + deal.id + '/documents';",
             'return `/deals/${deal.id}/dates?filter=all`;',
             'const u = dealUrl.value; return u + "/documents";',
         ];
@@ -158,6 +158,8 @@ describe('route targets', () => {
             '// the deal has no /dates route yet',
             // Built, so a link to it is a link rather than an offence.
             'return `${dealUrl}/tasks`;',
+            // Offers left the list with S22 (#73).
+            'form.post(`${dealUrl}/offers`,',
         ];
 
         for (const source of fine) {

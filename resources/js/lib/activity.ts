@@ -26,6 +26,7 @@ import {
     ArrowRight,
     CircleCheck,
     CircleSlash,
+    FileSignature,
     Flag,
     House,
     Import,
@@ -39,6 +40,7 @@ import {
     PenLine,
     Phone,
     RotateCcw,
+    Scale,
     ShieldAlert,
     Star,
     Trash2,
@@ -122,6 +124,16 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * product describing something that happened.
      */
     'note.added': { icon: PenLine, tone: 'neutral' },
+
+    /*
+     * Offers (S22, #73). All three neutral, including the one that records an
+     * acceptance: §7.3 tints a **completion**, and an accepted offer is not
+     * the deal completing — it is the moment the deal acquires its dates. The
+     * completion on this feed is the closing, which is a stage advance.
+     */
+    'offer.added': { icon: FileSignature, tone: 'neutral' },
+    'offer.status_changed': { icon: Scale, tone: 'neutral' },
+    'offer.removed': { icon: Trash2, tone: 'neutral' },
 
     'stage.skipped': { icon: CircleSlash, tone: 'neutral' },
     'stage.reopened': { icon: RotateCcw, tone: 'neutral' },

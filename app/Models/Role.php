@@ -111,6 +111,21 @@ class Role extends Model
     }
 
     /**
+     * Who holds this role (S75 · #88).
+     *
+     * The count S75 shows **before** somebody archives a role, because a role
+     * held by four people is a role whose archiving takes four people's
+     * access with it — the same rule S76 set for deal types, where the in-use
+     * count is shown before the choice rather than reported after it.
+     *
+     * @return BelongsToMany<TeamMembership, $this>
+     */
+    public function memberships(): BelongsToMany
+    {
+        return $this->belongsToMany(TeamMembership::class, 'membership_role');
+    }
+
+    /**
      * @return BelongsToMany<Permission, $this>
      */
     public function permissions(): BelongsToMany

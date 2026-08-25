@@ -24,8 +24,11 @@ use App\Http\Controllers\Properties\PhotoController;
 use App\Http\Controllers\Properties\PropertyController;
 use App\Http\Controllers\Properties\PropertyDealController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\Settings\RoleController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
+use App\Http\Controllers\Templates\StageTemplateController;
+use App\Http\Controllers\Templates\TemplateController;
 use App\Http\Controllers\WorkController;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
@@ -442,10 +445,57 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      */
     Route::get('work', [WorkController::class, 'index'])->name('work.index');
 
+    /*
+     * S39–S43 — templates (F4.1, #84–#86).
+     *
+     * A team's own templates are editable and a pack's are not: one pack is
+     * shared by every team, so `WorkflowTemplatePolicy::update()` refuses a
+     * system row and the pack browser's only verb is *Use a copy*. Every
+     * nested route authorizes against the **workflow template**, because a
+     * guard on the parent with a door beside it is not a guard.
+     */
+    Route::scopeBindings()->group(function (): void {
+        Route::get('templates', [TemplateController::class, 'index'])->name('templates.index');
+        Route::post('templates', [TemplateController::class, 'store'])->name('templates.store');
+        Route::get('templates/{template}', [TemplateController::class, 'show'])->name('templates.show');
+        Route::patch('templates/{template}', [TemplateController::class, 'update'])->name('templates.update');
+        Route::delete('templates/{template}', [TemplateController::class, 'destroy'])->name('templates.destroy');
+        Route::post('templates/{template}/copy', [TemplateController::class, 'copy'])->name('templates.copy');
+
+        Route::post('templates/{template}/stages', [StageTemplateController::class, 'store'])
+            ->name('templates.stages.store');
+        Route::patch('templates/{template}/stages', [StageTemplateController::class, 'reorder'])
+            ->name('templates.stages.reorder');
+        Route::patch('templates/{template}/stages/{stageTemplate}', [StageTemplateController::class, 'update'])
+            ->name('templates.stages.update');
+        Route::delete('templates/{template}/stages/{stageTemplate}', [StageTemplateController::class, 'destroy'])
+            ->name('templates.stages.destroy');
+        Route::post('templates/{template}/stages/{stageTemplate}/gates', [StageTemplateController::class, 'addGate'])
+            ->name('templates.stages.gates.store');
+        Route::delete('templates/{template}/stages/{stageTemplate}/gates/{gateTemplate}', [StageTemplateController::class, 'removeGate'])
+            ->name('templates.stages.gates.destroy');
+        Route::post('templates/{template}/stages/{stageTemplate}/tasks', [StageTemplateController::class, 'addTask'])
+            ->name('templates.stages.tasks.store');
+        Route::delete('templates/{template}/stages/{stageTemplate}/tasks/{taskTemplate}', [StageTemplateController::class, 'removeTask'])
+            ->name('templates.stages.tasks.destroy');
+    });
+
+    /*
+     * S75 — roles and permissions (F2.3, #88).
+     *
+     * **No destroy route**, deliberately. A lookup is archived, never deleted
+     * — the rule S76 set — because a role appears in audit entries and in
+     * every membership that ever held it.
+     */
+    Route::get('settings/roles', [RoleController::class, 'index'])->name('roles.index');
+    Route::post('settings/roles', [RoleController::class, 'store'])->name('roles.store');
+    Route::patch('settings/roles/{role}', [RoleController::class, 'update'])->name('roles.update');
+    Route::delete('settings/roles/{role}/archive', [RoleController::class, 'archive'])->name('roles.archive');
+    Route::post('settings/roles/{role}/restore', [RoleController::class, 'restore'])->name('roles.restore');
+
     $placeholders = [
         'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
-        'templates' => ['Templates', 'S40', 2],
     ];
 
     foreach ($placeholders as $path => [$title, $screen, $slice]) {

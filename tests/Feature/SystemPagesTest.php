@@ -88,8 +88,10 @@ it('renders a placeholder for every sidebar destination', function (): void {
 
     $this->actingAsPerson($member, $team);
 
-    // `work` left this list with S11 (#80) — it is a real screen now.
-    foreach (['calendar', 'keep-in-touch', 'templates'] as $path) {
+    // `work` left this list with S11 (#80) — it is a real screen now, and
+    // `templates` left it with S39–S43 (#84–#86), asserted below against an
+    // owner because `templates.manage` is a Team Owner permission.
+    foreach (['calendar', 'keep-in-touch'] as $path) {
         $this->get("/{$path}")
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Placeholder'));
@@ -113,4 +115,26 @@ it('renders a placeholder for every sidebar destination', function (): void {
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component($component));
     }
+
+    /*
+     * Templates and roles are Team Owner screens — IA §7's separation showing
+     * up in the seeded roles, and the reason they are asserted from a second
+     * account rather than added to the loop above. A Team Member seeing them
+     * would be the finding, so both refusals are asserted too.
+     */
+    $this->get('/templates')->assertForbidden();
+    $this->get('/settings/roles')->assertForbidden();
+
+    [$ownerTeam, $owner] = $this->teamWithOwner();
+
+    $this->enrollTwoFactor($owner);
+    $this->actingAsPerson($owner, $ownerTeam);
+
+    $this->get('/templates')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->component('Templates/Index'));
+
+    $this->get('/settings/roles')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->component('Settings/Roles'));
 });

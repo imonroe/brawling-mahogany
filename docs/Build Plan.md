@@ -90,6 +90,8 @@ Create deal → overview → deals index           (#74 #75 #78)
         ↓
 Timeline + advance modal                       (#76 #77)
         ↓
+Templates and roles UI                         (#84 #85 #86 #88)
+        ↓
 Seeded template packs   ← blocked on Emily's lists (#87 ← #11)
         ↓
         Slice 2 exit: one real deal, end to end
@@ -102,6 +104,8 @@ Three things on that path are worth naming.
 **`AdvanceWorkflow` (#68) is the architectural keystone.** Every workflow mutation goes through it. If a controller ever writes `stages.state` directly, the audit trail, the automation dispatch, and the gate guarantees all become optional — and nobody notices until something has been silently skipped.
 
 **The seeded template packs (#87) are blocked on input we do not have.** Emily's consolidated task list, including a buyer-side list that does not yet exist, is the direct input. Build the pack *mechanism* against a placeholder; do not invent the content to unblock the schedule.
+
+That is now the state of it: the mechanism landed with #84–#86 — packs are listed, previewed, and copied, and the copy is deep — and what is missing is a pack with real stages in it. **A seeded pack whose content somebody invented is worse than an empty templates screen**, because it teaches a process nobody follows and gets copied before anyone notices, so #87 stays open on #11 rather than being closed with a plausible placeholder.
 
 Two decisions sit on this path rather than beside it:
 

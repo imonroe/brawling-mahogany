@@ -26,8 +26,15 @@ obvious precedent to copy"*, which is where the difference between a state and a
 presentation of one had to be settled — and **tasks (S17, S27)**, the feature
 both practitioners named independently as the thing their tools lack, and the
 screen that gave `required_tasks_complete` a way to clear that is not an
-override. Its remaining screens — offers, the dashboard, My Work, and the
-templates UI — are still open under epic #3.
+override. Since then: skip and reopen (S23's siblings, #70), notes (#72), **My
+Work** (S11, #80), **the team dashboard** (S10, #79) and the p95 budget that
+holds it (#89), **global search and the vendor directory** (S07, S34, #82,
+#83), **offers** (S22, #73), **private file storage and the photo gallery**
+(S38, #63) — which is the service Slice 3's documents will sit on — and
+**the templates and roles UI** (S39–S43, S75, #84–#86, #88). What is left in
+epic #3 is **#87, the seeded template packs**, and it is blocked on #11 rather
+than on code: the mechanism is built, and a pack whose stages somebody invented
+would teach a process nobody follows.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -75,7 +82,20 @@ These come from PRD §8 and should guide the eventual build:
 - **Single mutation path for workflow state.** All stage/workflow advancement goes through one service (`App\Support\Workflow\AdvanceWorkflow`) that evaluates gates, applies the transition in a transaction, dispatches triggered actions to the queue, and writes timeline/audit entries. No controller mutates workflow state directly. **Built in Slice 2**, and held by two tests rather than by memory: `tests/Unit/SingleMutationPathTest.php` reads the source of everything in `app/`, `routes/` and `database/`, and `HasStateMachine`'s `saving` hook refuses an illegal transition however the attribute was written — a source-reading guard alone was walked past three ways in review.
 - **Gate evaluation is data-driven.** One small evaluator per gate type (manual confirmation, required tasks complete, document present, field populated, action completed, date reached, approval), resolved by `gate_type`. Adding a gate type means adding a class, not touching advancement logic.
 - **Multi-tenancy: single database, single schema, `team_id` on every business table.** Enforce it in layers — a global Eloquent scope (fails closed if a `where` is forgotten), composite FKs where possible, middleware, policies, and a dedicated cross-tenant isolation test suite. A gap here is a release blocker, not a follow-up. **Built in Slice 1** — see [`docs/adr/0002`](docs/adr/0002-multi-tenancy-enforcement.md) for where each layer lives. Six models legitimately carry no `team_id`, and each is recorded with a reason in `tests/Isolation/ModelTenancyConventionTest.php`. Adding a seventh means adding a reason there, which is the point.
-- **A lookup is archived, never deleted.** Deal types (S76) is the first of these and sets the pattern for roles (S75), template packs, and every other lookup screen: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
+- **A lookup is archived, never deleted.** Deal types (S76) is the first of these and set the pattern roles (S75, #88) then followed, and template packs and every other lookup screen after them: no destroy route at all, the in-use count shown *before* the choice rather than reported after it, archiving reversible, the count scoped to the asking team, and system rows given no controls rather than disabled ones. The reasoning is in [`docs/Frontend conventions.md`](docs/Frontend%20conventions.md) §4.
+
+  **The count is scoped even when the row is not.** Roles and workflow
+  templates both have a *shared* half — the five system roles and the pack
+  templates carry no `team_id` at all — so a count taken off them without the
+  scope tells one team how many people or how many running deals **every other
+  team** has. `WorkflowTemplate::inUseCount()` records that as the mistake it
+  nearly was. A shared row's count is a per-team question, always.
+
+  **And an in-use count does not always mean "careful".** On S41 it means the
+  opposite: instantiation snapshotted, so the twelve deals running on a
+  template will *not* change when it is edited, and the number exists to say
+  so. A team that believes editing a template fixes a live deal will edit the
+  template instead of fixing the deal.
 - **A link out, never a copy of what is on the other end.** PRD §10: MLS
   listing data is licensed, and *"v1 stores links only, never ingested listing
   content."* `external_links` is a label and a URL and deliberately has no

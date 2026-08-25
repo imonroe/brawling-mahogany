@@ -161,6 +161,17 @@ tags:
 | S45 | Email template list | `/templates/emails` | Agent | Empty, in use by N automations, unused | F5.5 | 3 | S |
 | S46 | Email template editor | `/templates/emails/{template}` | Agent | Merge field picker, invalid field, live preview, recipient rule, test send | F5.5-F5.6 | 3 | **L** |
 
+> [!note] S40 is a section of S39, and *install* turned out to be *copy*
+> The pack browser has no route of its own. Both lists live on `/templates` — a team's own above, the packs below — because the thing a reader is doing there is choosing a process, and a second screen to reach the half they do not own makes the choice a navigation.
+>
+> **The two lists are two different things, which is why they are not one list.** A team's templates are editable; a pack's are shared by every team and `WorkflowTemplatePolicy::update()` refuses one outright. One list with some rows quietly read-only is exactly the shape Frontend conventions §4.3 warns about, so the pack's only verb is **Use a copy** — a deep copy that drops `template_pack_id`, because a row still naming the pack is a row a future "update your packs" feature would try to reconcile.
+>
+> That leaves S40's *already installed* and *update available* states with nothing to describe, and they are departures rather than omissions: nothing is installed, so nothing can be out of date. Whether packs should be updatable at all is a question #87 can answer once there is a pack whose contents somebody wants to revise.
+>
+> **S43 is a section too**, and a thin one for now. Four of the seven gate types take no configuration beyond a label, and the three that will — document present, action completed, date reached — are the ones whose slices have not landed. The picker reads `GateRegistry::types()` rather than keeping its own list, so those three are already selectable and already say why they cannot clear; their config editors arrive with #104, #92 and #109.
+>
+> **#87's seeded packs are not built and are not blocked on any of this.** They are blocked on #11 — Emily's real listing-side checklist — because a seeded pack whose stages somebody invented is worse than an empty templates screen: it teaches a process nobody follows and gets copied before anyone notices.
+
 ## H. Automation runtime
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
@@ -322,14 +333,14 @@ Everything else assembles. These do not.
 | S33 | Contact import | Field mapping and duplicate resolution are always harder than they look |
 | S31 | Person detail | Built against `{membership}` rather than `{person}`. A person is shared across teams (PRD decision log, 2026-08-22) and the membership is the team-scoped half, so binding to it means the global scope does the isolation — there is no route that could reach somebody this team has never met |
 | S84 | Start impersonation | Built as a page, not a modal. A typed reason, a duration, and an unmissable warning are more than a modal should carry, and the screen is reached from a team's detail page rather than from a list |
-| S41 | Workflow template editor | Reordering with in-flight deals to protect |
-| S42 | Stage template editor | Three child types on one screen |
+| S41 | Workflow template editor | Reordering with in-flight deals to protect. **Built**, and the protection turned out to need no protecting: `InstantiateWorkflow` snapshotted at the moment the workflow started, so a running deal holds no pointer back here to break. That inverts the screen's job — the in-use count is shown not as a warning that an edit is dangerous but so somebody changing a template twelve deals came from knows **the twelve will not change with it**, which is the thing a team will otherwise assume the wrong way round and edit a template instead of fixing the deal. The count is `Workflow` scoped, and the unscoped version would have been a leak of exactly the shape the isolation suite exists to catch: a pack template is shared by every team, so counting without the scope tells one team how many deals every other team is running. Reordering has **no drag library** — Design System §13.2's note, decided in S38 — and the endpoint takes the whole order at once because a reorder is one intention, so two adjacent swaps racing produce an order neither person chose |
+| S42 | Stage template editor | Three child types on one screen. **Built** as part of S41's page rather than a route of its own: a stage template is a name, a duration, a milestone flag and three short lists, and a screen per stage would make reordering — the interaction the hard-list names — a navigation. Two decisions. **Every action is authorized against the workflow template, never the stage**, because a policy guarding the parent row while a child route let somebody add a gate to one of its stages is a guard with a door beside it, and `TemplateEditingTest` asserts the refusal on the stage and gate routes rather than only on the template one. And **the gate type picker reads `GateRegistry::types()`**, so PRD §8.3's *"adding a gate type means adding a class"* extends to the editor: an eighth evaluator becomes selectable by existing, and a typo is a validation error rather than a gate no evaluator will ever answer |
 | S44 | Automation editor | Trigger, action, recipient rule, all interdependent |
 | S46 | Email template editor | Merge fields, validation, live preview |
 | S57 | Calendar | Events and deadlines are different things sharing a grid |
 | S62 | Client status timeline | The only screen a stranger uses unaided |
 | S66 | Review extracted dates | Highest legal risk in the product |
-| S75 | Roles and permissions | Permission matrices are notoriously hard to make legible |
+| S75 | Roles and permissions | Permission matrices are notoriously hard to make legible. **Built**, and made legible by cutting the matrix down rather than by drawing it better: the catalogue offered is the **team surface only**, so the platform console's permissions and the client surface's are absent — a team composing from `platform.administer` would be a customer granting themselves `/admin`, and the refusal is a validation error rather than a quiet filter, because a request naming a key nobody's screen rendered is an attempt worth refusing out loud. Three decisions follow S76's lookup pattern exactly. **A shipped role gets no controls rather than disabled ones**: F2.3 is that a team differs by composing a new role, and a team that renamed Team Member would change what that name means to everybody reading their own audit log six months later. **There is no destroy route at all** — a role appears in every audit entry and every membership that ever held it — and the archive is reversible, with the holder count shown *before* the choice, because archiving a role held by four people takes four people's access with it. And **the key is derived from the name and never typed**: it is what every permission check is written against, so letting a customer choose `team_owner` would let a customer choose what a name means in this product |
 
 ### Sequencing recommendation
 
