@@ -74,7 +74,7 @@ enum ActivityCategory: string implements HasLabel
             // with a person — and a note is **written** about the deal. A
             // reader filtering to Contact Log is looking for "when did we last
             // speak to them", and a note about the lockbox code is not that.
-            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note'],
+            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note', 'offer'],
             self::People => ['person'],
             self::Properties => ['property'],
         };

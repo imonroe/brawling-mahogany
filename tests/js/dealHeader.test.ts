@@ -38,7 +38,8 @@ const deal: DealHeaderProps = {
     sideLabel: 'Sell',
     clientName: 'Emily Bosart',
     location: { city: 'Indianapolis', state: 'IN' },
-    counts: { people: 3, properties: 2, tasks: 5 },
+    counts: { people: 3, properties: 2, tasks: 5, offers: 0 },
+    hasOffers: true,
     advance: { workflowId: 'wf-1', stageId: 'stage-1' },
 };
 

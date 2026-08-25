@@ -51,7 +51,8 @@ const dealHeader: DealHeaderProps = {
     sideLabel: 'Sell',
     clientName: 'Emily Bosart',
     location: null,
-    counts: { people: 1, properties: 1, tasks: 2 },
+    counts: { people: 1, properties: 1, tasks: 2, offers: 0 },
+    hasOffers: true,
     advance: null,
 };
 

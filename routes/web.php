@@ -11,6 +11,7 @@ use App\Http\Controllers\Deals\DealPropertyController;
 use App\Http\Controllers\Deals\DealTimelineController;
 use App\Http\Controllers\Deals\DealWizardController;
 use App\Http\Controllers\Deals\NoteController;
+use App\Http\Controllers\Deals\OfferController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
@@ -235,6 +236,22 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::post('deals/{deal}/workflows/{workflow}/override', [OverrideGateController::class, 'store'])
             ->name('deals.workflows.override');
+
+        /*
+         * S22 — a deal's offers (F3.6, #73).
+         *
+         * `{offer}` resolves through `{deal}` by scoped binding: two deals in
+         * the same team pass the tenancy layers and the policy alike, and only
+         * the nesting answers whose deal an offer is on.
+         */
+        Route::get('deals/{deal}/offers', [OfferController::class, 'index'])
+            ->name('deals.offers.index');
+        Route::post('deals/{deal}/offers', [OfferController::class, 'store'])
+            ->name('deals.offers.store');
+        Route::patch('deals/{deal}/offers/{offer}', [OfferController::class, 'update'])
+            ->name('deals.offers.update');
+        Route::delete('deals/{deal}/offers/{offer}', [OfferController::class, 'destroy'])
+            ->name('deals.offers.destroy');
 
         /*
          * F4.11 — a note on a deal (#72).
