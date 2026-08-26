@@ -199,7 +199,19 @@ const isFiltered = computed(
                 />
 
                 <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">{{ row.name }}</p>
+                    <!--
+                        S52. Nothing linked to `/documents/{document}` when it
+                        shipped, so the viewer existed and F6.3's visibility
+                        toggle — the only control that publishes a document to
+                        a client — had no path to it at all. A screen nothing
+                        reaches is a screen nobody has.
+                    -->
+                    <a
+                        :href="`/documents/${row.id}`"
+                        class="block truncate text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                        {{ row.name }}
+                    </a>
                     <p
                         v-if="row.caption"
                         :class="[
@@ -226,6 +238,29 @@ const isFiltered = computed(
                         </template>
                     </p>
                 </div>
+
+                <!--
+                    "Not scanned" is not "clean", and four places in this slice
+                    claim every screen says which. This is one of them saying
+                    it. Only the unread case is marked: a badge on every
+                    checked row would be noise, and the fact worth surfacing is
+                    the one that could be mistaken for a guarantee.
+                -->
+                <span
+                    v-if="row.scanState !== 'clean'"
+                    :class="[
+                        'shrink-0',
+                        'rounded-full',
+                        'bg-muted',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'text-muted-foreground',
+                    ]"
+                    title="There was no readable text in this file to check."
+                >
+                    Not scanned
+                </span>
 
                 <span
                     v-if="row.visibility === 'client_visible'"

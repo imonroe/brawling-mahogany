@@ -76,6 +76,29 @@ final class DocumentPresentEvaluator implements GateEvaluator
         }
 
         $stage = $gate->stage;
+
+        /*
+         * **Only a deal can carry one today.** S21 attaches documents to the
+         * deal; the property gallery takes photographs and nothing attaches to
+         * a stage at all. So a gate configured to look at either has exactly
+         * one way to be satisfied and no way to reach it — CLAUDE.md's *"a row
+         * nothing can reach is a rule nobody is following"*, which round 1 of
+         * review found still open here after #104 closed the deal case.
+         *
+         * It says so rather than sitting unmet forever. An advance blocked by
+         * a requirement nobody can clear is worse than one blocked by a
+         * requirement somebody can, because the second has a next action and
+         * the first looks like a bug in the product.
+         */
+        $attachment = $this->attachment($gate->configuration());
+
+        if ($attachment !== 'deal') {
+            return GateVerdict::unmet(
+                'This requirement is looking for a document on the '.$attachment
+                .', and documents attach to the deal. Edit the workflow template to look at the deal instead.',
+            );
+        }
+
         $subject = $this->subject($gate, $stage);
 
         if ($subject === null) {

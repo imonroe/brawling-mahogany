@@ -155,11 +155,23 @@ class DealDocumentController extends Controller
      * application costs a hop and buys the only record that is true.
      * `DocumentStorage::contents()` says the same thing from the other end.
      *
-     * **Attachment, never inline.** The photo gallery renders inline because a
-     * gallery is a page showing images; this serves arbitrary uploads, and a
-     * type that renders in a browsing context is a type worth not rendering.
-     * With `nosniff` beside it that is belt and braces, which is the right
-     * amount for a file a customer chose the contents of.
+     * ## Inline for the two types S52 previews, attachment for the rest
+     *
+     * This said *"attachment, never inline"*, which read as caution and was in
+     * fact a contradiction: S52 renders a PDF in an `<object>` pointed at this
+     * route, and a browser handed `Content-Disposition: attachment` downloads
+     * the file instead of drawing it. The preview could never have worked.
+     *
+     * So the disposition follows the **stored** `mime_type`, which `finfo`
+     * derived from the bytes rather than from a filename: images and PDFs —
+     * the two S52 knows how to show — go inline, and everything else is an
+     * attachment. The allowlist is what makes that safe rather than the
+     * disposition: `DocumentStorage` accepts no `text/html` and no
+     * `image/svg+xml`, which are the types that would execute in a browsing
+     * context, and `nosniff` stops a browser looking for a second opinion
+     * about the ones it does accept.
+     *
+     * Adding a type to that allowlist means asking this question again.
      */
     public function show(
         Request $request,
@@ -198,7 +210,9 @@ class DealDocumentController extends Controller
         return response($storage->contents($document), 200, [
             'Content-Type' => $document->mime_type,
             'Content-Disposition' => HeaderUtils::makeDisposition(
-                HeaderUtils::DISPOSITION_ATTACHMENT,
+                self::previewable($document)
+                    ? HeaderUtils::DISPOSITION_INLINE
+                    : HeaderUtils::DISPOSITION_ATTACHMENT,
                 $document->original_name,
                 /*
                  * The fallback a client uses when it cannot read the RFC 5987
@@ -238,6 +252,19 @@ class DealDocumentController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Document removed.')]);
 
         return back(fallback: route('deals.documents.index', $deal));
+    }
+
+    /**
+     * The types S52 can draw, which are exactly the types served inline.
+     *
+     * One list rather than two: a viewer that previews a type the download
+     * refuses to render inline is a blank frame, and the two answers drifting
+     * apart is how that happens.
+     */
+    private static function previewable(Document $document): bool
+    {
+        return $document->mime_type === 'application/pdf'
+            || str_starts_with($document->mime_type, 'image/');
     }
 
     /**

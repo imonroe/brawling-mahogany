@@ -283,3 +283,40 @@ it('still refuses the form itself, on its own title', function (): void {
         DocumentCategory::Other,
     ))->toThrow(RefusedDocument::class);
 });
+
+it('refuses a contract that has been signed, and keeps the one being negotiated', function (): void {
+    /*
+     * The distinction is the whole rule. PRD §1.1 puts this product
+     * *alongside* the e-signature platform rather than in front of it, so the
+     * unexecuted draft somebody is negotiating is exactly the document they
+     * should be able to keep here. What belongs in CTM is the one that has
+     * been signed.
+     *
+     * Round 1 of review found this category named in S51's warning and in the
+     * help article with **no detector at all** — a refusal list with a
+     * category nothing reaches is a promise the product does not keep.
+     */
+    $executed = 'RESIDENTIAL PURCHASE AGREEMENT. In witness whereof the parties have executed '
+        ."this agreement.\nDocuSign Envelope ID: 9C41B7A2-33F0-4E19-9D2B-77A1C6E4B510\n"
+        .'Electronically signed by Emily Bosart. Certificate of completion follows.';
+
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('contract.txt', $executed),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+
+    $draft = 'Draft residential purchase agreement for review. Buyer signature and seller '
+        .'signature blocks are at the end. Emily — see paragraph 14, I have changed the '
+        .'inspection window to ten days and left the financing contingency alone.';
+
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('draft.txt', $draft),
+        $this->owner,
+        DocumentCategory::Correspondence,
+    );
+
+    expect($document->scan_state)->toBe('clean');
+});

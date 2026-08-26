@@ -307,3 +307,27 @@ it('gives every verdict a sentence somebody could act on', function (): void {
         expect(trim($verdict->explanation))->not->toBe('', "The {$type} evaluator returned no explanation.");
     }
 });
+
+it('says so when a document gate looks somewhere nothing can attach', function (string $target): void {
+    /*
+     * S21 attaches documents to the **deal**; the property gallery takes
+     * photographs and nothing attaches to a stage at all. So a gate configured
+     * to look at either has exactly one way to be satisfied and no way to
+     * reach it — CLAUDE.md's *"a row nothing can reach"*, still open here
+     * after #104 closed the deal case.
+     *
+     * An advance blocked by a requirement nobody can clear is worse than one
+     * blocked by a requirement somebody can: the second has a next action, and
+     * the first looks like a bug in the product.
+     */
+    $verdict = verdictFor(gateOfType('document_present', [
+        'category' => 'inspection_report',
+        'attachedTo' => $target,
+    ]));
+
+    expect($verdict->met)->toBeFalse()
+        ->and($verdict->explanation)->toContain('documents attach to the deal')
+        // No link, because there is nowhere useful to send anybody: the fix is
+        // editing the template, not visiting a screen.
+        ->and($verdict->linkTarget)->toBe([]);
+})->with(['stage', 'property']);

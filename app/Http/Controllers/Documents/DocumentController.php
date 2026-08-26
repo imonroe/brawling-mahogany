@@ -11,6 +11,7 @@ use App\Models\Deal;
 use App\Models\Document;
 use App\Models\Property;
 use App\Models\Stage;
+use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentStorage;
 use Illuminate\Database\Eloquent\Builder;
@@ -56,7 +57,6 @@ class DocumentController extends Controller
 
         $documents = $this->filtered($filters)
             ->where($this->readable(...))
-            ->with('uploader')
             ->latest('created_at')
             /*
              * `created_at` is `timestamp(0)`, so a bulk upload shares a second
@@ -67,8 +67,20 @@ class DocumentController extends Controller
             ->paginate(25)
             ->withQueryString();
 
+        /*
+         * Resolved in two queries rather than one per row. `subject()` did a
+         * `find()` per document, so a full page of 25 was 25 extra round trips
+         * — round 1 of review measured the page at 95 queries. A `MorphTo`
+         * eager load groups by type and fetches each set once.
+         */
+        $subjects = $this->subjectsFor($documents->items());
+        $uploaders = $this->uploadersFor($documents->items());
+
         return Inertia::render('Documents/Index', [
-            'documents' => collect($documents->items())->map($this->row(...))->values()->all(),
+            'documents' => collect($documents->items())
+                ->map(fn (Document $document): array => $this->row($document, $subjects, $uploaders))
+                ->values()
+                ->all(),
             'total' => $documents->total(),
             'filters' => [
                 'category' => $filters['category'] ?? null,
@@ -296,11 +308,94 @@ class DocumentController extends Controller
     }
 
     /**
+     * Every subject the page needs, one query per morph type.
+     *
+     * @param  array<int, Document>  $documents
+     * @return array<string, array{label: string, url: string|null}>
+     */
+    private function subjectsFor(array $documents): array
+    {
+        $resolved = [];
+
+        foreach ([Deal::class, Property::class] as $model) {
+            $type = (new $model)->getMorphClass();
+
+            $ids = [];
+
+            foreach ($documents as $document) {
+                if ($document->documentable_type === $type) {
+                    $ids[] = $document->documentable_id;
+                }
+            }
+
+            if ($ids === []) {
+                continue;
+            }
+
+            foreach ($model::query()->whereIn('id', array_unique($ids))->get() as $subject) {
+                $resolved[$type.':'.$subject->getKey()] = [
+                    'label' => $subject->displayName(),
+                    'url' => $model === Deal::class
+                        ? '/deals/'.$subject->getKey().'/documents'
+                        : '/properties/'.$subject->getKey(),
+                ];
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Who uploaded each document, in one query rather than two per row.
+     *
+     * `Person::displayNameWithin()` calls `membershipIn()`, which always
+     * queries — it is not relation-aware, and changing that would touch every
+     * caller in the product. So the batch lives here, where the N is.
+     *
+     * IA §11: a name is something a **team** recorded, so it comes off the
+     * membership rather than off `people`. Every document on this page belongs
+     * to the resolved team, which is what makes one query enough.
+     *
+     * @param  array<int, Document>  $documents
+     * @return array<string, string>
+     */
+    private function uploadersFor(array $documents): array
+    {
+        $ids = [];
+
+        foreach ($documents as $document) {
+            if (is_string($document->uploaded_by)) {
+                $ids[] = $document->uploaded_by;
+            }
+        }
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $names = [];
+
+        foreach (
+            TeamMembership::query()
+                ->whereIn('person_id', array_unique($ids))
+                ->whereNull('revoked_at')
+                ->get() as $membership
+        ) {
+            $names[(string) $membership->person_id] = $membership->fullName();
+        }
+
+        return $names;
+    }
+
+    /**
+     * @param  array<string, array{label: string, url: string|null}>  $subjects
+     * @param  array<string, string>  $uploaders
      * @return array<string, mixed>
      */
-    private function row(Document $document): array
+    private function row(Document $document, array $subjects = [], array $uploaders = []): array
     {
-        $subject = $this->subject($document);
+        $subject = $subjects[$document->documentable_type.':'.$document->documentable_id]
+            ?? $this->subject($document);
 
         return [
             'id' => $document->getKey(),
@@ -311,7 +406,7 @@ class DocumentController extends Controller
             'visibility' => $document->visibility->value,
             'sizeBytes' => $document->size_bytes,
             'uploadedAt' => $document->created_at?->toIso8601String(),
-            'uploadedBy' => $document->uploader?->displayNameWithin($document->team),
+            'uploadedBy' => $uploaders[(string) $document->uploaded_by] ?? null,
             'scanState' => $document->scan_state,
             /*
              * Where it hangs, and the way back to it. A row with no route to

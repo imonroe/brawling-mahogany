@@ -218,6 +218,22 @@ const canUpload = computed(() => props.can.upload);
                 </div>
 
                 <span
+                    v-if="row.scanState !== 'clean'"
+                    :class="[
+                        'shrink-0',
+                        'rounded-full',
+                        'bg-muted',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'text-muted-foreground',
+                    ]"
+                    title="There was no readable text in this file to check."
+                >
+                    Not scanned
+                </span>
+
+                <span
                     v-if="row.visibility === 'client_visible'"
                     :class="[
                         'shrink-0',

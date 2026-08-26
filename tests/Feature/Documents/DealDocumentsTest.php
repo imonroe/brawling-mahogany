@@ -254,6 +254,7 @@ it('streams a document back and records who read it', function (): void {
         ->and($cacheControl)->toContain('max-age=60')
         ->and($cacheControl)->not->toContain('public');
 
+    // A `.txt` is not something S52 draws, so it downloads.
     expect($response->headers->get('Content-Disposition'))->toStartWith('attachment')
         ->and($response->getContent())->toBe('Roof looks sound.');
 
@@ -471,4 +472,29 @@ it('still keys a property’s photograph on the property permissions', function 
     });
 
     expect(app(DocumentPolicy::class)->view($narrow->fresh(), $photo->fresh()))->toBeFalse();
+});
+
+it('serves the two types the viewer draws inline, or the preview is a blank frame', function (): void {
+    /*
+     * The download said *"attachment, never inline"*, which read as caution
+     * and was a contradiction: S52 points an `<object>` at this route to draw
+     * a PDF, and a browser handed `attachment` downloads the file instead. The
+     * preview could never have worked.
+     *
+     * The allowlist is what makes inline safe rather than the disposition —
+     * `DocumentStorage` accepts no `text/html` and no `image/svg+xml`, which
+     * are the types that would execute in a browsing context.
+     */
+    $pdf = app(DocumentStorage::class)->store(
+        $this->deal,
+        dealUpload('disclosure.pdf', "%PDF-1.4\n4 0 obj\n<< /Length 120 >>\nstream\nBT (The seller discloses that the roof was replaced in 2019.) Tj ET\nendstream\nendobj\n%%EOF"),
+        $this->owner,
+        DocumentCategory::Disclosure,
+    );
+
+    $response = $this->get("/deals/{$this->deal->getKey()}/documents/{$pdf->getKey()}");
+
+    expect($response->headers->get('Content-Disposition'))->toStartWith('inline')
+        // Still never sniffed: the type we send is true of the bytes.
+        ->and($response->headers->get('X-Content-Type-Options'))->toBe('nosniff');
 });

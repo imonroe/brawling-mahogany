@@ -107,6 +107,41 @@ final class SensitiveContent
         'form 1003',
     ];
 
+    /**
+     * A contract that has been **signed**, which is the part that matters.
+     *
+     * Round 1 of review: this category was named in S51's warning and in the
+     * help article, `alternative()` had a branch for it, and nothing could
+     * ever produce one. A refusal list with a category no detector reaches is
+     * a promise the product does not keep.
+     *
+     * Signature evidence rather than contract vocabulary, and the distinction
+     * is the whole rule. Every purchase agreement a team handles says
+     * "purchase agreement"; PRD §1.1 puts this product *alongside* the
+     * e-signature platform rather than in front of it, so the unexecuted draft
+     * somebody is negotiating is exactly the document they should be able to
+     * keep here. What belongs in CTM is the one that has been signed.
+     */
+    private const EXECUTION_PHRASES = [
+        'docusign envelope id',
+        'dotloop verified',
+        'electronically signed by',
+        'digitally signed by',
+        'signature certificate',
+        'certificate of completion',
+        'audit trail',
+        '/s/',
+    ];
+
+    private const CONTRACT_PHRASES = [
+        'purchase agreement',
+        'purchase and sale agreement',
+        'residential sale contract',
+        'in witness whereof',
+        'buyer signature',
+        'seller signature',
+    ];
+
     private const IDENTITY_PHRASES = [
         'social security number',
         'driver license number',
@@ -195,6 +230,20 @@ final class SensitiveContent
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::BankStatement,
                 'routing_number_in_banking_context',
+            );
+        }
+
+        /*
+         * Signature evidence **beside** contract vocabulary. Either alone is
+         * wrong: "audit trail" appears in this product's own documentation,
+         * and "purchase agreement" is what the draft somebody is negotiating
+         * is called. Together they are a document that has been executed.
+         */
+        if (self::mentions($haystack, self::EXECUTION_PHRASES)
+            && self::mentions($haystack, self::CONTRACT_PHRASES)) {
+            return ScanOutcome::refused(
+                RestrictedDocumentCategory::ExecutedContract,
+                'execution_evidence_in_contract',
             );
         }
 

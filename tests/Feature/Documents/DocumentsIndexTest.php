@@ -16,6 +16,7 @@ use App\Support\Documents\DocumentStorage;
 use App\Support\Permissions;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -342,4 +343,42 @@ it('offers a deals-only role no property in the storage figure', function (): vo
 
     $this->get('/documents')
         ->assertInertia(fn ($page) => $page->where('storageUsed', 0));
+});
+
+it('does not pay a query per row to name what each document hangs off', function (): void {
+    /*
+     * `subject()` did a `find()` per document, so a full page was 25 extra
+     * round trips — round 1 of review measured the page at 95 queries. The
+     * guard is two same-sized fixtures rather than a budget: a budget is blind
+     * to a fixed cost paid on every page, and what catches an N+1 is the count
+     * *not moving* when the row count does.
+     */
+    $count = function (): int {
+        $queries = 0;
+        DB::listen(function () use (&$queries): void {
+            $queries++;
+        });
+
+        $this->get('/documents')->assertOk();
+
+        return $queries;
+    };
+
+    storeOn($this->deal, 'one.txt', DocumentCategory::Other);
+
+    $withOne = $count();
+
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    foreach (['two.txt', 'three.txt', 'four.txt', 'five.txt'] as $name) {
+        storeOn($property, $name, DocumentCategory::Other);
+    }
+
+    $withFive = $count();
+
+    /*
+     * Four more rows, and a second morph type — so at most one extra query,
+     * for the properties. Per-row resolution would add four.
+     */
+    expect($withFive - $withOne)->toBeLessThanOrEqual(1);
 });
