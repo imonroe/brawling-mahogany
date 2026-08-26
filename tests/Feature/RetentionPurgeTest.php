@@ -14,7 +14,9 @@ use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
+use App\Support\Branding\TeamLogo;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -143,6 +145,38 @@ it('leaves no rows behind when the window closes on a team', function (): void {
     // The shared person survives: another team may still know them, and a
     // human is not a tenant's property.
     expect(Person::query()->find($member->getKey()))->not->toBeNull();
+});
+
+it('deletes a purged team’s logo bytes, not just the column pointing at them', function (): void {
+    /*
+     * `records:purge` finds a row by its `deleted_at`, and a logo has no row —
+     * it is a column on `teams` and a file on the documents disk. Both go, and
+     * the coverage is here rather than incidental because it depends on
+     * `TeamLogo::DISK` being `DocumentStorage::DISK` rather than a string that
+     * happens to match it today.
+     */
+    Storage::fake(TeamLogo::DISK);
+
+    [$team, $owner] = $this->teamWithOwner();
+
+    $this->enrollTwoFactor($owner);
+    $this->actingAsPerson($owner, $team);
+
+    $this->post('/settings/team/logo', ['logo' => UploadedFile::fake()->image('mark.png', 400, 120)]);
+
+    $path = (string) $team->fresh()->logo_path;
+
+    Storage::disk(TeamLogo::DISK)->assertExists($path);
+
+    $this->freezeAt('2026-08-01 09:00:00');
+
+    app(ScheduleTeamPurge::class)->schedule($team);
+
+    $this->freezeAt('2026-09-15 09:00:00');
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    Storage::disk(TeamLogo::DISK)->assertMissing($path);
 });
 
 it('deletes an expired export’s file, not just its row', function (): void {

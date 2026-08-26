@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Mail;
 
 use App\Models\TeamInvitation;
+use App\Support\Mail\BrandedEmail;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -45,6 +46,7 @@ class TeamInvitationMail extends Mailable
             view: 'mail.team-invitation',
             text: 'mail.team-invitation-text',
             with: [
+                'brand' => BrandedEmail::for($this->invitation->team()->sole()),
                 'teamName' => $this->invitation->team()->sole()->name,
                 'inviterName' => $inviter?->displayNameWithin($this->invitation->team()->sole()),
                 'acceptUrl' => route('invitations.show', ['token' => $this->token]),

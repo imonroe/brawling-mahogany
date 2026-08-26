@@ -147,6 +147,22 @@ you can send it by hand or pick up the phone.
 deleted, because three months from now the question is not "is this tidy", it is
 "why did the client never hear about the inspection".
 
+**And you get told.** People on your team who can approve messages get an email
+about anything that has failed since the last one — within a few minutes, and
+almost never twice about the same failure. On a large team it goes to the first
+few rather than to everybody, because an alert copied to twenty people is an
+alert twenty people assume somebody else is dealing with.
+
+_Almost_ never, because if the alert itself is accepted and then fails on its
+way out, the next one covers the same ground again. Told twice beats not told. When several have gone wrong it says how
+many and links to the queue rather than to one of them, because one expired
+password can take out a morning's worth and you want the list, not the first
+row.
+
+A message a rail is _holding_ does not send one of these. Nothing has been lost:
+it goes on its own when the limit rolls over or the switch comes off, and the
+queue says so in the present tense while it waits.
+
 ## Held before sending
 
 Between those two lists sits a third, and it holds two different things.
@@ -184,6 +200,29 @@ what is already queued as well as what has not been prepared yet. Held, not
 cancelled — turning it back off releases them. This is the one to reach for when
 something is wrong and you are not yet sure what.
 
+## What your client actually sees
+
+Every email goes out in your team's frame: your logo at the top if you have
+uploaded one, your accent colour, your words in the middle, and a plain-text
+version underneath for watches, screen readers and inboxes with images turned
+off. Set both in **Settings → Team**.
+
+**When the stage that just finished is a milestone**, the email opens with what
+you called that milestone for the client — the wording on the stage in your
+template, never the internal stage name. "Your home is on the market", not
+"Stage complete: Property Listed". If the property has a listing linked and your
+own words do not already point at it, a button to the listing goes underneath.
+
+That headline appears when a stage **completes**, not when it starts. A
+milestone is the moment something finished.
+
+Like the words themselves, the headline and the address are worked out when the
+automation fires, and the queue shows you both — so what you approve is what the
+client gets, even if something on the deal changes while the message is
+waiting. Your logo
+and colour are the exception: those are read when the message actually goes, so
+changing them updates everything still queued.
+
 ## What is still to come
 
 **Delivery tracking**, so a bounced message is something you find out about
@@ -192,5 +231,8 @@ rather than something a client mentions three weeks later.
 **Your own sending address.** Messages currently go out from the app's address
 with your team's as the reply-to — the "send from" field on a template is saved
 and waiting for a verified sending domain.
+
+**A link to the client's status page** in a milestone email. The email has a
+place for it; the page itself is still being built.
 
 **Push notifications and calendar events** as things an automation can do.

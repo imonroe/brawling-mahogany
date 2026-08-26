@@ -6,3 +6,4 @@ Accept the invitation:
 {{ $acceptUrl }}
 
 This link works once and expires on {{ $expiresAt->toFormattedDayDateString() }}.
+@include('mail.partials.text-footer', ['brand' => $brand])

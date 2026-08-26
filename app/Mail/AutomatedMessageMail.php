@@ -6,6 +6,8 @@ namespace App\Mail;
 
 use App\Models\ActionInstance;
 use App\Models\Team;
+use App\Support\Mail\BrandedEmail;
+use App\Support\Mail\MilestoneAnnouncement;
 use App\Support\Messages\RenderedMessage;
 use App\Support\Messages\RenderMessage;
 use Illuminate\Bus\Queueable;
@@ -40,11 +42,14 @@ use Illuminate\Queue\SerializesModels;
  * goes. #94 is where a team gets a verified identity of its own, and this is
  * the line that changes when it does.
  *
- * ## The branded layout is #97
+ * ## The branded layout, and the announcement around it
  *
- * Same note `TeamInvitationMail` and `MessageTemplateTestMail` both carry:
- * this wraps the body in the plainest frame that works, and inherits the real
- * layout when #97 lands.
+ * S86's frame (#97) is applied in `content()` below, and with it S87: when
+ * this instance is a **stage completion on a milestone stage**, the frame
+ * opens with what the team told their client that milestone is called. The
+ * body is still only ever the team's own words — see
+ * {@see MilestoneAnnouncement}, which argues why S87 is a frame rather than a
+ * second mailable with its own way past F5.7 and F5.9.
  */
 class AutomatedMessageMail extends Mailable
 {
@@ -120,10 +125,34 @@ class AutomatedMessageMail extends Mailable
 
     public function content(): Content
     {
+        /*
+         * Built here rather than in the constructor, and it matters.
+         *
+         * This mailable is queued and `SerializesModels`, so a constructor
+         * argument is serialized into the job payload — and `BrandedEmail`
+         * carries a logo's bytes. `content()` runs after the worker has
+         * unserialized the job, so the frame is resolved on the way to the
+         * transport and the queue carries an id.
+         *
+         * A second consequence, and the more useful one: the branding is
+         * whatever the team's is **when the message is sent**, not when the
+         * advance raised it. A message held for approval for two days goes out
+         * wearing the logo the team has now.
+         */
         return new Content(
             view: 'mail.automated-message',
             text: 'mail.automated-message-text',
             with: [
+                'brand' => BrandedEmail::for($this->team),
+                /*
+                 * Read back out of the payload, never re-resolved. It was
+                 * snapshotted beside the words at raise time — see
+                 * {@see MilestoneAnnouncement}, which argues why, and why the
+                 * branding above is deliberately the opposite.
+                 */
+                'milestone' => MilestoneAnnouncement::fromPayload(
+                    ($this->instance->payload ?? [])['milestone'] ?? null,
+                )?->withoutLinkAlreadyIn($this->rendered),
                 'teamName' => $this->team->name,
                 'bodyHtml' => $this->rendered->bodyHtml,
                 'bodyText' => $this->rendered->bodyText,

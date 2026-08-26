@@ -24,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property string $slug
  * @property string|null $logo_path
  * @property string|null $brand_accent_color
+ * @property Carbon|null $automation_alerted_through
  * @property string|null $sending_identity_name
  * @property string|null $sending_identity_email
  * @property string|null $signature_block
@@ -44,7 +45,12 @@ use Illuminate\Support\Carbon;
 #[Fillable([
     'name',
     'slug',
-    'logo_path',
+    /*
+     * `logo_path` is deliberately **absent**: it is a key on a private disk,
+     * and `TeamLogo` is the only thing that writes it. The same reasoning as
+     * ADR 0002's rule about `team_id` — a request body must not choose where
+     * bytes are read from.
+     */
     'brand_accent_color',
     'sending_identity_name',
     'sending_identity_email',
@@ -112,6 +118,7 @@ class Team extends Model
             'sandbox_mode' => 'boolean',
             'sends_disabled_at' => 'datetime',
             'approval_required_until' => 'datetime',
+            'automation_alerted_through' => 'datetime',
             'suspended_at' => 'datetime',
             'purge_after' => 'datetime',
         ];

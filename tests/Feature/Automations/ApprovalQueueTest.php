@@ -9,6 +9,7 @@ use App\Models\AuditEntry;
 use App\Models\Deal;
 use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 /**
@@ -268,6 +269,106 @@ it('shows one message and everything that happened to it', function (): void {
             ->where('message.state', AutomationState::Failed->value)
             ->where('message.error', 'This message resolved to nobody on this deal.')
             ->has('message.rendered'));
+});
+
+it('shows an approver the frame the client will see, not only the words', function (): void {
+    /*
+     * F5.7's promise is that what an approver reads is what the client gets,
+     * and `MilestoneAnnouncement` rests its own argument on *"what an approver
+     * reads on S48 **is the payload**"*. That was true of the words and false
+     * of everything around them: S87's headline, the address under it and the
+     * *"View the listing"* button reached a client having been seen by nobody.
+     */
+    $instance = queued([
+        'payload' => [
+            ...ActionInstance::factory()->definition()['payload'],
+            'milestone' => [
+                'headline' => 'Your home is on the market',
+                'propertyAddress' => '12 Oak Lane, Golden, CO 80401',
+                'mlsLink' => 'https://mls.example.test/listing/8891',
+                'statusPageLink' => null,
+            ],
+        ],
+    ]);
+
+    $this->get("/messages/{$instance->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('message.milestone.headline', 'Your home is on the market')
+            ->where('message.milestone.propertyAddress', '12 Oak Lane, Golden, CO 80401')
+            ->where('message.milestone.mlsLink', 'https://mls.example.test/listing/8891'));
+});
+
+it('does not show a link the words already carry, the way the email does not send it', function (): void {
+    /*
+     * The preview reads the payload through the same suppression the mailable
+     * does, so the approver sees the message as it will actually go — one copy
+     * of the listing URL, not the frame's button beside the team's own.
+     */
+    $url = 'https://mls.example.test/listing/8891';
+
+    $instance = queued([
+        'payload' => [
+            ...ActionInstance::factory()->definition()['payload'],
+            'bodyText' => 'See the listing: '.$url,
+            'milestone' => [
+                'headline' => 'Your home is on the market',
+                'propertyAddress' => null,
+                'mlsLink' => $url,
+                'statusPageLink' => null,
+            ],
+        ],
+    ]);
+
+    $this->get("/messages/{$instance->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('message.milestone.mlsLink', null));
+});
+
+it('says nothing about a frame for an ordinary message', function (): void {
+    $this->get('/messages/'.queued()->getKey())
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('message.milestone', null));
+});
+
+it('gives every list on the queue a tiebreaker its sort column cannot provide', function (): void {
+    /*
+     * `created_at`, `executed_at` and `updated_at` are all `timestamp(0)`, so a
+     * busy second puts several rows in one. A sort with no tiebreaker leaves
+     * Postgres free to return heap order — stable only until something churns
+     * the pages — so the queue reorders under a reader between two refreshes
+     * over identical data, and `MessageQueueBudgetTest` failed depending on
+     * what had run before it.
+     *
+     * **Asserted against the SQL rather than against a returned order**, and
+     * that is the honest form. Two earlier versions of this test seeded rows
+     * sharing a second and compared the ids that came back; both passed with
+     * every tiebreaker removed, because a freshly inserted table hands them
+     * back in insertion order anyway and an `UPDATE` meant to disturb that is
+     * a HOT update that does not move the tuple. Reproducing heap disorder on
+     * demand is a fight with the planner and the page layout; what the fix
+     * actually claims is that the ordering is *total*, and the query is where
+     * that is either true or not.
+     *
+     * `id` is a ULID, so the tiebreaker is a creation-order tiebreaker too.
+     */
+    queued();
+
+    $sorts = [];
+
+    DB::listen(function ($query) use (&$sorts): void {
+        if (str_contains($query->sql, 'from "action_instances"') && str_contains($query->sql, 'order by')) {
+            $sorts[] = mb_substr($query->sql, mb_strpos($query->sql, 'order by'));
+        }
+    });
+
+    $this->get('/messages')->assertOk();
+
+    expect($sorts)->not->toBeEmpty();
+
+    foreach ($sorts as $sort) {
+        expect($sort)->toContain('"id"');
+    }
 });
 
 it('lets somebody read the queue without being able to release from it', function (): void {

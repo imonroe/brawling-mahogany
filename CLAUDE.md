@@ -32,10 +32,13 @@ content, not the mechanism).
 with its safety rails rather than after — a trigger raises `action_instances`
 inside the advance's own transaction, the queue job dispatches after commit,
 and F5.9's rails (kill switch, rate ceiling, sandbox) are enforced in the
-worker immediately before the mailer. Remaining: branded email/SES (#94, #95,
-#97), documents and their guardrails (#98–#100, #104), and the mobile layer
-(#101–#103). #12 (SES production access) and #19 (web push on a real iPhone)
-are not code — don't try to close them with a commit.
+worker immediately before the mailer. Then the client-facing half (#97): one
+branded email layout every mailable extends, the milestone notification as a
+*frame* around an ordinary automation rather than a second mailable, and S91's
+internal alert. Remaining: SES and delivery tracking (#94, #95), documents and
+their guardrails (#98–#100, #104), and the mobile layer (#101–#103). #12 (SES
+production access) and #19 (web push on a real iPhone) are not code — don't try
+to close them with a commit.
 
 Before making architectural decisions or writing code, read
 [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md)
@@ -128,7 +131,21 @@ named — treat that test as the authority, not this summary.
   - **A gate belongs in `ExecuteAction::handle()` ahead of the `match`, not inside one branch.** `SendRails`'s ownership check only covered `send_email`; `create_task` had none, so a cancelled automation could still create the task.
   - **A rail's own refusal is a write, so check ownership of the row before writing a reason.** `SendRails::decide()` must confirm the row is still `pending`/unclaimed before stamping an `error` — otherwise it overwrites a cancellation reason or writes onto an already-delivered message.
   - **A rail with no UI is a rule nobody can pull.** F5.9's kill switch needed its own screen (`/settings/sending`) — a panel buried elsewhere isn't reachable fast enough during an incident.
+  - **An alert hung off one failure path is hung off none of them.** S91 fired from `ExecuteAction::fail()` and never fired for the outage it was written about — a transport exception is caught in `send()` and re-thrown, never reaching `fail()`. `automations:alert-on-failures` reads `state` instead: a row is `failed` however it got there, so a branch a later slice adds cannot bypass it. Ask what the failure *is*, not where it is announced.
+  - **A high-water mark must point at a boundary, not at a row.** `executed_at` is `timestamp(0)`, so a burst shares a second — a mark set to a reported row's timestamp silences every sibling that landed in that second after the `SELECT`, permanently. The sweep picks its own boundary and reports `[mark, boundary)`. **A frozen clock cannot see this defect**, which is why it survived a review round green.
+  - **A boundary at `now()` walks over rows that were never visible to it.** `executed_at` is stamped in PHP and becomes visible at COMMIT, and `onOneServer` pins the *scheduler*, not the writers — so the boundary sits a minute behind the sweep. Gross clock skew still defeats it, and the code says so rather than implying otherwise.
+  - **A durability promise cannot live in a cache**, and the branch you did not think of as a caller is the one written without the rule. The mark is a column on `teams`; the empty-window branch must *anchor* it once, because a null column falls back to a floor relative to `now()` that slides forward every sweep. `withoutOverlapping()`'s default mutex expiry is exactly `COLD_START_HOURS` — a margin of zero against a framework default is not a margin.
+  - **`COALESCE(a, b)` to widen a claim widens what can move it.** Keying the window on `COALESCE(executed_at, updated_at)` let any save drag a row back in front of the mark. For a state the product cannot produce, silence beats an email every five minutes.
+  - **A headline that asserts is wrong for one caller.** *"An automated message did not go out"* is false over the reaper's *"it may have reached the recipient"*, and false again for a `create_task` that involved no message. Derive the words from the action type; let the row's own `error` say what happened.
   - **A guard's *candidate filter* is as much a hazard as its pattern list.** `SingleMutationPathTest` missed `action_instances.state` because its file filter only opened files mentioning `Stage`/`Workflow`/`Gate` — `ExecuteAction` mentions none of them. Adding a guarded column means adding its model/table to the filter, not just the pattern.
+- **Email is a surface the product does not control, and Design System §12 is a separate universe** — tables, inline styles, literal hex, a real plain-text half. `EmailPalette` copies §12.1 and a test holds it to the document. What building it taught (#97):
+  - **A tenant's colour is a fill with a computed foreground, never text.** §2.7 gives a team's accent to headings; a reader in dark mode gets a deep brand on near-black, and a team picks a deep colour *because* it looks right on white. In email the accent is only the header band and the button, both of which bring their own ground. S72 *warns* about low contrast because somebody is standing there; email *computes* because nobody is — which is how §15.6 settles.
+  - **A raster asset cannot participate in the token layer** (§2.6). A logo gets a plate that stays light in both schemes, and it is **embedded** rather than linked: the bytes are on a private disk and a client has no session to fetch them with.
+  - **A dark-mode block without `!important` parses cleanly and does nothing**, because every rule it overrides is an inline style. Omitting it is worse than omitting the block — it looks handled.
+  - **A reader with no writer is as dead as a row nothing can reach.** `teams.logo_path` shipped in Slice 1 with nothing able to set it, and read as finished from either end until a layout needed it.
+  - **The second front door is the one you cut for a layout.** S87 is a frame around an ordinary `stage_completion` automation, not a `MilestoneNotificationMail` — a second mailable would be a second path to a client's inbox past F5.7's queue and F5.9's rails.
+  - **A frame drawn live around a body drawn earlier is two moments in one email.** The announcement is snapshotted beside the words at raise time, because what an approver reads on S48 *is* the payload — and **putting a value in the payload is not showing it to them**, so S48 draws the frame too. Branding is deliberately the opposite: deal content is snapshotted, identity is live.
+  - **A test that renders nothing proves nothing about rendering.** `Mail::fake()` never executes a view, so `tests/Feature/Mail/` puts the real `array` transport back and reads the MIME. Same trap one layer along: `Illuminate\Http\Testing\File::getMimeType()` answers from the *filename*, so an upload test written with `fake()` never reaches a bytes-decided allowlist.
 - **No user flow depends on email alone.** Every email-initiated flow needs a second way to start/answer it (in-app, artifact handoff, or an operator console command) — email is a channel we don't control. See [`docs/adr/0003`](docs/adr/0003-no-email-only-flows.md). New mailables and mail-sending notifications are catalogued in `App\Support\Mail\EmailIndependence`; `tests/Unit/EmailIndependenceTest.php` fails the build when one has no resolvable second door.
 
 ## Data handling and security

@@ -10,6 +10,7 @@ use App\Http\Requests\Messages\ApproveMessageRequest;
 use App\Http\Requests\Messages\CancelMessageRequest;
 use App\Models\ActionInstance;
 use App\Support\Automation\ApproveMessage;
+use App\Support\Mail\MilestoneAnnouncement;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -90,6 +91,17 @@ class MessageQueueController extends Controller
              */
             ->with(['deal', 'messageTemplate'])
             ->oldest()
+            /*
+             * A tiebreaker on every one of these lists, because the columns
+             * they sort by are `timestamp(0)` and a busy second puts several
+             * rows in it. Without one Postgres returns heap order, which is
+             * stable only until something churns the pages — so the queue
+             * reorders under a reader between two refreshes over identical
+             * data, and a fixture that creates its rows in one second orders
+             * differently depending on what ran before it. That last part is
+             * how it was found: an intermittent `MessageQueueBudgetTest`.
+             */
+            ->oldest('id')
             ->get();
 
         /*
@@ -104,6 +116,7 @@ class MessageQueueController extends Controller
             ->where('state', AutomationState::Failed)
             ->with(['deal', 'messageTemplate'])
             ->oldest('executed_at')
+            ->oldest('id')
             ->limit(self::FAILURES)
             ->get();
 
@@ -146,6 +159,7 @@ class MessageQueueController extends Controller
                 ->orWhereNotNull('message_key'))
             ->with(['deal', 'messageTemplate'])
             ->oldest()
+            ->oldest('id')
             ->limit(self::FAILURES)
             ->get();
 
@@ -321,6 +335,21 @@ class MessageQueueController extends Controller
              */
             'isUnconfirmed' => $message->state === AutomationState::Pending
                 && $message->reachedTheProvider(),
+            /*
+             * S87's announcement, because F5.7's whole promise is that what an
+             * approver reads is what the client gets — and `MilestoneAnnouncement`
+             * rests its own argument on *"what an approver reads on S48 **is
+             * the payload**"*. That was true of the words and false of the
+             * frame around them: the headline, the address and the listing
+             * button reached a client having been seen by nobody.
+             *
+             * Read from the payload, never re-resolved, which is the rule the
+             * mailable follows — a preview that resolved it live would show an
+             * approver one address and send another.
+             */
+            'milestone' => MilestoneAnnouncement::fromPayload($payload['milestone'] ?? null)
+                ?->withoutLinkAlreadyIn($rendered)
+                ?->toArray(),
             'raisedAt' => $message->created_at?->toIso8601String(),
             'executedAt' => $message->executed_at?->toIso8601String(),
         ];

@@ -205,7 +205,6 @@ class HandleInertiaRequests extends Middleware
             'name' => $team->name,
             'timezone' => $team->timezone,
             'brandAccentColor' => $team->brand_accent_color,
-            'logoPath' => $team->logo_path,
         ];
     }
 }

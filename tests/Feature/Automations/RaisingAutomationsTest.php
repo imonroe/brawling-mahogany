@@ -230,6 +230,55 @@ it('renders the words at raise time, against this deal', function (): void {
         ]);
 });
 
+it('snapshots S87’s announcement into the payload, beside those words', function (): void {
+    /*
+     * The frame an email wears is drawn from the payload, not from a live read
+     * at send time — because a message can sit in the approval queue for days,
+     * and what an approver reads on S48 *is* the payload. Anything in the
+     * email not derived from it was approved by nobody.
+     */
+    $message = emailAutomationTemplate();
+
+    $template = templateWithAutomations([
+        0 => [[
+            'trigger' => AutomationTrigger::StageCompletion,
+            'action_type' => AutomationActionType::SendEmail,
+            'message_template_id' => $message->getKey(),
+            'config' => [],
+        ]],
+    ]);
+
+    $template->stageTemplates()->where('sort_order', 0)->sole()->forceFill([
+        'is_milestone' => true,
+        'client_facing_label' => 'Your home is on the market',
+    ])->save();
+
+    $workflow = instantiate($template);
+
+    app(AdvanceWorkflow::class)->handle($workflow, $this->member);
+
+    $payload = ActionInstance::query()->sole()->payload ?? [];
+
+    expect($payload['milestone']['headline'])->toBe('Your home is on the market');
+});
+
+it('writes no announcement for an ordinary stage', function (): void {
+    $message = emailAutomationTemplate();
+
+    $workflow = instantiate(templateWithAutomations([
+        0 => [[
+            'trigger' => AutomationTrigger::StageCompletion,
+            'action_type' => AutomationActionType::SendEmail,
+            'message_template_id' => $message->getKey(),
+            'config' => [],
+        ]],
+    ]));
+
+    app(AdvanceWorkflow::class)->handle($workflow, $this->member);
+
+    expect((ActionInstance::query()->sole()->payload ?? [])['milestone'])->toBeNull();
+});
+
 it('records the addresses rather than the rule', function (): void {
     /*
      * PRD §7.12 refuses an address on a *template*, because a template is

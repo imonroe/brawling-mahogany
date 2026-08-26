@@ -9,6 +9,11 @@
 
     `{!! !!}` is safe here in a way it would not be in the HTML sibling: this
     is `text/plain`, so there is no markup for a value to escape into.
+
+    S87's announcement is repeated here rather than left to the HTML half.
+    Design System §12 asks for *"a real plain-text alternative, not a stripped-tag
+    afterthought"*, and a milestone email whose headline and listing link exist
+    only in the markup is exactly the afterthought it means.
 --}}
 @if ($redirected)
 Sandbox mode is on for {!! $teamName !!}, so this came to you instead of the people it names. Nobody outside the team received it.
@@ -16,7 +21,16 @@ Sandbox mode is on for {!! $teamName !!}, so this came to you instead of the peo
 ----------------------------------------------------------------
 
 @endif
-{!! $bodyText !!}
+@if ($milestone)
+{!! $milestone->headline !!}
+@if ($milestone->propertyAddress)
+{!! $milestone->propertyAddress !!}
+@endif
 
---
-Sent by {!! $teamName !!}.
+@endif
+{!! $bodyText !!}
+@if ($milestone && $milestone->callToAction())
+
+{!! $milestone->callToAction()['label'] !!}: {!! $milestone->callToAction()['url'] !!}
+@endif
+@include('mail.partials.text-footer', ['brand' => $brand])

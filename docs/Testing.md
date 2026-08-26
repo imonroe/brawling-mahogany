@@ -102,6 +102,46 @@ at the boundaries above — mail, storage, and HTTP.
 A test that genuinely wants to assert dispatch rather than behaviour calls
 `$this->fakeQueue()`.
 
+### Asserting on what an email actually looks like
+
+`Mail::fake()` records that a mailable was handed over and **never executes its
+view**. That is the right default and it is useless for S86's layout: every
+assertion about the frame — the fallback accent, the embedded logo, the
+plain-text half — would pass against a view that throws.
+
+So `tests/Feature/Mail/` puts the real transport back for the duration of the
+file:
+
+```php
+Mail::clearResolvedInstances();
+app()->forgetInstance('mail.manager');
+app()->forgetInstance('mailer');
+```
+
+`MAIL_MAILER=array` in `phpunit.xml` means nothing leaves the process — the
+messages land in `Mail::mailer()->getSymfonyTransport()->messages()`, as full
+MIME with both body parts, the headers and any inline attachment on them, which
+is what a client actually receives. **Nothing escapes; it just renders on the
+way.**
+
+A file that does this is asserting on rendering. Anything asserting on *whether*
+a message was sent, to whom, or how many, stays on the fake.
+
+### A frozen clock hides a whole class of defect
+
+Everything in a test tends to happen inside one second, and for anything that
+partitions time — a sweep with a high-water mark, a rolling window, a rate
+ceiling — **that is the one arrangement production never produces**. S91's
+alert shipped a round of review with a green suite and a boundary bug that lost
+half of every burst, because every test made its failures and swept in the same
+second, and the bug is only reachable when they differ.
+
+The rule that follows: when a test exercises something that compares
+*before* with *after*, move the clock between them deliberately, and say in the
+helper why the movement is the point rather than a workaround.
+`tests/Feature/Mail/InternalAlertTest.php`'s `settleAndSweep()` is the worked
+example.
+
 ---
 
 ## 4. Helpers
@@ -279,6 +319,6 @@ on it produces tests written to satisfy the gate.
 |---|---|
 | 1 | ✅ The isolation suite proper, the authorization-coverage test, and the team-context helpers |
 | 2 | Gate evaluator unit tests; `AdvanceWorkflow` transaction and dispatch tests; the deal overview's read-only guarantee and its query budget (`tests/Performance/DealOverviewBudgetTest.php`); the dashboard's query budget at 25 deals |
-| 3 | Approval-queue tests, and the safety rails: no message leaves without an approved state. Every new mailable needs its ADR 0003 second door catalogued and covered |
+| 3 | Approval-queue tests, and the safety rails: no message leaves without an approved state. Every new mailable needs its ADR 0003 second door catalogued and covered. Plus the rendering tests above, and `tests/Unit/EmailPaletteTest.php`, which reads Design System §12.1's table — including a count assertion, because a document-reading regex that matches nothing makes every assertion under it pass vacuously |
 | 4 | Derived date cascade tests, and magic-link expiry — including the non-email path to a status page link (ADR 0003) |
 | 5 | Extraction provenance: nothing reaches `key_dates` or `tasks` without a confirmed `extracted_fields` row |
