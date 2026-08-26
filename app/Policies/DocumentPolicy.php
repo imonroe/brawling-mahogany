@@ -37,6 +37,22 @@ class DocumentPolicy
 {
     use ChecksTeamPermissions;
 
+    /**
+     * S50's index, which is a list rather than a document.
+     *
+     * The **wider** of the two subject permissions, because the screen shows
+     * both kinds and each row is still authorized on its way out. Requiring
+     * both would hide a team's own deal documents from somebody who can open
+     * every one of them from the deal itself, which is hiding a fact rather
+     * than protecting one — the reasoning S47's queue records for gating on
+     * `deals.view` instead of `message.approve`.
+     */
+    public function viewAny(Person $person): bool
+    {
+        return $this->allows($person, Permissions::VIEW_DEALS)
+            || $this->allows($person, Permissions::VIEW_PROPERTIES);
+    }
+
     public function view(Person $person, Document $document): bool
     {
         return $this->belongsToCurrentTeam($document)

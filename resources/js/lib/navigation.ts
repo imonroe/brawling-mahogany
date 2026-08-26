@@ -11,6 +11,7 @@ import {
     Activity,
     Briefcase,
     CalendarDays,
+    FileText,
     Heart,
     House,
     LayoutDashboard,
@@ -60,6 +61,22 @@ export const NAV_GROUPS: NavEntry[][] = [
             href: '/properties',
             icon: House,
             permission: 'properties.view',
+        },
+        /*
+         * S50 (#98). Beside Properties rather than under Deals, because the
+         * question it answers — "where is that disclosure" — is asked from a
+         * standing start, without a deal already in mind.
+         *
+         * Gated on `deals.view`: the screen shows both deal and property
+         * documents and authorizes each row on its way out, so requiring the
+         * narrower pair would hide a team's own deal documents from somebody
+         * who can open every one of them from the deal itself.
+         */
+        {
+            label: 'Documents',
+            href: '/documents',
+            icon: FileText,
+            permission: 'deals.view',
         },
         {
             label: 'Calendar',

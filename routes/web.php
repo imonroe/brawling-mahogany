@@ -19,6 +19,7 @@ use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
+use App\Http\Controllers\Documents\DocumentController;
 use App\Http\Controllers\HelpController;
 use App\Http\Controllers\Messages\MessageQueueController;
 use App\Http\Controllers\Messages\MessageTemplateController;
@@ -467,6 +468,15 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * tenancy layers answer "whose team"; only the nesting answers "whose
      * property".
      */
+    /*
+     * S50 — every document the team holds (F6.1 · #98).
+     *
+     * A team-level list beside `/properties` rather than under a deal: the
+     * deal tab answers "what is on this deal", and this answers "where is that
+     * disclosure", which is asked from a standing start.
+     */
+    Route::get('documents', [DocumentController::class, 'index'])->name('documents.index');
+
     Route::get('properties', [PropertyController::class, 'index'])->name('properties.index');
     Route::post('properties', [PropertyController::class, 'store'])->name('properties.store');
     Route::get('properties/{property}', [PropertyController::class, 'show'])->name('properties.show');
