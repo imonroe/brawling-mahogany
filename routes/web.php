@@ -335,6 +335,13 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.documents.index');
         Route::post('deals/{deal}/documents', [DealDocumentController::class, 'store'])
             ->name('deals.documents.store');
+        /*
+         * Streamed through the application, never a presigned URL: PRD §9
+         * makes document access an audited event, and an entry written when a
+         * link is minted records an intention rather than a read.
+         */
+        Route::get('deals/{deal}/documents/{document}', [DealDocumentController::class, 'show'])
+            ->name('deals.documents.show');
         Route::delete('deals/{deal}/documents/{document}', [DealDocumentController::class, 'destroy'])
             ->name('deals.documents.destroy');
 

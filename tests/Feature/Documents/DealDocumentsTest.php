@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 use App\Enums\DocumentCategory;
 use App\Enums\DocumentVisibility;
+use App\Enums\WorkflowState;
+use App\Models\AuditEntry;
 use App\Models\Deal;
 use App\Models\Document;
+use App\Models\Gate;
+use App\Models\Stage;
+use App\Models\Workflow;
 use App\Support\Documents\DocumentStorage;
+use App\Support\Workflow\DescribeBlockers;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -194,4 +200,154 @@ it('will not let one team reach another team’s document', function (): void {
         ->assertNotFound();
 
     expect(Document::query()->count())->toBe(1);
+});
+
+it('streams a document back and records who read it', function (): void {
+    /*
+     * PRD §9 makes document access an audited event, and the entry is written
+     * **before** the bytes are handed over: a read that failed halfway is
+     * still a read that happened, and a broken stream does not un-see it.
+     */
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        dealUpload('report.txt', 'Roof looks sound.'),
+        $this->owner,
+        DocumentCategory::InspectionReport,
+    );
+
+    $response = $this->get("/deals/{$this->deal->getKey()}/documents/{$document->getKey()}");
+
+    $response->assertOk()
+        // Attachment, never inline: this serves arbitrary uploads, and a type
+        // that renders in a browsing context is a type worth not rendering.
+        ->assertHeader('X-Content-Type-Options', 'nosniff');
+
+    /*
+     * The directives, not the string: Symfony reorders and normalises
+     * `Cache-Control`, so asserting the literal tests the framework's
+     * spelling rather than this product's intent. F6.4 wants it private and
+     * short-lived, never in a shared cache.
+     */
+    $cacheControl = (string) $response->headers->get('Cache-Control');
+
+    expect($cacheControl)->toContain('private')
+        ->and($cacheControl)->toContain('no-store')
+        ->and($cacheControl)->toContain('max-age=60')
+        ->and($cacheControl)->not->toContain('public');
+
+    expect($response->headers->get('Content-Disposition'))->toStartWith('attachment')
+        ->and($response->getContent())->toBe('Roof looks sound.');
+
+    $entry = AuditEntry::query()->where('action', 'document.accessed')->sole();
+
+    expect($entry->auditable_id)->toBe($document->getKey())
+        ->and($entry->actor_person_id)->toBe($this->owner->getKey())
+        // PRD §9 keeps PII out of the log. The row holds the filename for
+        // anybody entitled to look it up; the entry does not repeat it.
+        ->and(json_encode($entry->after, JSON_THROW_ON_ERROR))->not->toContain('report.txt');
+});
+
+it('will not hand a document to somebody outside the team', function (): void {
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        dealUpload('report.txt', 'Roof looks sound.'),
+        $this->owner,
+        DocumentCategory::InspectionReport,
+    );
+
+    [$otherTeam, $stranger] = $this->teamWithMember();
+    $this->actingAsPerson($stranger, $otherTeam);
+
+    $this->get("/deals/{$this->deal->getKey()}/documents/{$document->getKey()}")
+        ->assertNotFound();
+
+    // And nothing was recorded as read, because nothing was read.
+    expect(AuditEntry::query()->where('action', 'document.accessed')->count())->toBe(0);
+});
+
+it('clears a document gate by attaching the document, end to end', function (): void {
+    /*
+     * Issue #104, and the check CLAUDE.md says this evaluator was owed: *"if a
+     * gate type has exactly one way to be satisfied, verify that path is
+     * actually reachable from a route/controller/page — not just evaluated."*
+     *
+     * `required_tasks_complete` and `ManualConfirmationEvaluator` both shipped
+     * unreachable, so this walks the whole way round rather than calling the
+     * evaluator: upload through the controller, then advance, and watch the
+     * blocker disappear because of it.
+     */
+    $workflow = Workflow::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Listing',
+        'state' => WorkflowState::Active,
+    ]);
+
+    $stage = Stage::factory()->active()->create([
+        'team_id' => $this->team->getKey(),
+        'workflow_id' => $workflow->getKey(),
+        'name' => 'Listing Preparation',
+        'sort_order' => 0,
+    ]);
+
+    Stage::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'workflow_id' => $workflow->getKey(),
+        'name' => 'On Market',
+        'sort_order' => 1,
+    ]);
+
+    Gate::factory()->ofType('document_present', ['category' => 'disclosure'])->create([
+        'team_id' => $this->team->getKey(),
+        'stage_id' => $stage->getKey(),
+        'label' => 'Seller disclosure on file',
+    ]);
+
+    // Blocked, and the blocker says where to go.
+    expect(app(DescribeBlockers::class)->forStage($stage->fresh())->canAdvance())->toBeFalse();
+
+    // The route a person actually uses, not the storage service underneath it.
+    $this->post("/deals/{$this->deal->getKey()}/documents", [
+        'document' => dealUpload('disclosure.txt', 'The seller discloses a prior roof repair.'),
+        'category' => DocumentCategory::Disclosure->value,
+        'visibility' => DocumentVisibility::Internal->value,
+    ])->assertRedirect();
+
+    expect(app(DescribeBlockers::class)->forStage($stage->fresh())->canAdvance())->toBeTrue();
+});
+
+it('does not clear the gate with a document of the wrong category', function (): void {
+    // The other half, and the one that makes the test above mean something:
+    // a gate satisfied by any upload would be a gate satisfied by nothing.
+    $workflow = Workflow::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'state' => WorkflowState::Active,
+    ]);
+
+    $stage = Stage::factory()->active()->create([
+        'team_id' => $this->team->getKey(),
+        'workflow_id' => $workflow->getKey(),
+        'sort_order' => 0,
+    ]);
+
+    Stage::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'workflow_id' => $workflow->getKey(),
+        'sort_order' => 1,
+    ]);
+
+    Gate::factory()->ofType('document_present', ['category' => 'disclosure'])->create([
+        'team_id' => $this->team->getKey(),
+        'stage_id' => $stage->getKey(),
+        'label' => 'Seller disclosure on file',
+    ]);
+
+    $this->post("/deals/{$this->deal->getKey()}/documents", [
+        'document' => dealUpload('receipt.txt', 'Paid the photographer.'),
+        'category' => DocumentCategory::Receipt->value,
+        'visibility' => DocumentVisibility::Internal->value,
+    ])->assertRedirect();
+
+    expect(app(DescribeBlockers::class)->forStage($stage->fresh())->canAdvance())->toBeFalse();
 });

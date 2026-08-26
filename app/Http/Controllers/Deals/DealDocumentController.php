@@ -10,15 +10,18 @@ use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\Document;
 use App\Models\Person;
+use App\Support\Audit\AuditLogger;
 use App\Support\Deals\DealHeader;
 use App\Support\Documents\DocumentStorage;
 use App\Support\Documents\RefusedDocument;
 use App\Support\Documents\UnsupportedDocument;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 
 /**
  * A deal's documents — S21, the eighth deal tab (issues #98, #99, #100).
@@ -125,13 +128,93 @@ class DealDocumentController extends Controller
             return back()->withErrors(['document' => $refusal->getMessage()]);
         }
 
-        if ($validated['caption'] !== null && $validated['caption'] !== '') {
-            $document->forceFill(['caption' => $validated['caption']])->save();
+        /*
+         * `??`, not `$validated['caption']`. A `nullable` field the form did
+         * not send is **absent from the validated array**, not null in it — so
+         * the direct access was a 500 on every upload without a caption, which
+         * is the ordinary case. Found by the first test that omitted one.
+         */
+        $caption = $validated['caption'] ?? null;
+
+        if (is_string($caption) && trim($caption) !== '') {
+            $document->forceFill(['caption' => trim($caption)])->save();
         }
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Document added.')]);
 
         return back(fallback: route('deals.documents.index', $deal));
+    }
+
+    /**
+     * Hand the bytes back, and record that somebody did (PRD §9 · F6.4).
+     *
+     * **Deliberately not a presigned URL.** A presigned object-store link is a
+     * second way to read a file and the way that cannot be audited: an entry
+     * written when a link is *minted* records an intention, not a read, and
+     * the link outlives the session that made it. Streaming through the
+     * application costs a hop and buys the only record that is true.
+     * `DocumentStorage::contents()` says the same thing from the other end.
+     *
+     * **Attachment, never inline.** The photo gallery renders inline because a
+     * gallery is a page showing images; this serves arbitrary uploads, and a
+     * type that renders in a browsing context is a type worth not rendering.
+     * With `nosniff` beside it that is belt and braces, which is the right
+     * amount for a file a customer chose the contents of.
+     */
+    public function show(
+        Request $request,
+        Deal $deal,
+        Document $document,
+        DocumentStorage $storage,
+        AuditLogger $audit,
+    ): HttpResponse {
+        $this->authorize('view', $deal);
+        $this->authorize('view', $document);
+
+        abort_unless($storage->exists($document), 404);
+
+        /** @var Person $person */
+        $person = $request->user();
+
+        /*
+         * Written **before** the bytes are handed over, so a read that failed
+         * halfway is still a read that happened — the entry answers "who saw
+         * this", and a stream that broke does not un-see it.
+         *
+         * The filename is not in the entry: `auditable` is the row, and the
+         * row holds the name for anybody entitled to look it up.
+         */
+        $audit->record(
+            action: 'document.accessed',
+            auditable: $document,
+            teamId: $document->team_id,
+            actorPersonId: $person->getKey(),
+            after: [
+                'documentable_type' => $document->documentable_type,
+                'documentable_id' => $document->documentable_id,
+            ],
+        );
+
+        return response($storage->contents($document), 200, [
+            'Content-Type' => $document->mime_type,
+            'Content-Disposition' => HeaderUtils::makeDisposition(
+                HeaderUtils::DISPOSITION_ATTACHMENT,
+                $document->original_name,
+                /*
+                 * The fallback a client uses when it cannot read the RFC 5987
+                 * form. Built from the stored path's extension rather than
+                 * from the original name, which may be the non-ASCII thing
+                 * that forced the fallback in the first place.
+                 */
+                'document.'.pathinfo($document->path, PATHINFO_EXTENSION),
+            ),
+            // The complement to deriving `mime_type` from the bytes: the type
+            // we send is true of the file, and this stops a browser looking
+            // for a second opinion.
+            'X-Content-Type-Options' => 'nosniff',
+            // Private and short-lived, per F6.4. Never a shared cache.
+            'Cache-Control' => 'private, max-age=60, no-store',
+        ]);
     }
 
     /**

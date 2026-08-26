@@ -186,7 +186,19 @@ const canUpload = computed(() => props.can.upload);
                 />
 
                 <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium">{{ row.name }}</p>
+                    <!--
+                        A real link, not a button that calls the router. The
+                        response is a file download, so the browser's own
+                        handling is what should take it — and a link is what a
+                        keyboard, a screen reader and "open in new tab" all
+                        already understand.
+                    -->
+                    <a
+                        :href="`${dealUrl}/documents/${row.id}`"
+                        class="block truncate text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                        {{ row.name }}
+                    </a>
                     <p
                         v-if="row.caption"
                         :class="['text-13', 'text-muted-foreground']"
