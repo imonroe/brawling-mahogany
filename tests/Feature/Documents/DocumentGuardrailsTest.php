@@ -416,3 +416,69 @@ it('sees a statement whose phrases the extractor split mid-word', function (): v
         DocumentCategory::Other,
     ))->toThrow(RefusedDocument::class);
 });
+
+it('sees a column-aligned social security number', function (): void {
+    /*
+     * Round 3 of review: the SSN branch was the **one test not routed through
+     * the normalisers**, so `123  45  6789` — which the previous revision
+     * refused — came back `clean`. That is the worst possible answer: a
+     * positive claim of "text read, nothing refused" over a social security
+     * number.
+     */
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('form.txt', "Applicant\nSSN     412   55   8931\nDate of birth 1974-02-11"),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+});
+
+it('keeps the paperwork a team actually handles', function (string $label, string $content): void {
+    /*
+     * Round 3 measured a **50% false-positive rate** on legitimate documents,
+     * and the engine was the routing rule: the ABA checksum passes one
+     * nine-digit run in ten, so every parcel number and MLS reference had a
+     * one-in-ten chance of arming it, paired with a `BANKING_CONTEXT` list
+     * that matched by substring — `aba` inside "tax abatement" and "Alabama".
+     *
+     * The wire fraud advisory is the case that settles it: brokerages are
+     * **required** to circulate it, and a scanner that refuses it is a scanner
+     * a team learns to work around.
+     *
+     * A routing number has to be *labelled* now, not merely present.
+     */
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        upload($label.'.txt', $content),
+        $this->owner,
+        DocumentCategory::Correspondence,
+    );
+
+    expect($document->scan_state)->toBe('clean');
+})->with([
+    'a wire fraud advisory' => ['advisory', 'IMPORTANT NOTICE ABOUT WIRE FRAUD. Criminals send fraudulent wire '
+        .'transfer instructions that appear to come from your agent or the title company. Never send '
+        .'funds based on emailed instructions alone. Call the closing office on a number you already '
+        .'have and confirm the details verbally before any transfer is initiated.'],
+    'a settlement statement' => ['settlement', 'Settlement statement. Parcel number 490712104 in the county '
+        .'records. Tax abatement applies through 2029. Seller credit at closing 4,201.55 and the '
+        .'buyer side of the ledger carries the recording fee and the survey.'],
+    'an MLS printout' => ['mls', 'MLS 218840173. Single family, 3 bd 2.5 ba, 1,840 sqft, built 1962. '
+        .'Listing agent notes: the seller has replaced the roof and the furnace since purchase, and '
+        .'the basement has flooded once.'],
+    'a lease addendum' => ['lease', 'Addendum to residential lease. The tenant shall maintain renter '
+        .'insurance throughout the term. Rent is due on the first. Late fees accrue after the fifth '
+        .'day and are capped as set out in the Alabama statute referenced above.'],
+]);
+
+it('still refuses a statement that labels its routing number', function (): void {
+    // The control. Without it the test above passes against a rule that
+    // refuses nothing at all.
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('statement.txt', "FIRST MERIDIAN BANK\nRouting Number: 021000021\n"
+            ."Account Number: 4419827733\nBeginning Balance 4,201.55"),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+});

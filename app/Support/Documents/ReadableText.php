@@ -406,15 +406,40 @@ final class ReadableText
      */
     private static function inflate(string $stream): ?string
     {
-        $stream = trim($stream, "\r\n");
+        /*
+         * **Never `trim()`.** It was `trim($stream, "\r\n")`, and a zlib
+         * stream ends in an Adler-32 checksum whose last byte is `0x0A` or
+         * `0x0D` about 0.8% of the time — so the trim ate part of the
+         * checksum, inflation failed, and the stream was silently dropped.
+         * Round 3 of review measured the consequence: a 20-page PDF loses at
+         * least one page 20% of the time and a 60-page one better than half,
+         * and a bank statement whose statement page was dropped stored as
+         * `clean`. Round 1's blocker arriving through a third door.
+         *
+         * The producer's own trailing newline is real and has to come off, so
+         * the raw bytes are tried **first** and exactly one line ending is
+         * removed only if that fails. Compressed data is not text and cannot
+         * be tidied as though it were.
+         */
+        $candidates = [$stream];
 
-        foreach (['gzuncompress', 'gzinflate'] as $filter) {
-            $decoded = @$filter($stream);
+        $withoutEnding = preg_replace('/\r\n$|\n$|\r$/', '', $stream);
 
-            if (is_string($decoded) && $decoded !== '') {
-                return $decoded;
+        if (is_string($withoutEnding) && $withoutEnding !== $stream) {
+            $candidates[] = $withoutEnding;
+        }
+
+        foreach ($candidates as $candidate) {
+            foreach (['gzuncompress', 'gzinflate'] as $filter) {
+                $decoded = @$filter($candidate);
+
+                if (is_string($decoded) && $decoded !== '') {
+                    return $decoded;
+                }
             }
         }
+
+        $stream = (string) $withoutEnding;
 
         /*
          * Uncompressed streams are legal and common in generated PDFs, and

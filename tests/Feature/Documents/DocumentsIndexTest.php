@@ -26,6 +26,13 @@ beforeEach(function (): void {
     Storage::fake(DocumentStorage::DISK);
 
     [$this->team, $this->member] = $this->teamWithMember();
+
+    // A recorded name, because IA §11 says a name is something a team recorded
+    // and the assertion below is about the membership rather than the login.
+    app(TeamContext::class)->runFor($this->team, fn () => $this->member
+        ->membershipIn($this->team)
+        ?->forceFill(['first_name' => 'Dana', 'last_name' => 'Alvarez'])
+        ->save());
     $this->actingAsPerson($this->member, $this->team);
 
     $this->deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
@@ -432,4 +439,19 @@ it('keeps a deal out of the filter picker for somebody who cannot see deals', fu
         );
 
     expect($response->getContent())->not->toContain($this->deal->displayName());
+});
+
+it('names who added the document on the screen that shows it', function (): void {
+    /*
+     * Round 2's N+1 batching moved the uploader lookup into the index and left
+     * this call site on the default, so S52 — the **only** screen that renders
+     * the name — showed nothing, while S50 computed it and never drew it. An
+     * optimisation that changes a value's default is a change to every caller
+     * that took the default.
+     */
+    $document = storeOn($this->deal, 'notes.txt', DocumentCategory::Other);
+
+    $this->get("/documents/{$document->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('document.uploadedBy', 'Dana Alvarez'));
 });

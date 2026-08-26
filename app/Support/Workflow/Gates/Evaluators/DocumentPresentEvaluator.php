@@ -125,12 +125,24 @@ final class DocumentPresentEvaluator implements GateEvaluator
              * that is already the right one rather than at a page where they
              * have to work out what was being asked for.
              */
+            /*
+             * **The type and the category only.** The earlier version also
+             * carried `attachTo`, `stage` and `deal`, and nothing read any of
+             * them: `gates.ts` resolves this shape to the documents tab and
+             * builds the URL from the `dealUrl` it already has. Round 3 of
+             * review asked for a decision rather than a patch, and this is it
+             * — a payload nobody reads is a contract nobody is keeping, and
+             * the keys were beginning to disagree with the resolver.
+             *
+             * `category` stays because it is the one field with a use in
+             * front of it: the tab can pre-select the filter so somebody
+             * arriving from a blocker sees what is already there under the
+             * category being asked for. That is worth carrying; the others
+             * were only ever a description of where the link went.
+             */
             [
                 'type' => 'document_upload',
                 'category' => $category->value,
-                'attachTo' => $this->attachment($configuration),
-                'stage' => $stage->getKey(),
-                'deal' => $stage->workflow?->deal_id,
             ],
         );
     }

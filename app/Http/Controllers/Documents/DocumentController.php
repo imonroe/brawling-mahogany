@@ -129,7 +129,15 @@ class DocumentController extends Controller
 
         return Inertia::render('Documents/Show', [
             'document' => [
-                ...$this->row($document),
+                /*
+                 * The uploader map is passed here too. Round 2's batching
+                 * moved the lookup into the index and left this call site on
+                 * the default, so S52 — the **only** screen that renders the
+                 * name — showed nothing, while S50 computed it and never drew
+                 * it. An optimisation that changes a value's default is a
+                 * change to every caller that took the default.
+                 */
+                ...$this->row($document, [], $this->uploadersFor([$document])),
                 'mimeType' => $document->mime_type,
                 'missing' => ! $storage->exists($document),
             ],

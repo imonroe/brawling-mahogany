@@ -150,18 +150,6 @@ final class SensitiveContent
         'date of birth',
     ];
 
-    /** Words that make a nearby nine-digit run mean a bank and not an invoice. */
-    private const BANKING_CONTEXT = [
-        'routing',
-        'aba',
-        'account number',
-        'acct no',
-        'account no',
-        'swift',
-        'wire transfer',
-        'direct deposit',
-    ];
-
     /**
      * Look at one upload and decide.
      *
@@ -216,14 +204,21 @@ final class SensitiveContent
          * uses, and the area, group and serial parts each exclude zero — which
          * is what stops a date or a part number matching.
          *
-         * **The separator is not always a hyphen.** Round 1 of review found
-         * the pattern matching only `123-45-6789`, and PDF text extraction is
-         * exactly where that breaks: a form with boxed digits comes out
-         * space-separated, and a word processor turns a typed hyphen into an
-         * en dash. Spaces, dots and the whole Unicode dash range now count.
+         * **The separator is not always a hyphen**, and it is not always one
+         * character. Round 1 found the pattern matching only `123-45-6789`;
+         * round 3 found this branch to be the **one test not routed through
+         * the normalisers**, so a column-aligned `123  45  6789` — which the
+         * previous revision refused — came back `clean`. That is the worst
+         * possible answer: a positive claim of "text read, nothing refused"
+         * over a social security number.
+         *
+         * Matching `$haystack` rather than `$text` collapses the alignment
+         * away and costs nothing: the single-space form still needs a digit
+         * boundary either side, which is what keeps `1,204.55 2026` — a tax
+         * proration line — from reading as an SSN.
          */
-        if (preg_match('/\b(?!000|666|9\d\d)\d{3}[-\x{2010}-\x{2015}.]\s?(?!00)\d{2}[-\x{2010}-\x{2015}.]\s?(?!0000)\d{4}\b/u', $text) === 1
-            || preg_match('/(?<!\d)(?!000|666|9\d\d)\d{3}\s(?!00)\d{2}\s(?!0000)\d{4}(?!\d)/u', $text) === 1) {
+        if (preg_match('/\b(?!000|666|9\d\d)\d{3}[-\x{2010}-\x{2015}.]\s?(?!00)\d{2}[-\x{2010}-\x{2015}.]\s?(?!0000)\d{4}\b/u', $haystack) === 1
+            || preg_match('/(?<!\d)(?!000|666|9\d\d)\d{3}\s(?!00)\d{2}\s(?!0000)\d{4}(?!\d)/u', $haystack) === 1) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::GovernmentId,
                 'ssn_pattern',
@@ -231,13 +226,23 @@ final class SensitiveContent
         }
 
         /*
-         * A routing number **beside banking words**. Either alone is weak: a
-         * nine-digit invoice number passes the checksum one time in ten, and
-         * the word "account" appears in half the correspondence a team writes.
-         * Together they are a bank document.
+         * A routing number that is **labelled as one**, not merely nine digits
+         * that survive a checksum somewhere in the same document.
+         *
+         * The pairing rule this replaces was the false-positive engine round 3
+         * measured: the ABA checksum passes 10% of nine-digit runs, so every
+         * parcel number and MLS reference had a one-in-ten chance of arming
+         * it, and `BANKING_CONTEXT` matched by substring — `aba` inside "tax
+         * abatement" and "Alabama", `swift` inside "swiftly". A settlement
+         * statement, an MLS printout and the **wire fraud advisory brokerages
+         * are required to circulate** were all refused, with no override.
+         *
+         * Proximity is the honest signal. A real statement writes "Routing
+         * Number: 021000021"; a parcel number is not introduced by the word
+         * routing, and an advisory that warns about wire fraud carries no
+         * nine-digit number at all.
          */
-        if ((self::hasRoutingNumber($text) || self::hasRoutingNumber($squashed))
-            && self::countOfEither($haystack, $squashed, self::BANKING_CONTEXT) > 0) {
+        if (self::hasLabelledRoutingNumber($haystack) || self::hasLabelledRoutingNumber($squashed)) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::BankStatement,
                 'routing_number_in_banking_context',
@@ -323,24 +328,41 @@ final class SensitiveContent
      * ten survives — still far too weak alone, which is why the caller pairs
      * it with the banking words.
      */
-    private static function hasRoutingNumber(string $text): bool
+    private static function hasLabelledRoutingNumber(string $haystack): bool
     {
-        if (preg_match_all('/\b\d{9}\b/', $text, $matches) === false) {
+        /*
+         * The label has to be **near** the number, not merely present. A
+         * settlement statement that mentions routing instructions in one
+         * paragraph and carries a parcel number in another is not a bank
+         * statement, and treating the document as one window is how it became
+         * one.
+         *
+         * The window is generous — a label, a colon, some alignment and the
+         * digits — and deliberately looks **backwards** only: "021000021
+         * routing" is a sentence about a number somebody already has, while
+         * "Routing 021000021" is a field.
+         */
+        if (preg_match_all('/\b(?:routing(?:\s*(?:number|no\.?|#))?|aba(?:\s*(?:number|no\.?|#))?|rtn)\b(.{0,40}?)(\d{9})(?!\d)/us', $haystack, $matches, PREG_SET_ORDER) === false) {
             return false;
         }
 
-        foreach ($matches[0] as $candidate) {
-            $d = array_map(intval(...), mb_str_split($candidate));
+        foreach ($matches as $match) {
+            if (self::passesAbaChecksum($match[2])) {
+                return true;
+            }
+        }
 
-            $sum = 3 * ($d[0] + $d[3] + $d[6])
-                + 7 * ($d[1] + $d[4] + $d[7])
-                + ($d[2] + $d[5] + $d[8]);
+        /*
+         * The squashed form has no spaces to put a window in, so it asks the
+         * narrower question: the label immediately against the digits, which
+         * is what a kerning split leaves behind.
+         */
+        if (preg_match_all('/(?:routingnumber|routingno|abanumber|aba|rtn)(\d{9})(?!\d)/u', $haystack, $tight, PREG_SET_ORDER) === false) {
+            return false;
+        }
 
-            /*
-             * All-zeroes passes the arithmetic and is not a routing number —
-             * it is a redacted field, a placeholder, or a run of padding.
-             */
-            if ($sum % 10 === 0 && $sum > 0) {
+        foreach ($tight as $match) {
+            if (self::passesAbaChecksum($match[1])) {
                 return true;
             }
         }
@@ -379,6 +401,27 @@ final class SensitiveContent
     private static function squashed(string $text): string
     {
         return mb_strtolower((string) preg_replace('/\s+/u', '', $text));
+    }
+
+    /**
+     * The ABA checksum, on one nine-digit run.
+     *
+     * `3(d1+d4+d7) + 7(d2+d5+d8) + (d3+d6+d9) ≡ 0 mod 10`.
+     *
+     * It passes roughly one run in ten, which is why it is never the whole
+     * question: the caller has already established that a **label** points at
+     * these particular digits, and this is what separates a routing number
+     * from nine digits somebody typed after the word routing.
+     */
+    private static function passesAbaChecksum(string $digits): bool
+    {
+        $sum = 0;
+
+        foreach ([3, 7, 1, 3, 7, 1, 3, 7, 1] as $index => $weight) {
+            $sum += $weight * (int) $digits[$index];
+        }
+
+        return $sum > 0 && $sum % 10 === 0;
     }
 
     /**

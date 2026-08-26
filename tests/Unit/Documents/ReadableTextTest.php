@@ -220,3 +220,49 @@ it('will not call a document checked when it only read part of it', function ():
     expect(mb_strlen($text))->toBe(ReadableText::MAX_CHARACTERS)
         ->and(ReadableText::isConfident($text))->toBeFalse();
 });
+
+it('does not eat the compression checksum when it happens to end in a newline', function (): void {
+    /*
+     * Round 3 of review. It was `trim($stream, "\r\n")`, and a zlib stream
+     * ends in an Adler-32 checksum whose last byte is `0x0A` or `0x0D` about
+     * **0.7%** of the time — measured, and matching the reviewer's 0.69%. The
+     * trim ate part of the checksum, inflation failed, and the stream was
+     * dropped in silence. A 20-page PDF loses at least one page a fifth of the
+     * time; a bank statement whose statement page went missing stored as
+     * `clean`.
+     *
+     * Compressed data is not text and cannot be tidied as though it were. The
+     * raw bytes are tried first now, and exactly one line ending is removed
+     * only if that fails.
+     *
+     * The stream is **searched for** rather than hand-written because the byte
+     * in question is a function of the content: a fixture with a fixed string
+     * would pin one Adler-32 and prove nothing about the rule.
+     */
+    $stream = null;
+    $content = '';
+
+    for ($attempt = 0; $attempt < 200_000; $attempt++) {
+        $content = 'BT /F1 10 Tf 40 750 Td (Routing Number: 021000021 Account 4419827733 ref '
+            .bin2hex(random_bytes(6)).") Tj ET\n";
+
+        $candidate = (string) gzcompress($content, 9);
+        $last = mb_substr($candidate, -1, 1, '8bit');
+
+        if ($last === "\n" || $last === "\r") {
+            $stream = $candidate;
+            break;
+        }
+    }
+
+    expect($stream)->not->toBeNull('no newline-terminated stream found in 200k attempts');
+
+    $pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n"
+        .'2 0 obj<</Length '.strlen((string) $stream)."/Filter/FlateDecode>>stream\n"
+        .$stream."\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
+
+    expect(ReadableText::from($pdf, 'application/pdf'))->toContain('021000021');
+
+    // And the control: the old spelling really would have lost it.
+    expect(@gzuncompress(trim((string) $stream, "\r\n")))->toBeFalse();
+});
