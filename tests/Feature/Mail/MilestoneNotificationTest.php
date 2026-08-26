@@ -90,13 +90,38 @@ function renderAnnouncement(ActionInstance $instance): Email
     return Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage();
 }
 
+/**
+ * An instance as `RaiseAutomations` would have left it.
+ *
+ * The announcement is **in the payload**, snapshotted beside the words it was
+ * rendered with — which is what the mailable reads. A helper that skipped this
+ * step would build a row the product never produces, and every assertion under
+ * it would be about a code path that does not exist.
+ * `it('snapshots the announcement…')` below holds the real raise path to the
+ * same shape.
+ */
 function milestoneMessage(array $attributes = []): ActionInstance
 {
-    return ActionInstance::factory()->create([
+    $instance = ActionInstance::factory()->create([
         'team_id' => test()->team->getKey(),
         'deal_id' => test()->deal->getKey(),
         ...$attributes,
     ]);
+
+    $instance->forceFill([
+        'payload' => [
+            ...($instance->payload ?? []),
+            'milestone' => MilestoneAnnouncement::snapshot(
+                $instance->trigger,
+                $instance->stage,
+                $instance->deal,
+                test()->team,
+                $instance->rendered(),
+            )?->toArray(),
+        ],
+    ])->save();
+
+    return $instance->fresh();
 }
 
 it('opens with what the team told the client the milestone is called', function (): void {
@@ -141,7 +166,13 @@ it('announces a completion and never a start', function (): void {
         'trigger' => AutomationTrigger::StageStart,
     ]);
 
-    expect(MilestoneAnnouncement::for($started, $this->team, $started->rendered()))->toBeNull();
+    expect(MilestoneAnnouncement::snapshot(
+        $started->trigger,
+        $started->stage,
+        $started->deal,
+        $this->team,
+        $started->rendered(),
+    ))->toBeNull();
 });
 
 it('says nothing when a milestone stage carries no client label', function (): void {
@@ -160,7 +191,7 @@ it('says nothing when a milestone stage carries no client label', function (): v
 
     $instance = milestoneMessage(['stage_id' => $stage->getKey()]);
 
-    expect(MilestoneAnnouncement::for($instance, $this->team, $instance->rendered()))->toBeNull();
+    expect(($instance->payload ?? [])['milestone'])->toBeNull();
 });
 
 it('carries the address, and does not break the layout on a long one', function (): void {
@@ -251,9 +282,80 @@ it('has a slot for the status page and does not invent a link for it', function 
     subjectPropertyWith('https://mls.example.test/listing/8891');
 
     $instance = milestoneMessage(['stage_id' => milestoneStage()->getKey()]);
-    $announcement = MilestoneAnnouncement::for($instance, $this->team, $instance->rendered());
+    $announcement = MilestoneAnnouncement::fromPayload(($instance->payload ?? [])['milestone']);
 
     expect($announcement)->not->toBeNull()
         ->and($announcement->statusPageLink)->toBeNull()
         ->and($announcement->callToAction()['label'])->toBe('View the listing');
+});
+
+it('draws the announcement it was raised with, not the deal as it is now', function (): void {
+    /*
+     * The staleness this design exists to prevent, from the other direction. A
+     * message held for approval for two days goes out with the body it was
+     * rendered with — so a frame that re-read the deal would name one address
+     * in the header and a different one in the paragraph under it, inside one
+     * email, neither of them the pair an approver signed off on S48.
+     */
+    $property = subjectPropertyWith(null, '12 Oak Lane');
+
+    $instance = milestoneMessage(['stage_id' => milestoneStage()->getKey()]);
+
+    $property->forceFill(['street' => '14 Sycamore Row'])->save();
+
+    $html = (string) renderAnnouncement($instance->fresh())->getHtmlBody();
+
+    expect($html)->toContain('12 Oak Lane')
+        ->and($html)->not->toContain('14 Sycamore Row');
+});
+
+it('drops the listing button when an approver types the link in themselves', function (): void {
+    /*
+     * S48 lets an approver rewrite the body, and *"let me add the listing
+     * link"* is an ordinary thing to do with it. The suppression was decided
+     * at raise time against words that did not carry the URL, so it is asked
+     * again against the words that would actually be sent — still not a live
+     * read, because the edited body is in the payload too.
+     */
+    subjectPropertyWith($url = 'https://mls.example.test/listing/8891');
+
+    $instance = milestoneMessage(['stage_id' => milestoneStage()->getKey()]);
+
+    expect(($instance->payload ?? [])['milestone']['mlsLink'])->toBe($url);
+
+    $instance->forceFill([
+        'payload' => [
+            ...($instance->payload ?? []),
+            'bodyHtml' => '<p>Have a look: <a href="'.$url.'">the listing</a>.</p>',
+            'bodyText' => 'Have a look: '.$url,
+        ],
+    ])->save();
+
+    $html = (string) renderAnnouncement($instance->fresh())->getHtmlBody();
+
+    expect(substr_count($html, $url))->toBe(1)
+        ->and($html)->not->toContain('View the listing');
+});
+
+it('renders no announcement for an instance raised before the frame existed', function (): void {
+    /*
+     * A row already in the approval queue when this shipped has no `milestone`
+     * key at all. No migration for it: a plain branded frame is the right
+     * answer, and inventing one at send time is the live read this design
+     * refuses.
+     */
+    subjectPropertyWith(null);
+
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'stage_id' => milestoneStage()->getKey(),
+    ]);
+
+    expect(array_key_exists('milestone', $instance->payload ?? []))->toBeFalse();
+
+    $html = (string) renderAnnouncement($instance)->getHtmlBody();
+
+    expect($html)->not->toContain('Your home is on the market')
+        ->and($html)->toContain('The inspection is booked for Friday.');
 });

@@ -144,7 +144,15 @@ class AutomatedMessageMail extends Mailable
             text: 'mail.automated-message-text',
             with: [
                 'brand' => BrandedEmail::for($this->team),
-                'milestone' => MilestoneAnnouncement::for($this->instance, $this->team, $this->rendered),
+                /*
+                 * Read back out of the payload, never re-resolved. It was
+                 * snapshotted beside the words at raise time — see
+                 * {@see MilestoneAnnouncement}, which argues why, and why the
+                 * branding above is deliberately the opposite.
+                 */
+                'milestone' => MilestoneAnnouncement::fromPayload(
+                    ($this->instance->payload ?? [])['milestone'] ?? null,
+                )?->withoutLinkAlreadyIn($this->rendered),
                 'teamName' => $this->team->name,
                 'bodyHtml' => $this->rendered->bodyHtml,
                 'bodyText' => $this->rendered->bodyText,

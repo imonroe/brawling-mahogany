@@ -15,6 +15,7 @@ use App\Models\Stage;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\Workflow;
+use App\Support\Mail\MilestoneAnnouncement;
 use App\Support\Messages\MergeContext;
 use App\Support\Messages\RecipientRule;
 use App\Support\Messages\RenderMessage;
@@ -313,6 +314,22 @@ final class RaiseAutomations
             'recipients' => $rule === null
                 ? []
                 : $this->addresses($this->recipients->for($rule, $deal, $team)),
+            /*
+             * S87's announcement (#97), snapshotted here for the reason the
+             * words are: what an approver reads on S48 is the payload, and
+             * anything in the email not derived from it was approved by
+             * nobody. Resolving it in the mailable would put a live read of
+             * the deal in the same message as a body rendered days earlier —
+             * the address in the header and the address in the paragraph under
+             * it, from two different moments.
+             */
+            'milestone' => MilestoneAnnouncement::snapshot(
+                $automation->trigger,
+                $stage,
+                $deal,
+                $team,
+                $rendered,
+            )?->toArray(),
         ];
     }
 

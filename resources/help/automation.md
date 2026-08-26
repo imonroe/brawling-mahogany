@@ -153,7 +153,7 @@ hour however many fail — one expired password can take out a morning's queue,
 and forty emails about one problem is forty emails nobody reads — and it says
 how many are waiting in total, so a bad morning looks like a bad morning.
 
-A message a rail is *holding* does not send one of these. Nothing has been lost:
+A message a rail is _holding_ does not send one of these. Nothing has been lost:
 it goes on its own when the limit rolls over or the switch comes off, and the
 queue says so in the present tense while it waits.
 
@@ -209,6 +209,12 @@ own words do not already point at it, a button to the listing goes underneath.
 
 That headline appears when a stage **completes**, not when it starts. A
 milestone is the moment something finished.
+
+Like the words themselves, the headline and the address are worked out when the
+automation fires, so what you approve in the queue is what the client gets —
+even if something on the deal changes while the message is waiting. Your logo
+and colour are the exception: those are read when the message actually goes, so
+changing them updates everything still queued.
 
 ## What is still to come
 

@@ -742,6 +742,26 @@ These come from PRD §8 and should guide the eventual build:
   against **both spellings**, since `RenderMessage` escapes into `body_html`
   and leaves `body_text` alone.
 
+- **A frame drawn live around a body drawn earlier is two moments in one
+  email.** The announcement resolves the deal's address and listing link, and
+  the body was rendered when the automation fired — so resolving the frame in
+  the mailable would name one address in the header and another in the
+  paragraph under it. That is S16's *"incoherent within one card"*, at a
+  surface with no way to correct it afterwards.
+
+  The sharper reason is F5.7: a message can wait days in the approval queue,
+  and **what an approver reads on S48 is the payload**. Anything in the email
+  not derived from the payload was approved by nobody. So the announcement is
+  snapshotted beside the words, in `RaiseAutomations`.
+
+  The team's **branding** is deliberately the opposite, and the line is worth
+  knowing: a logo and an accent are the team's own identity, identical on every
+  message, so a message held for two days goes out wearing the logo the team
+  has now. Deal content is snapshotted; identity is live. And the one thing
+  that *is* re-asked at render time is the MLS suppression, because S48 lets an
+  approver type the link in themselves — still string work on payload values,
+  never a live read.
+
 - **Pull is not push, and "nobody looked" is a failure mode.** A failed message
   is a red row on S47 and an entry on the deal's timeline, which is what lets
   ADR 0003 call automation's second door adequate. Both are true the moment

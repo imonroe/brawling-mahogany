@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Mail;
 
 use App\Enums\AutomationTrigger;
-use App\Models\ActionInstance;
+use App\Models\Deal;
 use App\Models\Stage;
 use App\Models\Team;
 use App\Support\Messages\MergeContext;
@@ -60,6 +60,27 @@ use App\Support\Messages\RenderedMessage;
  * link when it is filled, and is null everywhere today. `MergeFields` already
  * carries `status_page_link` as a registered-but-unavailable field for the
  * same reason.
+ *
+ * ## Snapshotted at raise time, into the payload, beside the words
+ *
+ * The obvious implementation resolves this in the mailable, at send time. That
+ * puts a **live** read of the deal in the same email as a body that was
+ * rendered when the automation fired — the address in the header and the
+ * address in the paragraph under it, answering the same question from two
+ * different moments. `CLAUDE.md` records the shape on S16: a cache and a live
+ * value inside one card is incoherent *within one card*.
+ *
+ * The sharper reason is F5.7. A message can sit in the approval queue for
+ * days, and what an approver reads on S48 **is the payload**. Anything in the
+ * email not derived from the payload was never approved by anybody — so the
+ * announcement belongs there, snapshotted with the words it was rendered
+ * beside.
+ *
+ * The team's **branding** is deliberately not snapshotted, and the distinction
+ * is the point: a logo and an accent are the team's own identity, the same on
+ * every message, and a message held for two days should go out wearing the
+ * logo the team has now. The announcement is deal content, which is the same
+ * class of thing as the body.
  */
 final readonly class MilestoneAnnouncement
 {
@@ -71,24 +92,31 @@ final readonly class MilestoneAnnouncement
     ) {}
 
     /**
-     * The announcement this instance carries, or null when it carries none.
+     * The announcement an instance being raised would carry, or null.
      *
      * Null is the ordinary answer. Most automated messages are not about a
      * milestone, and the frame draws a plain branded message for those.
+     *
+     * Called from {@see \App\Support\Automation\RaiseAutomations}, inside the
+     * advance's transaction, with the same `MergeContext` the words were just
+     * rendered against.
      */
-    public static function for(ActionInstance $instance, Team $team, RenderedMessage $rendered): ?self
-    {
+    public static function snapshot(
+        AutomationTrigger $trigger,
+        ?Stage $stage,
+        Deal $deal,
+        Team $team,
+        RenderedMessage $rendered,
+    ): ?self {
         /*
          * A milestone is *the notable completion of a stage* (IA §2), so only
          * a completion announces one. A `stage_start` email on a milestone
          * stage would open with "Your home is on the market" on the morning
          * the photographer was booked.
          */
-        if ($instance->trigger !== AutomationTrigger::StageCompletion) {
+        if ($trigger !== AutomationTrigger::StageCompletion) {
             return null;
         }
-
-        $stage = $instance->stage;
 
         if (! $stage instanceof Stage) {
             return null;
@@ -99,8 +127,6 @@ final readonly class MilestoneAnnouncement
         if ($headline === null) {
             return null;
         }
-
-        $deal = $instance->deal;
 
         /*
          * The same resolver the body was rendered through, so the address in
@@ -121,6 +147,71 @@ final readonly class MilestoneAnnouncement
             mlsLink: $mls === null || self::bodyCarries($rendered, $mls) ? null : $mls,
             // #110. The slot, not a guess at the URL.
             statusPageLink: null,
+        );
+    }
+
+    /**
+     * @return array<string, string|null>
+     */
+    public function toArray(): array
+    {
+        return [
+            'headline' => $this->headline,
+            'propertyAddress' => $this->propertyAddress,
+            'mlsLink' => $this->mlsLink,
+            'statusPageLink' => $this->statusPageLink,
+        ];
+    }
+
+    /**
+     * Read one back out of an instance's payload.
+     *
+     * Null for anything that is not a complete announcement, which covers the
+     * two cases that matter and needs no migration for either: an instance
+     * raised before #97 has no `milestone` key at all, and one raised from a
+     * stage that is not a milestone never had one. Both render a plain frame.
+     */
+    public static function fromPayload(mixed $payload): ?self
+    {
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        $headline = self::orNull($payload['headline'] ?? null);
+
+        if ($headline === null) {
+            return null;
+        }
+
+        return new self(
+            headline: $headline,
+            propertyAddress: self::orNull($payload['propertyAddress'] ?? null),
+            mlsLink: self::orNull($payload['mlsLink'] ?? null),
+            statusPageLink: self::orNull($payload['statusPageLink'] ?? null),
+        );
+    }
+
+    /**
+     * The same suppression, applied again after an approver edits the words.
+     *
+     * S48 lets an approver rewrite the body, and *"let me add the listing
+     * link"* is an ordinary thing to do with it — which would put the URL in
+     * the message twice, once typed and once as the button this frame draws.
+     * Re-asked rather than left alone, and it is still not a live read: the
+     * edited words are already in the payload, so this is string work on
+     * snapshotted values.
+     */
+    public function withoutLinkAlreadyIn(RenderedMessage $rendered): self
+    {
+        if ($this->mlsLink === null || ! self::bodyCarries($rendered, $this->mlsLink)) {
+            return $this;
+        }
+
+        return new self(
+            headline: $this->headline,
+            propertyAddress: $this->propertyAddress,
+            mlsLink: null,
+            statusPageLink: $this->statusPageLink,
         );
     }
 
