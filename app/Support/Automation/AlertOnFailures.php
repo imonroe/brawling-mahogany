@@ -65,17 +65,33 @@ use Throwable;
  * half and silenced half, and the failure is invisible to a frozen clock,
  * which is what every test in the suite uses.
  *
- * So the sweep chooses its own boundary — the start of the current second —
- * and reports `[mark, boundary)`. Every instant then belongs to exactly one
- * window: nothing is counted twice and nothing falls between two. A failure in
- * the current second is simply the next window's, one sweep later.
+ * So the sweep chooses its own boundary and reports `[mark, boundary)`. Every
+ * instant then belongs to exactly one window: nothing is counted twice and
+ * nothing falls between two.
  *
- * The one thing this does not survive is a row **backdated** below the mark,
- * which needs a clock moving backwards between two runs. The schedule is
- * `onOneServer`, and nothing in the product writes `executed_at` from anywhere
- * but `now()`.
+ * The boundary is **not** the sweep's own instant, and the first version of
+ * this paragraph argued that it could be — on the grounds that a row below it
+ * would need a clock running backwards, and that `onOneServer` ruled that out.
+ * Both halves were wrong. `executed_at` is stamped in **PHP**, by whichever
+ * process wrote the row, and becomes visible at **COMMIT** rather than at
+ * assignment; and `onOneServer` pins the *scheduler*, not the writers, so a
+ * worker one second slow backdates everything it writes. The boundary
+ * therefore sits {@see self::VISIBILITY_LAG_SECONDS} behind the sweep, and
+ * `alert()` argues the rest.
  *
  * ## What it does not alert about
+ *
+ * ## What it does not do: a ceiling of its own
+ *
+ * The mark stops a team being told twice about one failure. It does **not**
+ * bound how often they are told: a trickle of new failures, one every few
+ * minutes, produces an alert every few minutes, each carrying genuinely new
+ * rows. That is a large improvement on the first version — which sent one per
+ * failure, each reporting one — and it is not the *"an alert people filter is
+ * an alert that does not work when it matters"* argument above carried all the
+ * way through. A floor on the interval is the missing half and is recorded as
+ * follow-up rather than guessed at here, because the right floor is a question
+ * about how a team works rather than about this class.
  *
  * A **halt** — F5.9's kill switch, the hourly ceiling, sandbox with no owner.
  * A halted message is still `pending`: nothing is lost, the sweep carries it
@@ -218,13 +234,32 @@ final class AlertOnFailures
 
         if ($count === 0) {
             /*
-             * The mark is **not** advanced over an empty window, and that is a
-             * saving rather than a subtlety: advancing it would write every
-             * team's row every five minutes forever, churning `teams.updated_at`
-             * for every tenant on the platform to record that nothing happened.
-             * An unmoved mark simply widens the next window, which returns the
-             * same nothing at the same cost.
+             * The mark is **not** advanced over an empty window: advancing it
+             * would write every team's row every five minutes forever, churning
+             * `teams.updated_at` for every tenant on the platform to record
+             * that nothing happened. An unmoved mark simply widens the next
+             * window, which returns the same nothing at the same cost.
+             *
+             * But it is **anchored once**, and leaving that out reopened the
+             * defect the anchor on the no-audience branch exists to prevent —
+             * in the branch every healthy team takes on every sweep. ADR 0002's
+             * rule, sharpened: a rule written into one caller is a rule the
+             * second caller is written without.
+             *
+             * With the column null, `watermark()` falls to a cold-start floor
+             * relative to `now()`, and that floor **slides forward** with every
+             * sweep. So a team that has never had a failure loses any failure
+             * older than {@see self::COLD_START_HOURS} the moment the sweep
+             * stops running for that long — a deploy that drops the cron entry,
+             * a container down over a weekend, or `withoutOverlapping()`'s own
+             * default mutex expiry, which is 1440 minutes and therefore exactly
+             * the floor, with no margin at all. Writing it the first time costs
+             * one `UPDATE` per team ever and pins the floor where it belongs.
              */
+            if ($team->automation_alerted_through === null) {
+                $this->remember($team, $through);
+            }
+
             return false;
         }
 
@@ -288,6 +323,14 @@ final class AlertOnFailures
             actionLabel: $count === 1 ? 'See what happened' : 'Open the message queue',
         ));
 
+        /*
+         * The mark moves **after** the send, which is the safe order and not a
+         * free one: a transport that accepts the message and then throws leaves
+         * the window unreported, so the next sweep reports it again. Better
+         * twice than never — but it is a second exception to *"never twice
+         * about the same failure"*, and `resources/help/automation.md` says
+         * "almost never" rather than pretending otherwise.
+         */
         $this->remember($team, $through);
 
         return true;
@@ -317,8 +360,8 @@ final class AlertOnFailures
              * Never swept. A floor of the last day rather than all of history,
              * so shipping this does not email somebody about a month of
              * failures they have already worked through — and it applies
-             * exactly once per team, because the column is written from then
-             * on whether or not there was anything to say.
+             * exactly once per team, because the first sweep anchors the
+             * column whether or not there was anything to say.
              */
             : Carbon::now()->subHours(self::COLD_START_HOURS);
     }

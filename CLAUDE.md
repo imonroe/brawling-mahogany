@@ -754,6 +754,12 @@ These come from PRD §8 and should guide the eventual build:
   not derived from the payload was approved by nobody. So the announcement is
   snapshotted beside the words, in `RaiseAutomations`.
 
+  Snapshotting it is half of that sentence, and the half that is easy to stop
+  at: for a round the announcement was *in* the payload and on **no review
+  surface at all**, so a client got a headline, an address and a listing button
+  nobody had seen. S48 draws it above the body now. **Putting a value where an
+  approver could see it is not the same as showing it to them.**
+
   The team's **branding** is deliberately the opposite, and the line is worth
   knowing: a logo and an accent are the team's own identity, identical on every
   message, so a message held for two days goes out wearing the logo the team
@@ -850,6 +856,20 @@ These come from PRD §8 and should guide the eventual build:
   which meant the queue reordered under a reader between two refreshes and
   `MessageQueueBudgetTest` failed intermittently depending on what ran before
   it. `->oldest('id')` behind each sort.
+
+- **The second caller of a rule is the one written without it — including the
+  branch you did not think of as a caller.** The alert's mark is deliberately
+  not advanced over an empty window, to avoid writing every team's row every
+  five minutes. But it has to be **anchored once**, because `watermark()` falls
+  back to a floor relative to `now()` when the column is null, and that floor
+  slides forward with every sweep. The no-audience branch had the anchor and
+  the empty-window branch did not — which is the branch every healthy team
+  takes on every run, so a team that had never had a failure silently lost any
+  failure older than the floor the moment the sweep stopped for that long.
+
+  `withoutOverlapping()`'s own default mutex expiry is 1440 minutes, which is
+  exactly `COLD_START_HOURS`. A margin of zero against a framework default is
+  not a margin.
 
 - **A durability promise cannot live in a cache.** The mark was a Redis key
   for one round, and Redis is evictable and empty after a restart — while

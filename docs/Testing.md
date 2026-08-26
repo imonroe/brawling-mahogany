@@ -139,7 +139,7 @@ second, and the bug is only reachable when they differ.
 The rule that follows: when a test exercises something that compares
 *before* with *after*, move the clock between them deliberately, and say in the
 helper why the movement is the point rather than a workaround.
-`tests/Feature/Mail/InternalAlertTest.php`'s `sweepAlerts()` is the worked
+`tests/Feature/Mail/InternalAlertTest.php`'s `settleAndSweep()` is the worked
 example.
 
 ---

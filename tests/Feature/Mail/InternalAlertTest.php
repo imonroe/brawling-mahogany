@@ -558,3 +558,55 @@ it('says nothing about a failed row that never recorded when it failed', functio
 
     Mail::assertNotSent(InternalAlertMail::class);
 });
+
+it('anchors the cold-start floor on the first sweep, before there is anything to say', function (): void {
+    /*
+     * Round 4's blocker, and it is round 2's — a floor relative to `now()`
+     * slides forward with every sweep — arriving in the branch **every healthy
+     * team takes on every sweep**. The no-audience branch had the anchor; this
+     * one did not, so a team that had never had a failure kept re-deriving the
+     * floor and lost anything older than it.
+     */
+    expect(settleAndSweep())->toBeFalse();
+
+    expect($this->team->fresh()->automation_alerted_through)->not->toBeNull();
+});
+
+it('tells a team about a failure the sweep did not run in time to see', function (): void {
+    /*
+     * The loss the anchor prevents, end to end. Nothing is wrong on day zero;
+     * a message dies an hour later; the sweep does not run for three days — a
+     * deploy that drops the cron entry, a container down over a weekend, or
+     * `withoutOverlapping()`'s own 1440-minute mutex, which is exactly the
+     * cold-start floor and therefore has no margin at all.
+     *
+     * With the floor sliding, that failure is silently and permanently
+     * invisible.
+     */
+    expect(settleAndSweep())->toBeFalse();
+
+    $this->travel(1)->hours();
+
+    ActionInstance::factory()->failed()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $this->travel(3)->days();
+
+    expect(app(AlertOnFailures::class)->sweep($this->team))->toBeTrue();
+
+    Mail::assertSent(InternalAlertMail::class, 1);
+});
+
+it('keeps the cold-start floor further back than the boundary is lagged', function (): void {
+    /*
+     * The two constants have to stay in this order. If the floor were ever set
+     * below the lag, `$since` would exceed `$through` on a fresh team and the
+     * sweep would return early on every run — reporting nothing, forever, with
+     * no error anywhere. They are the kind of pair somebody tunes during an
+     * incident, so the relationship is asserted rather than left in a comment.
+     */
+    expect(AlertOnFailures::COLD_START_HOURS * 3600)
+        ->toBeGreaterThan(AlertOnFailures::VISIBILITY_LAG_SECONDS);
+});

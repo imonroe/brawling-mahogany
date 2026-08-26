@@ -70,6 +70,17 @@ type Message = {
         bodyHtml: string | null;
         bodyText: string;
     };
+    /**
+     * S87's frame, when this message carries one — the headline a client
+     * reads above the words, the property it is about, and the one link the
+     * email offers. Null for the ordinary message, which is most of them.
+     */
+    milestone: {
+        headline: string;
+        propertyAddress: string | null;
+        mlsLink: string | null;
+        statusPageLink: string | null;
+    } | null;
 };
 
 const props = defineProps<{
@@ -135,6 +146,33 @@ const problems = computed<string[]>(() => {
  * preview does, and for the same reason.
  */
 const previewDocument = computed(() => props.message.rendered.bodyHtml ?? '');
+
+/**
+ * The one call to action the email will carry, chosen the way the frame
+ * chooses it.
+ *
+ * The precedence is the server's — status page first, listing second — and it
+ * is repeated here rather than shared because there is nothing to share: it is
+ * two nullable fields and an order. What matters is that an approver sees the
+ * *same* link the client will, so the two orders have to agree, and
+ * `MilestoneAnnouncement::callToAction()` is where the reasoning lives.
+ */
+const milestoneLink = computed(() => {
+    const milestone = props.message.milestone;
+
+    if (milestone?.statusPageLink) {
+        return {
+            label: 'See where things stand',
+            url: milestone.statusPageLink,
+        };
+    }
+
+    if (milestone?.mlsLink) {
+        return { label: 'View the listing', url: milestone.mlsLink };
+    }
+
+    return null;
+});
 
 function approve(): void {
     /*
@@ -393,6 +431,42 @@ function cancel(): void {
                 </template>
 
                 <template v-else>
+                    <!--
+                        The frame, above the words it frames.
+
+                        F5.7's promise is that what an approver reads is what
+                        the client gets, and until this was here it was true of
+                        the words and false of everything around them: a client
+                        got a headline, an address and a "View the listing"
+                        button that nobody had seen. Drawn plainly rather than
+                        as a facsimile of the email — this is a review surface,
+                        and a pixel-accurate copy of a branded message is
+                        something a reader skims instead of reads.
+                    -->
+                    <div
+                        v-if="message.milestone"
+                        class="flex flex-col gap-1 rounded-md border border-border bg-muted p-3"
+                    >
+                        <p class="text-[11px] text-muted-foreground">
+                            The client sees this above your message
+                        </p>
+                        <p class="text-sm font-semibold text-foreground">
+                            {{ message.milestone.headline }}
+                        </p>
+                        <p
+                            v-if="message.milestone.propertyAddress"
+                            class="text-13 break-words text-muted-foreground"
+                        >
+                            {{ message.milestone.propertyAddress }}
+                        </p>
+                        <p
+                            v-if="milestoneLink"
+                            class="text-13 break-all text-muted-foreground"
+                        >
+                            {{ milestoneLink.label }} → {{ milestoneLink.url }}
+                        </p>
+                    </div>
+
                     <iframe
                         v-if="previewDocument"
                         :srcdoc="previewDocument"

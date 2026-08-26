@@ -149,9 +149,12 @@ deleted, because three months from now the question is not "is this tidy", it is
 
 **And you get told.** People on your team who can approve messages get an email
 about anything that has failed since the last one — within a few minutes, and
-never twice about the same failure. On a large team it goes to the first few
-rather than to everybody, because an alert copied to twenty people is an alert
-twenty people assume somebody else is dealing with. When several have gone wrong it says how
+almost never twice about the same failure. On a large team it goes to the first
+few rather than to everybody, because an alert copied to twenty people is an
+alert twenty people assume somebody else is dealing with.
+
+_Almost_ never, because if the alert itself is accepted and then fails on its
+way out, the next one covers the same ground again. Told twice beats not told. When several have gone wrong it says how
 many and links to the queue rather than to one of them, because one expired
 password can take out a morning's worth and you want the list, not the first
 row.
@@ -214,8 +217,9 @@ That headline appears when a stage **completes**, not when it starts. A
 milestone is the moment something finished.
 
 Like the words themselves, the headline and the address are worked out when the
-automation fires, so what you approve in the queue is what the client gets —
-even if something on the deal changes while the message is waiting. Your logo
+automation fires, and the queue shows you both — so what you approve is what the
+client gets, even if something on the deal changes while the message is
+waiting. Your logo
 and colour are the exception: those are read when the message actually goes, so
 changing them updates everything still queued.
 
