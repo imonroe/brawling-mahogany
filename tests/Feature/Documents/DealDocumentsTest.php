@@ -9,9 +9,17 @@ use App\Models\AuditEntry;
 use App\Models\Deal;
 use App\Models\Document;
 use App\Models\Gate;
+use App\Models\Permission;
+use App\Models\Person;
+use App\Models\Property;
+use App\Models\Role;
 use App\Models\Stage;
+use App\Models\TeamMembership;
 use App\Models\Workflow;
+use App\Policies\DocumentPolicy;
 use App\Support\Documents\DocumentStorage;
+use App\Support\Permissions;
+use App\Support\Tenancy\TeamContext;
 use App\Support\Workflow\DescribeBlockers;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -50,6 +58,17 @@ function dealUpload(string $name, string $bytes): UploadedFile
     file_put_contents($path, $bytes);
 
     return new UploadedFile($path, $name, null, null, true);
+}
+
+/**
+ * The smallest thing `finfo` will call `image/png`.
+ */
+function onePixelPng(): string
+{
+    return (string) base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        true,
+    );
 }
 
 it('renders the tab with its documents', function (): void {
@@ -350,4 +369,106 @@ it('does not clear the gate with a document of the wrong category', function ():
     ])->assertRedirect();
 
     expect(app(DescribeBlockers::class)->forStage($stage->fresh())->canAdvance())->toBeFalse();
+});
+
+it('lets a deals-only role download a deal document it can already see', function (): void {
+    /*
+     * `DocumentPolicy` keyed every document on `properties.*`, which was true
+     * while Slice 2's only documents were a property's photographs. S21
+     * attached them to deals and the two halves stopped agreeing: the tab
+     * authorizes `view` on the **deal**, so a role with `deals.view` and not
+     * `properties.view` got a list of documents that then refused to download.
+     *
+     * No shipped role can reach it — Team Member holds both — but S75 lets a
+     * team compose its own, and a permission pair nobody can currently
+     * separate is not the same as one nobody ever will.
+     */
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        dealUpload('report.txt', 'Roof looks sound.'),
+        $this->owner,
+        DocumentCategory::InspectionReport,
+    );
+
+    $narrow = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($narrow): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $narrow->getKey(),
+            'first_name' => 'Dana',
+            'last_name' => 'Alvarez',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [
+                Permissions::VIEW_DEALS,
+                Permissions::MANAGE_DEALS,
+            ])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($narrow, $this->team);
+
+    // The control: they can open the tab at all.
+    $this->get("/deals/{$this->deal->getKey()}/documents")->assertOk();
+
+    // And the thing that was broken: the file the tab just listed.
+    $this->get("/deals/{$this->deal->getKey()}/documents/{$document->getKey()}")
+        ->assertOk();
+});
+
+it('still keys a property’s photograph on the property permissions', function (): void {
+    /*
+     * The other half of following the subject. A gallery image is not reached
+     * by `deals.view`, and the policy change must not have quietly widened it.
+     */
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    /*
+     * Real PNG bytes. `DocumentStorage` derives the type with `finfo` over the
+     * contents, so a `.png` full of text is refused before the policy is ever
+     * consulted — the bytes-decide rule biting a test rather than an upload.
+     */
+    $photo = app(DocumentStorage::class)->store(
+        $property,
+        dealUpload('front.png', onePixelPng()),
+        $this->owner,
+        DocumentCategory::Photo,
+    );
+
+    $narrow = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($narrow): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $narrow->getKey(),
+            'first_name' => 'Dana',
+            'last_name' => 'Alvarez',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only_photo',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_DEALS])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    expect(app(DocumentPolicy::class)->view($narrow->fresh(), $photo->fresh()))->toBeFalse();
 });
