@@ -112,17 +112,30 @@ Four things to know when it does not appear:
    checked, because `APP_URL` is the value most likely to be stale — a guard
    against operator error that depends on the commonest adjacent operator error
    is not a guard.
-4. **A misconfiguration is logged at most once an hour** — `The bug report
-   button is switched on but has no usable form URL`, with the reason. Hiding
-   the button rather than raising is deliberate: a bug-report form is not worth
-   a white screen. The cooldown is in the cache rather than in a static,
-   because this runs on every authenticated request and PHP tears a static down
-   at each request boundary — a per-process latch would have written a line per
-   page view for as long as the mistake stood.
+4. **A misconfiguration is logged at most once an hour, per problem** — `The
+   bug report button is switched on but has no usable form URL`, carrying a
+   `reason_code`:
+
+   | `reason_code` | What to do |
+   |---|---|
+   | `url_empty` | `BUG_REPORT_ENABLED` is on and `BUG_REPORT_URL` is unset |
+   | `url_not_http` | The address is not `http://` or `https://` |
+   | `url_own_origin` | The address is on a host and port this app answers on — give n8n its own hostname or its own port |
+
+   `reason_code` rather than `reason`, because `App\Logging\Redactor` strips
+   any key containing `reason` — an override reason is free text that quotes
+   clients — and a diagnostic that reaches the log as `[redacted]` is silence
+   with extra steps. Hiding the button rather than raising is deliberate: a
+   bug-report form is not worth a white screen. The cooldown is in the cache
+   rather than in a static, because this runs on every authenticated request
+   and PHP tears a static down at each request boundary — a per-process latch
+   would have written a line per page view for as long as the mistake stood.
 
 `BUG_REPORT_ENABLED` is read with `filter_var`, not a cast, so `false`, `off`,
-`no` and `0` all switch it off — as does anything else not recognised as true,
-which is the safe end to fail towards. `env()` converts only four spellings and
+`no` and `0` all switch it off — as does **anything else not recognised as
+true**, silently and with no log line, because nothing is wrong with a switch
+that is off. `BUG_REPORT_ENABLED=enabled` therefore turns it off; write `true`.
+Failing towards off is the safe end. `env()` converts only four spellings and
 leaves the rest as strings, and `(bool) 'off'` is `true` — which would fail
 open on the one setting somebody changes in a hurry during the outage it exists
 for.

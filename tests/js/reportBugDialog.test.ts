@@ -292,8 +292,21 @@ describe('the Report a bug modal', () => {
 
         // The same element, with new text in it — which is the change a
         // screen reader is listening for.
-        expect(status?.textContent?.trim()).toBe('The form is ready.');
+        /*
+         * "has loaded", not "is ready" — `load` fires for a frame the form
+         * refused to serve as readily as for one it did, and a cross-origin
+         * frame tells the embedder nothing about which happened.
+         */
+        expect(status?.textContent?.trim()).toBe('The form has loaded.');
         expect(status?.classList.contains('opacity-0')).toBe(true);
+
+        /*
+         * And still 13px. `cn()` is bare `twMerge`, which files `text-13` in
+         * the text-*colour* group — so wrapping this class list in `cn()`
+         * dropped the size and rendered the region at the body's 14px, with
+         * nothing anywhere saying so.
+         */
+        expect(status?.classList.contains('text-13')).toBe(true);
 
         wrapper.unmount();
     });

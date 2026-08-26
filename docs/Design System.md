@@ -1142,6 +1142,17 @@ Width **600px** for a focused decision, **660px** when a checklist or preview ne
 | Inline alert | `py-3.5 px-6 border-b`, filled with the relevant state background, full-bleed to the dialog edges. |
 | Footer | `py-4 px-6 gap-2.5 bg-muted`. Left: an optional 12px muted note. Right: cancel (ghost) → alternate (secondary) → primary. |
 
+**One exception to the full-bleed inline alert** (#176). A full-bleed band sits
+*between* bands, which necessarily puts it outside the dialog's
+`DialogDescription` — and therefore outside `aria-describedby`. That is right
+for an alert *about* the dialog's state and wrong for one that is part of what
+the dialog is telling you. S06's Report a bug modal carries the warning PRD §10
+names as the whole of its mitigation, and drawn as a full-bleed band it was
+visible to everyone except the one reader who cannot see amber. Inside the
+header band it becomes a `rounded-md px-3 py-2.5` inset card instead. **When an
+alert is load-bearing content rather than status, it goes inside the
+description and takes the inset form.**
+
 **Dialogs must not scroll their own header or footer away.** If content exceeds the viewport, the middle sections scroll.
 
 ### 8.10 Modal screens in the design file

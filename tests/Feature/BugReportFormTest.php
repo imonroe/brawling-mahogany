@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Logging\Redactor;
 use Illuminate\Support\Facades\Log;
 use Inertia\Testing\AssertableInertia;
 
@@ -206,7 +207,7 @@ it('says once, and only once, that the flag is on with no address behind it', fu
     Log::shouldHaveReceived('warning')
         ->once()
         ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'bug report button')
-            && str_contains((string) $context['reason'], 'BUG_REPORT_URL is empty'));
+            && $context['reason_code'] === 'url_empty');
 
     /*
      * And then travel past the cooldown, which is what tells this apart from
@@ -249,7 +250,37 @@ it('says nothing more about a problem somebody has already fixed', function (): 
 
     // And the second one is about the mistake that actually stands.
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message, array $context): bool => str_contains((string) $context['reason'], 'not an http or https'));
+        ->withArgs(fn (string $message, array $context): bool => $context['reason_code'] === 'url_not_http');
+});
+
+it('names the problem in a key the log redactor does not strip', function (): void {
+    /*
+     * `Log::spy()` intercepts above Monolog, so every assertion in this file
+     * sees the context the application passed rather than the context that
+     * reaches the log — and `ScrubPii` is tapped onto every channel.
+     *
+     * `Redactor::SENSITIVE_KEY_PARTS` contains `reason`, because an override
+     * reason is free text that routinely quotes a client. So the diagnostic
+     * this file spent three review rounds sharpening was emitted as
+     * `{"reason":"[redacted]"}` and the three misconfigurations were
+     * indistinguishable in the one place an operator would look.
+     *
+     * Asserted through the redactor itself rather than by remembering the
+     * rule, because the rule is a list somebody will add to.
+     */
+    Log::spy();
+
+    config()->set('services.bug_report.url', null);
+
+    $this->actingAsPerson($this->member, $this->team);
+    $this->get('/dashboard')->assertOk();
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(function (string $message, array $context): bool {
+            $survives = Redactor::context($context);
+
+            return $survives === $context && $survives['reason_code'] === 'url_empty';
+        });
 });
 
 it('refuses a URL that is not http or https', function (string $url): void {

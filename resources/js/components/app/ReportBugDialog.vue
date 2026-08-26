@@ -89,7 +89,6 @@ import {
     DialogDescription,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
 import AppButton from './AppButton.vue';
 
 const props = defineProps<{
@@ -144,7 +143,7 @@ function focusOurOwnChrome(event: Event): void {
             :show-close-button="false"
             @open-auto-focus="focusOurOwnChrome"
         >
-            <div class="flex flex-col gap-3 border-b px-6 py-5">
+            <div class="flex flex-col gap-1 border-b px-6 py-5">
                 <DialogTitle class="text-lg font-semibold"
                     >Report a bug</DialogTitle
                 >
@@ -195,17 +194,27 @@ function focusOurOwnChrome(event: Event): void {
                     to itself* and one that arrives already populated has no
                     change to report. `v-if` on the wrapper meant it announced
                     neither the wait nor the end of it.
+
+                    `cn()` is deliberately not used here: it is bare
+                    `twMerge`, which files `text-13` in the text-*colour*
+                    group, so `text-muted-foreground` displaces it and the
+                    region silently renders at the body's 14px.
+
+                    "has loaded", not "is ready": `load` fires for a frame the
+                    form refused to serve (`X-Frame-Options`) as readily as for
+                    one it did, and this cannot see which — a cross-origin
+                    frame tells the embedder nothing. Announcing readiness
+                    would be a claim; announcing that loading finished is what
+                    actually happened, and the link below covers the rest.
                 -->
                 <div
                     role="status"
-                    :class="
-                        cn(
-                            'absolute inset-0 flex items-center justify-center bg-background text-13 text-muted-foreground',
-                            loaded && 'pointer-events-none opacity-0',
-                        )
-                    "
+                    :class="[
+                        'absolute inset-0 flex items-center justify-center bg-background text-13 text-muted-foreground',
+                        loaded && 'pointer-events-none opacity-0',
+                    ]"
                 >
-                    {{ loaded ? 'The form is ready.' : 'Loading the form…' }}
+                    {{ loaded ? 'The form has loaded.' : 'Loading the form…' }}
                 </div>
             </div>
 

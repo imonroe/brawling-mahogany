@@ -138,19 +138,19 @@ final class BugReportForm
         $url = SafeUrl::normalise(config('services.bug_report.url'));
 
         if ($url === '') {
-            self::warnOnce('BUG_REPORT_URL is empty.');
+            self::warnOnce('url_empty');
 
             return null;
         }
 
         if (! SafeUrl::permits($url)) {
-            self::warnOnce('BUG_REPORT_URL is not an http or https address.');
+            self::warnOnce('url_not_http');
 
             return null;
         }
 
         if (self::isOwnOrigin($url, $servingOrigin)) {
-            self::warnOnce('BUG_REPORT_URL is on a host and port this application answers on, which defeats the frame’s sandbox.');
+            self::warnOnce('url_own_origin');
 
             return null;
         }
@@ -238,10 +238,21 @@ final class BugReportForm
      * while the cache is on redis, and then an authenticated request outlives a
      * redis outage that this would otherwise kill. Saying nothing is the right
      * failure for a mechanism whose whole job is to say something once.
+     *
+     * **`reason_code`, never `reason`.** `Redactor::SENSITIVE_KEY_PARTS`
+     * contains `reason` — an override reason is free text that routinely
+     * quotes a client — and `ScrubPii` is tapped onto every channel, so a
+     * `reason` key reaches the log as `[redacted]` however harmless its value.
+     * The operator diagnostic three review rounds spent building had no content
+     * in it at all, and `Log::spy()` never saw that because it intercepts above
+     * Monolog. The redactor's own comment prescribes the fix, and
+     * `ALLOWED_KEY_PATTERNS`' `_code$` is what lets this one through.
+     *
+     * @param  'url_empty'|'url_not_http'|'url_own_origin'  $code
      */
-    private static function warnOnce(string $reason): void
+    private static function warnOnce(string $code): void
     {
-        $key = self::WARNING_KEY.':'.md5($reason);
+        $key = self::WARNING_KEY.':'.$code;
 
         $first = rescue(
             fn (): bool => Cache::add($key, true, now()->addMinutes(self::WARNING_TTL_MINUTES)),
@@ -256,7 +267,7 @@ final class BugReportForm
         // Context rather than interpolation (docs/Testing.md), and no PII:
         // this is deployment configuration, not anything a person typed.
         Log::warning('The bug report button is switched on but has no usable form URL.', [
-            'reason' => $reason,
+            'reason_code' => $code,
         ]);
     }
 }

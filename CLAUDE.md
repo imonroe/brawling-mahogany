@@ -169,8 +169,24 @@ These come from PRD §8 and should guide the eventual build:
   place, the Pest process, which runs a whole suite in one execution: it worked
   where it was never needed, did nothing where it was, and its own test passed
   because of the runner rather than the product. The cooldown is in the cache
-  now, and it is asserted directly, because a count of log lines inside one PHP
-  execution cannot tell the two implementations apart.
+  now — and the test travels past its hour, because that is the one observation
+  that separates them: a cache forgets and a static does not. The first attempt
+  asserted the cache key directly, on the argument that nothing else could tell
+  them apart, which was simply false — and a white-box assertion bought with a
+  wrong argument stops being checked the day the storage changes.
+
+  **And a diagnostic keyed `reason` reaches the log as `[redacted]`.**
+  `Redactor::SENSITIVE_KEY_PARTS` holds `reason` because an override reason is
+  free text that routinely quotes a client, and `ScrubPii` is tapped onto every
+  channel — so the operator message three review rounds spent sharpening was
+  emitted with no content in it, and the three misconfigurations it
+  distinguishes were indistinguishable in the one place somebody would look.
+  `Log::spy()` cannot see this: it intercepts above Monolog, so every test
+  asserted the context the application *passed*. The redactor's own comment
+  prescribes the fix — an enumerated `reason_code`, which
+  `ALLOWED_KEY_PATTERNS` lets through on `_code$` — and the test asserts
+  through `Redactor::context()` rather than remembering the rule, because the
+  rule is a list somebody will add to.
 
   **And a report is published the moment it is filed.** The tracker on the
   other end is a public repository, so a form asking *"what were you doing"*

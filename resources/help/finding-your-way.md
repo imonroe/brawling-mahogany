@@ -65,7 +65,8 @@ If the form does not appear, **Open in a new tab** takes you to the same
 place — some forms will not display inside another page.
 
 Unless your window is fairly wide, the button shows as a bug icon rather than
-the words — it sits just left of the bell.
+the words — it is the leftmost of the icons at the right-hand end of the top
+bar.
 
 If you cannot see it at all, this installation has not been given a form to
 send reports to — tell whoever runs it for you.

@@ -122,7 +122,7 @@ watch(collapsed, (value) => {
             <div class="flex min-w-0 flex-1 flex-col">
                 <TopBar
                     :breadcrumbs="breadcrumbs"
-                    :bug-report="bugReportUrl !== null"
+                    :bug-report="Boolean(bugReportUrl)"
                     @toggle-sidebar="collapsed = !collapsed"
                     @log-contact="logging = true"
                     @search="searching = true"
