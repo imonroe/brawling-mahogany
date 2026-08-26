@@ -217,6 +217,14 @@ class MessageQueueController extends Controller
                 'approvedAt' => $message->approved_at?->toIso8601String(),
                 'attempts' => $message->attempts,
             ],
+            /*
+             * Carried through so S49 does not contradict the screen that sent
+             * the reader here. The queue's Held section says *"open it and
+             * decide"*; without this the detail page badged the row
+             * **Scheduled**, rendered no reason, and offered no controls — the
+             * three things least true of a message already handed to a
+             * transport.
+             */
             'can' => [
                 'approve' => $person?->can('approve', $message) ?? false,
                 'cancel' => $person?->can('cancel', $message) ?? false,

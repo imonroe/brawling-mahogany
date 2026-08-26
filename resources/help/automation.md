@@ -147,6 +147,23 @@ you can send it by hand or pick up the phone.
 deleted, because three months from now the question is not "is this tidy", it is
 "why did the client never hear about the inspection".
 
+## Held before sending
+
+Between those two lists sits a third, and it holds two different things.
+
+**Paused by a rail.** A limit was reached, or somebody switched sending off.
+These go out on their own once the reason clears — nothing is cancelled, and
+the row says which rail is holding it.
+
+**Handed over and never confirmed.** The mail service was given the message and
+never came back to say what happened. This is rare and it means exactly what it
+says: **nobody knows whether it arrived.** The app will not send it again on
+your behalf, because sending twice is worse than the uncertainty — if it
+matters, read what it said and follow up by another route.
+
+A message in that second state is recorded as unconfirmed a few hours later, so
+it stops sitting in limbo. It is never quietly retried.
+
 ## The safety rails
 
 **Settings → Sending.** Three of them, and they apply to every send —

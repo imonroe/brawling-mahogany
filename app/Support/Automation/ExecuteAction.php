@@ -42,7 +42,8 @@ use Throwable;
  * and the state moves to `sent` after it returns. That ordering is the whole
  * idempotency guarantee, and the crash window it leaves is deliberately the
  * safe one: a worker killed between the two leaves a `pending` row carrying a
- * key, which every path refuses. The other ordering leaves a row that looks
+ * key, which every path stands down on and `automations:reap-unconfirmed`
+ * settles from a distance. The other ordering leaves a row that looks
  * unsent and is not, and sends a client the same message twice.
  */
 final class ExecuteAction
@@ -64,6 +65,33 @@ final class ExecuteAction
      */
     public function handle(ActionInstance $instance, Team $team): void
     {
+        /*
+         * **Is this row still ours to act on** — for every action type, not
+         * just the one that goes through the rails.
+         *
+         * The ownership gate lives in `SendRails::decide()`, and `handle()`
+         * only consults it for `send_email`. So `create_task` had no state
+         * check at all: a task automation somebody **stopped** was carried out
+         * anyway, the row moved `cancelled → sent`, the reason a person typed
+         * was destroyed, and because `RaiseAutomations::alreadyRaised()`
+         * counts everything except `cancelled`, a stage that was skipped and
+         * later reopened was silently never owed that task again. Round 1's
+         * finding #2, one enum case over.
+         *
+         * And it made a duplicate delivery create the task **twice**. The
+         * `message_key` claim is what stops that for a send; this branch has
+         * no other guarantee, and `RunAutomation`'s own docblock says
+         * `ShouldBeUnique` is not one.
+         *
+         * Nothing is written here, for the reason the rails stand down rather
+         * than refusing: whoever put the row in that state owns what happens
+         * next, and a second worker narrating over the top is how a stopped
+         * message ends up on a timeline as a transport error.
+         */
+        if ($instance->state !== AutomationState::Pending) {
+            return;
+        }
+
         match ($instance->action_type) {
             AutomationActionType::SendEmail => $this->send($instance, $team),
             AutomationActionType::CreateTask => $this->createTask($instance),
@@ -233,10 +261,31 @@ final class ExecuteAction
             return;
         }
 
-        $this->fail(
-            $instance,
-            'This message was handed to a transport and never confirmed. '
-            .'It may have reached the recipient — check before sending it again.',
+        $reason = 'This message was handed to a transport and never confirmed. '
+            .'It may have reached the recipient — check before sending it again.';
+
+        $this->fail($instance, $reason, summary: 'An automated message was sent and never confirmed: '.$reason);
+
+        /*
+         * **And the audit log, which an ordinary refusal does not get.**
+         *
+         * A refused message is a fact about a template: the merge field was
+         * unfillable, the rule resolved to nobody. The deal's timeline is the
+         * right home for that and its 30-day retention is fine.
+         *
+         * This one is *"a message may have reached a client and nobody knows"*,
+         * which is exactly the question somebody asks months later and exactly
+         * what the append-only record is for.
+         */
+        $this->audit->record(
+            action: 'message.unconfirmed',
+            auditable: $instance,
+            teamId: $instance->team_id,
+            after: [
+                'message_key' => $instance->message_key,
+                'recipient_count' => count($instance->recipients()),
+                'claimed_at' => $instance->updated_at?->toIso8601String(),
+            ],
         );
     }
 
@@ -386,7 +435,7 @@ final class ExecuteAction
      * for a log: *"this message resolved to nobody on this deal"* names
      * something to go and fix, and a stack trace names nothing.
      */
-    private function fail(ActionInstance $instance, string $reason): void
+    private function fail(ActionInstance $instance, string $reason, ?string $summary = null): void
     {
         $instance->forceFill([
             'state' => AutomationState::Failed->value,
@@ -407,7 +456,15 @@ final class ExecuteAction
             $this->activity->record(
                 subject: $deal,
                 eventType: 'message.failed',
-                summary: 'An automated message did not go out: '.$reason,
+                /*
+                 * The caller may supply its own sentence, and one caller has
+                 * to: *"did not go out"* in front of *"may have reached the
+                 * recipient"* is a line that contradicts itself, on the deal
+                 * timeline, about the one operation this product cannot take
+                 * back. The careful wording `reapUnconfirmed()` chose was
+                 * doing no work while this prefix stood in front of it.
+                 */
+                summary: $summary ?? 'An automated message did not go out: '.$reason,
             );
         }
     }

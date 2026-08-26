@@ -201,12 +201,16 @@ class ActionInstance extends Model
              * call and the state write leaves behind, and it is the exact row
              * the scheduler would otherwise pick up and send a second time.
              *
-             * `ExecuteAction` refuses it as well — with a sentence saying
-             * nobody knows whether it arrived — so the row does not sit here
-             * unexplained. The refusal is what takes it out of `pending` and
-             * therefore out of this scope; a sweep that kept handing over a
-             * row already excluded by the `whereNull` above would be arguing
-             * with itself.
+             * **Nothing in the send path decides that row's fate**, and it
+             * took three rounds of review to establish why: a worker cannot
+             * tell a crashed claim from a live sibling, because the second
+             * delivery happens *because* the claim aged past the queue's
+             * visibility timeout. So `ExecuteAction` stands down on it, and
+             * `automations:reap-unconfirmed` records the outcome hours later,
+             * far enough away that there is nothing left to contradict. That
+             * sweep is what takes the row out of `pending` and therefore out
+             * of this scope; in the meantime S47 lists it, because a read
+             * cannot contradict anybody.
              */
             ->whereNull('message_key')
             ->where(fn (Builder $inner) => $inner

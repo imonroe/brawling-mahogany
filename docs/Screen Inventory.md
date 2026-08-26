@@ -219,7 +219,7 @@ tags:
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S47 | Message approval queue | `/messages` | Team | Empty, needs review, **held by a rail**, did not go out. **Built.** Failures and held messages are each their own query rather than a filter over recent sends, and every list says when it is truncated. No bulk approve, deliberately — see the note below | F5.7 | 3 | M |
+| S47 | Message approval queue | `/messages` | Team | Empty, needs review, **held by a rail**, **handed over and never confirmed**, did not go out. **Built.** Failures and held messages are each their own query rather than a filter over recent sends, and every list says when it is truncated. No bulk approve, deliberately — see the note below | F5.7 | 3 | M |
 | S48 | Message preview and edit | `/messages/{message}` | Team | Rendered with real merge data, missing field, editing before send. **Built**, as a page rather than a modal — see the note below | F5.6 | 3 | M |
 | S49 | Automation failure detail | `/messages/{message}` | Team | Provider error, resolved to nobody, stopped by a person, sandbox redirect. **Built.** Bounces and complaints are #95 | F5.8 | 3 | S |
 

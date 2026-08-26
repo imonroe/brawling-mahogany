@@ -489,7 +489,8 @@ These come from PRD §8 and should guide the eventual build:
   at all, which makes the database decide which of two workers owns the send.
 
   The crash window that ordering leaves is the safe one: a `pending` row
-  carrying a key, which every path refuses. The other ordering leaves a row
+  carrying a key, which every path stands down on and
+  `automations:reap-unconfirmed` settles later. The other ordering leaves a row
   that looks unsent and is not.
 
 - **The rows go inside the transaction; the jobs go after it.** Both halves are
@@ -608,6 +609,17 @@ These come from PRD §8 and should guide the eventual build:
   `Carbon\CarbonImmutable`, the check was false for **every** row, and the whole
   branch was dead with all tests passing, because the failure direction
   happened to be the one the old code took. Type against `CarbonInterface`.
+
+- **A gate in the thing one branch calls is a gate the other branches do not
+  have.** `ExecuteAction::handle()` asks `SendRails` — where the ownership
+  check lives — for `send_email` and nothing else, so `create_task` had no
+  state check at all: an automation somebody **stopped** was carried out
+  anyway, the row moved `cancelled → sent`, the typed reason was destroyed,
+  and `alreadyRaised()` then counted it, so a stage skipped and later reopened
+  was never owed that task again. A duplicate delivery made the task twice,
+  because `message_key` is the send path's guarantee and that branch has none.
+  The gate belongs in `handle()`, ahead of the `match`, where every action type
+  passes.
 
 - **A rail's own reason is a write, so ask whether the row is yours first.**
   `SendRails::decide()` had the kill switch first, on the argument that it is

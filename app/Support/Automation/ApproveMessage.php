@@ -178,7 +178,17 @@ final class ApproveMessage
              * not told something they were told.
              */
             if ($instance->reachedTheProvider()) {
-                return ApprovalResult::refused('This message has already gone out and cannot be stopped.');
+                /*
+                 * *"Already gone out"* was a flat assertion, and it is the one
+                 * thing nobody knows about this row — the whole reason the
+                 * outcome is settled by a sweep hours later rather than here.
+                 * A person reading it on S49 was told the opposite of what the
+                 * screen beside it said.
+                 */
+                return ApprovalResult::refused(
+                    'This message has already been handed to the mail service, so it cannot be stopped. '
+                    .'Whether it arrived is not yet known.',
+                );
             }
 
             if (! in_array($instance->state, [

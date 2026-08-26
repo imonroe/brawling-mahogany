@@ -72,12 +72,25 @@ class ReapUnconfirmedSends extends Command
             ->where('state', AutomationState::Pending)
             ->whereNotNull('message_key')
             ->where('updated_at', '<=', $olderThan)
+            /*
+             * A row whose team is gone is excluded by the query rather than
+             * skipped in the loop. Skipping left it matching on every
+             * subsequent run — harmless below the limit, and at 500 such rows
+             * at the head of the id order it would consume the whole page
+             * every hour and live rows behind them would never be reached.
+             * `records:purge` clears them within thirty days; until then they
+             * are simply not this command's work.
+             */
+            ->whereHas('team')
             ->orderBy('id')
             ->limit(max(1, (int) $this->option('limit')))
             ->eachById(function (ActionInstance $instance) use ($actions, $teams, &$reaped): void {
                 $team = $instance->team;
 
                 if ($team === null) {
+                    // Unreachable behind `whereHas('team')` above, and cheap
+                    // insurance against a team deleted between the page read
+                    // and this call.
                     return;
                 }
 

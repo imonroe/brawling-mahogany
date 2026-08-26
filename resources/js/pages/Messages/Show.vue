@@ -59,6 +59,8 @@ type Message = {
         unresolved: string[];
     };
     error: string | null;
+    /** Handed to a transport with no outcome written — see the queue screen. */
+    isUnconfirmed: boolean;
     raisedAt: string | null;
     executedAt: string | null;
     approvedAt: string | null;
@@ -207,6 +209,12 @@ function cancel(): void {
                     </dt>
                     <dd>
                         <StatusBadge
+                            v-if="message.isUnconfirmed"
+                            tone="warning"
+                            label="Unconfirmed"
+                        />
+                        <StatusBadge
+                            v-else
                             domain="automation"
                             :state="message.state"
                         />
@@ -279,8 +287,24 @@ function cancel(): void {
                 </div>
             </dl>
 
+            <!--
+                The unconfirmed case first, because it has no `error` of its own
+                and would otherwise render nothing at all on the page the queue
+                tells a reader to open and decide from.
+            -->
             <p
-                v-if="message.error"
+                v-if="message.isUnconfirmed"
+                class="border-t border-border bg-state-warning-bg px-4 py-3 text-13 text-state-warning"
+            >
+                This was handed to the mail service, which never confirmed it.
+                It may have reached the recipient — read what it said below and
+                follow up another way if it matters. The app will not send it
+                again on your behalf, because sending twice is worse than the
+                uncertainty.
+            </p>
+
+            <p
+                v-else-if="message.error"
                 class="border-t border-border bg-state-danger-bg px-4 py-3 text-13 text-state-danger"
             >
                 {{ message.error }}

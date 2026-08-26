@@ -75,13 +75,14 @@ const props = defineProps<{
      */
     failing: MessageRow[];
     /**
-     * Scheduled, and stopped by a rail before it went.
+     * Scheduled, and not going anywhere on its own — two kinds.
      *
-     * These are `pending` rows carrying the reason — the kill switch, or a
-     * rate ceiling. They were on no list at all, which only worked while every
-     * pending message was being retried every minute; now that a held one is
-     * deliberately left alone, a team over its daily ceiling would have client
-     * messages that no screen named.
+     * **Paused by a rail**: a `pending` row carrying the reason, from the kill
+     * switch or a ceiling. **Unconfirmed**: a row a transport took and never
+     * answered about. Neither was on any list at all, which only worked while
+     * every pending message was retried every minute; now that a held one is
+     * deliberately left alone, a team over its daily ceiling would have had
+     * client messages no screen named.
      */
     held: MessageRow[];
     recent: MessageRow[];
@@ -167,9 +168,9 @@ function recipientNames(message: MessageRow): string {
             Held, between the failures and the queue.
 
             Above the review queue because nobody is coming for these on their
-            own — a rail is holding them and will go on holding them until
-            somebody changes a setting — and below the failures because a
-            failure is final and this is not.
+            own — either a rail is holding them until somebody changes a
+            setting, or a transport took them and never answered — and below
+            the failures because a failure is final and neither of these is.
         -->
         <Card v-if="held.length > 0" title="Held before sending">
             <ul class="divide-y divide-border">

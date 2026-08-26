@@ -63,6 +63,22 @@ function seedQueue(int $count): array
                     'executed_at' => $state === AutomationState::AwaitingApproval ? null : now(),
                 ]);
             }
+
+            /*
+             * **And a held one, per iteration.** `held` was the one list with
+             * no fixture in the growth cases, so its eager loads never
+             * executed — removing them left every assertion in this file
+             * green, which is `CLAUDE.md`'s S13 shape exactly. It also meant
+             * the absolute count below described the screen only while the
+             * feature was idle.
+             */
+            ActionInstance::factory()->create([
+                'team_id' => $team->getKey(),
+                'deal_id' => $deal->getKey(),
+                'message_template_id' => $template->getKey(),
+                'state' => AutomationState::Pending,
+                'error' => 'This team has reached its limit of messages for the hour.',
+            ]);
         }
     });
 
@@ -103,11 +119,14 @@ it('does not grow its query count with the queue', function (): void {
      * construction — two queries were added to this screen and it stayed green
      * throughout, while this file's own docblock claimed the opposite.
      *
-     * So the count is pinned. It will need editing when a list is added, and
-     * that is the point: a fifth query on the screen a team opens all day
-     * should have to be argued for in a diff rather than absorbed.
+     * So the count is pinned, and it is measured with **every** list
+     * populated — the first version of this number was taken with the held
+     * list empty, so it described the screen only while the feature was idle
+     * and was two short of the real cost. It will need editing when a list is
+     * added, and that is the point: another query on the screen a team opens
+     * all day should have to be argued for in a diff rather than absorbed.
      */
-    expect($large)->toBe(33);
+    expect($large)->toBe(35);
 });
 
 it('really did render the larger queue', function (): void {
@@ -166,10 +185,16 @@ it('seeds every list the screen renders', function (): void {
     $this->actingAsPerson($member, $team);
 
     $this->get('/messages')->assertInertia(fn ($page) => $page
-        ->has('held', 2)
-        ->where('totals.held', 2)
-        // Resolved through the eager load rather than the payload fallback.
-        ->where('held.0.templateName', 'Held template'));
+        // Two seeded here, plus the one `seedQueue()` now creates per deal.
+        ->has('held', 4)
+        ->where('totals.held', 4)
+        /*
+         * Resolved through the eager load rather than the payload fallback —
+         * the factory's payload carries "Inspection scheduled", so any
+         * template name proves the relation was read. Oldest first, so this is
+         * `seedQueue()`'s own held row rather than the two added above.
+         */
+        ->where('held.0.templateName', 'Template 0'));
 });
 
 it('bounds both lists rather than shipping every held message', function (): void {

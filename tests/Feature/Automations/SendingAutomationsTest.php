@@ -625,3 +625,95 @@ it('still stands down on the retry after a transport threw', function (): void {
     expect($instance->fresh()->error)->toBe('The mail transport rejected this message (RuntimeException).')
         ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
 });
+
+it('does not carry out a task automation somebody stopped', function (): void {
+    /*
+     * The ownership gate belonged in `handle()`, not only in `SendRails` —
+     * which `handle()` consults for `send_email` and nothing else. So a
+     * stopped `create_task` was carried out anyway: the task appeared, the row
+     * moved `cancelled → sent`, the reason a person typed was destroyed, and
+     * because `alreadyRaised()` counts everything except `cancelled`, a stage
+     * that was skipped and later reopened was silently never owed that task
+     * again. Round 1's finding #2, one enum case over.
+     */
+    $instance = pendingMessage(
+        ActionInstance::factory()->creatingATask('Order the survey')->raw([
+            'deal_id' => $this->deal->getKey(),
+        ]),
+    );
+
+    $instance->forceFill([
+        'state' => AutomationState::Cancelled->value,
+        'error' => 'The buyer pulled out; do not do this.',
+    ])->save();
+
+    carryOut($instance);
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Cancelled)
+        ->and($instance->fresh()->error)->toBe('The buyer pulled out; do not do this.')
+        ->and(Task::query()->count())->toBe(0);
+});
+
+it('creates a task once however many times the job is delivered', function (): void {
+    // `message_key` is what stops a second delivery sending twice, and the
+    // task branch has no such claim — `RunAutomation`'s own docblock says
+    // `ShouldBeUnique` is not the guarantee. The state gate is.
+    $instance = pendingMessage(
+        ActionInstance::factory()->creatingATask('Order the survey')->raw([
+            'deal_id' => $this->deal->getKey(),
+        ]),
+    );
+
+    carryOut($instance);
+    carryOut($instance->fresh());
+
+    expect(Task::query()->count())->toBe(1);
+});
+
+it('audits an unconfirmed send as well as timelining it', function (): void {
+    /*
+     * An ordinary refusal is a fact about a template and the deal's timeline
+     * is the right home for it. *"This may have reached a client and nobody
+     * knows"* is the question somebody asks months later, and the activity
+     * feed has a 30-day retention that the append-only record does not.
+     */
+    $instance = pendingMessage();
+
+    ActionInstance::query()->whereKey($instance->getKey())->update([
+        'message_key' => (string) Str::ulid(),
+        'updated_at' => now()->subDay(),
+    ]);
+
+    $this->artisan('automations:reap-unconfirmed');
+
+    $entry = AuditEntry::query()->where('action', 'message.unconfirmed')->sole();
+
+    expect($entry->auditable_id)->toBe($instance->getKey())
+        // No addresses, per PRD §9 — the count and the key, like `message.sent`.
+        ->and(json_encode($entry->after))->not->toContain('dana@example.test');
+});
+
+it('does not contradict itself on the timeline about an unconfirmed send', function (): void {
+    /*
+     * `fail()`'s prefix is *"An automated message did not go out: "*, which in
+     * front of *"may have reached the recipient"* is a line that argues with
+     * itself, on the deal timeline, about the one operation this product
+     * cannot take back.
+     */
+    $instance = pendingMessage();
+
+    ActionInstance::query()->whereKey($instance->getKey())->update([
+        'message_key' => (string) Str::ulid(),
+        'updated_at' => now()->subDay(),
+    ]);
+
+    $this->artisan('automations:reap-unconfirmed');
+
+    $summary = ActivityEvent::query()
+        ->where('deal_id', $this->deal->getKey())
+        ->where('event_type', 'message.failed')
+        ->value('summary');
+
+    expect($summary)->toContain('was sent and never confirmed')
+        ->and($summary)->not->toContain('did not go out');
+});
