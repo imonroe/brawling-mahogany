@@ -67,6 +67,25 @@ it('keeps both display keys off APP_NAME', function (): void {
         ->and($source)->toContain("'name' => env('APP_PRODUCT_NAME', 'Goldieflow')");
 });
 
+it('has no config file reading app.name through the config layer', function (): void {
+    /*
+     * The general form of the rule the per-file test below states positively.
+     * An allowlist of four files protects those four; this catches the fifth
+     * somebody adds — and a config file reaching for `config('app.name')` is
+     * wrong on its own terms anyway, since config is not fully loaded while
+     * config files are being evaluated.
+     */
+    $offenders = [];
+
+    foreach ((new Finder)->files()->in(base_path('config'))->name('*.php') as $file) {
+        if (str_contains($file->getContents(), "config('app.name')")) {
+            $offenders[] = $file->getRelativePathname();
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});
+
 it('derives every infrastructure prefix from APP_NAME directly, never through the config key', function (string $file): void {
     /*
      * The load-bearing half of the line above. `config('app.name')` may be the
@@ -96,8 +115,21 @@ it('renders the product’s name, not the codename, in a framework-owned email',
         ->toMail(App\Models\Person::factory()->make(['email' => 'x@example.test']))
         ->render();
 
-    expect($rendered)->toContain('Goldieflow')
-        ->and($rendered)->not->toContain('Brawling Mahogany');
+    /*
+     * Asserted against the **infrastructure identifier**, not against a
+     * literal product name. `TestCase::setUp()` pins `app.product_name` and
+     * `mail.from.name` and deliberately does not pin `app.name`, so a literal
+     * here would red this one test for anybody whose `.env` names the product
+     * something else — which is round 4's own finding, one key short, and it
+     * would have been fixed by pinning a third key and losing the end-to-end
+     * catch this test exists for.
+     *
+     * The invariant does not depend on what the product is called: a
+     * framework-owned view must never render the codename that `APP_NAME` is
+     * pinned to. It holds for any value of either.
+     */
+    expect($rendered)->not->toContain((string) env('APP_NAME'))
+        ->and($rendered)->toContain(config()->string('app.name'));
 });
 
 it('interpolates the display keys through the product name in .env.example', function (string $key): void {

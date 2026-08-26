@@ -550,9 +550,10 @@ Three things left, none of which this script should do for you:
    list, is what to work from. The ones it marks real on staging are:
 
      DB_PASSWORD              REDIS_PASSWORD
-     MAIL_* (SES)             MAIL_REDIRECT_TO   <- set this before anything
-     SENTRY_LARAVEL_DSN          can send; blank means NO redirection, and
-     AWS_* (Spaces bucket)       every message goes to its real recipient
+     MAIL_HOST/PORT/USERNAME/ MAIL_REDIRECT_TO   <- set this before anything
+       PASSWORD/FROM_ADDRESS     can send; blank means NO redirection, and
+     SENTRY_LARAVEL_DSN          every message goes to its real recipient
+     AWS_* (Spaces bucket)
      VAPID_* (web push)
      HORIZON_AUTHORIZED_EMAILS
      the AI provider key and its budget cap

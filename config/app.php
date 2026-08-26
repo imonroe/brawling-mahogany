@@ -24,7 +24,7 @@ return [
      * so the session cookie and the three prefixes are untouched by what this
      * resolves to.
      *
-     * Which leaves `config('app.name')` with only *display* readers, exactly as
+     * Which leaves this key with only *display* readers, exactly as
      * Laravel documents it above — and most of them are in vendor views this
      * application cannot edit. Fortify's password-reset email rendered the
      * pre-rename codename four times and none of the product's name, because
