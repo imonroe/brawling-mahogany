@@ -15,7 +15,7 @@ Open a deal and go to **Documents**, or find any file the team holds under
 category, and who can see it.
 
 **The category matters more than it looks.** A stage requirement can be set to
-wait for a particular kind of document — *"no seller disclosure yet"* — and it
+wait for a particular kind of document — _"no seller disclosure yet"_ — and it
 clears when a document of that category is attached. A disclosure filed as
 "Other" will not clear it, and the requirement will go on saying it is waiting
 while the document sits there.
@@ -56,7 +56,7 @@ The check reads the file, not its name. A bank statement saved as
 When something is refused you are told what it looked like and where it does
 belong; nothing is stored in the meantime.
 
-**It is not a guarantee.** The check reads text, so a *photograph* of a cheque
+**It is not a guarantee.** The check reads text, so a _photograph_ of a cheque
 has nothing for it to read and will go through. That is exactly why the warning
 on the upload box is worded the way it is: the check is a backstop for a
 mistake, not a substitute for not uploading these things.
