@@ -137,9 +137,18 @@ These come from PRD §8 and should guide the eventual build:
   **And `allow-scripts allow-same-origin` is not a sandbox when the document is
   ours.** A self-host that proxies n8n under the application's own domain is an
   ordinary layout, and there the frame reaches `window.parent` and reads the
-  session — so `BugReportForm` refuses a URL on the app's own host. `SafeUrl`
-  answers *"is this a URL"*, never *"whose"*. The first version asserted *"it is
-  not our origin"* in a docblock and enforced nothing.
+  session — so `BugReportForm` refuses a URL on an origin this app answers on.
+  `SafeUrl` answers *"is this a URL"*, never *"whose"*. The first version
+  asserted *"it is not our origin"* in a docblock and enforced nothing.
+
+  **A guard keyed on `APP_URL` alone is keyed on the value most likely to be
+  wrong.** `.env.example` ships `http://localhost:8000`, Laravel uses it only
+  for console URL generation, and an install serving a real hostname with that
+  left in place is wrong in the one way nothing ever surfaces — so the guard
+  against an operator's mistake was contingent on the operator not having made
+  the commonest adjacent one. The host serving the request is checked too, and
+  **with its port**, because `localhost:5678` beside `localhost:8000` is a
+  different origin and refusing it logged a security reason that did not apply.
 
   **And a frame keeps the keyboard.** Escape closes a dialog because the
   keydown reaches this document, and a keystroke typed into a cross-origin
@@ -151,6 +160,17 @@ These come from PRD §8 and should guide the eventual build:
   button for the same reason, and the frame is mounted *with the dialog* rather
   than with the shell, so opening it is what calls the third party rather than
   every page view of the application.
+
+  **And a static is not "once per process" in a web SAPI.** The
+  misconfiguration warning latched on a static property and the docblock said
+  it fired once per process — but PHP tears user-land statics down at every
+  request boundary unless something keeps a worker alive, and this image runs
+  `frankenphp run` with no worker directive. So the latch held in exactly one
+  place, the Pest process, which runs a whole suite in one execution: it worked
+  where it was never needed, did nothing where it was, and its own test passed
+  because of the runner rather than the product. The cooldown is in the cache
+  now, and it is asserted directly, because a count of log lines inside one PHP
+  execution cannot tell the two implementations apart.
 
   **And a report is published the moment it is filed.** The tracker on the
   other end is a public repository, so a form asking *"what were you doing"*

@@ -42,8 +42,15 @@ const { can } = usePermissions();
 </script>
 
 <template>
+    <!--
+        `gap-1.5` below `md`, where four 44px controls and a breadcrumb compete
+        for a 375px bar: measured, the tighter gap returns 42px to the
+        breadcrumb, which is the difference between a deal's name truncating at
+        five characters and at twelve. §8.3's `gap-3` is the desktop
+        measurement and holds from `md`, the same way `px-6` does.
+    -->
     <header
-        class="flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6"
+        class="flex h-14 shrink-0 items-center gap-1.5 border-b bg-background px-4 md:gap-3 md:px-6"
         data-slot="top-bar"
     >
         <IconButton

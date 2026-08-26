@@ -1024,7 +1024,9 @@ Icons: `layout-dashboard`, `list-checks`, `briefcase`, `users`, `house`, `calend
 
 ### 8.3 TopBar — 56px
 
-`h-14 px-6 gap-3 border-b bg-background`, laid out as
+`h-14 px-6 gap-3 border-b bg-background` (`px-4 gap-1.5` below `md`, where
+four 44px controls and a breadcrumb compete for a 375px bar — measured, the
+tighter gap returns 42px to the breadcrumb), laid out as
 `[Breadcrumb] [flex-1] [Search 300×32] [Report a bug] [Log contact] [Notifications] [Help]`.
 
 - **Breadcrumb**: root 14/600 `text-foreground`; on a detail screen a 13px `chevron-right` and a 14/500 muted leaf appear.

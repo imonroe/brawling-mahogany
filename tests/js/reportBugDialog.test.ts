@@ -187,6 +187,29 @@ describe('the Report a bug modal', () => {
         wrapper.unmount();
     });
 
+    it('has exactly one control called Close, one Tab from the form', async () => {
+        /*
+         * `DialogContent` draws its own corner ✕ by default, DOM-last, so the
+         * tab order ran IFRAME > link > Close > Close — two adjacent controls
+         * with the same accessible name, announced one after the other before
+         * a screen-reader user reaches the thing they opened the dialog for.
+         * The manual already tells people to use "the Close button at the
+         * bottom" and has never mentioned a ✕.
+         */
+        const wrapper = await openDialog();
+
+        const closes = Array.from(
+            document.body.querySelectorAll('button'),
+        ).filter((button) => button.textContent?.trim() === 'Close');
+
+        expect(closes).toHaveLength(1);
+        expect(
+            document.body.querySelector('[data-slot="dialog-close"]'),
+        ).toBeNull();
+
+        wrapper.unmount();
+    });
+
     it('carries a Close button rather than relying on Escape', async () => {
         /*
          * The issue asks to be able to close it *at any time*, and Escape does

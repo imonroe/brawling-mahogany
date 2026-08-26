@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Support\Feedback\BugReportForm;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Inertia\Testing\AssertableInertia;
 
@@ -14,10 +15,6 @@ use Inertia\Testing\AssertableInertia;
  * is one case; the other four are configurations in which it must not.
  */
 beforeEach(function (): void {
-    // The class latches its warning per process, and a process runs the whole
-    // suite. Without this the second misconfigured case logs nothing.
-    BugReportForm::forgetWarning();
-
     config()->set('services.bug_report.enabled', true);
     config()->set('services.bug_report.url', 'https://n8n.example.test/form/bugs');
 
@@ -89,9 +86,29 @@ it('refuses a form served by this application itself', function (): void {
         ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
 });
 
+it('refuses it on the host actually serving the request, however stale APP_URL is', function (): void {
+    /*
+     * `.env.example` ships `APP_URL=http://localhost:8000`, Laravel uses it
+     * only for console URL generation, and so an install serving a real
+     * hostname with that left in place is wrong in the one way nothing ever
+     * surfaces. A guard against operator error that is itself contingent on
+     * the operator not having made the commonest adjacent error is not a
+     * guard — so the host serving the request is checked too.
+     */
+    config()->set('app.url', 'http://localhost:8000');
+    config()->set('services.bug_report.url', 'http://app.goldieflow.test/n8n/form/bugs');
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->withServerVariables(['HTTP_HOST' => 'app.goldieflow.test'])
+        ->get('http://app.goldieflow.test/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
+});
+
 it('does not confuse a different host that merely looks similar', function (): void {
-    // The check is the host and nothing else — a neighbouring subdomain is
-    // somebody else's origin and the sandbox holds there.
+    // A neighbouring subdomain is somebody else's origin and the sandbox holds
+    // there.
     config()->set('app.url', 'https://goldieflow.example.test');
     config()->set('services.bug_report.url', 'https://n8n.goldieflow.example.test/form/bugs');
 
@@ -101,6 +118,37 @@ it('does not confuse a different host that merely looks similar', function (): v
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->where('bugReport.url', 'https://n8n.goldieflow.example.test/form/bugs'));
+});
+
+it('allows n8n on its own port beside the application', function (): void {
+    /*
+     * `localhost:8000` and `localhost:5678` are different origins, so the
+     * sandbox holds between them — and n8n on its own port next to this app is
+     * the ordinary local setup. Comparing hosts alone refused it and logged a
+     * security reason that did not apply.
+     */
+    config()->set('app.url', 'http://localhost:8000');
+    config()->set('services.bug_report.url', 'http://localhost:5678/form/bugs');
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('bugReport.url', 'http://localhost:5678/form/bugs'));
+});
+
+it('sees through a spelled-out default port', function (): void {
+    // `https://app.test` and `https://app.test:443` are the same origin and do
+    // not look alike, so the comparison fills the default in.
+    config()->set('app.url', 'https://goldieflow.example.test');
+    config()->set('services.bug_report.url', 'https://goldieflow.example.test:443/n8n/form');
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
 });
 
 it('says once, and only once, that the flag is on with no address behind it', function (): void {
@@ -117,6 +165,13 @@ it('says once, and only once, that the flag is on with no address behind it', fu
      * silence is wrong — an operator who set the flag and forgot the address
      * has no button and no explanation. The second is that the fix for that is
      * not a line per request for as long as the mistake stands.
+     *
+     * And two *requests* rather than two calls, because the thing being pinned
+     * is that the cooldown outlives a request. A static property does not:
+     * FrankenPHP runs in classic mode here, so user-land statics are torn down
+     * at every request boundary and the first version of this latch held only
+     * inside the Pest process — passing this test for a reason that had
+     * nothing to do with the product.
      */
     $this->get('/dashboard')
         ->assertOk()
@@ -128,6 +183,16 @@ it('says once, and only once, that the flag is on with no address behind it', fu
         ->once()
         ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'bug report button')
             && str_contains((string) $context['reason'], 'BUG_REPORT_URL is empty'));
+
+    /*
+     * And deliberately white-box, because the count above cannot see the part
+     * that matters. A static property suppresses the second warning inside one
+     * PHP execution — which a test process is and a classic-SAPI request is
+     * not — so it would pass everything above while writing a line per request
+     * in production. That the cooldown is held somewhere outliving a request
+     * is the mechanism, so the mechanism is what gets asserted.
+     */
+    expect(Cache::has(BugReportForm::WARNING_KEY))->toBeTrue();
 });
 
 it('refuses a URL that is not http or https', function (string $url): void {

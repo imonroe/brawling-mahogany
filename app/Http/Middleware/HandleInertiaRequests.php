@@ -142,8 +142,12 @@ class HandleInertiaRequests extends Middleware
              * knows the shell is there. Null for a guest and null when the
              * form is not configured, which is the same thing to the front
              * end — there is no button either way.
+             *
+             * The serving origin is handed over because the form may not be on
+             * one of ours, and `config('app.url')` alone is a guard that
+             * depends on the operator having kept `APP_URL` current.
              */
-            'bugReport' => BugReportForm::propsFor($person),
+            'bugReport' => BugReportForm::propsFor($person, $request->getSchemeAndHttpHost()),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

@@ -102,20 +102,30 @@ Four things to know when it does not appear:
 2. **A URL that is not `http` or `https` is treated as unset.** An `iframe src`
    is not inert, and the same allowlist that guards `external_links` guards
    this (`App\Support\Links\SafeUrl`).
-3. **A URL on the application's own host is refused too.** The frame is
-   sandboxed `allow-scripts allow-same-origin`, which a hosted form needs and
-   which is not a sandbox at all against a same-origin document — it reaches
-   `window.parent` and reads the session. If you self-host n8n, give it its own
-   hostname rather than a path under the app's.
-4. **A misconfiguration is logged, once per process** — `The bug report button
-   is switched on but has no usable form URL`, with the reason. Hiding the
-   button rather than raising is deliberate: a bug-report form is not worth a
-   white screen.
+3. **A URL on an origin this application answers on is refused too.** The
+   frame is sandboxed `allow-scripts allow-same-origin`, which a hosted form
+   needs and which is not a sandbox at all against a same-origin document — it
+   reaches `window.parent` and reads the session. Host **and port**: n8n on
+   `localhost:5678` beside an app on `localhost:8000` is a different origin and
+   is allowed; n8n proxied under the app's own hostname on the same port is
+   not. Both `APP_URL` **and the host actually serving the request** are
+   checked, because `APP_URL` is the value most likely to be stale — a guard
+   against operator error that depends on the commonest adjacent operator error
+   is not a guard.
+4. **A misconfiguration is logged at most once an hour** — `The bug report
+   button is switched on but has no usable form URL`, with the reason. Hiding
+   the button rather than raising is deliberate: a bug-report form is not worth
+   a white screen. The cooldown is in the cache rather than in a static,
+   because this runs on every authenticated request and PHP tears a static down
+   at each request boundary — a per-process latch would have written a line per
+   page view for as long as the mistake stood.
 
 `BUG_REPORT_ENABLED` is read with `filter_var`, not a cast, so `false`, `off`,
-`no` and `0` all switch it off. `env()` converts only four spellings and leaves
-the rest as strings, and `(bool) 'off'` is `true` — which would fail open on
-the one setting somebody changes in a hurry during the outage it exists for.
+`no` and `0` all switch it off — as does anything else not recognised as true,
+which is the safe end to fail towards. `env()` converts only four spellings and
+leaves the rest as strings, and `(bool) 'off'` is `true` — which would fail
+open on the one setting somebody changes in a hurry during the outage it exists
+for.
 
 Local and CI leave both unset, which is why a developer never sees the button
 unless they go looking for it.
