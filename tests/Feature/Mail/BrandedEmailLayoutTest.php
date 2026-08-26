@@ -15,6 +15,7 @@ use App\Support\Branding\TeamLogo;
 use App\Support\Mail\BrandedEmail;
 use App\Support\Mail\EmailPalette;
 use App\Support\Mail\SendingIdentity;
+use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Mime\Email;
@@ -305,15 +306,19 @@ it('renders every mailable in the product without throwing', function (): void {
 
 it('puts the team in the inbox line and the verified identity in the address', function (): void {
     /*
-     * PRD §8.5's *"per-team sending identity"*, split across the two slots
-     * that can carry it. The **address** cannot move: it is the one identity
-     * the sending domain is authorised for, and a From that fails SPF and DKIM
-     * lands in spam — the same failure as not sending, except nobody finds out.
-     * The **display name** is what a person reads, and there the right answer
-     * is the agency they have been working with rather than a product they
-     * have never heard of.
+     * PRD §8.5's *"per-team sending identity"*, across the slots that can
+     * carry it. The **address** cannot move: it is the one identity SES is
+     * authorised to send as, and a From the message is not DKIM-aligned with
+     * fails DMARC and lands in spam — the same failure as not sending, except
+     * nobody finds out. (Not SPF, which is evaluated against the envelope MAIL
+     * FROM rather than this header.) The **display name** is what a person
+     * reads, and there the right answer is the agency they have been working
+     * with rather than a product they have never heard of.
      */
-    $this->team->forceFill(['name' => 'Bosart Group'])->save();
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => 'emily@bosart.test',
+    ])->save();
 
     $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
     $instance = ActionInstance::factory()->create([
@@ -328,7 +333,33 @@ it('puts the team in the inbox line and the verified identity in the address', f
     $from = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getFrom()[0];
 
     expect($from->getAddress())->toBe(config()->string('mail.from.address'))
-        ->and($from->getName())->toBe('Bosart Group via '.config()->string('app.name'));
+        ->and($from->getName())->toBe('Bosart Group via Goldieflow');
+});
+
+it('never signs a client’s email with the pre-rename codename', function (): void {
+    /*
+     * The literal above rather than `config('app.product_name')` is the whole
+     * point of this test, and round 2 of review is why. Both display-name
+     * assertions read the config they were testing, so they were true of any
+     * value — including `APP_NAME`'s `Brawling Mahogany`, which is what teams
+     * were actually sending to their sellers.
+     *
+     * `APP_NAME` stays the codename deliberately: it is slugged into the
+     * session cookie and three cache prefixes, and CLAUDE.md's rename note is
+     * explicit that moving one of those orphans a keyspace. So the product
+     * name is a **separate key**, and this asserts the separation rather than
+     * the value of either.
+     */
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => 'emily@bosart.test',
+    ])->save();
+
+    expect(config()->string('app.product_name'))->toBe('Goldieflow')
+        ->and(SendingIdentity::displayName($this->team))
+        ->not->toContain('Brawling')
+        ->and(SendingIdentity::displayName($this->team))
+        ->not->toContain(config()->string('app.name'));
 });
 
 it('uses the sending identity name a team set, when they set one', function (): void {
@@ -338,7 +369,18 @@ it('uses the sending identity name a team set, when they set one', function (): 
     ])->save();
 
     expect(SendingIdentity::displayName($this->team))
-        ->toBe('Emily Bosart via '.config()->string('app.name'));
+        ->toBe('Emily Bosart via Goldieflow');
+});
+
+it('says the product’s name alone rather than “ via Goldieflow”', function (): void {
+    /*
+     * `headerSafe()` can empty a string that was only ever control characters,
+     * and `sending_identity_name` is nullable. A leading " via " is a header
+     * that names nobody where the whole point is naming somebody.
+     */
+    $this->team->forceFill(['name' => "\r\n"])->save();
+
+    expect(SendingIdentity::displayName($this->team))->toBe('Goldieflow');
 });
 
 it('refuses to let a team split the From header', function (): void {
@@ -451,7 +493,7 @@ it('sends an invitation from the inviting team, and back to the person who sent 
 
     $message = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage();
 
-    expect($message->getFrom()[0]->getName())->toBe('Bosart Group via '.config()->string('app.name'))
+    expect($message->getFrom()[0]->getName())->toBe('Bosart Group via Goldieflow')
         ->and($message->getFrom()[0]->getAddress())->toBe(config()->string('mail.from.address'))
         // The person who did this, because they are the one who can explain it.
         ->and($message->getReplyTo()[0]->getAddress())->toBe($this->owner->email);
@@ -481,8 +523,22 @@ it('keeps the product’s own name on a test send', function (): void {
     expect($from->getName())->toBe(config()->string('mail.from.name'));
 });
 
-it('says nothing rather than inventing a reply address when a team has set none', function (): void {
-    $this->team->forceFill(['sending_identity_email' => null])->save();
+it('falls back to a team owner when nobody has filled the reply-to field in', function (): void {
+    /*
+     * Round 2's blocker, and it is round 1's blocker wearing the default case.
+     * `sending_identity_email` is nullable and **nothing sets it** — not the
+     * migration, not `ProvisionTeam`, not `TeamFactory` — so for every team
+     * that exists the chain round 1 added was empty end to end, and the From
+     * named the agency over a reply that reached the product's mailbox.
+     *
+     * A fallback chain whose every link is empty for the ordinary case is
+     * CLAUDE.md's *"a default nobody can leave is not a default"* in its other
+     * form: a default nobody ever reaches.
+     */
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => null,
+    ])->save();
 
     $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
     $instance = ActionInstance::factory()->create([
@@ -494,8 +550,96 @@ it('says nothing rather than inventing a reply address when a team has set none'
         new AutomatedMessageMail($instance, $instance->rendered(), $this->team),
     );
 
-    expect(Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getReplyTo())
-        ->toBe([]);
+    $message = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage();
+
+    $ownerEmail = app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): mixed => $this->team->memberships()
+            ->whereNotNull('email')
+            ->oldest('id')
+            ->value('email'),
+    );
+
+    expect($message->getReplyTo())->toHaveCount(1)
+        ->and($message->getReplyTo()[0]->getAddress())->toBe($ownerEmail)
+        // And the agency's name is still safe to put in the inbox line,
+        // because there is now somebody behind it.
+        ->and($message->getFrom()[0]->getName())->toBe('Bosart Group via Goldieflow');
+});
+
+it('drops the team’s name rather than naming them over a reply that reaches nobody', function (): void {
+    /*
+     * The backstop, and the reason `SendingIdentity` is one object instead of
+     * three static calls: there is no way to obtain the From without also
+     * obtaining the Reply-To, so the two cannot drift apart again.
+     *
+     * A client reading *"Bosart Group"* and reaching nobody has been told
+     * something untrue by the one header they act on. The product's own name
+     * is at least true of where the message came from.
+     */
+    $team = Team::factory()->create(['name' => 'Bosart Group']);
+
+    $identity = SendingIdentity::for($team);
+
+    expect($identity->replyTo)->toBe([])
+        ->and($identity->from->name)->toBe('Goldieflow')
+        ->and($identity->from->name)->not->toContain('Bosart');
+});
+
+it('strips a header split out of the reply name too, not only the From', function (): void {
+    /*
+     * The rule was written into `displayName()` and not into the method beside
+     * it — a rule in one caller is a rule the next caller lacks.
+     */
+    $this->team->forceFill([
+        'name' => "Bosart Group\r\nBcc: someone@evil.test",
+        'sending_identity_email' => 'emily@bosart.test',
+    ])->save();
+
+    $reply = SendingIdentity::for($this->team)->replyTo[0];
+
+    /*
+     * The CR/LF, not the words. A display name that reads "Bcc: …" is inert
+     * once it cannot break the line — asserting on the text instead would be
+     * testing a filter this class deliberately does not apply.
+     */
+    expect($reply->name)->not->toContain("\r")
+        ->and($reply->name)->not->toContain("\n")
+        ->and($reply->name)->toStartWith('Bosart Group');
+});
+
+it('skips a stored address the transport would throw on, rather than failing the send', function (): void {
+    /*
+     * `emily(work)@bosart.test` passes Laravel's `email` **and** `email:rfc` —
+     * the parenthesised comment is legal RFC 5322 — and throws when Symfony
+     * builds an `Address` from it. That throw lands in a queue worker inside
+     * `Mail::send()`, after `message_key` is claimed, so the row fails
+     * permanently and is never retried: one address typed into a settings form
+     * kills every automated message the team sends.
+     *
+     * `SendableEmailAddress` refuses it on the way in now. This is the other
+     * end of that pair, for the rows stored before the rule existed: the bad
+     * candidate is skipped and the chain falls through to one that works.
+     */
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => 'emily(work)@bosart.test',
+    ])->save();
+
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    Mail::to('client@example.test')->send(
+        new AutomatedMessageMail($instance, $instance->rendered(), $this->team),
+    );
+
+    $replyTo = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getReplyTo();
+
+    expect($replyTo)->toHaveCount(1)
+        ->and($replyTo[0]->getAddress())->not->toContain('(work)');
 });
 
 it('refuses to send at all when no verified identity is configured', function (): void {
@@ -507,7 +651,7 @@ it('refuses to send at all when no verified identity is configured', function ()
      */
     config()->set('mail.from.address', null);
 
-    expect(fn (): mixed => SendingIdentity::forTeam($this->team))
+    expect(fn (): mixed => SendingIdentity::for($this->team))
         ->toThrow(RuntimeException::class, 'MAIL_FROM_ADDRESS');
 });
 
@@ -515,6 +659,6 @@ it('does not accept a blank sending address as a configured one', function (): v
     // `config()->string()` would hand this straight through: it is a string.
     config()->set('mail.from.address', '   ');
 
-    expect(fn (): mixed => SendingIdentity::forTeam($this->team))
+    expect(fn (): mixed => SendingIdentity::for($this->team))
         ->toThrow(RuntimeException::class);
 });

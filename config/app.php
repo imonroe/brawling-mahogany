@@ -19,6 +19,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Product Name
+    |--------------------------------------------------------------------------
+    |
+    | What the product is *called*, wherever a person reads it: a browser tab,
+    | an invitation, the "via Goldieflow" half of a client-facing From line.
+    |
+    | Deliberately **not** `app.name`, and the separation is load-bearing rather
+    | than tidy. `APP_NAME` is slugged into the session cookie name, the cache
+    | prefix, the Redis prefix and the Horizon prefix (see config/session.php,
+    | config/cache.php, config/database.php, config/horizon.php) — so it is an
+    | infrastructure identifier, and CLAUDE.md's rename note is explicit that
+    | those still carry the `Brawling Mahogany` codename on purpose: moving one
+    | orphans a keyspace and signs every session out.
+    |
+    | Which left the product's own name pinned to a codename it stopped using
+    | in August 2026, in the one line a client reads most carefully. A team
+    | called Bosart Group was sending "Bosart Group via Brawling Mahogany" to
+    | sellers. Two names doing one job each is the fix; one name doing two jobs
+    | is why nobody could change it.
+    |
+    */
+
+    'product_name' => env('APP_PRODUCT_NAME', 'Goldieflow'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |

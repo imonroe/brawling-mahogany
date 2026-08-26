@@ -56,9 +56,14 @@ first, because that is who your client thinks is writing, and the app's after,
 because the address beside it belongs to the app and would otherwise look like
 somebody pretending to be you.
 
-**Reply-to address** is where a reply lands. This one matters more than it
-looks: without it a client can read your name in their inbox, hit Reply, and
-reach nobody. Put the address you actually want clients writing to.
+**Reply-to address** is where a reply lands. Leave it blank and replies go to
+a team owner, so a client is never left writing to nobody — but "a team owner"
+may not be the person who should be reading it. Put the address you actually
+want clients writing to.
+
+If your team somehow has no reachable address at all, messages go out under the
+app's own name instead of yours. Your name in an inbox is a promise that
+somebody is there to answer, and it is not made unless it can be kept.
 
 **Signature block** goes at the foot of the emails your clients get, and is
 what the `agent_contact_block` merge field fills in.

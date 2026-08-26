@@ -35,22 +35,30 @@ class TeamInvitationMail extends Mailable
         $team = $this->invitation->team()->sole();
         $inviter = $this->invitation->invitedBy;
 
+        /*
+         * The inviting team, for the reason `SendingIdentity` gives: the
+         * recipient knows the agency and has never heard of the product. And
+         * somewhere for *"who is this?"* to go — an invitation is the one
+         * message that reaches somebody with no account, no context, and every
+         * reason to be suspicious of it, and a From line naming an agency over
+         * a reply that reaches nobody is exactly the shape of the thing they
+         * should be suspicious of.
+         *
+         * The inviter is the more specific reply, because they are the person
+         * who did this and the one who can explain it — **under their own
+         * name**, not the team's, or the recipient reads "Bosart Group" and
+         * writes to Emily. The team's settings and then a team owner stand
+         * behind it, for an invitation whose sender has since left.
+         */
+        $identity = SendingIdentity::for(
+            $team,
+            $inviter?->email,
+            $inviter?->displayNameWithin($team),
+        );
+
         return new Envelope(
-            // The inviting team, for the reason `SendingIdentity` gives: the
-            // recipient knows the agency and has never heard of the product.
-            from: SendingIdentity::forTeam($team),
-            /*
-             * And somewhere for *"who is this?"* to go. An invitation is the
-             * one message that reaches somebody with no account, no context,
-             * and every reason to be suspicious of it — a From line naming an
-             * agency over a reply that reaches nobody is exactly the shape of
-             * the thing they should be suspicious of.
-             *
-             * The inviter first, because they are the person who did this and
-             * the one who can explain it; the team's own reply-to address
-             * after, for an invitation whose sender has since left.
-             */
-            replyTo: SendingIdentity::replyTo($team, $inviter?->email),
+            from: $identity->from,
+            replyTo: $identity->replyTo,
             subject: "You’ve been invited to {$team->name}",
         );
     }

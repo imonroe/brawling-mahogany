@@ -45,11 +45,12 @@ Two of them are listed and cannot be filled in yet — the next deadline and the
 client's status page link — because the features behind them have not been
 built. The editor says so, and refuses to save a template using one.
 
-**“Send from” sets the reply address for this template.** Leave it blank and
-replies go to the reply-to address in **Settings → Team**, which is the right
-answer almost always. Fill it in when one kind of message should be answered by
-somebody else — inspection chasers to your coordinator, say. It does not change
-who the message appears to be **from**; that is always your team.
+**“Replies go to” sets the reply address for this template.** Leave it blank
+and replies go to the reply-to address in **Settings → Team**, which is the
+right answer almost always. Fill it in when one kind of message should be
+answered by somebody else — inspection chasers to your coordinator, say. It
+does not change the address a message is **sent from**: that is one verified
+address for the whole app, and it is what keeps your mail out of spam folders.
 
 **Every message carries a plain-text version.** It is what a watch, a screen
 reader, and an inbox with images turned off will show, and it is not optional.

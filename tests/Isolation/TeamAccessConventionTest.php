@@ -134,6 +134,16 @@ const SANCTIONED_TEAM_ROLE_KEY_USES = [
             'hard-coded list #142 removed.',
     ],
 
+    'Support/Mail/SendingIdentity.php' => [
+        'count' => 1,
+        'reason' => 'The last link in the Reply-To chain. `sending_identity_email` is '.
+            'nullable and nothing sets it, so without a fallback the ordinary case is a '.
+            'From line naming the agency over a reply that reaches the product’s mailbox '.
+            '— round 1 of #12’s blocker, wearing the default. The named role rather than '.
+            'a permission for the same reason ResolveRecipients uses it: an owner is the '.
+            'address a team always has. Through holdingSystemRole(), so a team’s own role '.
+            'called "Team Owner" is not one.',
+    ],
     'Support/Messages/ResolveRecipients.php' => [
         'count' => 1,
         'reason' => 'A `team_owner` recipient rule resolves to the people holding the '.

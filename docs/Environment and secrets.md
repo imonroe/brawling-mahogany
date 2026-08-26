@@ -43,7 +43,9 @@ the container which uses them transparently."*
 | `DB_PASSWORD` | developer's choice | fixed, throwaway | real, unique | real, unique |
 | `REDIS_PASSWORD` | none | none | real | real |
 | `MAIL_*` | Mailpit, no credentials | array driver | **SES, every recipient redirected** | SES |
-| `MAIL_FROM_ADDRESS` | anything | unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
+| `APP_NAME` | `Brawling Mahogany` | same | same | same |
+| `APP_PRODUCT_NAME` | `Goldieflow` | same | same | same |
+| `MAIL_FROM_ADDRESS` | anything | `.env.example`'s value — **used**, not unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
 | `MAIL_REDIRECT_TO` | optional | unset | **set — every message redirected** | **must be empty** |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
@@ -51,6 +53,24 @@ the container which uses them transparently."*
 | `VAPID_*` | generated locally | unset | real | real |
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
 | `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
+
+### `APP_NAME` is not the product's name
+
+Two keys, because one was doing two jobs. `APP_NAME` is slugged into the
+session cookie name, the cache prefix, the Redis prefix and the Horizon prefix
+(`config/session.php`, `config/cache.php`, `config/database.php`,
+`config/horizon.php`), which makes it an **infrastructure identifier** — and the
+one CLAUDE.md's rename note is explicit about leaving at the `Brawling Mahogany`
+codename, because moving it orphans those keyspaces and signs everybody out.
+
+`APP_PRODUCT_NAME` is what a person reads: the browser tab, an invitation, and
+the *"via Goldieflow"* half of a client-facing `From` line. It is the only one
+of the two that is safe to change, and changing it changes nothing but words.
+
+They were the same key until round 2 of review on #12 found teams sending
+*"Bosart Group via Brawling Mahogany"* to their sellers. The rule that follows
+from it: **before pinning a display string to an existing config value, check
+what else derives from that value.** Here, four keyspaces did.
 
 ### The sending identity, and the two things it is not
 

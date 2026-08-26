@@ -394,29 +394,32 @@ function sendTest(): void {
                         </div>
 
                         <div class="flex flex-col gap-1.5 sm:col-span-2">
-                            <Label for="from">Send from</Label>
+                            <Label for="from">Replies go to</Label>
                             <AppInput
                                 id="from"
                                 v-model="form.from_identity"
                                 size="default"
                                 type="email"
-                                placeholder="Your team’s verified address"
+                                placeholder="Your team’s reply-to address"
                                 :disabled="!can.update"
                             />
                             <!--
-                                Stored and read by nothing yet. Sending
-                                identities are #94, and until they land this
-                                field changes no address on any message — say
-                                so, rather than accepting an address in
-                                silence. The same standard the merge field
-                                picker holds: a deferred thing is named with
-                                its slice, not left to look like it works.
+                                The label was "Send from" over copy saying the
+                                field was stored and used by nothing. Both were
+                                wrong by #12: it has been the Reply-To since
+                                the send path landed, and it never was a from
+                                — the address a message leaves on is the one
+                                verified identity, which no template can move.
+                                A field whose label names a slot it does not
+                                fill is worse than one that admits it is
+                                deferred.
                             -->
                             <p class="text-[11px] text-muted-foreground">
-                                Saved with the template and not used yet — the
-                                team’s sending identity is what every message
-                                goes out from until per-template addresses are
-                                verified.
+                                Where a client’s reply lands for this template
+                                only. Leave it blank and replies go to the
+                                team’s reply-to address. Messages always
+                                <em>send from</em> the same verified address —
+                                that is what keeps them out of spam folders.
                             </p>
                             <p
                                 v-if="form.errors.from_identity"

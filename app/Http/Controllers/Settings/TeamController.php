@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
+use App\Rules\SendableEmailAddress;
 use App\Support\Audit\AuditLogger;
 use App\Support\Branding\AccentContrast;
 use App\Support\Branding\TeamLogo;
@@ -70,7 +71,7 @@ class TeamController extends Controller
             'timezone' => ['required', 'string', Rule::in(timezone_identifiers_list())],
             'brand_accent_color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/D'],
             'sending_identity_name' => ['nullable', 'string', 'max:255'],
-            'sending_identity_email' => ['nullable', 'string', 'email', 'max:255'],
+            'sending_identity_email' => ['nullable', 'string', 'email', 'max:255', new SendableEmailAddress],
             'signature_block' => ['nullable', 'string', 'max:2000'],
         ]);
 
