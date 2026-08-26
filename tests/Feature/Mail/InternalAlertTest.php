@@ -610,3 +610,34 @@ it('keeps the cold-start floor further back than the boundary is lagged', functi
     expect(AlertOnFailures::COLD_START_HOURS * 3600)
         ->toBeGreaterThan(AlertOnFailures::VISIBILITY_LAG_SECONDS);
 });
+
+it('gives its own newest-failure pick a tiebreaker too', function (): void {
+    /*
+     * `ApprovalQueueTest` asserts the same rule over the three sorts
+     * `/messages` issues, and round 5 found that this fourth one — the sweep's
+     * own *which failure do I name* — was outside its reach, while the reply
+     * claiming otherwise was not. A guard that covers three of four is a guard
+     * for the fourth's next editor to walk past.
+     *
+     * `executed_at` is `timestamp(0)` and a burst puts many rows in one second,
+     * so without a tiebreaker the failure the alert names changes between two
+     * runs over identical data.
+     */
+    $sorts = [];
+
+    Illuminate\Support\Facades\DB::listen(function ($query) use (&$sorts): void {
+        if (str_contains($query->sql, 'from "action_instances"') && str_contains($query->sql, 'order by')) {
+            $sorts[] = mb_substr($query->sql, (int) mb_strpos($query->sql, 'order by'));
+        }
+    });
+
+    carryOutFailing(failingMessage());
+
+    settleAndSweep();
+
+    expect($sorts)->not->toBeEmpty();
+
+    foreach ($sorts as $sort) {
+        expect($sort)->toContain('"id"');
+    }
+});

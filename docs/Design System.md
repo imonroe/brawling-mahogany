@@ -1514,7 +1514,13 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 3. **Calendar library for S57.** Evaluate building the month grid by hand against adopting one, since most calendar libraries bring heavy styling opinions that will fight this system.
 4. **Rich text for S46.** Try the simple token-insert textarea first.
 5. **Does anything need charts?** Only S85 and the optional F9.6 reporting. If it stays that small, shadcn's Chart component may be more than is needed.
-6. **Team accent contrast validation.** Warn the owner, or auto-adjust silently? Warning is more honest and generates support questions. Auto-adjusting is invisible and occasionally produces a colour they did not pick.
+6. **Team accent contrast validation. Settled, and the answer is *both*, split by surface** (#97). Warning is more honest and generates support questions; auto-adjusting is invisible and occasionally produces a colour they did not pick — and which of those costs more depends entirely on whether anybody is standing there.
+
+    **S72 warns.** The owner is on the screen, looking at a preview, and can pick again; `AccentContrast::warningFor()` says what the ratio is and what to do about it, and then saves the colour they chose. A silently altered brand is an angrier support ticket later.
+
+    **Email computes.** There is no second chance and nobody to notice, so `BrandedEmail` picks the readable one of black and white for the foreground — and §12.1 narrows where the accent may appear at all, to a fill that brings its own ground rather than to text over one the client's mail app chose. See §12.1.
+
+    The status page (Slice 4) inherits S72's answer: it is a surface the product renders in a theme it controls, and the owner has been told.
 7. **Density preference as a user setting.** Deliberately out of scope for v1. Revisit if Heather asks.
 8. **Mobile collapse — specified and built, not yet validated on a phone.** The shell now switches at `md`: the sidebar is replaced by a bottom tab bar carrying Dashboard, My Work, Deals, and Calendar, with everything else behind a "More" sheet, per [[Information Architecture]] §5.3. Targets are 44px minimum. What remains is judging it on a real device, which belongs with the PWA slice rather than before it.
 9. **`text-13` versus `text-sm`.** Still open, deliberately. The token exists and `DealRow`, `TaskItem`, and the card rows use it, so the comparison can now be made on a real screen — but the honest test is S13 at twenty rows (Slice 2), not the component gallery. Decide then, before it is baked into ninety-one screens.

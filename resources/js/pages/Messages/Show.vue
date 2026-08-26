@@ -157,6 +157,28 @@ const previewDocument = computed(() => props.message.rendered.bodyHtml ?? '');
  * *same* link the client will, so the two orders have to agree, and
  * `MilestoneAnnouncement::callToAction()` is where the reasoning lives.
  */
+/**
+ * Three tenses, because S48 and S49 are one page.
+ *
+ * *"The client sees this"* is a promise on a message waiting to go, a report on
+ * one that went, and a falsehood on one somebody stopped — and a reader looking
+ * at a cancelled or failed message should not be told what its recipient sees.
+ */
+const frameLabel = computed(() => {
+    if (props.message.state === 'sent') {
+        return 'The client saw this above your message';
+    }
+
+    if (
+        props.message.state === 'cancelled' ||
+        props.message.state === 'failed'
+    ) {
+        return 'The client would have seen this above your message';
+    }
+
+    return 'The client sees this above your message';
+});
+
 const milestoneLink = computed(() => {
     const milestone = props.message.milestone;
 
@@ -448,7 +470,7 @@ function cancel(): void {
                         class="flex flex-col gap-1 rounded-md border border-border bg-muted p-3"
                     >
                         <p class="text-[11px] text-muted-foreground">
-                            The client sees this above your message
+                            {{ frameLabel }}
                         </p>
                         <p class="text-sm font-semibold text-foreground">
                             {{ message.milestone.headline }}

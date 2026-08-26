@@ -701,9 +701,11 @@ These come from PRD §8 and should guide the eventual build:
 
   Which is also why the foreground is **computed** rather than white. S72
   *warns* about a low-contrast accent and saves it anyway, and that is right
-  there — Design System §15.6 settled it, and a silently altered colour is an
-  angrier support ticket later. An email has no second chance and nobody
-  standing in front of it, so it picks the readable one of black and white.
+  there — the owner is looking at a preview and can pick again, and a silently
+  altered colour is an angrier support ticket later. An email has no second
+  chance and nobody standing in front of it, so it picks the readable one of
+  black and white. Design System §15.6 was the open question and #97 settled it
+  as **both, split by surface**; the entry there now says so.
 
 - **A raster asset cannot participate in the token layer** — Design System
   §2.6, one universe over. A team's logo is a PNG with a fixed idea of what is
@@ -806,7 +808,8 @@ These come from PRD §8 and should guide the eventual build:
   that landed in that same second after the `SELECT`** — permanently, because
   the mark has already moved past them. Half a burst reported, half gone.
 
-  So the sweep picks its own boundary, the start of the current second, and
+  So the sweep picks its own boundary — a fixed distance behind itself, per the
+  finding below — and
   reports `[mark, boundary)`. Every instant belongs to exactly one window:
   nothing counted twice, nothing between two. A failure in the current second
   is the next window's.

@@ -79,8 +79,6 @@ use Throwable;
  * therefore sits {@see self::VISIBILITY_LAG_SECONDS} behind the sweep, and
  * `alert()` argues the rest.
  *
- * ## What it does not alert about
- *
  * ## What it does not do: a ceiling of its own
  *
  * The mark stops a team being told twice about one failure. It does **not**
@@ -92,6 +90,8 @@ use Throwable;
  * way through. A floor on the interval is the missing half and is recorded as
  * follow-up rather than guessed at here, because the right floor is a question
  * about how a team works rather than about this class.
+ *
+ * ## What it does not alert about
  *
  * A **halt** — F5.9's kill switch, the hourly ceiling, sandbox with no owner.
  * A halted message is still `pending`: nothing is lost, the sweep carries it

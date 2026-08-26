@@ -31,8 +31,13 @@ use Illuminate\Support\Facades\Schema;
  * two runs — is held to a floor of the last day rather than to all of history,
  * so shipping this does not email somebody about a month of failures they have
  * already worked through. `AlertOnFailures::COLD_START_HOURS` is that floor,
- * and it applies exactly once per team because this column is written the
- * first time anything is reported.
+ * and it applies exactly once per team because a team's **first sweep anchors
+ * this column** whether or not it had anything to say. Leaving that out — so
+ * that only a sweep with something to report wrote it — meant the floor was
+ * re-derived from `now()` on every run and therefore slid forward, silently
+ * losing any failure older than it for a team that had never had one. The
+ * anchor is the whole reason a floor relative to `now()` is safe to use at
+ * all.
  */
 return new class extends Migration
 {
