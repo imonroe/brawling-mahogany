@@ -1025,11 +1025,24 @@ Icons: `layout-dashboard`, `list-checks`, `briefcase`, `users`, `house`, `calend
 ### 8.3 TopBar — 56px
 
 `h-14 px-6 gap-3 border-b bg-background`, laid out as
-`[Breadcrumb] [flex-1] [Search 300×32] [Notifications] [Help]`.
+`[Breadcrumb] [flex-1] [Search 300×32] [Report a bug] [Log contact] [Notifications] [Help]`.
 
 - **Breadcrumb**: root 14/600 `text-foreground`; on a detail screen a 13px `chevron-right` and a 14/500 muted leaf appear.
 - **Search**: `w-[300px] h-8 rounded-md border px-2.5 gap-2` — 14px `search` icon, 13px muted placeholder, `flex-1`, then a `⌘K` kbd pill (`rounded-sm px-[5px] py-0.5 bg-muted`, 11px/500).
 - The top bar carries **no primary action**. One primary button per screen, and it belongs to the page header.
+
+**Report a bug is the one labelled control in the row** (#176), and the
+exception is the audience rather than the feature. Every other control here is
+an icon because the person pressing it knows the product; this one is aimed at
+somebody who has just hit something broken, is not going to recognise a bug
+glyph, and will give up rather than hunt. So it is `variant="ghost"` with a
+16px leading icon and its words — from `lg` up, where the bar has the room,
+and icon-only below it with `w-11` restoring §11's 44px target and an
+`aria-label` carrying the same sentence at both widths.
+
+It is not a *primary* action, so the rule above still holds: the screen's own
+primary button is untouched. It appears only when the environment supplies a
+form URL, which means most developer installations never see it.
 
 ### 8.4 DealHeader — 120px
 

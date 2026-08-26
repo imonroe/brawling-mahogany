@@ -127,6 +127,21 @@ These come from PRD §8 and should guide the eventual build:
   (`App\Support\Links\SafeUrl`), because a stored `javascript:` URL is
   stored XSS the moment it is an `href`.
 
+- **A URL out of the environment is still rendered, and a frame is not a
+  link.** The top bar's **Report a bug** button (#176) frames an n8n form from
+  `BUG_REPORT_URL`, which puts operator configuration into an `iframe src` — so
+  it goes through the same `SafeUrl` allowlist a team's typed link does.
+  *"Only an operator can set it"* describes who makes the typo, not what the
+  typo does.
+
+  **And a frame keeps the keyboard.** Escape closes a dialog because the
+  keydown reaches this document, and a keystroke typed into a cross-origin
+  frame never does — so Escape stops working at exactly the moment somebody is
+  filling the form in. The modal carries a real Close button for that reason,
+  and the frame is mounted *with the dialog* rather than with the shell, so
+  opening it is what calls the third party rather than every page view of the
+  application.
+
 - **A derived name is derived, and a typed one wins.** `deals` carries both
   `name` and `generated_name` for one reason: the derived half goes on tracking
   the facts — the subject property's street, the client's surname, the deal

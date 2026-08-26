@@ -1,18 +1,21 @@
 <script setup lang="ts">
 /**
- * Design System §8.3. 56px: breadcrumb, spacer, search, notifications, help.
+ * Design System §8.3. 56px: breadcrumb, spacer, search, then the shell's own
+ * controls — Report a bug, Log contact, notifications, help.
  * The top bar carries no primary action — one primary button per screen, and
  * it belongs to the page header.
  */
 import { Link } from '@inertiajs/vue3';
 import {
     Bell,
+    Bug,
     ChevronRight,
     CircleQuestionMark,
     MessageSquarePlus,
     PanelLeft,
     Search,
 } from '@lucide/vue';
+import AppButton from '@/components/app/AppButton.vue';
 import IconButton from '@/components/app/IconButton.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { toUrl } from '@/lib/utils';
@@ -22,11 +25,18 @@ withDefaults(
     defineProps<{
         breadcrumbs?: BreadcrumbItem[];
         unreadNotifications?: boolean;
+        /** Whether the n8n bug-report form is configured (issue #176). */
+        bugReport?: boolean;
     }>(),
-    { breadcrumbs: () => [], unreadNotifications: false },
+    { breadcrumbs: () => [], unreadNotifications: false, bugReport: false },
 );
 
-defineEmits<{ 'toggle-sidebar': []; 'log-contact': []; search: [] }>();
+defineEmits<{
+    'toggle-sidebar': [];
+    'log-contact': [];
+    search: [];
+    'report-bug': [];
+}>();
 
 const { can } = usePermissions();
 </script>
@@ -83,6 +93,31 @@ const { can } = usePermissions();
                 >⌘K</kbd
             >
         </button>
+
+        <!--
+            Issue #176. The one labelled control in a bar of icons, and
+            deliberately so: it is aimed at somebody who has just hit
+            something broken and is not going to recognise a bug glyph. §8.3
+            says the top bar carries no *primary* action — this is a ghost
+            button, and the screen's primary action is still its own.
+
+            Text from `lg` up, icon alone below it, where the bar is competing
+            with a breadcrumb for room. `aria-label` rather than a second
+            visually-hidden span, so the accessible name is the same sentence
+            at every width. `w-11` restores §11's 44px target once the label
+            is gone.
+        -->
+        <AppButton
+            v-if="bugReport"
+            variant="ghost"
+            aria-label="Report a bug"
+            title="Report a bug"
+            class="w-11 px-0 lg:w-auto lg:px-2.5"
+            @click="$emit('report-bug')"
+        >
+            <Bug aria-hidden="true" />
+            <span class="hidden lg:inline">Report a bug</span>
+        </AppButton>
 
         <!--
             S26's third entry point (issue #81). The other two already know

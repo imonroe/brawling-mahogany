@@ -38,10 +38,29 @@ open the people directory, people will not appear in your results.
 
 Beside search you will find:
 
+- **Report a bug** — see below.
 - **Log contact** — records a call, email or meeting against a person, in two
   clicks. See [Notes and activity](/help/notes-and-activity).
 - **Notifications** — arriving in a later release.
 - **Help** — this manual.
+
+## Reporting a bug
+
+**Report a bug** opens a short form in a window over whatever you were
+looking at. Say what went wrong and what you were doing at the time; the more
+ordinary the detail, the better — which screen, what you had just clicked,
+what you expected to happen instead.
+
+You do not need an account anywhere to use it. The form goes straight to the
+people who fix things.
+
+Close it whenever you like, with the **Close** button at the bottom. Nothing
+is sent until you submit the form.
+
+On a narrow screen the button shows as an icon rather than the words.
+
+If you cannot see it at all, this installation has not been given a form to
+send reports to — tell whoever runs it for you.
 
 ## Switching teams
 

@@ -49,6 +49,7 @@ the container which uses them transparently."*
 | `AI_API_KEY` | unset | unset | **separate key, own budget cap** | real, production cap |
 | `VAPID_*` | generated locally | unset | real | real |
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
+| `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
 
 ### The two staging guardrails that are not optional
 
@@ -82,6 +83,32 @@ Both commands are audited (`invitation.link_issued`,
 production unless given `--force`. They are ordinary product features rather
 than staging tools: a path that exists only in pre-production is a path nobody
 tests and nobody reviews with production eyes.
+
+### Bug reporting, which is configuration rather than a secret
+
+`BUG_REPORT_URL` is the n8n form behind the top bar's **Report a bug** button
+(#176); n8n turns each submission into a GitHub issue on this repository.
+`BUG_REPORT_ENABLED` is whether the button appears.
+
+Neither is a credential — the form is a public URL and nothing here
+authenticates to it — so both live in `.env` beside everything else and neither
+needs rotating. They are two keys rather than one so that the button can be
+switched off during an n8n outage without losing the address.
+
+Three things to know when it does not appear:
+
+1. **It is signed-in only.** The URL is never in the page props of the sign-in
+   screen, which is the one page the internet can reach.
+2. **A URL that is not `http` or `https` is treated as unset.** An `iframe src`
+   is not inert, and the same allowlist that guards `external_links` guards
+   this (`App\Support\Links\SafeUrl`).
+3. **A misconfiguration is logged, once per process** — `The bug report button
+   is switched on but has no usable form URL`, with the reason. Hiding the
+   button rather than raising is deliberate: a bug-report form is not worth a
+   white screen.
+
+Local and CI leave both unset, which is why a developer never sees the button
+unless they go looking for it.
 
 ---
 

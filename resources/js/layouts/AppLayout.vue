@@ -15,6 +15,7 @@ import ImpersonationBanner from '@/components/app/ImpersonationBanner.vue';
 import LogContactDialog from '@/components/app/LogContactDialog.vue';
 import MobileTabBar from '@/components/app/MobileTabBar.vue';
 import PendingInvitationBanner from '@/components/app/PendingInvitationBanner.vue';
+import ReportBugDialog from '@/components/app/ReportBugDialog.vue';
 import SearchOverlay from '@/components/app/SearchOverlay.vue';
 import TopBar from '@/components/app/TopBar.vue';
 import { Toaster } from '@/components/ui/sonner';
@@ -78,6 +79,21 @@ const logging = ref(false);
 /** S07's overlay (#82). Mounted by the shell, because ⌘K works anywhere. */
 const searching = ref(false);
 
+/*
+ * Issue #176. The button and its modal are both shell furniture, so both live
+ * here rather than on any screen.
+ *
+ * Null when the form is unconfigured or switched off, which is the same
+ * absence as a guest: no URL, no button, and nothing mounted to hold one.
+ */
+const bugReportUrl = computed(
+    () =>
+        (page.props as { bugReport?: { url: string } | null }).bugReport?.url ??
+        null,
+);
+
+const reportingBug = ref(false);
+
 const collapsed = ref(page.props.sidebarOpen === false);
 
 watch(collapsed, (value) => {
@@ -110,9 +126,11 @@ watch(collapsed, (value) => {
             <div class="flex min-w-0 flex-1 flex-col">
                 <TopBar
                     :breadcrumbs="breadcrumbs"
+                    :bug-report="bugReportUrl !== null"
                     @toggle-sidebar="collapsed = !collapsed"
                     @log-contact="logging = true"
                     @search="searching = true"
+                    @report-bug="reportingBug = true"
                 />
                 <main class="min-h-0 flex-1 overflow-y-auto">
                     <slot />
@@ -122,6 +140,11 @@ watch(collapsed, (value) => {
 
         <MobileTabBar />
         <LogContactDialog v-model:open="logging" />
+        <ReportBugDialog
+            v-if="bugReportUrl"
+            v-model:open="reportingBug"
+            :url="bugReportUrl"
+        />
         <SearchOverlay v-model:open="searching" />
         <Toaster />
     </div>
