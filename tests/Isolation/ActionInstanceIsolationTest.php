@@ -173,24 +173,42 @@ it('redirects a sandboxed message to its own team’s owner', function (): void 
 
 it('will not send a message whose team has been handed in wrong', function (): void {
     /*
-     * The rails re-read the team from the row's own id rather than trusting
-     * the object handed in — which is what makes the kill switch immediate.
-     * The same re-read is what stops a job dispatched with the wrong team from
-     * sending under the wrong team's limits and sandbox setting.
+     * The rails are handed a `Team` and asked about an `ActionInstance`, and
+     * until round 1 nothing checked the two agreed. The consequence of a
+     * future mismatched caller is specific and silent: team A's sandbox
+     * setting redirecting team B's client message to team A's owner, and team
+     * A's ceiling pausing team B's sends.
+     *
+     * The first version of this test passed team B's instance with team B's
+     * team, having disabled sending on team B — a second kill-switch test
+     * wearing a cross-tenant title, which is the shape `docs/Testing.md` warns
+     * about: it would have passed identically with no check at all.
      */
     $a = $this->teams['a']['team'];
-    $b = $this->teams['b']['team'];
-
-    app(TeamContext::class)->runFor($b, fn () => $b->forceFill(['sends_disabled_at' => now()])->save());
 
     $theirs = messageIn('b');
 
     $decision = app(TeamContext::class)->runFor(
+        $a,
+        fn () => app(SendRails::class)->decide($theirs, $a),
+    );
+
+    expect($decision->allowed)->toBeFalse()
+        // A refusal, not a stand-down: nothing about this row is going to
+        // become sendable by waiting, and it is not team A's to hold either.
+        ->and($decision->ownedByAnother)->toBeFalse()
+        ->and($decision->reason)->toContain('does not belong to the team');
+
+    /*
+     * And the control, without which the assertion above passes for any
+     * reason at all: the same instance with its **own** team is allowed.
+     */
+    $b = $this->teams['b']['team'];
+
+    $allowed = app(TeamContext::class)->runFor(
         $b,
         fn () => app(SendRails::class)->decide($theirs, $b),
     );
 
-    expect($decision->allowed)->toBeFalse();
-
-    unset($a);
+    expect($allowed->allowed)->toBeTrue();
 });

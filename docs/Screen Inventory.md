@@ -219,7 +219,7 @@ tags:
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S47 | Message approval queue | `/messages` | Team | Empty, needs review, did not go out. **Built.** No bulk approve, deliberately — see the note below | F5.7 | 3 | M |
+| S47 | Message approval queue | `/messages` | Team | Empty, needs review, did not go out. **Built.** Failures are their own query rather than a filter over recent sends, and both lists say when they are truncated. No bulk approve, deliberately — see the note below | F5.7 | 3 | M |
 | S48 | Message preview and edit | `/messages/{message}` | Team | Rendered with real merge data, missing field, editing before send. **Built**, as a page rather than a modal — see the note below | F5.6 | 3 | M |
 | S49 | Automation failure detail | `/messages/{message}` | Team | Provider error, resolved to nobody, stopped by a person, sandbox redirect. **Built.** Bounces and complaints are #95 | F5.8 | 3 | S |
 
@@ -239,6 +239,13 @@ tags:
 > queue rather than behind a tab, which is the same argument — PRD §1.1's second
 > question is *"has the client been told?"*, and a message that failed answers it
 > exactly as badly as one still waiting.
+>
+> **And they are their own query.** The first build derived them by filtering the
+> 25 most-recently-touched rows, which made *"did this go out?"* a question about
+> how busy the team had been since: 25 successful sends pushed a failure off the
+> screen entirely. Both lists are bounded — a team inside F5.7's window has every
+> outbound message here — and both say so when they are, because a list that
+> silently shows 200 of 340 is a list somebody believes they have cleared.
 
 > [!note] S48 and S49 are one page, and it is not a modal
 > The rows had S48 as a modal preview and S49 as a separate failure page, and
@@ -327,7 +334,7 @@ tags:
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
 | S72 | Team profile and branding | `/settings/team` | Agent | Logo upload, colour picker, signature block, live preview of client page | F1.2, F7.5 | 1 | M |
-| S72b | Sending safety | `/settings/sending` | Agent | Stop everything, sandbox, hourly and daily limits, the first-month review window. **Built** in Slice 3 — see the note below | F5.9 | 3 | S |
+| S72b | Sending safety | `/settings/sending` | Agent | Stop everything, sandbox, hourly and daily limits, and the first-month review window — all four editable, not three and a notice. **Built** in Slice 3 — see the note below | F5.9 | 3 | S |
 | S73 | Sending identity | `/settings/sending/identity` | Agent | Unverified, DNS records to add, verifying, verified, failed | F5.9 | 3 | M |
 | S74 | Members and invitations | `/settings/members` | Agent | Empty, pending invites, revoke, last owner warning, **link issued** (shown once, replaces the emailed one — ADR 0003), **re-invite adds a role to an active member and replaces a revoked one's whole set** | F1.3 | 1 | M |
 | S75 | Roles and permissions | `/settings/roles` | Agent | System roles (locked), custom roles, permission matrix, in-use warning | F2.3 | 2 | **L** |

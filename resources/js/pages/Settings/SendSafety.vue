@@ -64,6 +64,7 @@ const form = useForm({
     sandbox_mode: props.settings.sandboxMode,
     hourly_send_limit: String(props.settings.hourlySendLimit),
     daily_send_limit: String(props.settings.dailySendLimit),
+    hold_all_for_review: props.settings.approvalIsMandatory,
 });
 
 /**
@@ -219,25 +220,59 @@ function submit(): void {
                 </div>
             </Card>
 
-            <Card
-                v-if="settings.approvalIsMandatory"
-                title="Review before send"
-            >
-                <div class="flex flex-col gap-2 px-4 py-4">
-                    <p class="flex items-start gap-2 text-13 text-foreground">
+            <!--
+                F5.7's window, and it is a control rather than a notice.
+
+                It rendered read-only while `automation.md` promised "you can
+                turn this off in team settings once you trust what you have
+                written" — S17's finding, one control over. A safety default a
+                team cannot leave is not a default, it is a limitation, and a
+                team that cannot leave it finds a way around it that nobody
+                audits.
+            -->
+            <Card title="Review before send">
+                <div class="flex flex-col gap-3 px-4 py-4">
+                    <label class="flex cursor-pointer items-start gap-2.5">
+                        <Checkbox
+                            :model-value="form.hold_all_for_review"
+                            class="mt-0.5"
+                            @update:model-value="
+                                (value) =>
+                                    (form.hold_all_for_review = value === true)
+                            "
+                        />
+                        <span class="flex flex-col gap-0.5">
+                            <span class="text-sm font-medium text-foreground">
+                                Hold every outbound email for somebody to read
+                            </span>
+                            <span class="text-13 text-muted-foreground">
+                                Whatever each automation is set to. New teams
+                                start with this on for their first month — the
+                                period when your templates are least tested is
+                                the period your clients are most exposed to
+                                them.
+                            </span>
+                        </span>
+                    </label>
+
+                    <p
+                        v-if="
+                            settings.approvalIsMandatory &&
+                            settings.approvalRequiredUntil
+                        "
+                        class="flex items-start gap-2 text-13 text-muted-foreground"
+                    >
                         <ShieldCheck
                             class="mt-0.5 size-4 shrink-0 text-state-info"
                             aria-hidden="true"
                         />
                         <span>
-                            Every outbound email waits for somebody to read it
-                            until
-                            <strong v-if="settings.approvalRequiredUntil">{{
+                            On until
+                            {{
                                 formatDateTime(settings.approvalRequiredUntil)
-                            }}</strong
-                            >, whatever each automation is set to. This is the
-                            safety net for the period when your templates are
-                            least tested.
+                            }}, then each automation decides for itself. Turning
+                            it off here ends it now; turning it back on starts a
+                            fresh month.
                         </span>
                     </p>
                 </div>

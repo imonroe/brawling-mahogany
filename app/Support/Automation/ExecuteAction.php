@@ -94,21 +94,42 @@ final class ExecuteAction
 
         if (! $decision->allowed) {
             /*
-             * Halt and refuse are different outcomes and the row records the
-             * difference. F5.9: exceeding a limit *"halts sending and alerts —
-             * it does not silently drop"*, so a halted instance stays
-             * `pending` with the reason on it and the scheduler picks it up
-             * again once the window rolls. A refusal is final.
+             * Three ways not to send, and the row records which.
+             *
+             * **Stand down** writes nothing at all: the row is no longer this
+             * worker's, and a second worker narrating its own failure over
+             * somebody's Stop is how a cancelled message ends up on a deal's
+             * timeline reading as a transport error. Same treatment as losing
+             * the `message_key` claim below.
+             */
+            if ($decision->ownedByAnother) {
+                return;
+            }
+
+            /*
+             * **Halt** keeps it. F5.9: exceeding a limit *"halts sending and
+             * alerts — it does not silently drop"*, so the instance stays
+             * `pending` with the reason on it and the sweep picks it up once
+             * the window rolls.
+             *
+             * `attempts` is deliberately **not** incremented. It counts tries
+             * at the transport, and a halt never reached one — a team that
+             * pulls the kill switch and leaves it on for three weeks would
+             * otherwise overflow the column, which is `smallint`, and turn a
+             * paused queue into a throwing one.
              */
             if ($decision->retryable) {
-                $instance->forceFill([
-                    'attempts' => $instance->attempts + 1,
-                    'error' => $decision->reason,
-                ])->save();
+                $instance->forceFill(['error' => $decision->reason])->save();
 
                 return;
             }
 
+            /*
+             * **Refuse** is final and is about this message: an unfillable
+             * merge field, no recipients, an action this build cannot carry
+             * out. Those are worth a person's attention, so they land on the
+             * deal.
+             */
             $this->fail($instance, (string) $decision->reason);
 
             return;

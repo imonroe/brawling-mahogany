@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Automation;
 
+use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
 use App\Models\ActionInstance;
 use App\Models\Team;
@@ -59,20 +60,59 @@ final class SendRails
             return SendDecision::refuse('The team this message belongs to no longer exists.');
         }
 
+        /*
+         * And the row has to belong to the team whose rails are being asked.
+         *
+         * Hardening rather than a live hole — `RunAutomation` re-establishes
+         * the team and finds the row inside that scope, so the pairing is
+         * consistent today. It is here because the consequence of a future
+         * caller getting it wrong is specific and silent: team A's sandbox
+         * setting redirecting team B's client message to team A's owner, and
+         * team A's ceiling pausing team B's sends.
+         */
+        if ($instance->team_id !== $live->getKey()) {
+            return SendDecision::refuse('This message does not belong to the team being asked about.');
+        }
+
         if ($live->sendsAreDisabled()) {
             return SendDecision::halt(
                 $live->sends_disabled_reason ?? 'Sending is switched off for this team.',
             );
         }
 
-        // A message already accepted by a provider is never sent again,
-        // whatever its state says. See `ActionInstance::reachedTheProvider()`.
+        /*
+         * A message already handed to a transport is never handed to one
+         * again, whatever its state says. See
+         * `ActionInstance::reachedTheProvider()`.
+         *
+         * **Stand down rather than refuse**, and the distinction is not
+         * cosmetic. This branch is reached by the queue's own retry after a
+         * transport threw — `ExecuteAction` records the failure and rethrows —
+         * so refusing here would write *"An automated message did not go out:
+         * this message has already been accepted by the provider"* onto the
+         * deal, up to three more times, about a message that may well have
+         * been delivered.
+         */
         if ($instance->reachedTheProvider()) {
-            return SendDecision::refuse('This message has already been accepted by the provider.');
+            return SendDecision::standDown('This message has already been handed to a transport.');
         }
 
+        /*
+         * And a row in any other state belongs to whoever put it there.
+         *
+         * The case that matters is `cancelled`: `ApproveMessage::cancel()`
+         * deliberately allows stopping a `pending` instance, and a `pending`
+         * instance is one that has **already been dispatched**. So "queued →
+         * somebody presses Stop → the worker arrives" is the ordinary
+         * sequence, not a race — and a refusal here overwrote the reason they
+         * typed, contradicted itself on the timeline, and flipped the row from
+         * `cancelled` to `failed`, where `RaiseAutomations::alreadyRaised()`
+         * counts it. A skipped stage that was later reopened then silently
+         * never re-raised its message, which is the contract this whole
+         * feature is built around.
+         */
         if ($instance->state !== AutomationState::Pending) {
-            return SendDecision::refuse(
+            return SendDecision::standDown(
                 'This message is '.$instance->state->label().' and is not waiting to be sent.',
             );
         }
@@ -148,6 +188,19 @@ final class SendRails
          */
         $sentSince = fn (Carbon $since): int => ActionInstance::query()
             ->where('state', AutomationState::Sent)
+            /*
+             * **Emails only.** F5.9's ceiling exists so *"a bug that loops an
+             * automation"* cannot reach clients four hundred times, and a
+             * created task reaches nobody — it is a row on a screen the team
+             * already has open.
+             *
+             * Counting every `sent` row meant three `create_task` automations
+             * across a busy morning silently paused the team's actual client
+             * email, which is the ceiling causing the failure it exists to
+             * prevent. A manual prompt is marked `sent` too, and is a person
+             * saying they did something.
+             */
+            ->where('action_type', AutomationActionType::SendEmail)
             ->where('executed_at', '>=', $since)
             ->count();
 

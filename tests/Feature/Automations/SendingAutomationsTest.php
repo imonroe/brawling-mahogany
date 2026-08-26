@@ -12,6 +12,7 @@ use App\Models\Deal;
 use App\Models\Task;
 use App\Support\Automation\ExecuteAction;
 use App\Support\Automation\SendRails;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 /**
@@ -227,7 +228,34 @@ it('halts when the team has hit its hourly ceiling', function (): void {
 
     expect($instance->state)->toBe(AutomationState::Pending)
         ->and($instance->error)->toContain('limit of messages for the hour')
-        ->and($instance->attempts)->toBe(1);
+        /*
+         * **Zero**, not one. `attempts` counts tries at the transport and a
+         * halt never reached one — the sweep re-dispatches a halted message
+         * every minute, so counting halts overflowed the `smallint` column
+         * after about three weeks with the kill switch on and turned a paused
+         * queue into a throwing one.
+         */
+        ->and($instance->attempts)->toBe(0);
+});
+
+it('does not count a task or a manual prompt against the email ceiling', function (): void {
+    /*
+     * F5.9's ceiling exists so a looping automation cannot reach clients four
+     * hundred times, and a created task reaches nobody. Counting every `sent`
+     * row meant three `create_task` automations across a busy morning silently
+     * paused the team's actual client email — the ceiling causing the failure
+     * it exists to prevent.
+     */
+    $this->team->forceFill(['hourly_send_limit' => 2])->save();
+
+    ActionInstance::factory()->count(2)->creatingATask()->sent()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    carryOut(pendingMessage());
+
+    Mail::assertSentCount(1);
 });
 
 it('counts the ceiling on a rolling window rather than a calendar hour', function (): void {
@@ -348,20 +376,108 @@ it('refuses a manual prompt reaching the queue', function (): void {
         ->and($instance->error)->toContain('marked done by a person');
 });
 
-it('refuses to send an instance that is waiting for approval', function (): void {
+it('stands down rather than failing an instance that is waiting for approval', function (): void {
+    /*
+     * A row in any state but `pending` belongs to whoever put it there, and a
+     * worker arriving late must write **nothing** — not the state, not the
+     * error, not a timeline entry. Marking it `failed` would take a message
+     * sitting in the approval queue and put it permanently beyond approving.
+     */
     $instance = carryOut(pendingMessage(['state' => AutomationState::AwaitingApproval]));
 
     Mail::assertNothingSent();
-    expect($instance->state)->toBe(AutomationState::Failed);
+
+    expect($instance->state)->toBe(AutomationState::AwaitingApproval)
+        ->and($instance->error)->toBeNull()
+        ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
+});
+
+it('stands down rather than overwriting a message somebody stopped', function (): void {
+    /*
+     * The defect round 1 found, and the ordinary sequence rather than a race:
+     * `ApproveMessage::cancel()` deliberately allows stopping a **pending**
+     * instance, and a pending instance is one that has already been
+     * dispatched. So "queued → somebody presses Stop → the worker arrives"
+     * happens every time somebody uses the feature.
+     *
+     * Three things went wrong when this refused instead of standing down. The
+     * reason a person typed was destroyed; the deal's timeline carried *"an
+     * automated message did not go out: this message is Cancelled"*, which
+     * contradicts itself; and — worst — the row flipped from `cancelled` to
+     * `failed`, where `RaiseAutomations::alreadyRaised()` counts it. A skipped
+     * stage that was later reopened then silently never re-raised its message,
+     * which is the contract this whole feature is built around.
+     */
+    $instance = pendingMessage();
+
+    $instance->forceFill([
+        'state' => AutomationState::Cancelled->value,
+        'error' => 'The buyer called; do not send.',
+    ])->save();
+
+    carryOut($instance);
+
+    Mail::assertNothingSent();
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Cancelled)
+        ->and($instance->fresh()->error)->toBe('The buyer called; do not send.')
+        ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
+});
+
+it('refuses a message belonging to another team', function (): void {
+    /*
+     * Hardening rather than a live hole — `RunAutomation` re-establishes the
+     * team and finds the row inside that scope. It is here because the
+     * consequence of a future mismatched caller is specific and silent: team
+     * A's sandbox setting redirecting team B's client message to team A's
+     * owner, and team A's ceiling pausing team B's sends.
+     */
+    [$otherTeam] = $this->teamWithMember();
+
+    $instance = pendingMessage();
+
+    $decision = app(SendRails::class)->decide($instance, $otherTeam);
+
+    expect($decision->allowed)->toBeFalse()
+        ->and($decision->ownedByAnother)->toBeFalse()
+        ->and($decision->reason)->toContain('does not belong to the team');
 });
 
 it('logs a ceiling breach without naming anybody', function (): void {
-    $rails = app(SendRails::class);
+    /*
+     * PRD §9: no PII in logs, ever. The first version of this test asserted
+     * only that the decision was a halt — so an `alert()` that interpolated
+     * the recipient's name into the message would have passed it, which is
+     * the assertion measuring the wrong half of the behaviour it is named for.
+     */
+    Log::spy();
 
-    $this->team->forceFill(['hourly_send_limit' => 0])->save();
+    // One below the limit rather than a limit of zero: `SendSafetyController`
+    // validates `between:1,500`, so a zero-limit fixture is a state the
+    // product cannot be in and a test written against one proves nothing.
+    $this->team->forceFill(['hourly_send_limit' => 1])->save();
 
-    $decision = $rails->decide(pendingMessage(), $this->team);
+    ActionInstance::factory()->sent()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $decision = app(SendRails::class)->decide(pendingMessage(), $this->team);
 
     expect($decision->allowed)->toBeFalse()
         ->and($decision->retryable)->toBeTrue();
+
+    Log::shouldHaveReceived('warning')->withArgs(
+        function (string $message, array $context): bool {
+            expect($message)->toBe('Team reached its outbound message ceiling.')
+                // The whole context, by key: a new key carrying a name or an
+                // address fails here rather than being waved through by an
+                // assertion that only looked at the ones it knew about.
+                ->and(array_keys($context))->toBe(['team_id', 'window', 'sent', 'limit'])
+                ->and(json_encode($context))->not->toContain('dana@example.test')
+                ->and(json_encode($context))->not->toContain('Dana');
+
+            return true;
+        },
+    );
 });

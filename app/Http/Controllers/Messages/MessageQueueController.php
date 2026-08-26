@@ -49,6 +49,27 @@ class MessageQueueController extends Controller
      */
     private const RECENT = 25;
 
+    /**
+     * The ceiling on the review queue itself.
+     *
+     * Generous rather than absent: each row ships a rendered payload, and a
+     * team inside F5.7's first-month window has *every* outbound message here.
+     * Oldest first, so what is cut is the newest — the opposite of what a
+     * failure list may cut.
+     */
+    private const WAITING = 200;
+
+    /**
+     * And on the failures, which are counted rather than sliced.
+     *
+     * Their own query, not a filter over `$recent`. Deriving them from the
+     * 25 most-recent rows meant a team that sent 25 messages after a failure
+     * lost the failure off the screen entirely — while `automation.md`
+     * promises *"it is the thing you most need to notice"*. A list that
+     * silently drops the row it exists for is worse than no list.
+     */
+    private const FAILURES = 50;
+
     public function index(Request $request): Response
     {
         $this->authorize('viewAny', ActionInstance::class);
@@ -57,6 +78,7 @@ class MessageQueueController extends Controller
 
         $waiting = ActionInstance::query()
             ->awaitingApproval()
+            ->limit(self::WAITING)
             /*
              * The deal and the template, eagerly, and each has a cell that
              * reads it — the rule `CLAUDE.md` records after S13 shipped an
@@ -67,6 +89,21 @@ class MessageQueueController extends Controller
              */
             ->with(['deal', 'messageTemplate'])
             ->oldest()
+            ->get();
+
+        /*
+         * The failures, on their own terms.
+         *
+         * `Queue.vue` used to filter these out of `$recent` client-side, which
+         * made "did this go out?" a question about how busy the team had been
+         * since. Oldest first, because the one that has been red longest is
+         * the one nobody has dealt with.
+         */
+        $failing = ActionInstance::query()
+            ->where('state', AutomationState::Failed)
+            ->with(['deal', 'messageTemplate'])
+            ->oldest('executed_at')
+            ->limit(self::FAILURES)
             ->get();
 
         $recent = ActionInstance::query()
@@ -90,7 +127,17 @@ class MessageQueueController extends Controller
 
         return Inertia::render('Messages/Queue', [
             'waiting' => $waiting->map(self::row(...))->values()->all(),
+            'failing' => $failing->map(self::row(...))->values()->all(),
             'recent' => $recent->map(self::row(...))->values()->all(),
+            /*
+             * The true totals, so a truncated list says so rather than
+             * reading as the whole picture. A queue that silently shows 200 of
+             * 340 is a queue somebody believes they have cleared.
+             */
+            'totals' => [
+                'waiting' => ActionInstance::query()->awaitingApproval()->count(),
+                'failing' => ActionInstance::query()->where('state', AutomationState::Failed)->count(),
+            ],
             'can' => [
                 'approve' => $person?->can('approveAny', ActionInstance::class) ?? false,
             ],

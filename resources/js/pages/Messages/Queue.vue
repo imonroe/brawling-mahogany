@@ -57,13 +57,23 @@ type MessageRow = {
 
 const props = defineProps<{
     waiting: MessageRow[];
+    /**
+     * Their own list, from their own query.
+     *
+     * These used to be filtered out of `recent` here, which made *"did this go
+     * out?"* a question about how busy the team had been since — a failure fell
+     * off the screen after 25 more messages, on the list `automation.md`
+     * promises is *"the thing you most need to notice"*.
+     */
+    failing: MessageRow[];
     recent: MessageRow[];
+    /** The real counts, so a truncated list can say it is truncated. */
+    totals: { waiting: number; failing: number };
     can: { approve: boolean };
 }>();
 
-const failing = computed(() =>
-    props.recent.filter((message) => message.state === 'failed'),
-);
+const moreWaiting = computed(() => props.totals.waiting - props.waiting.length);
+const moreFailing = computed(() => props.totals.failing - props.failing.length);
 
 /**
  * Who it names, never how many.
@@ -119,6 +129,13 @@ function recipientNames(message: MessageRow): string {
                     </div>
                 </li>
             </ul>
+
+            <p
+                v-if="moreFailing > 0"
+                class="border-t border-border px-4 py-2.5 text-13 text-muted-foreground"
+            >
+                and {{ moreFailing }} more.
+            </p>
         </Card>
 
         <Card title="Waiting for review">
@@ -179,7 +196,10 @@ function recipientNames(message: MessageRow): string {
                 v-if="waiting.length > 0"
                 class="border-t border-border px-4 py-2.5 text-13 text-muted-foreground"
             >
-                {{ formatCount(waiting.length, 'message') }} waiting.
+                {{ formatCount(totals.waiting, 'message') }} waiting<template
+                    v-if="moreWaiting > 0"
+                    >, {{ moreWaiting }} of them not shown</template
+                >.
                 <template v-if="can.approve">
                     Open one to read it before it goes out.
                 </template>

@@ -209,7 +209,20 @@ final class AdvanceWorkflow
                 );
             }
 
-            $verdicts = $this->evaluateGates($stage);
+            /** @var list<Gate> $cleared Gates this evaluation moved to met. */
+            $cleared = [];
+
+            $verdicts = $this->evaluateGates($stage, $cleared);
+
+            /*
+             * Raised before the blocking check on purpose: a requirement that
+             * cleared during this attempt has cleared whether or not two
+             * others are still in the way, and telling the client the survey
+             * is back should not wait for the rest of the stage.
+             */
+            foreach ($cleared as $clearedGate) {
+                $raised = [...$raised, ...$this->automations->forGate($clearedGate)];
+            }
 
             $blocking = array_filter(
                 $verdicts,
@@ -237,6 +250,13 @@ final class AdvanceWorkflow
                     $stage->transitionTo(StageState::Blocked)->save();
                 }
 
+                /*
+                 * This branch returns from inside the transaction and
+                 * `dispatchRaised()` runs after it either way — `$raised` is
+                 * by reference precisely so a blocked advance still queues the
+                 * `gate_cleared` messages it raised above. An advance that
+                 * refuses is not an advance that cleared nothing.
+                 */
                 return AdvanceResult::blocked($stage, $blocking, $advisories);
             }
 
@@ -1268,9 +1288,10 @@ final class AdvanceWorkflow
      * the failure this product cannot have. The cache is refreshed here as a
      * side effect so the screens that do read it stay honest.
      *
+     * @param  list<Gate>  $cleared  filled with the gates this evaluation moved to met
      * @return array<string, GateVerdict>
      */
-    private function evaluateGates(Stage $stage): array
+    private function evaluateGates(Stage $stage, array &$cleared = []): array
     {
         $verdicts = [];
 
@@ -1283,6 +1304,33 @@ final class AdvanceWorkflow
             // a human ticking something and are never written by an
             // evaluation, or every re-render would rewrite who confirmed it.
             if ($gate->is_met !== $verdict->met) {
+                /*
+                 * A gate going **false → true** here is F5.2's *"when a
+                 * requirement clears"*, for every gate type that is not a
+                 * manual tick (#92, found in review).
+                 *
+                 * `confirm()` covers the manual one and covered nothing else,
+                 * so a team building *"when the inspection report is uploaded,
+                 * email the buyer"* got an automation that saved cleanly,
+                 * showed as active on S44, and never fired — the silent
+                 * non-delivery `CLAUDE.md` calls the worst possible answer to
+                 * *"has the client been told?"*. This line is where every
+                 * other type's answer actually changes, so it is where the
+                 * trigger belongs.
+                 *
+                 * **Only in that direction.** A gate going true → false is a
+                 * requirement that stopped being satisfied, which is not a
+                 * clearing, and re-firing on the next clear is what
+                 * `RaiseAutomations::alreadyRaised()` is there to prevent.
+                 *
+                 * An **override** deliberately raises nothing: IA §8 insists
+                 * overridden is not a kind of met, and `override()` never
+                 * touches `is_met`, so it cannot reach this branch.
+                 */
+                if ($verdict->met) {
+                    $cleared[] = $gate;
+                }
+
                 $gate->forceFill(['is_met' => $verdict->met])->save();
             }
         }

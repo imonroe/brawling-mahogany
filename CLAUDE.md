@@ -526,6 +526,46 @@ These come from PRD §8 and should guide the eventual build:
   one only puts a second identical failure on the timeline. An `exists()` over
   every row silences the reopen case forever.
 
+- **A default nobody can leave is not a default, and a rule set in one caller
+  is set nowhere.** F5.7 holds every outbound email for a team's first 30 days,
+  and `teams.approval_required_until` carried the migration comment *"set on
+  team creation"* — which nothing did. `ProvisionTeam` writes four columns and
+  this was not one of them, the column has no database default, and there was
+  no hook. So the rail PRD §4.5 calls a launch blocker was live for every team
+  that already existed and dead for every team it was written for, exactly
+  backwards and completely silent.
+
+  It lives on `Team::booted()` now, because `ProvisionTeam` is not the only
+  door: `/admin` provisions teams, the factory builds them, and a later slice
+  adds signup. **And the screen can turn it off** — it rendered read-only while
+  `automation.md` promised otherwise, which is S17's finding one control over.
+
+- **"This message is not mine" and "this message is broken" are different
+  answers.** `SendRails` returned a plain refusal for both, and `ExecuteAction`
+  marked every refusal `failed` with a timeline entry. But
+  `ApproveMessage::cancel()` deliberately allows stopping a **pending**
+  instance, and a pending instance is one already dispatched — so *"queued →
+  somebody presses Stop → the worker arrives"* is the ordinary sequence, not a
+  race. It destroyed the reason a person typed, wrote *"an automated message
+  did not go out: this message is Cancelled"* onto the deal, and flipped the
+  row from `cancelled` to `failed`, where `alreadyRaised()` counts it — so a
+  skipped stage that was later reopened silently never re-raised its message.
+  One collapsed distinction defeating the contract two files over.
+
+  `SendDecision::standDown()` writes nothing at all, the same treatment a
+  worker that loses the `message_key` claim already got. Before adding a
+  refusal, ask whose problem it is.
+
+- **A trigger wired to one implementation of a thing is wired to none of it.**
+  `gate_cleared` fired from `AdvanceWorkflow::confirm()` — a person ticking a
+  manual gate — and from nowhere else, while S44 offered the trigger for all
+  seven gate types and `SaveAutomationRequest` accepted any of them. A team
+  building *"when the required tasks are done, email the buyer"* got an
+  automation that saved cleanly, showed as active, and never fired. It is now
+  raised where `is_met` actually transitions, in `evaluateGates()`, in the
+  false→true direction only; an override raises nothing, because IA §8 insists
+  overridden is not a kind of met.
+
 - **A rail with no hand on it is a column.** F5.9's kill switch, its rate
   ceiling and its sandbox all live in `SendRails`, in the worker, because issue
   #96 requires them to hold *"when a message is sent by a scheduled job at 3am

@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\RunAutomation;
 use App\Models\ActionInstance;
+use App\Models\Team;
 use Illuminate\Console\Command;
 
 /**
@@ -51,7 +52,20 @@ class DispatchDueAutomations extends Command
 
         $dispatched = 0;
 
+        /*
+         * Teams whose kill switch is on are skipped entirely.
+         *
+         * Not a weakening of F5.9 — `SendRails` still refuses in the worker,
+         * which is what issue #96 requires for anything already in flight.
+         * This is about the sweep: a team that pulls the switch with 500
+         * messages queued was generating 720,000 no-op jobs a day, each doing
+         * a team lookup and two counts, for as long as the switch stayed on.
+         * A rail that holds is not a reason to go on knocking on it.
+         */
+        $halted = Team::query()->whereNotNull('sends_disabled_at')->pluck('id')->all();
+
         ActionInstance::withoutTeamScope()
+            ->when($halted !== [], fn ($query) => $query->whereNotIn('team_id', $halted))
             ->due()
             /*
              * A moment old, so this cannot race the dispatch that is about to
@@ -64,7 +78,16 @@ class DispatchDueAutomations extends Command
             ->where('created_at', '<=', now()->subMinute())
             ->orderBy('created_at')
             ->limit($limit)
-            ->each(function (ActionInstance $instance) use (&$dispatched): void {
+            /*
+             * `eachById` rather than `each`, and the difference only shows on
+             * a `sync` queue — which is local development and some CI shapes.
+             * `each()` pages by **offset** over a result set the dispatched
+             * job removes rows from, so once the first page's sends complete
+             * inline, the second page's offset skips exactly as many rows as
+             * were just handled and those instances are silently never
+             * dispatched. Paging by id cannot skip.
+             */
+            ->eachById(function (ActionInstance $instance) use (&$dispatched): void {
                 dispatch((new RunAutomation($instance->getKey()))->forTeam($instance->team_id));
                 $dispatched++;
             });

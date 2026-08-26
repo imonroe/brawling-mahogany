@@ -73,6 +73,7 @@ it('stops everything already queued', function (): void {
         'sandbox_mode' => false,
         'hourly_send_limit' => 60,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ])->assertRedirect();
 
     // The rail is asked in the worker rather than at dispatch, so the proof is
@@ -98,6 +99,7 @@ it('releases what it was holding when the switch goes back off', function (): vo
         'sandbox_mode' => false,
         'hourly_send_limit' => 60,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ]);
 
     app(ExecuteAction::class)->handle($instance, $this->team->fresh());
@@ -120,6 +122,7 @@ it('does not reset how long sending has been off when another field is saved', f
         'sandbox_mode' => false,
         'hourly_send_limit' => 30,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ]);
 
     expect($this->team->fresh()->sends_disabled_at->toDateTimeString())
@@ -134,6 +137,7 @@ it('refuses a limit of zero', function (): void {
         'sandbox_mode' => false,
         'hourly_send_limit' => 0,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ])->assertSessionHasErrors('hourly_send_limit');
 });
 
@@ -150,6 +154,7 @@ it('clears the reason when sending is turned back on', function (): void {
         'sandbox_mode' => false,
         'hourly_send_limit' => 60,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ]);
 
     expect($this->team->fresh()->sends_disabled_reason)->toBeNull();
@@ -164,6 +169,7 @@ it('audits who stopped it', function (): void {
         'sandbox_mode' => false,
         'hourly_send_limit' => 60,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ]);
 
     $entry = AuditEntry::query()->where('action', 'team.send_safety_updated')->sole();
@@ -178,6 +184,7 @@ it('turns sandbox mode on from the screen', function (): void {
         'sandbox_mode' => true,
         'hourly_send_limit' => 60,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ]);
 
     expect($this->team->fresh()->sandbox_mode)->toBeTrue();
@@ -199,7 +206,79 @@ it('does not let an ordinary member reach the switch', function (): void {
         'sandbox_mode' => false,
         'hourly_send_limit' => 60,
         'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
     ])->assertForbidden();
 
     expect($this->team->fresh()->sendsAreDisabled())->toBeFalse();
+});
+
+it('lets a team end the review window', function (): void {
+    /*
+     * The screen rendered this read-only while `automation.md` promised *"you
+     * can turn this off in team settings once you trust what you have
+     * written"* — S17's finding, one control over. A safety default a team
+     * cannot leave is not a default, it is a limitation.
+     */
+    $this->team->forceFill(['approval_required_until' => now()->addDays(20)])->save();
+
+    $this->patch('/settings/sending', [
+        'sends_disabled' => false,
+        'sandbox_mode' => false,
+        'hourly_send_limit' => 60,
+        'daily_send_limit' => 200,
+        'hold_all_for_review' => false,
+    ]);
+
+    expect($this->team->fresh()->approvalIsMandatory())->toBeFalse();
+});
+
+it('starts a fresh month when a team turns the window back on', function (): void {
+    $this->team->forceFill(['approval_required_until' => null])->save();
+
+    $this->patch('/settings/sending', [
+        'sends_disabled' => false,
+        'sandbox_mode' => false,
+        'hourly_send_limit' => 60,
+        'daily_send_limit' => 200,
+        'hold_all_for_review' => true,
+    ]);
+
+    expect($this->team->fresh()->approvalIsMandatory())->toBeTrue()
+        ->and($this->team->fresh()->approval_required_until->isAfter(now()->addDays(29)))->toBeTrue();
+});
+
+it('does not extend a running window when another field is saved', function (): void {
+    // Same rule as the kill switch's timestamp: saving the form to change an
+    // hourly limit must not quietly buy the team another month of review.
+    $ends = now()->addDays(5);
+
+    $this->team->forceFill(['approval_required_until' => $ends])->save();
+
+    $this->patch('/settings/sending', [
+        'sends_disabled' => false,
+        'sandbox_mode' => false,
+        'hourly_send_limit' => 30,
+        'daily_send_limit' => 200,
+        'hold_all_for_review' => true,
+    ]);
+
+    expect($this->team->fresh()->approval_required_until->toDateTimeString())
+        ->toBe($ends->toDateTimeString());
+});
+
+it('counts only emails against the hour on the screen', function (): void {
+    // The number under the limit has to be the number the limit is about, or
+    // the screen tells a team they are at 58 of 60 when the ceiling sees 12.
+    ActionInstance::factory()->count(3)->creatingATask()->sent()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    ActionInstance::factory()->sent()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $this->get('/settings/sending')
+        ->assertInertia(fn ($page) => $page->where('sentInTheLastHour', 1));
 });

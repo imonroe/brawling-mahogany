@@ -356,3 +356,75 @@ it('offers no route that deletes a message', function (): void {
 
     unset($instance);
 });
+
+it('refuses an edit while a field the approver never touched is malformed', function (): void {
+    /*
+     * PR #175's finding arriving through the approval path instead of the
+     * template editor. `applyEdits()` assigned `malformed = []` with a comment
+     * claiming it was recomputed — the comment describing the intention and
+     * the code doing the opposite, since `strayBraceRuns()` only ever ran
+     * against the value being edited.
+     *
+     * So an approver who fixed the body released a **subject** still carrying
+     * `{{ client_name }`, past the `isComplete()` check the rails depend on,
+     * and the client read the template's own internals in their inbox.
+     */
+    $instance = queued([
+        'payload' => [
+            ...ActionInstance::factory()->definition()['payload'],
+            'subject' => 'Update on {{ client_name }',
+            'malformed' => ['{{'],
+        ],
+    ]);
+
+    $this->post("/messages/{$instance->getKey()}/approval", [
+        'bodyText' => 'The inspection is booked for Friday.',
+    ])->assertSessionHas('error');
+
+    expect($instance->fresh()->state)->toBe(AutomationState::AwaitingApproval)
+        ->and($instance->fresh()->rendered()->malformed)->toBe(['{{']);
+});
+
+it('clears a stale malformed entry once the words behind it are fixed', function (): void {
+    // The other direction, and the one that makes "recomputed" true rather
+    // than "cleared": a list that only ever grew would block an approval that
+    // is now sound.
+    $instance = queued([
+        'payload' => [
+            ...ActionInstance::factory()->definition()['payload'],
+            'bodyText' => 'Hello {{ client_name }, your inspection is booked.',
+            'malformed' => ['{{'],
+        ],
+    ]);
+
+    $this->post("/messages/{$instance->getKey()}/approval", [
+        'bodyText' => 'Hello Dana, your inspection is booked.',
+    ])->assertSessionMissing('error');
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Pending)
+        ->and($instance->fresh()->rendered()->malformed)->toBe([]);
+});
+
+it('keeps a failure on the screen however much has been sent since', function (): void {
+    /*
+     * The failures used to be filtered out of the 25 most-recent rows
+     * client-side, so a team that sent 25 messages after a failure lost it off
+     * the screen entirely — while `automation.md` promises *"it is the thing
+     * you most need to notice"*. A list that silently drops the row it exists
+     * for is worse than no list.
+     */
+    ActionInstance::factory()->failed()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'executed_at' => now()->subDays(2),
+    ]);
+
+    ActionInstance::factory()->count(30)->sent()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $this->get('/messages')->assertInertia(fn ($page) => $page
+        ->has('failing', 1)
+        ->where('totals.failing', 1));
+});

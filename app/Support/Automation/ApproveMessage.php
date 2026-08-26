@@ -335,8 +335,35 @@ final class ApproveMessage
             ));
         }
 
-        // Recomputed outright: it is a property of the text and nothing else.
-        $payload['malformed'] = [];
+        /*
+         * `malformed` **is** recomputed, over all three fields.
+         *
+         * It used to be assigned `[]` with a comment claiming it was
+         * recomputed, which was the comment describing the intention and the
+         * code doing the opposite: `strayBraceRuns()` ran only against the
+         * value being edited, so an approver who fixed the body released a
+         * subject still carrying `{{ client_name }` — PR #175's finding
+         * arriving through the approval path instead of the template editor,
+         * and past the `isComplete()` check the rails depend on.
+         *
+         * A property of the text is only a property of the text if you read
+         * the text.
+         */
+        $payload['malformed'] = array_values(array_unique([
+            ...MergeFields::strayBraceRuns(
+                is_string($payload['subject'] ?? null) ? $payload['subject'] : null,
+            ),
+            // Markup, so `<style>` and `<script>` blocks come out before the
+            // braces are counted — the same relaxation `RenderMessage` makes,
+            // and for the same reason: nested CSS rules close with `}}`.
+            ...MergeFields::strayBraceRuns(
+                is_string($payload['bodyHtml'] ?? null) ? $payload['bodyHtml'] : null,
+                markup: true,
+            ),
+            ...MergeFields::strayBraceRuns(
+                is_string($payload['bodyText'] ?? null) ? $payload['bodyText'] : null,
+            ),
+        ]));
 
         $instance->forceFill(['payload' => $payload]);
 

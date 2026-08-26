@@ -45,6 +45,9 @@ with a banner on it. New teams start here.
 **Limits per hour and per day** cap how much can go out. Reaching one pauses
 sending rather than cancelling it.
 
+**Hold every outbound email for review** is on for a team's first month and can
+be turned off here once you trust your templates.
+
 The detail is in [Automated messages](/help/automation).
 
 ## Roles

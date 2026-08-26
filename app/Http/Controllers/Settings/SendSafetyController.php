@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Settings;
 
+use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
 use App\Http\Controllers\Controller;
 use App\Models\ActionInstance;
+use App\Models\Team;
 use App\Support\Audit\AuditLogger;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\RedirectResponse;
@@ -71,8 +73,15 @@ class SendSafetyController extends Controller
                 ])
                 ->whereNull('message_key')
                 ->count(),
+            /*
+             * Counted the same way `SendRails` counts it, emails only — the
+             * number under the limit has to be the number the limit is
+             * actually about, or the screen tells a team they are at 58 of 60
+             * when the ceiling sees 12.
+             */
             'sentInTheLastHour' => ActionInstance::query()
                 ->where('state', AutomationState::Sent)
+                ->where('action_type', AutomationActionType::SendEmail)
                 ->where('executed_at', '>=', now()->subHour())
                 ->count(),
         ]);
@@ -100,6 +109,19 @@ class SendSafetyController extends Controller
              */
             'hourly_send_limit' => ['required', 'integer', 'between:1,500'],
             'daily_send_limit' => ['required', 'integer', 'between:1,5000'],
+
+            /*
+             * F5.7's window, as something a person can end.
+             *
+             * `automation.md` said *"you can turn this off in team settings
+             * once you trust what you have written"* while the screen rendered
+             * it read-only — S17's finding, one control over: a row nothing
+             * can reach is a rule nobody is following. A safety default a team
+             * cannot leave is not a default, it is a limitation, and a team
+             * that cannot leave it will find a way around it that nobody
+             * audits.
+             */
+            'hold_all_for_review' => ['required', 'boolean'],
         ]);
 
         $wasDisabled = $team->sendsAreDisabled();
@@ -125,6 +147,21 @@ class SendSafetyController extends Controller
             default => null,
         };
 
+        /*
+         * Same rule as the timestamp above: a window already running is left
+         * where it is. Saving the form to change an hourly limit must not
+         * silently extend the review period by another month, and a team that
+         * ends the window and then changes its mind starts a fresh one rather
+         * than resuming the remains of the old.
+         */
+        $holdForReview = (bool) $validated['hold_all_for_review'];
+
+        $reviewWindow = match (true) {
+            $holdForReview && ! $team->approvalIsMandatory() => now()->addDays(Team::APPROVAL_WINDOW_DAYS),
+            $holdForReview => $team->approval_required_until,
+            default => null,
+        };
+
         $team->forceFill([
             'sends_disabled_at' => $disabledAt,
             'sends_disabled_reason' => $nowDisabled
@@ -133,6 +170,7 @@ class SendSafetyController extends Controller
             'sandbox_mode' => (bool) $validated['sandbox_mode'],
             'hourly_send_limit' => $validated['hourly_send_limit'],
             'daily_send_limit' => $validated['daily_send_limit'],
+            'approval_required_until' => $reviewWindow,
         ])->save();
 
         /*

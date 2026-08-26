@@ -22,8 +22,9 @@ The waiting is the part worth understanding, so it has its own section below.
 > **Your first month, everything waits.** For a new team, every outbound email
 > is held for review regardless of how its automation is set up. An email to the
 > wrong client cannot be recalled, and a template's first few real sends are
-> when a mistake in it is most likely and least expected. You can turn this off
-> in team settings once you trust what you have written.
+> when a mistake in it is most likely and least expected. **Settings →
+> Sending** turns it off when you trust what you have written, and turning it
+> back on starts a fresh month.
 
 ## Message templates
 
@@ -70,7 +71,9 @@ or who a home would "suit".
 On a stage in the template editor, **Add automation**. Three questions:
 
 **When** — the stage starts, the stage completes, the workflow starts or
-completes, or a requirement clears.
+completes, or a requirement clears. _A requirement clears_ covers every kind:
+one somebody ticks by hand, and one that comes true on its own because the
+required tasks got done.
 
 **Then** — send an email, create a task, or prompt somebody to do it by hand.
 
@@ -150,10 +153,13 @@ settings when you are ready.
 **A limit per hour and per day.** If a template goes wrong in a loop, this is
 what stops it at sixty rather than six thousand. Reaching the limit **pauses**
 sending rather than cancelling it — the messages go when the hour rolls over.
+Only emails count against it; tasks an automation creates reach nobody outside
+the team.
 
 **A switch that stops everything.** One toggle in team settings, and it catches
-what is already queued as well as what has not been prepared yet. This is the
-one to reach for when something is wrong and you are not yet sure what.
+what is already queued as well as what has not been prepared yet. Held, not
+cancelled — turning it back off releases them. This is the one to reach for when
+something is wrong and you are not yet sure what.
 
 ## What is still to come
 

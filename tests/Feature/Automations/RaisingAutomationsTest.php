@@ -12,8 +12,10 @@ use App\Models\ActionDefinition;
 use App\Models\ActionInstance;
 use App\Models\Deal;
 use App\Models\DealParticipant;
+use App\Models\GateTemplate;
 use App\Models\MessageTemplate;
 use App\Models\StageTemplate;
+use App\Models\TaskTemplate;
 use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Models\WorkflowTemplate;
@@ -426,4 +428,161 @@ it('ignores an inactive automation', function (): void {
     app(AdvanceWorkflow::class)->handle($workflow, $this->member);
 
     expect(ActionInstance::query()->count())->toBe(0);
+});
+
+it('opens F5.7’s review window when a team is created', function (): void {
+    /*
+     * The rail PRD §4.5 calls a launch blocker, and it was live for every team
+     * that already existed and dead for every team it was written for. The
+     * migration's own comment said *"set on team creation"* and nothing kept
+     * the promise: `ProvisionTeam` writes four columns and this was not one of
+     * them, the column has no database default, and there was no hook.
+     *
+     * Fixed on the model rather than in `ProvisionTeam`, because that is not
+     * the only door — `/admin` provisions teams and a later slice adds signup.
+     */
+    [$fresh] = $this->teamWithMember();
+
+    expect($fresh->approvalIsMandatory())->toBeTrue()
+        ->and($fresh->approval_required_until->isAfter(now()->addDays(29)))->toBeTrue();
+});
+
+it('holds a new team’s first outbound email even when the automation says otherwise', function (): void {
+    // The end-to-end version of the case above: the automation's own setting
+    // cannot opt out of the window, which is the difference between a default
+    // and a suggestion.
+    [$fresh, $member] = $this->teamWithMember();
+
+    $this->actingAsPerson($member, $fresh);
+
+    $deal = Deal::factory()->create(['team_id' => $fresh->getKey()]);
+
+    $client = TeamMembership::factory()->create([
+        'team_id' => $fresh->getKey(),
+        'first_name' => 'Dana',
+        'last_name' => 'Okafor',
+        'email' => 'dana@example.test',
+    ]);
+
+    DealParticipant::factory()->create([
+        'team_id' => $fresh->getKey(),
+        'deal_id' => $deal->getKey(),
+        'team_membership_id' => $client->getKey(),
+        'participant_role' => ParticipantRole::Seller,
+        'is_primary' => true,
+    ]);
+
+    $message = MessageTemplate::factory()->create([
+        'team_id' => $fresh->getKey(),
+        'subject' => 'Hello {{ client_name }}',
+        'body_text' => 'Your listing is live.',
+        'body_html' => null,
+        'recipient_rule' => [
+            'type' => RecipientRuleType::ParticipantRole->value,
+            'participantRole' => ParticipantRole::Seller->value,
+        ],
+    ]);
+
+    $template = WorkflowTemplate::factory()->create(['team_id' => $fresh->getKey()]);
+
+    $stage = StageTemplate::factory()->create([
+        'workflow_template_id' => $template->getKey(),
+        'sort_order' => 0,
+    ]);
+
+    ActionDefinition::factory()->create([
+        'team_id' => $fresh->getKey(),
+        'stage_template_id' => $stage->getKey(),
+        'trigger' => AutomationTrigger::StageCompletion,
+        'action_type' => AutomationActionType::SendEmail,
+        'message_template_id' => $message->getKey(),
+        'config' => [],
+        'requires_approval' => false,
+    ]);
+
+    $workflow = app(InstantiateWorkflow::class)->handle($deal, $template);
+
+    app(AdvanceWorkflow::class)->handle($workflow, $member);
+
+    expect(ActionInstance::query()->sole()->state)->toBe(AutomationState::AwaitingApproval);
+});
+
+it('raises gate_cleared for a gate no person ticks', function (): void {
+    /*
+     * `confirm()` covers the manual tick and covered nothing else, so a team
+     * building *"when the required tasks are done, email the buyer"* got an
+     * automation that saved cleanly, showed as active on S44, and never fired
+     * — the silent non-delivery `CLAUDE.md` calls the worst possible answer to
+     * *"has the client been told?"*.
+     *
+     * `required_tasks_complete` clears here without anybody touching a gate:
+     * the evaluator notices the tasks are done, which is exactly the path that
+     * was unwired.
+     */
+    $template = templateWithAutomations([]);
+
+    $stageTemplate = $template->stageTemplates()->where('sort_order', 0)->sole();
+
+    $gateTemplate = GateTemplate::factory()->create([
+        'stage_template_id' => $stageTemplate->getKey(),
+        'gate_type' => 'required_tasks_complete',
+        'label' => 'The paperwork is in',
+        'sort_order' => 0,
+    ]);
+
+    TaskTemplate::factory()->required()->create([
+        'stage_template_id' => $stageTemplate->getKey(),
+        'title' => 'File the disclosure',
+    ]);
+
+    ActionDefinition::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'stage_template_id' => $stageTemplate->getKey(),
+        'trigger' => AutomationTrigger::GateCleared,
+        'config' => ['gateTemplateId' => $gateTemplate->getKey(), 'taskTitle' => 'Tell the buyer'],
+    ]);
+
+    $workflow = instantiate($template);
+
+    // Blocked: the required task is open, so nothing has cleared.
+    app(AdvanceWorkflow::class)->handle($workflow, $this->member);
+
+    expect(ActionInstance::query()->count())->toBe(0);
+
+    $workflow->stages()->where('sort_order', 0)->sole()
+        ->tasks()->update(['completed_at' => now()]);
+
+    app(AdvanceWorkflow::class)->handle($workflow->fresh(), $this->member);
+
+    expect(ActionInstance::query()->sole()->trigger)->toBe(AutomationTrigger::GateCleared);
+});
+
+it('does not raise gate_cleared a second time when the gate is re-evaluated', function (): void {
+    // The dedupe carries this, and it has to: every advance attempt
+    // re-evaluates every gate, so a gate that stays met would otherwise fire
+    // on each press of a button that refuses.
+    $template = templateWithAutomations([]);
+
+    $stageTemplate = $template->stageTemplates()->where('sort_order', 0)->sole();
+
+    $gateTemplate = GateTemplate::factory()->create([
+        'stage_template_id' => $stageTemplate->getKey(),
+        'gate_type' => 'required_tasks_complete',
+        'sort_order' => 0,
+    ]);
+
+    ActionDefinition::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'stage_template_id' => $stageTemplate->getKey(),
+        'trigger' => AutomationTrigger::GateCleared,
+        'config' => ['gateTemplateId' => $gateTemplate->getKey(), 'taskTitle' => 'Tell the buyer'],
+    ]);
+
+    $workflow = instantiate($template);
+
+    // No required tasks at all, so the gate is met on the first evaluation.
+    app(AdvanceWorkflow::class)->handle($workflow, $this->member);
+    app(AdvanceWorkflow::class)->handle($workflow->fresh(), $this->member);
+
+    expect(ActionInstance::query()->where('trigger', AutomationTrigger::GateCleared)->count())->toBe(1);
 });
