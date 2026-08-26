@@ -447,19 +447,21 @@ if not operator_key:
 settings = [
     ("APP_ENV", "staging"),
     ("APP_DEBUG", "false"),
-    # The product's own name, and the browser-tab copy of it.
+    # The product's own name, and the name on mail the product itself writes.
     #
     # These are in the managed block rather than left to .env.example because
-    # the .env stage only copies the example when the file is **absent** — so
-    # an environment provisioned before APP_PRODUCT_NAME existed would never
-    # gain it, and VITE_APP_NAME would keep resolving to APP_NAME, which is
+    # the .env stage copies the example only when the file is **absent** — so a
+    # box provisioned before APP_PRODUCT_NAME existed would never gain it, and
+    # MAIL_FROM_NAME would keep resolving to "${APP_NAME}", which is
     # deliberately still the pre-rename codename. Dotenv reads the last
     # definition, so these win over an older interpolation above.
+    #
+    # VITE_APP_NAME is deliberately **not** here. Vite compiles it into the
+    # bundle at build time, and the image builds with `cp .env.example .env`
+    # (.dockerignore excludes .env), so the runtime file cannot reach it. The
+    # value that matters for the browser tab is .env.example's, and setting it
+    # here would look like a fix while changing nothing.
     ("APP_PRODUCT_NAME", "Goldieflow"),
-    ("VITE_APP_NAME", "Goldieflow"),
-    # And the name on mail the product itself writes — an alert, a reset link,
-    # a template test send. An existing .env sets this to "${APP_NAME}", which
-    # is the same stale interpolation for the same reason.
     ("MAIL_FROM_NAME", "Goldieflow"),
     # Caddy terminates TLS itself once it is told a hostname (Deployment §3).
     ("SERVER_NAME", server_name),

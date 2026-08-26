@@ -67,6 +67,20 @@ codename, because moving it orphans those keyspaces and signs everybody out.
 the *"via Goldieflow"* half of a client-facing `From` line. It is the only one
 of the two that is safe to change, and changing it changes nothing but words.
 
+**Both `config('app.name')` and `config('app.product_name')` resolve to it**,
+and that is deliberate rather than redundant. Every infrastructure derivation
+calls `env('APP_NAME')` **directly** — `config/session.php`, `config/cache.php`,
+`config/database.php`, `config/horizon.php` — so the config key has only display
+readers, and most of them are in vendor views this application cannot edit.
+Fortify's password-reset email rendered the codename four times until it was
+corrected. Application code should read `app.product_name`, because saying which
+question you are asking is worth a few characters.
+
+`VITE_APP_NAME` is a **build-time** value: Vite compiles it into the bundle, the
+image builds with `cp .env.example .env`, and `.dockerignore` excludes `.env`.
+Setting it in a runtime `.env` changes nothing, which is why the provisioning
+script's managed block deliberately does not.
+
 They were the same key until round 2 of review on #12 found teams sending
 *"Bosart Group via Brawling Mahogany"* to their sellers. The rule that follows
 from it: **before pinning a display string to an existing config value, check

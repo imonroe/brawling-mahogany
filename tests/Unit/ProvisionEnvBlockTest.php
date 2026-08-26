@@ -523,13 +523,19 @@ it('gives an existing .env the product name it was provisioned before', function
     /*
      * Round 3 of review on #12. The stage copies `.env.example` only when the
      * file is **absent**, so a box provisioned before `APP_PRODUCT_NAME`
-     * existed would never gain it — and `VITE_APP_NAME="${APP_NAME}"` is
-     * compiled into the bundle, so every page title on that box would go on
-     * reading the pre-rename codename indefinitely.
+     * existed would never gain it, and `MAIL_FROM_NAME="${APP_NAME}"` would go
+     * on resolving to the pre-rename codename on every message the product
+     * itself writes.
      *
      * The managed block is the only part of the file this script owns, and
-     * Dotenv reads the last definition, so putting both keys there is what
+     * Dotenv reads the last definition, so putting the keys there is what
      * reaches an environment that already exists.
+     *
+     * **`VITE_APP_NAME` is not one of them**, and round 4 of review is why:
+     * Vite compiles it into the bundle at build time, and the image builds
+     * with `cp .env.example .env` while `.dockerignore` excludes `.env`. A
+     * runtime value cannot reach the bundle, so writing one here would look
+     * like a fix and change nothing.
      */
     file_put_contents(
         $this->workspace.'/.env',
@@ -542,8 +548,10 @@ it('gives an existing .env the product name it was provisioned before', function
     $env = file_get_contents($this->workspace.'/.env');
 
     expect($env)->toContain('APP_PRODUCT_NAME=Goldieflow')
-        ->and($env)->toContain('VITE_APP_NAME=Goldieflow')
         ->and($env)->toContain('MAIL_FROM_NAME=Goldieflow')
+        // Not VITE_APP_NAME: a runtime value cannot reach a bundle Vite
+        // compiled from `.env.example` inside the image.
+        ->and($env)->not->toContain('VITE_APP_NAME=Goldieflow')
         // And the infrastructure identifier is left exactly where it was.
         ->and($env)->toContain('APP_NAME="Brawling Mahogany"');
 });

@@ -346,11 +346,19 @@ it('never signs a client’s email with the pre-rename codename', function (): v
      * value — including `APP_NAME`'s `Brawling Mahogany`, which is what teams
      * were actually sending to their sellers.
      *
-     * `APP_NAME` stays the codename deliberately: it is slugged into the
-     * session cookie and three cache prefixes, and CLAUDE.md's rename note is
-     * explicit that moving one of those orphans a keyspace. So the product
-     * name is a **separate key**, and this asserts the separation rather than
-     * the value of either.
+     * The **env var** `APP_NAME` stays the codename deliberately: it is slugged
+     * into the session cookie and three cache prefixes, and CLAUDE.md's rename
+     * note is explicit that moving one of those orphans a keyspace. Round 4
+     * then found that `config('app.name')` has no infrastructure reader at all
+     * — every prefix calls `env('APP_NAME')` directly — so that config key now
+     * resolves to the product too, which is what fixed the vendor-owned
+     * password-reset email.
+     *
+     * So the thing to assert against is `env('APP_NAME')`, not
+     * `config('app.name')`. This test asserted the latter and became
+     * self-contradictory the moment the two stopped agreeing, which is a
+     * smaller version of the same lesson: a test written against a config key
+     * is testing whatever that key happens to mean today.
      */
     $this->team->forceFill([
         'name' => 'Bosart Group',
@@ -361,7 +369,7 @@ it('never signs a client’s email with the pre-rename codename', function (): v
         ->and(SendingIdentity::displayName($this->team))
         ->not->toContain('Brawling')
         ->and(SendingIdentity::displayName($this->team))
-        ->not->toContain(config()->string('app.name'));
+        ->not->toContain((string) env('APP_NAME'));
 });
 
 it('uses the sending identity name a team set, when they set one', function (): void {
@@ -777,4 +785,64 @@ it('replies to the inviter’s team address rather than their login address', fu
 
     expect($replyTo[0]->getAddress())->toBe('emily@bosart.test')
         ->and($replyTo[0]->getAddress())->not->toBe('login@credentials.test');
+});
+
+it('never puts a platform operator’s sign-in address in an invitation', function (): void {
+    /*
+     * PRD §5.1 step 1: an operator provisions a team and invites its first
+     * owner. The inviter has **no membership in a team created four lines
+     * earlier**, so `displayNameWithin()` falls through to `$this->email` —
+     * and its own docblock argues that is not a disclosure, because it was
+     * written for an audit entry read by people already inside the team.
+     *
+     * A stranger with no account reading an invitation is a different reader.
+     */
+    $operator = Person::factory()->create(['email' => 'ian@platform.test']);
+    $team = Team::factory()->create(['name' => 'Bosart Group']);
+
+    $invitation = TeamInvitation::factory()->create([
+        'team_id' => $team->getKey(),
+        'invited_by_person_id' => $operator->getKey(),
+    ]);
+
+    Mail::to('newcomer@example.test')->send(
+        new TeamInvitationMail($invitation, TeamInvitation::newToken()),
+    );
+
+    $message = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage();
+    $body = $message->getHtmlBody().$message->getTextBody();
+
+    expect($body)->not->toContain('ian@platform.test')
+        // The truer sentence, which both views already had a branch for.
+        ->and($body)->toContain('Bosart Group');
+});
+
+it('signs a platform-provisioned invitation as the product, and still names the team', function (): void {
+    /*
+     * The same flow, from the envelope's side. Every link of the reply chain
+     * is empty — the operator has no membership, the team has no settings and
+     * no owner yet — so the From signs as the product rather than naming an
+     * agency nobody can answer for. That is this class's rule reaching its
+     * least obvious case, and it is the right answer: the recipient is being
+     * invited to become the first member of a team that has none.
+     *
+     * The team is still named, in the one header that can carry it honestly.
+     */
+    $operator = Person::factory()->create();
+    $team = Team::factory()->create(['name' => 'Bosart Group']);
+
+    $invitation = TeamInvitation::factory()->create([
+        'team_id' => $team->getKey(),
+        'invited_by_person_id' => $operator->getKey(),
+    ]);
+
+    Mail::to('newcomer@example.test')->send(
+        new TeamInvitationMail($invitation, TeamInvitation::newToken()),
+    );
+
+    $message = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage();
+
+    expect($message->getFrom()[0]->getName())->toBe('Goldieflow')
+        ->and($message->getReplyTo())->toBe([])
+        ->and($message->getSubject())->toContain('Bosart Group');
 });

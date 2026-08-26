@@ -48,6 +48,29 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
 
+        /*
+         * **What the product calls itself, pinned where a pin actually holds.**
+         *
+         * This was `phpunit.xml` `<env>` entries, and they did nothing. PHPUnit
+         * writes an `<env>` with `putenv()`/`$_ENV` and **skips a name already
+         * present in `getenv()`**; Laravel's `Env` reads `$_SERVER` first; and
+         * `compose.yaml`'s `env_file: .env` puts every key of a developer's
+         * `.env` into the container environment that `make check` runs in. So
+         * a developer whose `.env` predates the `APP_PRODUCT_NAME` split — which
+         * is every developer, since `make setup` never rewrites an existing one
+         * — got ten failures locally while CI, which copies `.env.example`, was
+         * green.
+         *
+         * Setting the config directly involves no precedence rule at all.
+         * `tests/Unit/ProductNameSeparationTest.php` asserts that this pin is
+         * in force, because a pin with no test is a hope — which is exactly
+         * what the `<env>` version turned out to be.
+         */
+        config([
+            'app.product_name' => 'Goldieflow',
+            'mail.from.name' => 'Goldieflow',
+        ]);
+
         Mail::fake();
         Notification::fake();
         Storage::fake(config()->string('filesystems.default'));

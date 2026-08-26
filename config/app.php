@@ -15,7 +15,30 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Laravel'),
+    /*
+     * **`APP_PRODUCT_NAME`, not `APP_NAME`** — and this line is safe to change
+     * for a reason worth checking rather than trusting: every infrastructure
+     * derivation reads `env('APP_NAME')` **directly**, never through this key.
+     * `config/session.php`, `config/cache.php`, `config/database.php` and
+     * `config/horizon.php` each call `Str::slug((string) env('APP_NAME', …))`,
+     * so the session cookie and the three prefixes are untouched by what this
+     * resolves to.
+     *
+     * Which leaves `config('app.name')` with only *display* readers, exactly as
+     * Laravel documents it above — and most of them are in vendor views this
+     * application cannot edit. Fortify's password-reset email rendered the
+     * pre-rename codename four times and none of the product's name, because
+     * `Illuminate\Notifications`' email view and `Illuminate\Mail`'s message
+     * components all read this key. Round 2 added `app.product_name` beside it
+     * and left this one on `APP_NAME`, which fixed the code we own and nothing
+     * we do not.
+     *
+     * Both keys now resolve to the same env var. `app.product_name` stays
+     * because application code should say which of the two questions it is
+     * asking; this one is here so a framework view asking the other one gets a
+     * true answer instead of a codename.
+     */
+    'name' => env('APP_PRODUCT_NAME', 'Goldieflow'),
 
     /*
     |--------------------------------------------------------------------------
