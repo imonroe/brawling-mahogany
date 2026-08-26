@@ -20,9 +20,9 @@
 @section('content')
     <p style="margin:0 0 20px;">
         @if ($inviterName)
-            {{ $inviterName }} has invited you to join {{ $teamName }} on {{ config('app.name') }}.
+            {{ $inviterName }} has invited you to join {{ $teamName }} on {{ config('app.product_name') }}.
         @else
-            You’ve been invited to join {{ $teamName }} on {{ config('app.name') }}.
+            You’ve been invited to join {{ $teamName }} on {{ config('app.product_name') }}.
         @endif
     </p>
 @endsection

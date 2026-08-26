@@ -300,8 +300,8 @@ it('absorbs every stray complete block rather than stacking on them', function (
 it('reports an interpolated APP_KEY instead of judging it', function (): void {
     // `APP_KEY="${LEGACY_KEY}"` resolves to whatever LEGACY_KEY holds, which
     // the script cannot know — and this repo's own .env.example teaches the
-    // shape with VITE_APP_NAME="${APP_NAME}". Leaving theirs alone is right;
-    // doing it silently is how a box ends up not booting.
+    // shape with VITE_APP_NAME="${APP_PRODUCT_NAME}". Leaving theirs alone is
+    // right; doing it silently is how a box ends up not booting.
     file_put_contents(
         $this->workspace.'/.env', "LEGACY_KEY=\nAPP_KEY=\"\${LEGACY_KEY}\"\n", LOCK_EX,
     );
@@ -517,4 +517,41 @@ it('leaves the file readable only by its owner', function (): void {
     runEnvStage($this->workspace);
 
     expect(substr(sprintf('%o', fileperms($this->workspace.'/.env')), -4))->toBe('0600');
+});
+
+it('gives an existing .env the product name it was provisioned before', function (): void {
+    /*
+     * Round 3 of review on #12. The stage copies `.env.example` only when the
+     * file is **absent**, so a box provisioned before `APP_PRODUCT_NAME`
+     * existed would never gain it, and `MAIL_FROM_NAME="${APP_NAME}"` would go
+     * on resolving to the pre-rename codename on every message the product
+     * itself writes.
+     *
+     * The managed block is the only part of the file this script owns, and
+     * Dotenv reads the last definition, so putting the keys there is what
+     * reaches an environment that already exists.
+     *
+     * **`VITE_APP_NAME` is not one of them**, and round 4 of review is why:
+     * Vite compiles it into the bundle at build time, and the image builds
+     * with `cp .env.example .env` while `.dockerignore` excludes `.env`. A
+     * runtime value cannot reach the bundle, so writing one here would look
+     * like a fix and change nothing.
+     */
+    file_put_contents(
+        $this->workspace.'/.env',
+        "APP_NAME=\"Brawling Mahogany\"\nAPP_KEY=base64:existing=\nVITE_APP_NAME=\"\${APP_NAME}\"\n",
+        LOCK_EX,
+    );
+
+    runEnvStage($this->workspace);
+
+    $env = file_get_contents($this->workspace.'/.env');
+
+    expect($env)->toContain('APP_PRODUCT_NAME=Goldieflow')
+        ->and($env)->toContain('MAIL_FROM_NAME=Goldieflow')
+        // Not VITE_APP_NAME: a runtime value cannot reach a bundle Vite
+        // compiled from `.env.example` inside the image.
+        ->and($env)->not->toContain('VITE_APP_NAME=Goldieflow')
+        // And the infrastructure identifier is left exactly where it was.
+        ->and($env)->toContain('APP_NAME="Brawling Mahogany"');
 });

@@ -42,7 +42,10 @@ the container which uses them transparently."*
 | `APP_KEY` | generated | generated per run | real, unique | real, unique |
 | `DB_PASSWORD` | developer's choice | fixed, throwaway | real, unique | real, unique |
 | `REDIS_PASSWORD` | none | none | real | real |
-| `MAIL_*` | Mailpit, no credentials | array driver | **SES sandbox** | SES production |
+| `MAIL_*` | Mailpit, no credentials | array driver | **SES, every recipient redirected** | SES |
+| `APP_NAME` | `Brawling Mahogany` | same | same | same |
+| `APP_PRODUCT_NAME` | `Goldieflow` | same | same | same |
+| `MAIL_FROM_ADDRESS` | anything | `.env.example`'s value — **used**, not unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
 | `MAIL_REDIRECT_TO` | optional | unset | **set — every message redirected** | **must be empty** |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
@@ -51,14 +54,82 @@ the container which uses them transparently."*
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
 | `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
 
+### `APP_NAME` is not the product's name
+
+Two keys, because one was doing two jobs. `APP_NAME` is slugged into the
+session cookie name, the cache prefix, the Redis prefix and the Horizon prefix
+(`config/session.php`, `config/cache.php`, `config/database.php`,
+`config/horizon.php`), which makes it an **infrastructure identifier** — and the
+one CLAUDE.md's rename note is explicit about leaving at the `Brawling Mahogany`
+codename, because moving it orphans those keyspaces and signs everybody out.
+
+`APP_PRODUCT_NAME` is what a person reads: the browser tab, an invitation, and
+the *"via Goldieflow"* half of a client-facing `From` line. It is the only one
+of the two that is safe to change, and changing it changes nothing but words.
+
+**Both `config('app.name')` and `config('app.product_name')` resolve to it**,
+and that is deliberate rather than redundant. Every infrastructure derivation
+calls `env('APP_NAME')` **directly** — `config/session.php`, `config/cache.php`,
+`config/database.php`, `config/horizon.php` — so the config key has only display
+readers, and most of them are in vendor views this application cannot edit.
+Fortify's password-reset email rendered the codename four times until it was
+corrected. Application code should read `app.product_name`, because saying which
+question you are asking is worth a few characters.
+
+`VITE_APP_NAME` is a **build-time** value: Vite compiles it into the bundle, the
+image builds with `cp .env.example .env`, and `.dockerignore` excludes `.env`.
+Setting it in a runtime `.env` changes nothing, which is why the provisioning
+script's managed block deliberately does not.
+
+They were the same key until round 2 of review on #12 found teams sending
+*"Bosart Group via Brawling Mahogany"* to their sellers. The rule that follows
+from it: **before pinning a display string to an existing config value, check
+what else derives from that value.** Here, four keyspaces did.
+
+### The sending identity, and the two things it is not
+
+SES is configured and `monroedigitalconsulting.com` is a verified sending
+domain (#12). Every message this product sends leaves as
+`goldieflow@monroedigitalconsulting.com`, over SMTP.
+
+**It is not a dedicated sending subdomain**, which is what PRD §8.5 asks for.
+The product's reputation is therefore mixed with whatever else that domain
+sends, and a deliverability problem in one is a deliverability problem in the
+other. That is a deliberate trade to get Slice 3 sending — the alternative was
+waiting on the naming decision in #15 — and it is worth revisiting before there
+are enough customers for the reputation to be worth anything.
+
+**It is not necessarily production access.** A verified *domain identity* and a
+production *account* are two different grants: in the SES sandbox an account
+may only send to addresses it has also verified, so a message to a real
+client's inbox is rejected at the API rather than delivered. Both look
+identical from inside this application right up to the moment a client is
+supposed to receive something. Before the first real send, check the account's
+sending status in the SES console — and note that S91's alert (#97) now
+surfaces exactly this failure on the message queue rather than letting it go
+quiet.
+
+**A team's own address never goes in `From`.** It rides in `Reply-To`, which
+needs no DNS and no verification. A `From` SES is not authorised to send as is
+rejected at the API, and one the message is not DKIM-aligned with fails DMARC —
+not SPF, which is evaluated against the envelope MAIL FROM rather than this
+header. What a team *does* get in the inbox line is their **name**:
+`App\Support\Mail\SendingIdentity` composes *"Bosart Group via Goldieflow"*
+onto the verified address, so a client sees the agency they know beside an
+address that would otherwise look forged — and the same class puts their
+`sending_identity_email` in `Reply-To`, so hitting Reply reaches them and not
+the product's mailbox.
+
 ### The two staging guardrails that are not optional
 
 PRD §8.6, restated because both protect somebody else's client:
 
-1. **SES runs in sandbox mode with all mail redirected.** `MAIL_REDIRECT_TO` is
-   set on staging, and `AppServiceProvider` rewrites every recipient to it. The
-   application **refuses to boot in production** with that value set, so the
-   guardrail cannot be left on by accident either.
+1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` is set on staging, and
+   `AppServiceProvider` rewrites every recipient to it. The application
+   **refuses to boot in production** with that value set, so the guardrail
+   cannot be left on by accident either. This is ours and it does not depend on
+   SES's own sandbox — which is the point, since the same SES account now
+   serves both environments.
 2. **A separate AI provider key with its own budget cap.** Staging never
    spends against the production budget, and a runaway loop in a test costs a
    small, capped amount rather than a large, uncapped one.

@@ -9,7 +9,7 @@ import DealLayout from '@/layouts/DealLayout.vue';
 import SettingsLayout from '@/layouts/SettingsLayout.vue';
 import { initializeFlashToast } from '@/lib/flashToast';
 
-const appName = import.meta.env.VITE_APP_NAME || 'Brawling Mahogany';
+const appName = import.meta.env.VITE_APP_NAME || 'Goldieflow';
 
 /**
  * The pages that are *inside* one deal (IA §5.2), and so wear `DealLayout`.

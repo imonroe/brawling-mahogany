@@ -8,11 +8,11 @@ use App\Models\ActionInstance;
 use App\Models\Team;
 use App\Support\Mail\BrandedEmail;
 use App\Support\Mail\MilestoneAnnouncement;
+use App\Support\Mail\SendingIdentity;
 use App\Support\Messages\RenderedMessage;
 use App\Support\Messages\RenderMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Mail\Mailables\Headers;
@@ -35,12 +35,18 @@ use Illuminate\Queue\SerializesModels;
  * ## The From address is not the template's
  *
  * `message_templates.from_identity` is a **reply-to**, not a from. An outbound
- * address has to be one the sending domain is authorised for or it fails SPF
- * and DKIM and lands in spam — which for this product is the same failure as
- * not sending it, except that nobody finds out. So the envelope's from stays
- * the application's verified identity and the team's address is where a reply
- * goes. #94 is where a team gets a verified identity of its own, and this is
- * the line that changes when it does.
+ * address has to be one SES is authorised to send as, or the call is rejected
+ * outright — and one the message is not DKIM-aligned with fails **DMARC** and
+ * lands in spam, which for this product is the same failure as not sending it,
+ * except that nobody finds out. (Not SPF: that is evaluated against the
+ * envelope MAIL FROM, not this header.) So the envelope's from stays the
+ * application's verified identity and a team address is where a reply goes.
+ * #94 is where a team gets a verified identity of its own, and this is the
+ * line that changes when it does.
+ *
+ * Both halves come from one {@see SendingIdentity::for()} call, because they
+ * are one decision: the version that shipped the From without the Reply-To
+ * named the agency over a mailbox the agency does not read.
  *
  * ## The branded layout, and the announcement around it
  *
@@ -102,8 +108,26 @@ class AutomatedMessageMail extends Mailable
          * a regex cannot do — so the mailable keeps a plain variable here and
          * the enumerating test keeps working.
          */
+        /*
+         * The team's name, on the product's verified address, over a reply
+         * that reaches them. A client who has been working with Bosart Group
+         * for six weeks should not receive *"your home is on the market"* from
+         * a product they have never heard of — see {@see SendingIdentity},
+         * which argues why the three slots of this line answer to different
+         * masters and why one call resolves all of them.
+         *
+         * A template's own `from_identity` is the more specific reply address
+         * when it has one; the team's settings and then a team owner stand
+         * behind it.
+         */
+        $identity = SendingIdentity::for(
+            $this->team,
+            $this->instance->messageTemplate?->from_identity,
+        );
+
         return new Envelope(
-            replyTo: $this->replyToAddresses(),
+            from: $identity->from,
+            replyTo: $identity->replyTo,
             subject: $subject,
         );
     }
@@ -159,17 +183,5 @@ class AutomatedMessageMail extends Mailable
                 'redirected' => $this->redirected,
             ],
         );
-    }
-
-    /**
-     * @return array<int, Address>
-     */
-    private function replyToAddresses(): array
-    {
-        $identity = $this->instance->messageTemplate?->from_identity;
-
-        return is_string($identity) && $identity !== ''
-            ? [new Address($identity, $this->team->name)]
-            : [];
     }
 }

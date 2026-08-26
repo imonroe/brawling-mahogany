@@ -8,6 +8,7 @@ use App\Enums\MessageChannel;
 use App\Enums\ParticipantRole;
 use App\Enums\RecipientRuleType;
 use App\Models\MessageTemplate;
+use App\Rules\SendableEmailAddress;
 use App\Rules\ValidMergeFields;
 use App\Support\Messages\MessageBodyLimits;
 use App\Support\Tenancy\TeamContext;
@@ -102,7 +103,7 @@ trait MessageTemplateRules
              * header — and because SES will refuse anything else, later and
              * less legibly.
              */
-            'from_identity' => ['nullable', 'email:rfc', 'max:255'],
+            'from_identity' => ['nullable', 'email:rfc', 'max:255', new SendableEmailAddress],
         ];
     }
 

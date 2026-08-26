@@ -92,7 +92,7 @@ final readonly class BrandedEmail
     public static function product(): self
     {
         return new self(
-            teamName: (string) config('app.name'),
+            teamName: (string) config('app.product_name'),
             accent: EmailPalette::PRIMARY,
             accentForeground: self::foregroundFor(EmailPalette::PRIMARY),
             logoBytes: null,

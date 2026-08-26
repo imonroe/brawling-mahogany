@@ -447,6 +447,22 @@ if not operator_key:
 settings = [
     ("APP_ENV", "staging"),
     ("APP_DEBUG", "false"),
+    # The product's own name, and the name on mail the product itself writes.
+    #
+    # These are in the managed block rather than left to .env.example because
+    # the .env stage copies the example only when the file is **absent** — so a
+    # box provisioned before APP_PRODUCT_NAME existed would never gain it, and
+    # MAIL_FROM_NAME would keep resolving to "${APP_NAME}", which is
+    # deliberately still the pre-rename codename. Dotenv reads the last
+    # definition, so these win over an older interpolation above.
+    #
+    # VITE_APP_NAME is deliberately **not** here. Vite compiles it into the
+    # bundle at build time, and the image builds with `cp .env.example .env`
+    # (.dockerignore excludes .env), so the runtime file cannot reach it. The
+    # value that matters for the browser tab is .env.example's, and setting it
+    # here would look like a fix while changing nothing.
+    ("APP_PRODUCT_NAME", "Goldieflow"),
+    ("MAIL_FROM_NAME", "Goldieflow"),
     # Caddy terminates TLS itself once it is told a hostname (Deployment §3).
     ("SERVER_NAME", server_name),
     ("APP_URL", f"https://{server_name}"),
@@ -534,9 +550,10 @@ Three things left, none of which this script should do for you:
    list, is what to work from. The ones it marks real on staging are:
 
      DB_PASSWORD              REDIS_PASSWORD
-     MAIL_* (SES)             MAIL_REDIRECT_TO   <- set this before anything
-     SENTRY_LARAVEL_DSN          can send; blank means NO redirection, and
-     AWS_* (Spaces bucket)       every message goes to its real recipient
+     MAIL_HOST/PORT/USERNAME/ MAIL_REDIRECT_TO   <- set this before anything
+       PASSWORD/FROM_ADDRESS     can send; blank means NO redirection, and
+     SENTRY_LARAVEL_DSN          every message goes to its real recipient
+     AWS_* (Spaces bucket)
      VAPID_* (web push)
      HORIZON_AUTHORIZED_EMAILS
      the AI provider key and its budget cap

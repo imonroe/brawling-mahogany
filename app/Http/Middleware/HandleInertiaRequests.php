@@ -54,7 +54,7 @@ class HandleInertiaRequests extends Middleware
 
         return [
             ...parent::share($request),
-            'name' => config('app.name'),
+            'name' => config('app.product_name'),
             'auth' => [
                 'user' => $this->personProps($person, $team),
                 // The permissions this person holds *in this team* — the same

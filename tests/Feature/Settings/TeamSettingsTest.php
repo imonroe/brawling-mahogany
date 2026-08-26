@@ -151,3 +151,25 @@ it('refuses an unsigned download', function (): void {
 
     $this->get("/settings/export/{$export->getKey()}/download")->assertForbidden();
 });
+
+it('refuses a reply-to address the mail transport would throw on', function (): void {
+    /*
+     * `emily(work)@bosart.test` passes Laravel's `email` rule — the
+     * parenthesised comment is legal RFC 5322 — and throws when Symfony builds
+     * an `Address` from it, in a worker, after `message_key` has been claimed.
+     * A claimed key is never retried, so saving this once kills every
+     * automated message the team sends, permanently, and the queue blames the
+     * mail transport for a value typed here.
+     *
+     * The rule was added in round 2 of #12 and covered only by a unit test —
+     * so deleting it from this form left the whole suite green, which round 3
+     * proved by doing it. This is the assertion that fails when it is gone.
+     */
+    $this->patch('/settings/team', [
+        'name' => 'Bosart Group',
+        'timezone' => 'America/Denver',
+        'sending_identity_email' => 'emily(work)@bosart.test',
+    ])->assertSessionHasErrors('sending_identity_email');
+
+    expect($this->team->fresh()->sending_identity_email)->toBeNull();
+});
