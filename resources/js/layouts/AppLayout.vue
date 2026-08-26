@@ -86,11 +86,7 @@ const searching = ref(false);
  * Null when the form is unconfigured or switched off, which is the same
  * absence as a guest: no URL, no button, and nothing mounted to hold one.
  */
-const bugReportUrl = computed(
-    () =>
-        (page.props as { bugReport?: { url: string } | null }).bugReport?.url ??
-        null,
-);
+const bugReportUrl = computed(() => page.props.bugReport?.url ?? null);
 
 const reportingBug = ref(false);
 

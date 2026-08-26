@@ -19,10 +19,13 @@
  * **The sandbox names what the form needs and nothing else.** Scripts, its own
  * form submission, its own origin, and a popup — the frame may not navigate
  * the page it is sitting in, open a modal over it, or start a download.
- * `allow-same-origin` means *the form keeps its own origin*, which is what
- * lets it use its own storage and its own cookies; it is not our origin, and
- * the operator who sets `BUG_REPORT_URL` is the only person who chooses what
- * is framed.
+ * `allow-same-origin` means *the form keeps its own origin*, which is what lets
+ * it use its own storage and its own cookies. That it is not **our** origin is
+ * now enforced rather than assumed: `BugReportForm` refuses a URL on the
+ * application's own host, because `allow-scripts allow-same-origin` on a
+ * same-origin document is not a sandbox at all — the frame reaches
+ * `window.parent` and reads the session. A self-host that proxies n8n under the
+ * app's domain is an ordinary layout, not a contrivance.
  *
  * **No referrer.** The URL of the screen somebody is standing on carries a
  * deal id, and that is a client's transaction. n8n has no use for it and this
@@ -37,16 +40,29 @@
  * plain link to the same URL: ADR 0003's shape rather than its letter, which
  * is that a person is never left with one way to reach something.
  *
- * ## Closing
+ * ## Closing, and where focus starts
  *
- * PRD-adjacent, but the issue asks for it in as many words: *"a user should be
- * able to close the pop up at any time."* Escape and the overlay come from
- * `Dialog` — but **neither reaches us while the cursor is inside the frame**,
- * because a keystroke typed into a cross-origin document is delivered to that
- * document and never to this one. So the footer carries a real Close button,
- * which is the one control that works from the middle of filling the form in.
+ * The issue asks for it in as many words: *"a user should be able to close the
+ * pop up at any time."* Escape and the overlay come from `Dialog` — but
+ * **neither reaches us while the cursor is inside the frame**, because a
+ * keystroke typed into a cross-origin document is delivered to that document
+ * and never to this one. So the footer carries a real Close button, which is
+ * the one control that works from the middle of filling the form in.
+ *
+ * **And that is why `open-auto-focus` is prevented.** Reka focuses the first
+ * tabbable node in the dialog, and in this one that is the `<iframe>` — so the
+ * default put every keyboard user *inside somebody else's document on open*,
+ * with Escape dead before they had typed anything and the dialog's own title
+ * and description never announced. Focus goes to Close instead: inside our
+ * chrome, so Escape works and the dialog names itself, and one Tab away from
+ * the form for somebody who came here to fill it in.
+ *
+ * `.prevent` alone is not enough. Reka's focus trap pulls focus back when it
+ * sits outside the scope, and with nothing focused it stays on the trigger in
+ * the top bar — so the handler has to name what to focus.
  */
 import { ref, watch } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
 import {
     Dialog,
     DialogContent,
@@ -78,12 +94,22 @@ watch(
         }
     },
 );
+
+/** See the docblock: the default focuses the frame, which kills Escape. */
+const closeButton = ref<ComponentPublicInstance | null>(null);
+
+function focusOurOwnChrome(event: Event): void {
+    event.preventDefault();
+
+    (closeButton.value?.$el as HTMLElement | undefined)?.focus();
+}
 </script>
 
 <template>
     <Dialog :open="open" @update:open="(value) => emit('update:open', value)">
         <DialogContent
             class="flex h-[85svh] max-h-[720px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[640px]"
+            @open-auto-focus="focusOurOwnChrome"
         >
             <div class="flex flex-col gap-1 border-b px-6 py-5">
                 <DialogTitle class="text-lg font-semibold"
@@ -91,8 +117,11 @@ watch(
                 >
                 <DialogDescription class="text-13 text-muted-foreground">
                     Tell us what went wrong and what you were doing at the time.
-                    You do not need an account anywhere else — this goes
-                    straight to the people who fix it.
+                    <strong class="font-medium text-foreground"
+                        >Reports are published publicly, so leave out client
+                        names, addresses and anything else about a deal</strong
+                    >
+                    — the screen you were on and what you clicked is enough.
                 </DialogDescription>
             </div>
 
@@ -129,6 +158,7 @@ watch(
                 >
                 <span class="flex-1" />
                 <AppButton
+                    ref="closeButton"
                     variant="secondary"
                     @click="emit('update:open', false)"
                     >Close</AppButton

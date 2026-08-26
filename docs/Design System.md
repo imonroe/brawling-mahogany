@@ -1037,9 +1037,11 @@ an icon because the person pressing it knows the product; this one is aimed at
 somebody who has just hit something broken, is not going to recognise a bug
 glyph, and will give up rather than hunt. So it is `variant="ghost"` with a
 16px leading icon and its words — at three widths: §11's 44px square below
-`md`, the same 32×32 as the icon buttons beside it from `md` to `lg`, and full
-width with its label above that. The `aria-label` carries the same sentence at
-all three.
+`md`, the icon buttons' own 32×32 box from `md` to `lg`, and full width with
+its label above that. The `aria-label` carries the same sentence at all three.
+The glyph stays 16px in the middle band where the boxes match, because §7.2
+gives every *button* a 16px leading icon and `IconButton`'s 18px belongs to a
+different control.
 
 It is not a *primary* action, so the rule above still holds: the screen's own
 primary button is untouched. It appears only when the environment supplies a

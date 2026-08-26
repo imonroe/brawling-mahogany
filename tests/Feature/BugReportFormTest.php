@@ -44,10 +44,43 @@ it('tells a guest nothing, so the sign-in page never carries the URL', function 
         ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
 });
 
-it('draws no button when the flag is off, even with a URL configured', function (): void {
-    // The two keys exist separately so that switching the button off during an
-    // n8n outage does not mean losing the address.
-    config()->set('services.bug_report.enabled', false);
+it('draws no button when the flag is off, however somebody spelled off', function (mixed $off): void {
+    /*
+     * The two keys exist separately so that switching the button off during an
+     * n8n outage does not mean losing the address — which makes this the one
+     * setting somebody changes in a hurry, under pressure, from a phone.
+     *
+     * `env()` converts only `true`, `false`, `null` and `empty`; every other
+     * string arrives as a string, and `(bool) 'off'` is true. So a plain cast
+     * failed open on three of the likeliest spellings of the word.
+     */
+    config()->set('services.bug_report.enabled', $off);
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
+})->with([
+    'false' => [false],
+    'the string off' => ['off'],
+    'the string no' => ['no'],
+    'the string disabled' => ['disabled'],
+    'zero' => ['0'],
+    'unset' => [null],
+]);
+
+it('refuses a form served by this application itself', function (): void {
+    /*
+     * The frame is sandboxed `allow-scripts allow-same-origin`, which a hosted
+     * form needs and which is not a sandbox at all when the framed document is
+     * same-origin: it reaches `window.parent` and reads the session. A
+     * self-host that proxies n8n under the app's own domain is an ordinary
+     * layout, and n8n is a third-party application with its own attack
+     * surface.
+     */
+    config()->set('app.url', 'https://goldieflow.example.test');
+    config()->set('services.bug_report.url', 'https://goldieflow.example.test/n8n/form/bugs');
 
     $this->actingAsPerson($this->member, $this->team);
 
@@ -56,20 +89,45 @@ it('draws no button when the flag is off, even with a URL configured', function 
         ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
 });
 
-it('draws no button when the flag is on and no URL was set', function (): void {
+it('does not confuse a different host that merely looks similar', function (): void {
+    // The check is the host and nothing else — a neighbouring subdomain is
+    // somebody else's origin and the sandbox holds there.
+    config()->set('app.url', 'https://goldieflow.example.test');
+    config()->set('services.bug_report.url', 'https://n8n.goldieflow.example.test/form/bugs');
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('bugReport.url', 'https://n8n.goldieflow.example.test/form/bugs'));
+});
+
+it('says once, and only once, that the flag is on with no address behind it', function (): void {
     Log::spy();
 
     config()->set('services.bug_report.url', null);
 
     $this->actingAsPerson($this->member, $this->team);
 
+    /*
+     * Two requests, because one cannot tell the two failures apart: a latch
+     * that never fires and a latch that fires on every request both produce
+     * exactly one warning across a single request. The first assertion is that
+     * silence is wrong — an operator who set the flag and forgot the address
+     * has no button and no explanation. The second is that the fix for that is
+     * not a line per request for as long as the mistake stands.
+     */
     $this->get('/dashboard')
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
 
-    // Silent would be the wrong failure: an operator who set the flag and
-    // forgot the address has no button and no explanation.
-    Log::shouldHaveReceived('warning')->once();
+    $this->get('/dashboard')->assertOk();
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $context): bool => str_contains($message, 'bug report button')
+            && str_contains((string) $context['reason'], 'BUG_REPORT_URL is empty'));
 });
 
 it('refuses a URL that is not http or https', function (string $url): void {

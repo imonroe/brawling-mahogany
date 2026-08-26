@@ -152,6 +152,41 @@ describe('the Report a bug modal', () => {
         wrapper.unmount();
     });
 
+    it('does not open with focus inside somebody else’s document', async () => {
+        /*
+         * Reka focuses the first tabbable node in the dialog, and here that is
+         * the frame — so the default put every keyboard user inside the n8n
+         * page on open, with Escape dead before they had typed anything and
+         * this dialog's own title and description never announced.
+         *
+         * jsdom will not reproduce the consequence: its iframe has no separate
+         * document to swallow the keystroke, so Escape appears to work there
+         * whatever has focus. What it can measure is the cause, which is where
+         * focus lands.
+         */
+        const wrapper = await openDialog();
+
+        expect(document.activeElement?.tagName).not.toBe('IFRAME');
+        expect(document.activeElement?.textContent?.trim()).toBe('Close');
+
+        wrapper.unmount();
+    });
+
+    it('warns that a report is published, before anybody types a client’s name', async () => {
+        /*
+         * The form opens a GitHub issue on a public repository, and the help
+         * article asks for what the reporter was doing — which for an agent is
+         * a deal, a client and an address. The caution belongs where the
+         * typing happens, not only in the manual.
+         */
+        const wrapper = await openDialog();
+
+        expect(document.body.textContent).toContain('published publicly');
+        expect(document.body.textContent).toContain('client');
+
+        wrapper.unmount();
+    });
+
     it('carries a Close button rather than relying on Escape', async () => {
         /*
          * The issue asks to be able to close it *at any time*, and Escape does

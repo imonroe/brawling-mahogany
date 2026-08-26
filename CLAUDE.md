@@ -134,13 +134,30 @@ These come from PRD §8 and should guide the eventual build:
   *"Only an operator can set it"* describes who makes the typo, not what the
   typo does.
 
+  **And `allow-scripts allow-same-origin` is not a sandbox when the document is
+  ours.** A self-host that proxies n8n under the application's own domain is an
+  ordinary layout, and there the frame reaches `window.parent` and reads the
+  session — so `BugReportForm` refuses a URL on the app's own host. `SafeUrl`
+  answers *"is this a URL"*, never *"whose"*. The first version asserted *"it is
+  not our origin"* in a docblock and enforced nothing.
+
   **And a frame keeps the keyboard.** Escape closes a dialog because the
   keydown reaches this document, and a keystroke typed into a cross-origin
-  frame never does — so Escape stops working at exactly the moment somebody is
-  filling the form in. The modal carries a real Close button for that reason,
-  and the frame is mounted *with the dialog* rather than with the shell, so
-  opening it is what calls the third party rather than every page view of the
-  application.
+  frame never does. Which made the dialog's *default* focus the bug: Reka
+  focuses the first tabbable node, that is the `<iframe>`, and so every
+  keyboard user opened straight into somebody else's document with Escape
+  already dead and the dialog's own title never announced. `open-auto-focus` is
+  prevented and Close is focused instead. The modal carries that real Close
+  button for the same reason, and the frame is mounted *with the dialog* rather
+  than with the shell, so opening it is what calls the third party rather than
+  every page view of the application.
+
+  **And a report is published the moment it is filed.** The tracker on the
+  other end is a public repository, so a form asking *"what were you doing"*
+  asks an agent for a client's name and a property address, past both the
+  30-day purge and the audit log. There is no control here, only a warning in
+  the dialog and in the manual — which is why PRD §10 carries the row rather
+  than the code carrying a comment.
 
 - **A derived name is derived, and a typed one wins.** `deals` carries both
   `name` and `generated_name` for one reason: the derived half goes on tracking

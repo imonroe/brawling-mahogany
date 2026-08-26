@@ -51,8 +51,12 @@ looking at. Say what went wrong and what you were doing at the time; the more
 ordinary the detail, the better — which screen, what you had just clicked,
 what you expected to happen instead.
 
-You do not need an account anywhere to use it. The form goes straight to the
-people who fix things.
+**Reports are published publicly, so leave your clients out of them.** Not
+their names, not the address, not anything about the deal. "The Tasks tab
+showed nothing after I ticked the last one" is a good report and gives nothing
+away; the deal it happened on adds nothing that helps.
+
+You do not need an account anywhere to use it.
 
 Close it whenever you like, with the **Close** button at the bottom. Nothing
 is sent until you submit the form.

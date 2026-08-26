@@ -45,6 +45,20 @@ use Illuminate\Support\Facades\Log;
  * A rejected URL hides the button rather than raising, because a bug-report
  * form is not worth a white screen. It is logged once per process instead, so
  * the failure is visible to whoever configured it without one line per request.
+ *
+ * ## And not on our own host
+ *
+ * The frame is sandboxed `allow-scripts allow-same-origin`, which a form needs
+ * to keep its own storage and its own cookies — and which is **not a sandbox at
+ * all** when the framed document is served from the application's own origin:
+ * it reaches `window.parent` and reads the session. A self-host that proxies
+ * n8n under the app's own domain is an ordinary layout rather than a
+ * contrivance, and n8n is a third-party application with its own attack
+ * surface, so this turns a compromised form into account takeover.
+ *
+ * `SafeUrl` answers *"is this a URL"*, not *"whose"*, so the host check lives
+ * here. Enforced rather than asserted: the sandbox's own docblock claimed *"it
+ * is not our origin"* on nothing but the operator's good sense.
  */
 final class BugReportForm
 {
@@ -62,7 +76,7 @@ final class BugReportForm
             return null;
         }
 
-        if (! (bool) config('services.bug_report.enabled')) {
+        if (! self::switchedOn()) {
             return null;
         }
 
@@ -80,7 +94,45 @@ final class BugReportForm
             return null;
         }
 
+        if (self::isOwnHost($url)) {
+            self::warnOnce('BUG_REPORT_URL is on this application’s own host, which defeats the frame’s sandbox.');
+
+            return null;
+        }
+
         return ['url' => $url];
+    }
+
+    /**
+     * Whether the button is switched on.
+     *
+     * `filter_var` rather than a cast, because `env()` converts only the four
+     * spellings it knows — `true`, `false`, `null`, `empty` — and leaves every
+     * other string alone. So `BUG_REPORT_ENABLED=off`, `=no` and `=disabled`
+     * all cast to **true**: a documented kill switch that fails open on three
+     * of the likeliest ways somebody would try to pull it, in a hurry, during
+     * the outage it exists for. `InstallFeaturesCommand` already reads its
+     * flags this way.
+     */
+    private static function switchedOn(): bool
+    {
+        return filter_var(
+            config('services.bug_report.enabled'),
+            FILTER_VALIDATE_BOOL,
+        );
+    }
+
+    /** Whether this URL is served by the application framing it. */
+    private static function isOwnHost(string $url): bool
+    {
+        $formHost = parse_url($url, PHP_URL_HOST);
+        $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        if (! is_string($formHost) || ! is_string($appHost) || $appHost === '') {
+            return false;
+        }
+
+        return mb_strtolower($formHost) === mb_strtolower($appHost);
     }
 
     /** Reset the once-per-process latch. For tests, which run many configurations. */
