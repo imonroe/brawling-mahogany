@@ -44,7 +44,12 @@ use Illuminate\Support\Carbon;
 #[Fillable([
     'name',
     'slug',
-    'logo_path',
+    /*
+     * `logo_path` is deliberately **absent**: it is a key on a private disk,
+     * and `TeamLogo` is the only thing that writes it. The same reasoning as
+     * ADR 0002's rule about `team_id` — a request body must not choose where
+     * bytes are read from.
+     */
     'brand_accent_color',
     'sending_identity_name',
     'sending_identity_email',

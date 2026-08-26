@@ -52,7 +52,6 @@ final class ExecuteAction
         private readonly SendRails $rails,
         private readonly RecordActivity $activity,
         private readonly AuditLogger $audit,
-        private readonly AlertOnFailure $alerts,
     ) {}
 
     /**
@@ -207,19 +206,23 @@ final class ExecuteAction
              * A transport that threw may still have delivered, and this
              * product's rule about a message it cannot take back is that it
              * would rather tell somebody it is unsure than send it twice.
+             *
+             * **Through `fail()`, not written inline.** This branch used to
+             * set the same four columns itself, which left the commonest
+             * outage in the product — an expired credential — as the one
+             * failure with no entry on the deal's timeline. `fail()` writes
+             * exactly these columns and the entry, so the difference was only
+             * ever what got forgotten.
+             *
+             * The reason names the class rather than the message. A transport
+             * exception routinely quotes the recipient address back — PRD §9:
+             * no PII in logs, ever, and `action_instances.error` is read on
+             * S49 by anybody who can open the deal.
              */
-            $instance->forceFill([
-                'state' => AutomationState::Failed->value,
-                'attempts' => $instance->attempts + 1,
-                'executed_at' => now(),
-                /*
-                 * The class rather than the message. A transport exception
-                 * routinely quotes the recipient address back — PRD §9: no PII
-                 * in logs, ever, and `action_instances.error` is read on S49
-                 * by anybody who can open the deal.
-                 */
-                'error' => 'The mail transport rejected this message ('.$exception::class.').',
-            ])->save();
+            $this->fail(
+                $instance,
+                'The mail transport rejected this message ('.$exception::class.').',
+            );
 
             throw $exception;
         }
@@ -465,25 +468,24 @@ final class ExecuteAction
                  * back. The careful wording `reapUnconfirmed()` chose was
                  * doing no work while this prefix stood in front of it.
                  */
-                summary: $summary ?? 'An automated message did not go out: '.$reason,
+                summary: $summary ?? $this->failureSentence($instance, $reason),
             );
         }
+    }
 
-        /*
-         * And S91, which is the push half of the same sentence (#97). The
-         * timeline entry above and S47's red row are both true the moment
-         * somebody looks; this is what happens when nobody does. It is
-         * throttled to one an hour per team and it cannot throw — see
-         * {@see AlertOnFailure}, which argues both.
-         *
-         * Last, deliberately. Everything a person needs is already written by
-         * the time it runs, so an alert that cannot be delivered costs the
-         * record nothing.
-         */
-        $team = $instance->team;
-
-        if ($team instanceof Team) {
-            $this->alerts->messageFailed($instance, $team, $reason);
-        }
+    /**
+     * What the timeline says happened, in words true of *this* action type.
+     *
+     * *"An automated message did not go out"* was the sentence for every
+     * branch, including the four that never involved a message: a `create_task`
+     * with no title, a manual prompt that reached a worker, an action type this
+     * build cannot carry out. A team read that a client had not been emailed
+     * when nothing had ever been going to email them.
+     */
+    private function failureSentence(ActionInstance $instance, string $reason): string
+    {
+        return $instance->action_type === AutomationActionType::SendEmail
+            ? 'An automated message did not go out: '.$reason
+            : 'An automation did not run: '.$reason;
     }
 }

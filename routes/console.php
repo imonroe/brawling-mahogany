@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\AlertOnAutomationFailures;
 use App\Console\Commands\DispatchDueAutomations;
 use App\Console\Commands\PurgeSoftDeletedRecords;
 use App\Console\Commands\ReapUnconfirmedSends;
@@ -51,5 +52,26 @@ Schedule::command(DispatchDueAutomations::class)
  */
 Schedule::command(ReapUnconfirmedSends::class)
     ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * S91's internal alert (#97).
+ *
+ * Every five minutes, and the cadence carries the whole design. It is not
+ * hooked to a failure, because a thing wired to one implementation of a
+ * failure is wired to none of it — a transport exception never reaches
+ * `ExecuteAction::fail()`, which is where the first version listened, and that
+ * is the outage the alert exists for. It reads `state` instead, which is
+ * `failed` however the row got there.
+ *
+ * Five minutes rather than one, because the second thing the delay buys is a
+ * true number: fired on the failure itself, the alert went out when the
+ * backlog was one, so forty dead messages produced one email reporting one.
+ * Five minutes is late enough to have counted the burst and early enough that
+ * somebody is still at their desk.
+ */
+Schedule::command(AlertOnAutomationFailures::class)
+    ->everyFiveMinutes()
     ->withoutOverlapping()
     ->onOneServer();

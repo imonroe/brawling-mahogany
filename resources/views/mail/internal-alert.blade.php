@@ -1,16 +1,14 @@
 {{--
     S91 — internal alert. Team-facing, so the words are the internal ones.
 
-    The banner tone is `danger` and it is the only thing on this message that
-    is loud. Everything below it is a sentence, a reason, and one link.
+    A headline, a sentence, and one link. There is deliberately no banner
+    above the headline: the first version put the same string in both, which
+    on the shortest email in the product reads as a rendering bug rather than
+    as emphasis.
 --}}
 @extends('mail.layout')
 
 @section('preheader'){{ $detail }}@endsection
-
-@section('banner')
-    @include('mail.partials.notice', ['tone' => 'danger', 'body' => $headline])
-@endsection
 
 @section('headline'){{ $headline }}@endsection
 
@@ -25,7 +23,3 @@
         'brand' => $brand,
     ])
 @endsection
-
-@if ($footnote)
-    @section('footnote'){{ $footnote }}@endsection
-@endif

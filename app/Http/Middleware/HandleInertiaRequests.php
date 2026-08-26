@@ -190,14 +190,6 @@ class HandleInertiaRequests extends Middleware
             'name' => $team->name,
             'timezone' => $team->timezone,
             'brandAccentColor' => $team->brand_accent_color,
-            /*
-             * Whether, not where. `logo_path` is a key on a private disk, and
-             * a key on every page's props is a key in every browser's memory
-             * and every HAR file a support conversation produces — for a
-             * value no screen can do anything with, because the bytes come
-             * from `team.logo.show` and that route authorizes.
-             */
-            'hasLogo' => $team->logo_path !== null,
         ];
     }
 }

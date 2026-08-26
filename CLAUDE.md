@@ -766,17 +766,43 @@ These come from PRD §8 and should guide the eventual build:
   is a red row on S47 and an entry on the deal's timeline, which is what lets
   ADR 0003 call automation's second door adequate. Both are true the moment
   somebody looks, and nobody looks at a queue that is usually empty — so S91
-  emails whoever can approve messages, at most **one an hour per team**,
-  counting the whole backlog rather than the one that happened to be first. An
-  expired credential takes out a morning's queue, and forty emails about one
-  problem is forty emails nobody reads.
+  emails whoever can approve messages.
 
   A **halt** raises nothing, deliberately: a halted message is still `pending`,
   the sweep carries it when the condition clears, and both surfaces for it say
-  so in the present tense. And the alert **cannot throw** — the commonest
-  reason a message failed is the transport, which is the commonest reason the
-  alert will fail, and a throw inside `fail()` would fail the worker's job and
-  retry it onto a row already marked failed.
+  so in the present tense.
+
+- **An alert hung off one failure path is hung off none of them.** S91's first
+  version fired from `ExecuteAction::fail()` and **never fired for the outage
+  it was written about**: a transport exception is caught in `send()`, recorded
+  and re-thrown, and never reaches `fail()` at all. Every test was green
+  because every test drove the same rail refusal. That is the `gate_cleared`
+  finding one feature over — a trigger wired to one implementation of a thing
+  is wired to none of it.
+
+  `automations:alert-on-failures` reads `state` instead. A row is `failed`
+  however it got there, so a branch a later slice adds cannot bypass it,
+  because there is no path to bypass. **Ask what the failure *is*, not where it
+  is announced.**
+
+  Two things followed from moving it. The count became true: fired on the
+  failure, the alert went out **first**, when the backlog was one — forty dead
+  messages, one email reporting one — and the number simply did not exist at
+  the only instant anything was running, which is the unconfirmed-send finding
+  again. And the throttle became a **high-water mark**, because a throttle
+  re-alerts about the same standing backlog every time it expires, forever,
+  until somebody clears rows nobody may ever clear.
+
+- **A headline that asserts is a headline that will be wrong for one caller.**
+  *"An automated message did not go out"* is the natural sentence and it is
+  false over the top of the reaper's *"it may have reached the recipient"* —
+  the self-contradiction `ExecuteAction::fail()` already carries a comment
+  about, reappearing in an inbox one file over. It was also false for a
+  `create_task` with no title, which involved no message and no transport, on
+  the deal's **timeline** as well as in the alert. The words are derived from
+  the action type now, and the alert's headline asserts nothing about delivery
+  — the row's own `error` says what happened, because each of those strings was
+  written for its own case.
 
 - **A test that renders nothing proves nothing about rendering.**
   `Mail::fake()` records that a mailable was handed over and never executes its
@@ -835,6 +861,7 @@ These come from PRD §8 and should guide the eventual build:
 | `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it (`--demote-last` to skip the only-administrator warning). Audited |
 | `php artisan db:seed --class='Database\Seeders\PerformanceFixtureSeeder'` | G8's volumes in a database you can open (PRD §9): 25 active deals mid-flight, 500 past clients, 2,000 activity events. Sign in as `perf@example.test` / `password`. Deliberately **not** part of `migrate:fresh --seed` — a developer wanting a demo team does not want 2,000 events on every schema change |
 | `php artisan automations:reap-unconfirmed` | Record the outcome of sends handed to a transport that never confirmed (#92). Hourly, `--hours=6` by default. A worker cannot decide that row — see the finding below — so this does, far enough from the claim that there is no live sibling to contradict. It never resends |
+| `php artisan automations:alert-on-failures` | S91's internal alert (#97): tell each team about automations that have failed since they were last told. Every five minutes. It reads `state` rather than hooking a failure, because a hook on one failure path is a hook on none of them — and looking a few minutes later is also what makes the count true |
 | `php artisan automations:dispatch-due` | Queue automation instances that are due and have nothing coming for them (#92). Scheduled every minute. It catches two things: a message with a future `scheduled_for`, and one stranded by a web process that died between committing an advance and dispatching its job — without which the message simply never goes and nothing anywhere says so |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 | `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation, with no mail transport and no session (ADR 0003). `--team=<slug>` when the address is invited to more than one. Rotates the token, so it replaces any link already sent. Audited |

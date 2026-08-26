@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Branding;
 
 use App\Models\Team;
+use App\Support\Documents\DocumentStorage;
 use App\Support\Documents\UnsupportedDocument;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -26,7 +27,7 @@ use Illuminate\Support\Str;
  * product has exactly one place uploaded bytes go, one allowlist deciding what
  * they may be, and one route shape that serves them — and a second one
  * invented for a logo would be a second one to keep correct. So it takes
- * {@see \App\Support\Documents\DocumentStorage::DISK}, which is private, and a
+ * {@see DocumentStorage::DISK}, which is private, and a
  * key that reveals nothing.
  *
  * It does **not** take a `documents` row. A `Document` is polymorphic to a
@@ -44,8 +45,16 @@ use Illuminate\Support\Str;
  */
 final class TeamLogo
 {
-    /** Where a logo lives. Private, like everything else uploaded. */
-    public const DISK = 'documents';
+    /**
+     * Where a logo lives. Private, like everything else uploaded.
+     *
+     * The **constant**, not a copy of its value. `PurgeSoftDeletedRecords`
+     * sweeps a purged team's directory off `DocumentStorage::DISK`, so a
+     * duplicated literal here is a logo that survives a team purge the day
+     * those two strings diverge — past PRD §9's promise that a deletion
+     * deletes. Referencing it makes the two impossible to separate.
+     */
+    public const DISK = DocumentStorage::DISK;
 
     /** 1MB. A logo that needs more than this is the wrong asset for an email. */
     public const MAX_BYTES = 1024 * 1024;

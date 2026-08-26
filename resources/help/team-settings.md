@@ -24,9 +24,10 @@ a team should not rewrite what happened.
 
 ## Branding
 
-Your logo and your accent colour. Both show on the emails your clients get and
-on their status page — never inside the app you work in, so nothing moves under
-you when you change them.
+Your logo and your accent colour. Both show on the emails your clients get, and
+they will show on the client status page when it arrives. Neither is used
+anywhere in the app you work in — apart from the preview on this screen — so
+nothing moves under you when you change them.
 
 **The logo** is a PNG, a JPEG or a GIF, up to 1MB. Export it at about 400
 pixels wide. It goes at the top of every client email, on a white panel: a lot

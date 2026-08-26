@@ -68,9 +68,18 @@ final class AccentContrast
         return ($lighter + 0.05) / ($darker + 0.05);
     }
 
+    /**
+     * `D`, because PCRE's `$` matches before a trailing newline.
+     *
+     * Without it `"#123456\n"` is a valid hex colour as far as this is
+     * concerned. Harmless in a CSS declaration, where a newline is
+     * whitespace — and `BrandedEmail` leans on this being *the* thing that
+     * decides whether a tenant's string reaches a `style` attribute, so it
+     * should be anchored rather than nearly anchored.
+     */
     public static function isHex(string $value): bool
     {
-        return preg_match('/^#[0-9A-Fa-f]{6}$/', $value) === 1;
+        return preg_match('/^#[0-9A-Fa-f]{6}$/D', $value) === 1;
     }
 
     private static function luminance(string $hex): float

@@ -1,10 +1,20 @@
 {{--
     S86 — the base branded email layout (issue #97 · Design System §12).
 
-    Every message this product sends is drawn here. Three views had their own
+    Every `Mailable` in `app/Mail` is drawn here. Three of them had their own
     frame before this one and had already drifted apart — two card widths, two
     greys, one with a footer and two without — which is Design System §12's
     whole argument for having a layout at all, arriving on schedule.
+
+    **One email in the product is not drawn here, and the wording above is
+    narrow on purpose.** Fortify's password reset is a framework notification
+    rendering Laravel's own markdown mail, not a `Mailable` of ours. It goes to
+    a colleague rather than to a client, it is the one flow ADR 0003 makes
+    deliberately console-only in its second door, and bringing it into this
+    frame means replacing Fortify's notification — a separate change with its
+    own `EmailIndependence` consequences. `BrandedEmailLayoutTest` enumerates
+    `app/Mail` and fails when a class is added without a render, which is the
+    boundary this comment describes.
 
     ## What §12 asks for, and where each answer is
 
@@ -54,11 +64,20 @@
         @media (prefers-color-scheme: dark) {
             .gf-canvas { background-color: {{ \App\Support\Mail\EmailPalette::DARK_CANVAS }} !important; }
             .gf-card { background-color: {{ \App\Support\Mail\EmailPalette::DARK_BACKGROUND }} !important; }
-            .gf-text, .gf-text a { color: {{ \App\Support\Mail\EmailPalette::DARK_TEXT }} !important; }
-            .gf-muted, .gf-muted a { color: {{ \App\Support\Mail\EmailPalette::DARK_MUTED_TEXT }} !important; }
+            .gf-text { color: {{ \App\Support\Mail\EmailPalette::DARK_TEXT }} !important; }
+            .gf-muted { color: {{ \App\Support\Mail\EmailPalette::DARK_MUTED_TEXT }} !important; }
             .gf-rule { border-color: {{ \App\Support\Mail\EmailPalette::DARK_BORDER }} !important; }
             .gf-panel { background-color: {{ \App\Support\Mail\EmailPalette::DARK_PANEL }} !important; }
-            .gf-link { color: {{ \App\Support\Mail\EmailPalette::DARK_PRIMARY }} !important; }
+            /*
+             * Links keep being links. These rules used to be folded into the
+             * two above as `.gf-text a`, which repainted every anchor a team
+             * wrote into their own template to exactly the colour of the
+             * paragraph around it — with `!important`, so the author's own
+             * inline colour lost — and removed link affordance from the
+             * client-facing half of the product in the one mode where the
+             * team never sees it.
+             */
+            .gf-text a, .gf-muted a { color: {{ \App\Support\Mail\EmailPalette::DARK_PRIMARY }} !important; }
             .gf-warn { color: {{ \App\Support\Mail\EmailPalette::DARK_WARNING }} !important; border-color: {{ \App\Support\Mail\EmailPalette::DARK_WARNING }} !important; }
             .gf-danger { color: {{ \App\Support\Mail\EmailPalette::DARK_DANGER }} !important; border-color: {{ \App\Support\Mail\EmailPalette::DARK_DANGER }} !important; }
         }

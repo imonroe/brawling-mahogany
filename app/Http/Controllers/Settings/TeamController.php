@@ -68,7 +68,7 @@ class TeamController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'timezone' => ['required', 'string', Rule::in(timezone_identifiers_list())],
-            'brand_accent_color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'brand_accent_color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/D'],
             'sending_identity_name' => ['nullable', 'string', 'max:255'],
             'sending_identity_email' => ['nullable', 'string', 'email', 'max:255'],
             'signature_block' => ['nullable', 'string', 'max:2000'],

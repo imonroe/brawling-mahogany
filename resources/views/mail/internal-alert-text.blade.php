@@ -10,8 +10,4 @@
 
 {!! $actionLabel !!}:
 {!! $actionUrl !!}
-@if ($footnote)
-
-{!! $footnote !!}
-@endif
 @include('mail.partials.text-footer', ['brand' => $brand])

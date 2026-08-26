@@ -147,11 +147,12 @@ you can send it by hand or pick up the phone.
 deleted, because three months from now the question is not "is this tidy", it is
 "why did the client never hear about the inspection".
 
-**And you get told.** A failure sends an email to whoever on your team can
-approve messages, linking straight to the one that failed. It is at most one an
-hour however many fail — one expired password can take out a morning's queue,
-and forty emails about one problem is forty emails nobody reads — and it says
-how many are waiting in total, so a bad morning looks like a bad morning.
+**And you get told.** Whoever on your team can approve messages gets an email
+about anything that has failed since the last one — within a few minutes, and
+never twice about the same failure. When several have gone wrong it says how
+many and links to the queue rather than to one of them, because one expired
+password can take out a morning's worth and you want the list, not the first
+row.
 
 A message a rail is _holding_ does not send one of these. Nothing has been lost:
 it goes on its own when the limit rolls over or the switch comes off, and the

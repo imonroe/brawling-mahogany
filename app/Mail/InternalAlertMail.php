@@ -47,7 +47,6 @@ class InternalAlertMail extends Mailable
         public readonly string $detail,
         public readonly string $actionUrl,
         public readonly string $actionLabel,
-        public readonly ?string $footnote = null,
     ) {}
 
     public function envelope(): Envelope

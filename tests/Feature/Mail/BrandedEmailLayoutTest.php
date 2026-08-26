@@ -105,8 +105,21 @@ it('uses the team’s accent as a fill and never as body text', function (): voi
          * colour disappears the moment a phone inverts the card behind it, and
          * the darker the brand the worse it gets — so the accent is only ever
          * a ground with a computed foreground on it.
+         *
+         * The **absence** is the half the test name claims, and the first
+         * version of this asserted only the two presences — which would have
+         * passed just as happily against a layout that also wrote the accent
+         * into every heading.
          */
         ->and($html)->toContain('color:'.EmailPalette::TEXT);
+
+    /*
+     * A plain `color:` declaration, which `str_contains` cannot ask for:
+     * `background-color:#7A2E2E` contains the substring `color:#7A2E2E`, so
+     * the naive assertion fails on the correct output. The lookbehind is what
+     * separates the fill from the text.
+     */
+    expect(preg_match('/(?<![-\w])color:#7A2E2E/i', $html))->toBe(0);
 });
 
 it('refuses an accent that is not a hex colour, rather than writing it into a style attribute', function (): void {
@@ -250,6 +263,23 @@ it('renders every mailable in the product without throwing', function (): void {
         new MessageTemplateTestMail($template, $instance->rendered(), $this->team),
         new TeamInvitationMail($invitation, TeamInvitation::newToken()),
     ];
+
+    /*
+     * And the list is **enumerated**, not remembered.
+     *
+     * A comment saying "add yours here" is a comment; this is what makes it
+     * true. `EmailIndependenceTest` already reads `app/Mail` to hold every
+     * mailable to an ADR 0003 second door, and the same argument applies to
+     * rendering: a mailable added without a render here is a broken view that
+     * the whole suite passes over, because `Mail::fake()` never executes one.
+     */
+    $covered = array_unique(array_map(static fn (object $mailable): string => $mailable::class, $mailables));
+    $declared = array_map(
+        static fn (string $file): string => 'App\\Mail\\'.basename($file, '.php'),
+        glob(app_path('Mail/*.php')) ?: [],
+    );
+
+    expect(array_values(array_diff($declared, $covered)))->toBe([]);
 
     foreach ($mailables as $mailable) {
         Mail::to('someone@example.test')->send($mailable);

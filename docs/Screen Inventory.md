@@ -334,9 +334,6 @@ tags:
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
 | S72 | Team profile and branding | `/settings/team` | Agent | Logo upload, colour picker, signature block, live preview of client page | F1.2, F7.5 | 1 | M |
-> [!note] The logo upload arrived with S86, not with S72
-> Slice 1 shipped the colour picker, the signature block and the preview, and `teams.logo_path` with **no writer** — a column the screen rendered as a value and nothing could set. That was harmless until #97 made *"per-team logo"* a headline state of S86: a layout reading a column nothing can fill is `CLAUDE.md`'s S17 finding pointed the other way round, and reads as finished from either end. The upload is on this screen now, on the private documents disk, served back through an authorized route and **embedded** rather than linked in email.
-
 | S72b | Sending safety | `/settings/sending` | Agent | Stop everything, sandbox, hourly and daily limits, and the first-month review window — all four editable, not three and a notice. **Built** in Slice 3 — see the note below | F5.9 | 3 | S |
 | S73 | Sending identity | `/settings/sending/identity` | Agent | Unverified, DNS records to add, verifying, verified, failed | F5.9 | 3 | M |
 | S74 | Members and invitations | `/settings/members` | Agent | Empty, pending invites, revoke, last owner warning, **link issued** (shown once, replaces the emailed one — ADR 0003), **re-invite adds a role to an active member and replaces a revoked one's whole set** | F1.3 | 1 | M |
@@ -346,6 +343,9 @@ tags:
 | S78 | Notification preferences | `/settings/notifications` | Team | Per event type, channel, quiet hours | F12.4 | 3 | S |
 | S79 | Data export | `/settings/export` | Agent | Request, preparing, ready, expired | NFR | 1 | S |
 | S80 | Billing | `/settings/billing` | Agent | Plan, packs owned, seats, invoices, payment method | Slice 7 | 7 | M |
+
+> [!note] The logo upload arrived with S86, not with S72
+> Slice 1 shipped the colour picker, the signature block and the preview, and `teams.logo_path` with **no writer** — a column the screen rendered as a value and nothing could set. That was harmless until #97 made *"per-team logo"* a headline state of S86: a layout reading a column nothing can fill is `CLAUDE.md`'s S17 finding pointed the other way round, and reads as finished from either end. The upload is on this screen now, on the private documents disk, served back through an authorized route and **embedded** rather than linked in email.
 
 > [!note] S72b was not in the original inventory, and F5.9 required it
 > The rails themselves are `SendRails`, in the queue worker — issue #96 is
