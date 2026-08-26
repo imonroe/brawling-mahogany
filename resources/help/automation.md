@@ -147,6 +147,16 @@ you can send it by hand or pick up the phone.
 deleted, because three months from now the question is not "is this tidy", it is
 "why did the client never hear about the inspection".
 
+**And you get told.** A failure sends an email to whoever on your team can
+approve messages, linking straight to the one that failed. It is at most one an
+hour however many fail — one expired password can take out a morning's queue,
+and forty emails about one problem is forty emails nobody reads — and it says
+how many are waiting in total, so a bad morning looks like a bad morning.
+
+A message a rail is *holding* does not send one of these. Nothing has been lost:
+it goes on its own when the limit rolls over or the switch comes off, and the
+queue says so in the present tense while it waits.
+
 ## Held before sending
 
 Between those two lists sits a third, and it holds two different things.
@@ -184,6 +194,22 @@ what is already queued as well as what has not been prepared yet. Held, not
 cancelled — turning it back off releases them. This is the one to reach for when
 something is wrong and you are not yet sure what.
 
+## What your client actually sees
+
+Every email goes out in your team's frame: your logo at the top if you have
+uploaded one, your accent colour, your words in the middle, and a plain-text
+version underneath for watches, screen readers and inboxes with images turned
+off. Set both in **Settings → Team**.
+
+**When the stage that just finished is a milestone**, the email opens with what
+you called that milestone for the client — the wording on the stage in your
+template, never the internal stage name. "Your home is on the market", not
+"Stage complete: Property Listed". If the property has a listing linked and your
+own words do not already point at it, a button to the listing goes underneath.
+
+That headline appears when a stage **completes**, not when it starts. A
+milestone is the moment something finished.
+
 ## What is still to come
 
 **Delivery tracking**, so a bounced message is something you find out about
@@ -192,5 +218,8 @@ rather than something a client mentions three weeks later.
 **Your own sending address.** Messages currently go out from the app's address
 with your team's as the reply-to — the "send from" field on a template is saved
 and waiting for a verified sending domain.
+
+**A link to the client's status page** in a milestone email. The email has a
+place for it; the page itself is still being built.
 
 **Push notifications and calendar events** as things an automation can do.

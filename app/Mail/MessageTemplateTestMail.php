@@ -6,6 +6,7 @@ namespace App\Mail;
 
 use App\Models\MessageTemplate;
 use App\Models\Team;
+use App\Support\Mail\BrandedEmail;
 use App\Support\Messages\RenderedMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -57,6 +58,7 @@ class MessageTemplateTestMail extends Mailable
             view: 'mail.message-template-test',
             text: 'mail.message-template-test-text',
             with: [
+                'brand' => BrandedEmail::for($this->team),
                 'teamName' => $this->team->name,
                 'templateName' => $this->template->name,
                 'bodyHtml' => $this->rendered->bodyHtml,

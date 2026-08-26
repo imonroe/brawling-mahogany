@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Mail;
 
 use App\Mail\AutomatedMessageMail;
+use App\Mail\InternalAlertMail;
 use App\Mail\MessageTemplateTestMail;
 use App\Mail\TeamInvitationMail;
 
@@ -110,6 +111,25 @@ final class EmailIndependence
                 .'person can send it by hand or pick up the phone. ADR 0003\'s failure is a flow '
                 .'that becomes unreachable **without anybody being told**; this one cannot go '
                 .'quiet, because a message that fails is a row somebody has to clear.',
+        ],
+
+        'internal-alert' => [
+            'label' => 'Being told that a client email did not go out',
+            'sends' => InternalAlertMail::class,
+            'alternatives' => [
+                // S47, where every failed message is already a red row with
+                // its reason on it, and S49 one click further with the words
+                // and the recipients.
+                'route:messages.index',
+                'route:messages.show',
+            ],
+            'note' => 'The alert is a **push** of something both screens already hold, which is '
+                .'the shape ADR 0003 asks for and an unusually clean example of it: the second '
+                .'door is not a worse version of the first, it is the record itself. An install '
+                .'with no transport loses the interruption and none of the information — and the '
+                .'failure this alert is about is very often the transport, so the design assumes '
+                .'the email may not arrive. That is also why it cannot throw: see '
+                .'`AlertOnFailure::deliver()`.',
         ],
 
         'password-reset' => [

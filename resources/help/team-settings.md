@@ -22,6 +22,28 @@ app depends on email alone, because email is a channel nobody controls.
 deals they worked and the contacts they logged, because removing somebody from
 a team should not rewrite what happened.
 
+## Branding
+
+Your logo and your accent colour. Both show on the emails your clients get and
+on their status page — never inside the app you work in, so nothing moves under
+you when you change them.
+
+**The logo** is a PNG, a JPEG or a GIF, up to 1MB. Export it at about 400
+pixels wide. It goes at the top of every client email, on a white panel: a lot
+of people read email with their phone in dark mode, and a logo drawn for a
+white background turns into a white box on black without one. If you have not
+uploaded one, your team's name is used instead, which is a perfectly good
+answer.
+
+**The accent colour** is used as a background — the band at the top of an email
+and the button in it — and the text on top of it is chosen for you, black or
+white, whichever can actually be read. If white would be hard to read on the
+colour you picked, this screen says so before you save, because your clients'
+status page uses the colour differently and cannot make that choice for you.
+
+Everything else in an email is fixed. That is deliberate: it means no colour
+you pick can produce an email a client cannot read.
+
 ## Deal types
 
 The kinds of transaction your team runs. Three ship — seller representation,

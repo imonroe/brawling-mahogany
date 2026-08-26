@@ -47,6 +47,22 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     // S72 — team profile and branding.
     Route::get('settings/team', [TeamController::class, 'edit'])->name('team.edit');
     Route::patch('settings/team', [TeamController::class, 'update'])->name('team.update');
+    /*
+     * The logo, which is three routes rather than a field on the form above.
+     *
+     * A file is not a string: it needs a multipart request the `PATCH` cannot
+     * carry through Inertia without method spoofing, it is replaced rather
+     * than edited, and it is read back by a `GET` that streams bytes instead
+     * of rendering a page. `POST` and `DELETE` on the thing itself, the same
+     * shape S38's photographs already use.
+     *
+     * The read is authorized like every other private file in the product —
+     * never a public URL. An email cannot use this route at all (a client has
+     * no session), which is why S86 embeds the bytes instead.
+     */
+    Route::post('settings/team/logo', [TeamController::class, 'storeLogo'])->name('team.logo.store');
+    Route::delete('settings/team/logo', [TeamController::class, 'destroyLogo'])->name('team.logo.destroy');
+    Route::get('settings/team/logo', [TeamController::class, 'showLogo'])->name('team.logo.show');
 
     // S74 — members and invitations.
     Route::get('settings/members', [MemberController::class, 'index'])->name('members.index');

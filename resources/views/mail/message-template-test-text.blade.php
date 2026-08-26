@@ -34,3 +34,4 @@ These had nothing behind them on the deal you chose: {!! implode(', ', $unresolv
 ----------------------------------------------------------------
 
 {!! $bodyText !!}
+@include('mail.partials.text-footer', ['brand' => $brand])

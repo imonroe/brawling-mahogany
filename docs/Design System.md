@@ -1371,21 +1371,37 @@ A separate universe. None of the above applies, and pretending otherwise produce
 
 ### 12.1 Email palette
 
-Now reconciled against the design tokens rather than eyeballed.
+Now reconciled against the design tokens rather than eyeballed, and carried in code by `App\Support\Mail\EmailPalette` — which `tests/Unit/EmailPaletteTest.php` holds against this table, the way the enums are held against the PRD's.
 
-| Role | Hex | Matches |
-|---|---|---|
-| Primary | `#1A588F` | `--primary` |
-| Text | `#0A0E11` | `--foreground` |
-| Muted text | `#636A71` | `--muted-foreground` |
-| Border | `#DFE1E4` | `--border` |
-| Background | `#FFFFFF` | `--background` |
-| Panel | `#EFF2F5` | `--muted` |
-| Success | `#137738` | `--state-success` |
-| Warning | `#905D00` | `--state-warning` |
-| Danger | `#C22826` | `--state-danger` |
+| Role | Hex | Dark | Matches |
+|---|---|---|---|
+| Primary | `#1A588F` | `#7FB1DC` | `--primary` |
+| Text | `#0A0E11` | `#E7EBEF` | `--foreground` |
+| Muted text | `#636A71` | `#9BA4AD` | `--muted-foreground` |
+| Border | `#DFE1E4` | `#333C45` | `--border` |
+| Background | `#FFFFFF` | `#171C21` | `--background` |
+| Panel | `#EFF2F5` | `#1F262D` | `--muted` |
+| Success | `#137738` | `#5FC383` | `--state-success` |
+| Warning | `#905D00` | `#DCA33F` | `--state-warning` |
+| Danger | `#C22826` | `#EE8B88` | `--state-danger` |
+| Canvas | `#F4F6F8` | `#0E1216` | — the page behind the card |
+| Plate | `#FFFFFF` | `#FFFFFF` | `--logo-plate` |
+
+**The dark column is not [[#2.6 Dark mode]]'s deferral being walked back.** §2.6 defers dark mode *for the app*, where the product decides when a theme applies. An email has no such control: iOS Mail and Outlook.com invert a message the day the reader turns dark mode on. §12 already required `prefers-color-scheme` and this table had no values to do it with. These are authored by §2.6's own rule — invert lightness, lift chroma so a state colour survives on a dark ground.
 
 **Team branding overrides the primary and the logo only.** Everything else stays fixed, so no tenant can accidentally produce an unreadable email.
+
+#### The accent is a fill, never text — narrower than §2.7, and only here
+
+[[#2.7 Team branding]] gives a team's accent to headings, markers and links. On the client status page that is safe: the app is light-mode in v1 and the ground under a heading is a colour the product chose. An email has neither guarantee, and a team is most likely to pick a deep colour *because* it looks right on white — which is exactly the colour that disappears when a phone inverts the card behind it.
+
+So in email the accent appears only as a **fill with a computed foreground on it**: the header band and the call-to-action button. Both carry their own ground with them. Headings and body text take the palette above. `App\Support\Mail\BrandedEmail` computes the foreground with `AccentContrast`, choosing black or white by WCAG ratio — S72 *warns* an owner about a low-contrast accent and then takes it anyway, and an email has no second chance to be adjusted.
+
+#### The logo sits on a plate, for §2.6's reason
+
+*"A raster asset cannot participate in the token layer."* A team's logo is a PNG with a fixed idea of what is behind it, so a client reading in dark mode gets a white mark on near-black — or a black mark on it. The answer is the one `AppLogoIcon` already uses: a plate that stays light in both schemes. `Plate` above is `--logo-plate` one universe over.
+
+The logo is **embedded**, not linked. The bytes live on a private disk and a client reading the email has no session to fetch them with, so a `src` pointing at the application would render as a broken image for the one reader it is for.
 
 Client-facing emails follow the [[#9.6 P7 Client surface]] language rules. A milestone email uses the `milestone_label`, never the stage name.
 

@@ -1,5 +1,6 @@
 {{--
-    The HTML half of a team's own message to a client (#92).
+    The HTML half of a team's own message to a client (#92), in S86's frame,
+    carrying S87's milestone announcement when there is one.
 
     `{!! $bodyHtml !!}` is unescaped, and this is the second of the two places
     in this application that renders a template body as markup — S46's test
@@ -13,36 +14,43 @@
     The sandbox banner is not decoration. F5.9's sandbox rewrites the recipient
     to the team owner, and an owner holding a message that looks exactly like
     the real one is an owner who forwards it to the client believing the
-    product already did.
+    product already did. That was true when the frame was plain and it is more
+    true now that the frame is the real one.
 --}}
-<!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ $teamName }}</title>
-</head>
-<body style="margin:0;padding:24px;background:#f6f6f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;line-height:1.5;">
-<div style="max-width:600px;margin:0 auto;">
-    @if ($redirected)
-        <p style="margin:0 0 12px;padding:12px 16px;background:#fff4d6;border-radius:6px;font-size:14px;color:#5b4300;">
-            Sandbox mode is on for {{ $teamName }}, so this came to you instead of
-            the people it names. Nobody outside the team received it. Turn sandbox
-            mode off in team settings when you are ready to send for real.
-        </p>
+@extends('mail.layout')
+
+@if ($milestone)
+    @section('preheader'){{ $milestone->headline }}@endsection
+    @section('headline'){{ $milestone->headline }}@endsection
+    @if ($milestone->propertyAddress)
+        @section('subhead'){{ $milestone->propertyAddress }}@endsection
     @endif
+@endif
 
-    <div style="background:#ffffff;border-radius:8px;padding:32px;">
-        @if ($bodyHtml)
-            {!! $bodyHtml !!}
-        @else
-            <pre style="margin:0;font-family:inherit;white-space:pre-wrap;">{{ $bodyText }}</pre>
-        @endif
-    </div>
+@if ($redirected)
+    @section('banner')
+        @include('mail.partials.notice', [
+            'tone' => 'warning',
+            'body' => 'Sandbox mode is on for '.$teamName.', so this came to you instead of the people it names. '
+                .'Nobody outside the team received it. Turn sandbox mode off in team settings when you are ready to send for real.',
+        ])
+    @endsection
+@endif
 
-    <p style="margin:16px 0 0;font-size:12px;color:#6b7280;">
-        Sent by {{ $teamName }}.
-    </p>
-</div>
-</body>
-</html>
+@section('content')
+    @if ($bodyHtml)
+        {!! $bodyHtml !!}
+    @else
+        <pre style="margin:0;font-family:inherit;white-space:pre-wrap;word-break:break-word;">{{ $bodyText }}</pre>
+    @endif
+@endsection
+
+@if ($milestone && $milestone->callToAction())
+    @section('cta')
+        @include('mail.partials.button', [
+            'url' => $milestone->callToAction()['url'],
+            'label' => $milestone->callToAction()['label'],
+            'brand' => $brand,
+        ])
+    @endsection
+@endif

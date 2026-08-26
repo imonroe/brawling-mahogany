@@ -65,7 +65,7 @@ export type CurrentTeam = {
     /** PRD §9: storage is UTC, display is this zone. */
     timezone: string;
     brandAccentColor: string | null;
-    logoPath: string | null;
+    hasLogo: boolean;
 };
 
 /**

@@ -52,7 +52,16 @@ transport; and F5.9's three rails are asked in `ExecuteAction`, in the worker,
 in the statement immediately before the mailer. `ActionCompletedEvaluator` is
 wired with them — the second of Slice 2's three deferred gates.
 
-What is left in the epic: branded email and SES (#94, #95, #97), documents and
+**And then what the client sees** (S86, S87, S91, #97). One layout every
+mailable extends, built to Design System §12's ten rules; §12.1's palette in
+`EmailPalette`, held against the document by a test; a team's accent as a
+**fill with a computed foreground** and never as text, because a deep brand
+disappears the moment a phone inverts the card behind it; and the logo
+**embedded** from the private disk, on a plate that never inverts — which is
+where `teams.logo_path` finally got a writer. S87 is a *frame*, not a second
+mailable. S91 is the push half of a failure the timeline and S47 already record.
+
+What is left in the epic: SES and delivery tracking (#94, #95), documents and
 their guardrails (#98–#100, #104), and the mobile layer (#101–#103). #12 (SES
 production access) and #19 (web push on a real iPhone) are not code.
 
@@ -654,6 +663,114 @@ These come from PRD §8 and should guide the eventual build:
   column means adding its model and its table to the filter**, and the file
   says so; it was the sentence that got followed for the pattern and not for
   the filter.
+- **A reader with no writer is as dead as a row nothing can reach.** S17's
+  finding is about a rule nobody can follow; this is the same shape from the
+  other end. `teams.logo_path` shipped with #55, S72 rendered it as a value,
+  and **nothing anywhere could set it** — which was harmless right up until
+  #97 made *"per-team logo"* a headline state of S86. A layout reading a column
+  nothing can fill reads as finished from either end, and it is the reading a
+  test cannot fail.
+
+  `TeamLogo` is the writer, on the private documents disk with F6.4's
+  reveal-nothing key, because a second upload path with its own allowlist is a
+  second one to keep correct. It is **not** a `documents` row: a `Document` is
+  polymorphic to a subject, swept by `HasDocuments` when that subject goes, and
+  counted by the photo gallery — three mechanisms a logo would have to be
+  taught to skip.
+
+- **Escaping is decided by where a value lands, and a colour lands in CSS.**
+  `brand_accent_color` goes into a `style` attribute. Blade's `{{ }}` escapes
+  the quotes, so a value cannot break *out* of the attribute — and it needs no
+  quote at all to rewrite every declaration after it. `BrandedEmail` holds it
+  to a `#rrggbb` regex and otherwise takes the product blue.
+
+  The column is `varchar(7)`, which does refuse a long payload and is the
+  wrong thing to rely on: it is a length, not a grammar, and `red` and `#FFF`
+  fit inside it. A column is also not the only door — a seeder, an import, a
+  console tinker — and the frame has no way to ask how a value got there. The
+  test asserts against an **unsaved** team for exactly that reason.
+
+- **A tenant's colour is a fill with a computed foreground, never text.**
+  Design System §2.7 gives a team's accent to headings, markers and links,
+  which is safe on a surface the product renders in a theme it chose. Email is
+  not that surface: iOS Mail and Outlook.com invert a message the day the
+  reader turns dark mode on, and a team picks a deep blue *because* it looks
+  right on white — so the darker the brand, the less of their own heading the
+  client can read. In email the accent only ever appears as the header band and
+  the button, both of which bring their own ground.
+
+  Which is also why the foreground is **computed** rather than white. S72
+  *warns* about a low-contrast accent and saves it anyway, and that is right
+  there — Design System §15.6 settled it, and a silently altered colour is an
+  angrier support ticket later. An email has no second chance and nobody
+  standing in front of it, so it picks the readable one of black and white.
+
+- **A raster asset cannot participate in the token layer** — Design System
+  §2.6, one universe over. A team's logo is a PNG with a fixed idea of what is
+  behind it, so a client reading in dark mode gets a white box on black. The
+  answer is `AppLogoIcon`'s: a plate that stays light in both schemes.
+
+  And it is **embedded**, not linked. The bytes are on a private disk and a
+  client reading the email has no session to fetch them with, so an `src`
+  pointing at the application renders as a broken image for the one reader the
+  logo is for. Both halves fail closed: a mime type the allowlist cannot name
+  means no `<img>` at all rather than an unlabelled part, and so does a path
+  whose file has gone — the wordmark it replaced is better than a broken-image
+  icon beside the team's name.
+
+- **A dark-mode block without `!important` is a block that parses cleanly and
+  does nothing.** Every rule in `mail.layout`'s `prefers-color-scheme` block
+  overrides an **inline style**, which wins on specificity against anything in
+  a `<style>` element. Omitting it is worse than omitting the block, because it
+  looks handled in exactly the clients that support it.
+
+- **The second front door is the one you cut for a layout.** The obvious
+  reading of S87 is a `MilestoneNotificationMail`, and it would be a second
+  path to a client's inbox past F5.7's queue and F5.9's rails — PRD §4.5's
+  highest-blast-radius feature, with a bypass added for the sake of styling. So
+  a milestone notification is an ordinary `stage_completion` automation wearing
+  a frame that opens with the stage's `milestone_label`. Every guarantee is
+  unchanged because nothing about the send changed.
+
+  Two boundaries on it. Only a **completion** announces a milestone — IA §2
+  makes a milestone *the notable completion of a stage*, and a `stage_start`
+  email would open with "Your home is on the market" the morning the
+  photographer was booked. And the frame offers the MLS link only when the
+  rendered body does not already carry it, because `{{ mls_link }}` is a
+  registered field and PRD §5.4's worked example is exactly that email — a
+  frame that added its own button regardless would send the URL twice. Checked
+  against **both spellings**, since `RenderMessage` escapes into `body_html`
+  and leaves `body_text` alone.
+
+- **Pull is not push, and "nobody looked" is a failure mode.** A failed message
+  is a red row on S47 and an entry on the deal's timeline, which is what lets
+  ADR 0003 call automation's second door adequate. Both are true the moment
+  somebody looks, and nobody looks at a queue that is usually empty — so S91
+  emails whoever can approve messages, at most **one an hour per team**,
+  counting the whole backlog rather than the one that happened to be first. An
+  expired credential takes out a morning's queue, and forty emails about one
+  problem is forty emails nobody reads.
+
+  A **halt** raises nothing, deliberately: a halted message is still `pending`,
+  the sweep carries it when the condition clears, and both surfaces for it say
+  so in the present tense. And the alert **cannot throw** — the commonest
+  reason a message failed is the transport, which is the commonest reason the
+  alert will fail, and a throw inside `fail()` would fail the worker's job and
+  retry it onto a row already marked failed.
+
+- **A test that renders nothing proves nothing about rendering.**
+  `Mail::fake()` records that a mailable was handed over and never executes its
+  view, so every assertion about S86's frame would pass against a layout that
+  throws. `tests/Feature/Mail/` puts the real `array` transport back for the
+  file and reads the full MIME — both body parts, the headers, the inline
+  attachment. Nothing escapes; it renders on the way. Anything asserting on
+  *whether* a message was sent stays on the fake.
+
+  The same trap one layer along: `Illuminate\Http\Testing\File::getMimeType()`
+  answers from the **filename**, so an upload test written with `fake()` never
+  reaches a bytes-decide allowlist at all. `PropertyPhotosTest` learned it
+  first; `realLogoUpload()` is the same helper.
+
 - **No user flow depends on email alone.** Every flow the product initiates by
   email carries a second way to start or answer it that does not involve email
   — the recipient answering in-app, somebody who already controls the flow

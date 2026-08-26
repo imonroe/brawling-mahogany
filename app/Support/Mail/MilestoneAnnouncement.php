@@ -1,0 +1,184 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support\Mail;
+
+use App\Enums\AutomationTrigger;
+use App\Models\ActionInstance;
+use App\Models\Stage;
+use App\Models\Team;
+use App\Support\Messages\MergeContext;
+use App\Support\Messages\MergeFields;
+use App\Support\Messages\RenderedMessage;
+
+/**
+ * S87 — what a client is told a milestone *is* (issue #97 · PRD §5.4, §5.7).
+ *
+ * `Stage::clientAnnouncement()` has existed since Slice 2 with the IA §9
+ * argument written on it and **no caller anywhere**, which is `CLAUDE.md`'s
+ * S17 finding in its quieter form: not a rule nobody follows, but a promise
+ * nothing keeps. This is the caller.
+ *
+ * ## It is not a second email, and that is the whole design
+ *
+ * The obvious reading of S87 is a `MilestoneNotificationMail`. That would be a
+ * second path to a client's inbox, past F5.7's approval queue and F5.9's three
+ * rails — the thing PRD §4.5 calls the highest-blast-radius feature in the
+ * product, with a second front door cut into it for a layout.
+ *
+ * So a milestone notification is an ordinary automated message that happens to
+ * be *about* a milestone, and this is the frame it wears. Every rail, the
+ * queue, the dedupe and the timeline entry are unchanged, because nothing
+ * about the send changed.
+ *
+ * ## Why the words come from the stage and the body does not
+ *
+ * The headline is `milestone_label` — a sentence a team wrote on their own
+ * stage template, in client vocabulary, which IA §9 requires and which no
+ * merge field can be trusted to have been used. The body is the team's
+ * template, untouched. Nothing here writes a sentence on a team's behalf.
+ *
+ * ## The MLS link, and the one duplicate worth preventing
+ *
+ * PRD §5.4's worked example is *"the seller email with the MLS link"*, and
+ * `{{ mls_link }}` is a merge field a template may already carry. A frame
+ * that added its own button regardless would send half the teams in the
+ * product a message with the same URL in it twice — once as the team wrote it
+ * and once as we decided.
+ *
+ * So the button appears only when the **rendered body does not already carry
+ * that URL**. Checked against the rendered text rather than against the
+ * template's tokens: an author can write the listing URL out in full instead
+ * of using the field, and a token scan would not see it.
+ *
+ * ## The status page link is Slice 4, and its absence is a state
+ *
+ * PRD §5.7 step 1 is *"the seller receives a milestone email containing a
+ * status page link"*, and the page is #110. The issue names both — *"with and
+ * without status link"* — so the slot exists, takes precedence over the MLS
+ * link when it is filled, and is null everywhere today. `MergeFields` already
+ * carries `status_page_link` as a registered-but-unavailable field for the
+ * same reason.
+ */
+final readonly class MilestoneAnnouncement
+{
+    private function __construct(
+        public string $headline,
+        public ?string $propertyAddress,
+        public ?string $mlsLink,
+        public ?string $statusPageLink,
+    ) {}
+
+    /**
+     * The announcement this instance carries, or null when it carries none.
+     *
+     * Null is the ordinary answer. Most automated messages are not about a
+     * milestone, and the frame draws a plain branded message for those.
+     */
+    public static function for(ActionInstance $instance, Team $team, RenderedMessage $rendered): ?self
+    {
+        /*
+         * A milestone is *the notable completion of a stage* (IA §2), so only
+         * a completion announces one. A `stage_start` email on a milestone
+         * stage would open with "Your home is on the market" on the morning
+         * the photographer was booked.
+         */
+        if ($instance->trigger !== AutomationTrigger::StageCompletion) {
+            return null;
+        }
+
+        $stage = $instance->stage;
+
+        if (! $stage instanceof Stage) {
+            return null;
+        }
+
+        $headline = $stage->clientAnnouncement();
+
+        if ($headline === null) {
+            return null;
+        }
+
+        $deal = $instance->deal;
+
+        /*
+         * The same resolver the body was rendered through, so the address in
+         * the frame and the address in the words cannot disagree. #75 folded
+         * two `deal` payloads into one for exactly this reason, and a header
+         * that named a different property from the paragraph under it would be
+         * that problem back, on the surface that cannot be corrected after the
+         * fact.
+         */
+        $facts = MergeFields::resolve(MergeContext::for($deal, $team, $stage));
+
+        $address = self::orNull($facts['property_address'] ?? '');
+        $mls = self::orNull($facts['mls_link'] ?? '');
+
+        return new self(
+            headline: $headline,
+            propertyAddress: $address,
+            mlsLink: $mls === null || self::bodyCarries($rendered, $mls) ? null : $mls,
+            // #110. The slot, not a guess at the URL.
+            statusPageLink: null,
+        );
+    }
+
+    /**
+     * The one call to action, or none.
+     *
+     * PRD §5.7 makes the status page the destination a milestone email exists
+     * to lead to, so it wins when there is one. Two buttons would make the
+     * client choose between them, and §5.7's whole point is that there is
+     * nothing for them to do.
+     *
+     * @return array{url: string, label: string}|null
+     */
+    public function callToAction(): ?array
+    {
+        if ($this->statusPageLink !== null) {
+            return ['url' => $this->statusPageLink, 'label' => 'See where things stand'];
+        }
+
+        if ($this->mlsLink !== null) {
+            return ['url' => $this->mlsLink, 'label' => 'View the listing'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Both halves, and both spellings of the URL.
+     *
+     * `RenderMessage` escapes a merged value into `body_html` and leaves it
+     * alone in `body_text`, so a listing URL with a query string is
+     * `?a=1&amp;b=2` in one half and `?a=1&b=2` in the other. Searching for
+     * one spelling finds it in one body and misses it in the other — and a
+     * template with no plain-text half of its own leaves only the body where
+     * the miss happens. Two spellings across two bodies is four cheap
+     * `str_contains` calls and no false negative.
+     */
+    private static function bodyCarries(RenderedMessage $rendered, string $url): bool
+    {
+        $spellings = array_unique([$url, htmlspecialchars($url, ENT_QUOTES, 'UTF-8')]);
+
+        foreach ([$rendered->bodyHtml, $rendered->bodyText] as $body) {
+            if (! is_string($body) || $body === '') {
+                continue;
+            }
+
+            foreach ($spellings as $spelling) {
+                if (str_contains($body, $spelling)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static function orNull(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
+    }
+}

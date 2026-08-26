@@ -52,6 +52,7 @@ final class ExecuteAction
         private readonly SendRails $rails,
         private readonly RecordActivity $activity,
         private readonly AuditLogger $audit,
+        private readonly AlertOnFailure $alerts,
     ) {}
 
     /**
@@ -466,6 +467,23 @@ final class ExecuteAction
                  */
                 summary: $summary ?? 'An automated message did not go out: '.$reason,
             );
+        }
+
+        /*
+         * And S91, which is the push half of the same sentence (#97). The
+         * timeline entry above and S47's red row are both true the moment
+         * somebody looks; this is what happens when nobody does. It is
+         * throttled to one an hour per team and it cannot throw — see
+         * {@see AlertOnFailure}, which argues both.
+         *
+         * Last, deliberately. Everything a person needs is already written by
+         * the time it runs, so an alert that cannot be delivered costs the
+         * record nothing.
+         */
+        $team = $instance->team;
+
+        if ($team instanceof Team) {
+            $this->alerts->messageFailed($instance, $team, $reason);
         }
     }
 }

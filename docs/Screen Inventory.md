@@ -334,6 +334,9 @@ tags:
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
 | S72 | Team profile and branding | `/settings/team` | Agent | Logo upload, colour picker, signature block, live preview of client page | F1.2, F7.5 | 1 | M |
+> [!note] The logo upload arrived with S86, not with S72
+> Slice 1 shipped the colour picker, the signature block and the preview, and `teams.logo_path` with **no writer** — a column the screen rendered as a value and nothing could set. That was harmless until #97 made *"per-team logo"* a headline state of S86: a layout reading a column nothing can fill is `CLAUDE.md`'s S17 finding pointed the other way round, and reads as finished from either end. The upload is on this screen now, on the private documents disk, served back through an authorized route and **embedded** rather than linked in email.
+
 | S72b | Sending safety | `/settings/sending` | Agent | Stop everything, sandbox, hourly and daily limits, and the first-month review window — all four editable, not three and a notice. **Built** in Slice 3 — see the note below | F5.9 | 3 | S |
 | S73 | Sending identity | `/settings/sending/identity` | Agent | Unverified, DNS records to add, verifying, verified, failed | F5.9 | 3 | M |
 | S74 | Members and invitations | `/settings/members` | Agent | Empty, pending invites, revoke, last owner warning, **link issued** (shown once, replaces the emailed one — ADR 0003), **re-invite adds a role to an active member and replaces a revoked one's whole set** | F1.3 | 1 | M |
@@ -381,12 +384,19 @@ Real design work, and easy to forget in an inventory. These are what the client 
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S86 | Base branded email layout | email | Client | Per-team logo and colours, dark mode clients, plain text fallback | F5.5 | 3 | M |
-| S87 | Milestone notification | email | Client | With and without MLS link, with and without status link, long address | F5.5 | 3 | M |
+| S86 | Base branded email layout | email | Client | Per-team logo and colours, dark mode clients, plain text fallback. **Built** (#97). Every mailable extends `mail.layout`; the accent is a fill with a computed foreground and never text; the logo is embedded, on a plate | F5.5 | 3 | M |
+| S87 | Milestone notification | email | Client | With and without MLS link, with and without status link, long address. **Built** (#97), as a frame rather than a second mailable — see the note below | F5.5 | 3 | M |
 | S88 | Deadline reminder | email | Team | Single date, several dates, critical styling | F8.4 | 4 | S |
 | S89 | Magic link | email | Client | Link, expiry note, "you did not request this". ADR 0003 applies: the agent must be able to hand the client a link without the message | F7.1 | 4 | S |
-| S90 | Team invitation | email | Team | Inviter name, team name, expiry. **Never the only way in** — see S04, S09, S74, S83 and ADR 0003 | F1.3 | 1 | S |
-| S91 | Internal alert | email | Team | Automation failed, bounce, extraction failed | F5.8 | 3 | S |
+| S90 | Team invitation | email | Team | Inviter name, team name, expiry. **Never the only way in** — see S04, S09, S74, S83 and ADR 0003. **Built** in Slice 1; reframed in S86's layout in Slice 3 | F1.3 | 1 | S |
+| S91 | Internal alert | email | Team | Automation failed, bounce, extraction failed. **Built** (#97) for the first of the three; a bounce is #95 and an extraction failure is Slice 5 | F5.8 | 3 | S |
+
+> [!note] S87 is a frame, not a second mailable
+> The obvious reading of "milestone notification" is a `MilestoneNotificationMail` of its own. That would be a second path to a client's inbox, past F5.7's approval queue and F5.9's three rails — a second front door cut into the feature PRD §4.5 calls the highest-blast-radius in the product, for the sake of a layout.
+>
+> So a milestone notification is an **ordinary automated message that happens to be about a milestone**: raised by a `stage_completion` automation, queued, approved and railed exactly like every other one, and wearing a frame that opens with the stage's `milestone_label`. Every guarantee is unchanged because nothing about the send changed.
+>
+> Two consequences worth knowing. The headline appears only on a **completion** — a milestone is *the notable completion of a stage* (IA §2), and a `stage_start` email would open with "Your home is on the market" on the morning the photographer was booked. And the frame offers the MLS link only when the team's own words do not already carry it, because `{{ mls_link }}` is a merge field a template may already use and PRD §5.4's worked example is exactly that email.
 
 ---
 

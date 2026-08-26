@@ -1,44 +1,44 @@
 {{--
-    S90 — team invitation.
+    S90 — team invitation, now wearing S86's frame.
 
-    Plain, correct, and accessible: a table-free single column, real text, and
-    a link that is a link even when the styling does not load. The branded
-    layout arrives in Slice 3 (S86) and replaces this file rather than being
-    approximated here.
+    The file it replaces said it would: *"the branded layout arrives in Slice 3
+    (S86) and replaces this file rather than being approximated here."*
+
+    The branding is the **inviting team's**, which is a small decision worth
+    naming. An invitation is the one message that goes to somebody who is not
+    yet in the team, so there is an argument for the product's own frame — but
+    the recipient was invited by a person at an agency whose name they know,
+    and a message wearing that agency's mark is the one they will not delete
+    as spam.
 --}}
-<!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>You’ve been invited to {{ $teamName }}</title>
-</head>
-<body style="margin:0;padding:24px;background:#f6f6f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;line-height:1.5;">
-<div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;padding:32px;">
-    <h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;">You’ve been invited to {{ $teamName }}</h1>
+@extends('mail.layout')
 
-    <p style="margin:0 0 16px;">
+@section('preheader'){{ $inviterName ? $inviterName.' has invited you to join '.$teamName.'.' : 'You’ve been invited to join '.$teamName.'.' }}@endsection
+
+@section('headline')You’ve been invited to {{ $teamName }}@endsection
+
+@section('content')
+    <p style="margin:0 0 20px;">
         @if ($inviterName)
             {{ $inviterName }} has invited you to join {{ $teamName }} on {{ config('app.name') }}.
         @else
             You’ve been invited to join {{ $teamName }} on {{ config('app.name') }}.
         @endif
     </p>
+@endsection
 
-    <p style="margin:0 0 24px;">
-        <a href="{{ $acceptUrl }}" style="display:inline-block;padding:12px 20px;background:#1f2328;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">
-            Accept the invitation
-        </a>
-    </p>
+@section('cta')
+    @include('mail.partials.button', [
+        'url' => $acceptUrl,
+        'label' => 'Accept the invitation',
+        'brand' => $brand,
+    ])
+@endsection
 
-    <p style="margin:0 0 16px;color:#5b6169;font-size:14px;">
-        This link works once and expires on {{ $expiresAt->toFormattedDayDateString() }}.
-    </p>
-
-    <p style="margin:0;color:#5b6169;font-size:14px;">
+@section('footnote')
+    <p style="margin:0 0 12px;">This link works once and expires on {{ $expiresAt->toFormattedDayDateString() }}.</p>
+    <p style="margin:0;">
         If the button doesn’t work, copy this address into your browser:<br>
         <span style="word-break:break-all;">{{ $acceptUrl }}</span>
     </p>
-</div>
-</body>
-</html>
+@endsection

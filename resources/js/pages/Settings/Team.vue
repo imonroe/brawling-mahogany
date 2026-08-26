@@ -12,8 +12,8 @@
  * The client status page is held to WCAG 2.1 AA (PRD §9), and a silently
  * altered colour is a support ticket that arrives later and angrier.
  */
-import { Head, useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Head, router, useForm } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import Card from '@/components/app/Card.vue';
@@ -26,7 +26,7 @@ const props = defineProps<{
         name: string;
         slug: string;
         timezone: string;
-        logoPath: string | null;
+        hasLogo: boolean;
         brandAccentColor: string | null;
         sendingIdentityName: string | null;
         sendingIdentityEmail: string | null;
@@ -55,6 +55,58 @@ const previewAccent = computed(() => form.brand_accent_color || 'transparent');
 
 function submit(): void {
     form.patch('/settings/team', { preserveScroll: true });
+}
+
+/*
+ * The logo is its own request, not a field on the form above.
+ *
+ * A file needs a multipart body the `PATCH` cannot carry, and it is replaced
+ * rather than edited — so it posts on choose, with no separate Save. A `<form>`
+ * here would have to nest inside the one wrapping the whole screen, which is
+ * invalid HTML and behaves differently in every browser.
+ */
+const logoForm = useForm<{ logo: File | null }>({ logo: null });
+
+/*
+ * The response carries `Cache-Control: private, max-age=300`, which is right
+ * for a value that changes twice a year and wrong for the ten seconds after
+ * somebody changes it. Bumping this on success is what makes the preview show
+ * the logo they just uploaded rather than the one they replaced.
+ */
+const logoVersion = ref(0);
+
+const logoSrc = computed(() => `/settings/team/logo?v=${logoVersion.value}`);
+
+function chooseLogo(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+
+    if (!file) {
+        return;
+    }
+
+    logoForm.logo = file;
+    logoForm.post('/settings/team/logo', {
+        preserveScroll: true,
+        forceFormData: true,
+        onSuccess: () => {
+            logoVersion.value += 1;
+        },
+        onFinish: () => {
+            /*
+             * Cleared either way. A file input that still holds the refused
+             * file looks like it worked, and choosing the *same* file again
+             * fires no `change` event — so a person correcting a 2MB export
+             * would have to pick a different file to retry.
+             */
+            input.value = '';
+            logoForm.reset('logo');
+        },
+    });
+}
+
+function removeLogo(): void {
+    router.delete('/settings/team/logo', { preserveScroll: true });
 }
 </script>
 
@@ -111,6 +163,57 @@ function submit(): void {
 
             <Card title="Branding">
                 <div class="flex flex-col gap-4 px-4 py-4">
+                    <div class="flex flex-col gap-1.5">
+                        <Label for="logo">Logo</Label>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <!--
+                                The plate is Design System §2.6's `--logo-plate`
+                                argument applied to somebody else's mark: a
+                                raster logo cannot answer the theme, so it is
+                                shown on the ground it was drawn for rather
+                                than on a card that inverts under it. The
+                                emails do the same thing.
+                            -->
+                            <img
+                                v-if="team.hasLogo"
+                                :src="logoSrc"
+                                :alt="`${team.name} logo`"
+                                class="h-12 max-w-40 rounded-md bg-logo-plate object-contain p-1.5"
+                            />
+                            <span v-else class="text-13 text-muted-foreground"
+                                >No logo yet — your team’s name is used
+                                instead.</span
+                            >
+                            <input
+                                id="logo"
+                                type="file"
+                                accept="image/png,image/jpeg,image/gif"
+                                class="text-13 file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1.5 file:text-13"
+                                :disabled="logoForm.processing"
+                                @change="chooseLogo"
+                            />
+                            <AppButton
+                                v-if="team.hasLogo"
+                                type="button"
+                                variant="ghost"
+                                @click="removeLogo"
+                                >Remove</AppButton
+                            >
+                        </div>
+                        <p
+                            v-if="logoForm.errors.logo"
+                            class="text-[11px] text-state-danger"
+                        >
+                            {{ logoForm.errors.logo }}
+                        </p>
+                        <p class="text-[11px] text-muted-foreground">
+                            A PNG, JPEG or GIF up to 1MB, about 400 pixels wide.
+                            It goes at the top of every email your clients get,
+                            on a white panel so it stays readable when their
+                            phone is in dark mode.
+                        </p>
+                    </div>
+
                     <div class="flex flex-col gap-1.5">
                         <Label for="brand_accent_color">Accent colour</Label>
                         <div class="flex items-center gap-2">
