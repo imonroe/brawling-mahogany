@@ -60,16 +60,29 @@ class DispatchDueAutomations extends Command
      * A team that is merely *near* its ceiling is not held — the worker will
      * send what fits and halt the rest, which is the behaviour F5.9 describes.
      *
+     * **Asked only about teams with something waiting.** The first version
+     * read every team on the platform every sixty seconds, whether or not
+     * anything was due, and built a `whereNotIn` list that only ever grew —
+     * every team that has *ever* left the kill switch on, forever, against
+     * Postgres's 65,535-parameter ceiling. The set that matters is bounded by
+     * the work, not by the tenancy, so the work names it.
+     *
+     * @param  list<string>  $teams  the teams with work waiting, and only those
      * @return list<string>
      */
-    private function teamsWhoseEmailIsHeld(): array
+    private function teamsWhoseEmailIsHeld(array $teams): array
     {
+        if ($teams === []) {
+            return [];
+        }
+
         /*
          * `toBase()` rather than hydrating: these rows are two counts and a
          * key, not `ActionInstance`s, and an Eloquent model carrying
          * aggregate columns is a model with properties nothing declares.
          */
         $sent = ActionInstance::withoutTeamScope()
+            ->whereIn('team_id', $teams)
             ->where('state', AutomationState::Sent)
             ->where('action_type', AutomationActionType::SendEmail)
             ->where('executed_at', '>=', now()->subDay())
@@ -92,7 +105,7 @@ class DispatchDueAutomations extends Command
 
         $held = [];
 
-        foreach (Team::query()->get(['id', 'sends_disabled_at', 'hourly_send_limit', 'daily_send_limit']) as $team) {
+        foreach (Team::query()->whereKey($teams)->get(['id', 'sends_disabled_at', 'hourly_send_limit', 'daily_send_limit']) as $team) {
             $id = (string) $team->getKey();
 
             if ($team->sendsAreDisabled()) {
@@ -101,11 +114,16 @@ class DispatchDueAutomations extends Command
                 continue;
             }
 
-            $seen = $counts[$id] ?? null;
-
-            if ($seen === null) {
-                continue;
-            }
+            /*
+             * A default rather than a `continue`, and the difference is a real
+             * one: `SendRails::ceilingReached()` has no early exit, so it asks
+             * `0 >= $limit` and halts a team whose limit is zero. Skipping the
+             * comparison here made the sweep and the rail disagree in exactly
+             * the configuration where the ceiling is most aggressive — swept
+             * every minute, halted every minute, with `attempts` no longer
+             * recording it.
+             */
+            $seen = $counts[$id] ?? ['hourly' => 0, 'daily' => 0];
 
             if ($seen['hourly'] >= $team->hourly_send_limit || $seen['daily'] >= $team->daily_send_limit) {
                 $held[] = $id;
@@ -145,7 +163,22 @@ class DispatchDueAutomations extends Command
          * the team. This is the narrowing the ceiling already carries, applied
          * to the sweep that stands in front of it.
          */
-        $held = $this->teamsWhoseEmailIsHeld();
+        /*
+         * Which teams have anything waiting at all. One `distinct`, and it is
+         * what bounds everything below: with nothing due this is empty and the
+         * sweep asks the rails nothing.
+         */
+        $waiting = array_values(array_unique(
+            ActionInstance::withoutTeamScope()
+                ->due()
+                ->where('created_at', '<=', now()->subMinute())
+                ->distinct()
+                ->pluck('team_id')
+                ->map(fn (mixed $id): string => (string) $id)
+                ->all(),
+        ));
+
+        $held = $this->teamsWhoseEmailIsHeld($waiting);
 
         ActionInstance::withoutTeamScope()
             ->when($held !== [], fn (Builder $query): Builder => $query->where(

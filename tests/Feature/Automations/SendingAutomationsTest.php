@@ -502,9 +502,26 @@ it('records a send that crashed between the mailer and the state write', functio
      */
     $instance = pendingMessage();
 
-    $instance->forceFill(['message_key' => (string) Str::ulid()])->save();
+    /*
+     * **Stale**, and that is the whole fixture. The first version of this test
+     * claimed the key and executed immediately, which is the *live* shape
+     * being asserted as abandoned — so it passed while the code was calling
+     * a send that was happening right now a failure.
+     */
+    /*
+     * Written through the query builder, not `save()` — Eloquent stamps
+     * `updated_at` on every save, so a model-level "claimed an hour ago" is a
+     * claim made this instant. That is why the first version of this test
+     * passed against code that could not tell the two apart.
+     */
+    ActionInstance::query()->whereKey($instance->getKey())->update([
+        'message_key' => (string) Str::ulid(),
+        'updated_at' => now()->subHour(),
+    ]);
 
-    carryOut($instance);
+    // Re-read, because that is what a worker does: `RunAutomation` carries an
+    // id and finds the row, precisely so the rails see what is true now.
+    carryOut($instance->fresh());
 
     Mail::assertNothingSent();
 
@@ -539,5 +556,37 @@ it('still stands down on the retry after a transport threw', function (): void {
     carryOut($instance);
 
     expect($instance->fresh()->error)->toBe('The mail transport rejected this message (RuntimeException).')
+        ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
+});
+
+it('leaves a send that another worker is still making alone', function (): void {
+    /*
+     * The other half, and the one round 3 found missing. `pending` plus a key
+     * does not mean *the worker is gone* — it means *some worker claimed this
+     * and has not written its outcome yet*, and the commonest reading of that
+     * is a sibling delivery inside `Mail::send` **right now**. Two workers on
+     * one row is what a queue does after a visibility timeout, which
+     * `ExecuteAction` and `RunAutomation` both say out loud.
+     *
+     * Marking it failed put *"an automated message did not go out"* on the
+     * deal beside the *"Emailed …"* the other worker was about to write about
+     * the same message — and if the saves landed the other way round, left the
+     * row `failed` for a message that was delivered, which invites a resend.
+     */
+    $instance = pendingMessage();
+
+    // Claimed a moment ago, exactly as `ExecuteAction` claims it.
+    $instance->forceFill([
+        'message_key' => (string) Str::ulid(),
+        'updated_at' => now(),
+    ])->save();
+
+    carryOut($instance);
+
+    Mail::assertNothingSent();
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Pending)
+        ->and($instance->fresh()->error)->toBeNull()
+        ->and($instance->fresh()->executed_at)->toBeNull()
         ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
 });

@@ -106,6 +106,30 @@ class MessageQueueController extends Controller
             ->limit(self::FAILURES)
             ->get();
 
+        /*
+         * Held: `pending`, carrying the reason a rail gave for not sending it.
+         *
+         * These were on no list at all, which was survivable only while every
+         * `pending` row was re-dispatched every minute. Now that a message
+         * behind the kill switch or a ceiling is **deliberately** not swept,
+         * it is idle — and the only place it surfaced was a single integer on
+         * `/settings/sending` framed as *what the switch would catch*. A team
+         * over its daily ceiling had N client messages that no screen named,
+         * indefinitely, while `automation.md` pointed them here for *"what
+         * your automations are about to send"*.
+         *
+         * The error is what makes a row belong here rather than in the
+         * ordinary scheduled queue: an untouched `pending` instance is simply
+         * on its way.
+         */
+        $held = ActionInstance::query()
+            ->where('state', AutomationState::Pending)
+            ->whereNotNull('error')
+            ->with(['deal', 'messageTemplate'])
+            ->oldest()
+            ->limit(self::FAILURES)
+            ->get();
+
         $recent = ActionInstance::query()
             ->whereIn('state', [
                 AutomationState::Sent->value,
@@ -128,6 +152,7 @@ class MessageQueueController extends Controller
         return Inertia::render('Messages/Queue', [
             'waiting' => $waiting->map(self::row(...))->values()->all(),
             'failing' => $failing->map(self::row(...))->values()->all(),
+            'held' => $held->map(self::row(...))->values()->all(),
             'recent' => $recent->map(self::row(...))->values()->all(),
             /*
              * The true totals, so a truncated list says so rather than
@@ -137,6 +162,10 @@ class MessageQueueController extends Controller
             'totals' => [
                 'waiting' => ActionInstance::query()->awaitingApproval()->count(),
                 'failing' => ActionInstance::query()->where('state', AutomationState::Failed)->count(),
+                'held' => ActionInstance::query()
+                    ->where('state', AutomationState::Pending)
+                    ->whereNotNull('error')
+                    ->count(),
             ],
             'can' => [
                 'approve' => $person?->can('approveAny', ActionInstance::class) ?? false,

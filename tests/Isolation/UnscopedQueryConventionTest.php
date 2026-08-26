@@ -175,7 +175,7 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 
     'Console/Commands/DispatchDueAutomations.php' => [
-        'count' => 2,
+        'count' => 3,
         'reason' => 'A context with no tenant, and the sweep shape PurgeSoftDeletedRecords '.
             'already uses: a scheduled run has no session, and the question is which '.
             'automation instances are due across every team at once. Nothing is read from '.
@@ -186,7 +186,13 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'outbound email held by a rail right now, so the sweep stops knocking on them '.
             'every minute. It reads a count per team and nothing else — no payload, no '.
             'recipient, no deal — and it exists because counting per row instead would be '.
-            'two queries per queued message, every minute, for as long as the rail holds.',
+            'two queries per queued message, every minute, for as long as the rail holds. '.
+            'The **third** is what bounds the other two: one distinct over the due rows, '.
+            'asking which teams have anything waiting at all. Without it the sweep read '.
+            'every team on the platform every sixty seconds whether or not anything was '.
+            'due, and built a whereNotIn list that only ever grew — every team that has '.
+            'ever left the kill switch on, forever, against Postgres\'s 65,535-parameter '.
+            'ceiling. It reads one column.',
     ],
 ];
 

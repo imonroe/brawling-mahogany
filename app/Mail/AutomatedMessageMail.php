@@ -7,6 +7,7 @@ namespace App\Mail;
 use App\Models\ActionInstance;
 use App\Models\Team;
 use App\Support\Messages\RenderedMessage;
+use App\Support\Messages\RenderMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Address;
@@ -66,7 +67,17 @@ class AutomatedMessageMail extends Mailable
 
     public function envelope(): Envelope
     {
-        $subject = $this->rendered->subject ?? $this->team->name;
+        /*
+         * The fallback goes through the same strip as the rendered subject.
+         *
+         * `RenderMessage::asHeader()` takes CR and LF out of a subject
+         * *because a subject is a mail header*, and the fallback was the one
+         * value reaching that slot without the pass — a team name, typed into
+         * a settings form, unstripped. Symfony's header encoder very probably
+         * neutralises it; the rule is written down one file over and this is
+         * the same slot.
+         */
+        $subject = $this->rendered->subject ?? RenderMessage::headerSafe($this->team->name);
 
         if ($this->redirected) {
             $subject = '[Sandbox] '.$subject;

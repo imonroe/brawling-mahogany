@@ -428,3 +428,32 @@ it('keeps a failure on the screen however much has been sent since', function ()
         ->has('failing', 1)
         ->where('totals.failing', 1));
 });
+
+it('names a message a rail is holding', function (): void {
+    /*
+     * `pending` rows were on no list on S47, which only worked while every one
+     * of them was being retried every minute. Now that a message behind the
+     * kill switch or a ceiling is deliberately left alone, it is idle — and
+     * before this it surfaced only as a single integer on `/settings/sending`
+     * framed as *what the switch would catch*. A team over its daily ceiling
+     * would have client messages that no screen named, indefinitely.
+     */
+    ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'state' => AutomationState::Pending,
+        'error' => 'This team has reached its limit of messages for the day. Sending is paused, not cancelled.',
+    ]);
+
+    // And one that is simply on its way, which is not held and must not be
+    // reported as though somebody has to do something about it.
+    ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $this->get('/messages')->assertInertia(fn ($page) => $page
+        ->has('held', 1)
+        ->where('totals.held', 1)
+        ->where('held.0.error', 'This team has reached its limit of messages for the day. Sending is paused, not cancelled.'));
+});

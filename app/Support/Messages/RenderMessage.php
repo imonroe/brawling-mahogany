@@ -127,6 +127,20 @@ final class RenderMessage
     /** CR and LF out of a mail header — see the class docblock. */
     private static function asHeader(string $value, bool $multiline): string
     {
+        return self::headerSafe($value);
+    }
+
+    /**
+     * The same strip, for a header value that is not a merged one.
+     *
+     * `AutomatedMessageMail` falls back to the team's name when a template
+     * carries no subject, and that value reached the slot without this pass —
+     * the one string in a mail header nobody had stripped. Public, and sharing
+     * the implementation rather than repeating it, because two copies of a
+     * sanitiser are how one of them stops matching.
+     */
+    public static function headerSafe(string $value): string
+    {
         return trim((string) preg_replace('/[\r\n]+/', ' ', $value));
     }
 }

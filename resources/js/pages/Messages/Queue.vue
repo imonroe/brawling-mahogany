@@ -22,7 +22,7 @@
  * noticing their mail credentials expired.
  */
 import { Head, Link } from '@inertiajs/vue3';
-import { MailCheck, MailX } from '@lucide/vue';
+import { MailCheck, MailX, PauseCircle } from '@lucide/vue';
 import { computed } from 'vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
@@ -66,13 +66,24 @@ const props = defineProps<{
      * promises is *"the thing you most need to notice"*.
      */
     failing: MessageRow[];
+    /**
+     * Scheduled, and stopped by a rail before it went.
+     *
+     * These are `pending` rows carrying the reason — the kill switch, or a
+     * rate ceiling. They were on no list at all, which only worked while every
+     * pending message was being retried every minute; now that a held one is
+     * deliberately left alone, a team over its daily ceiling would have client
+     * messages that no screen named.
+     */
+    held: MessageRow[];
     recent: MessageRow[];
     /** The real counts, so a truncated list can say it is truncated. */
-    totals: { waiting: number; failing: number };
+    totals: { waiting: number; failing: number; held: number };
     can: { approve: boolean };
 }>();
 
 const moreWaiting = computed(() => props.totals.waiting - props.waiting.length);
+const moreHeld = computed(() => props.totals.held - props.held.length);
 const moreFailing = computed(() => props.totals.failing - props.failing.length);
 
 /**
@@ -135,6 +146,52 @@ function recipientNames(message: MessageRow): string {
                 class="border-t border-border px-4 py-2.5 text-13 text-muted-foreground"
             >
                 and {{ moreFailing }} more.
+            </p>
+        </Card>
+
+        <!--
+            Held, between the failures and the queue.
+
+            Above the review queue because nobody is coming for these on their
+            own — a rail is holding them and will go on holding them until
+            somebody changes a setting — and below the failures because a
+            failure is final and this is not.
+        -->
+        <Card v-if="held.length > 0" title="Held before sending">
+            <ul class="divide-y divide-border">
+                <li
+                    v-for="message in held"
+                    :key="message.id"
+                    class="flex flex-col gap-1 px-4 py-3"
+                >
+                    <div class="flex items-start gap-2">
+                        <PauseCircle
+                            class="mt-0.5 size-4 shrink-0 text-state-warning"
+                            aria-hidden="true"
+                        />
+                        <div class="flex flex-col gap-0.5">
+                            <TextLink :href="`/messages/${message.id}`">
+                                {{ message.subject ?? message.actionLabel }}
+                            </TextLink>
+                            <p class="text-13 text-muted-foreground">
+                                {{ message.error }}
+                            </p>
+                        </div>
+                    </div>
+                </li>
+            </ul>
+
+            <p
+                class="border-t border-border px-4 py-2.5 text-13 text-muted-foreground"
+            >
+                <template v-if="moreHeld > 0">
+                    and {{ moreHeld }} more.
+                </template>
+                These go out on their own once the reason clears — nothing is
+                cancelled.
+                <Link href="/settings/sending" class="underline">
+                    Sending settings
+                </Link>
             </p>
         </Card>
 

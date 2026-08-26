@@ -71,9 +71,15 @@ or who a home would "suit".
 On a stage in the template editor, **Add automation**. Three questions:
 
 **When** — the stage starts, the stage completes, the workflow starts or
-completes, or a requirement clears. _A requirement clears_ covers every kind:
-one somebody ticks by hand, and one that comes true on its own because the
-required tasks got done.
+completes, or a requirement clears.
+
+_A requirement clears_ covers every kind of requirement, but **it is noticed
+when somebody presses Advance**, not the moment the world changes. Ticking a
+requirement by hand fires it straight away; one that comes true on its own —
+because the last required task got done, say — fires the next time anybody
+tries to advance that deal, including a try that gets refused because something
+else is still in the way. If you want a message to go the instant a stage is
+finished, _when the stage completes_ is the trigger that means that.
 
 **Then** — send an email, create a task, or prompt somebody to do it by hand.
 

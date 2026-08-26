@@ -7,6 +7,7 @@ use App\Jobs\RunAutomation;
 use App\Models\ActionInstance;
 use App\Models\Deal;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 /**
@@ -130,6 +131,59 @@ it('still sweeps a stranded task for a team whose sending is off', function (): 
     $this->artisan('automations:dispatch-due');
 
     Queue::assertPushed(RunAutomation::class, 1);
+});
+
+it('still sweeps a stranded task for a team over its ceiling', function (): void {
+    /*
+     * The same narrowing against the **other** halting rail, and the branch
+     * this fix added — a `create_task` for a team over its daily limit was
+     * untested, and it is one `continue` away from silently never being swept.
+     * The kill-switch case above covers the branch that already existed.
+     */
+    $this->team->forceFill(['daily_send_limit' => 1])->save();
+
+    ActionInstance::factory()->sent()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    stranded(ActionInstance::factory()->creatingATask()->raw([
+        'deal_id' => $this->deal->getKey(),
+    ]));
+
+    // And an email for the same team, which must not be swept.
+    stranded();
+
+    $this->artisan('automations:dispatch-due');
+
+    Queue::assertPushed(RunAutomation::class, 1);
+});
+
+it('asks the rails nothing when nothing is waiting', function (): void {
+    /*
+     * The sweep runs every sixty seconds forever, and most of those runs have
+     * no work. The first version read every team on the platform each time and
+     * built a `whereNotIn` list that only ever grew; the set that matters is
+     * bounded by the work, so with no work it asks nothing at all.
+     */
+    $queries = 0;
+
+    DB::listen(function () use (&$queries): void {
+        $queries++;
+    });
+
+    $this->artisan('automations:dispatch-due');
+
+    /*
+     * Two, and both are named: the `distinct` that asks which teams have work,
+     * and the page query that finds none. **Not** the two the held-set costs —
+     * the grouped count over `action_instances` and the `teams` read are both
+     * skipped, which is the whole point. The number is asserted exactly rather
+     * than as an upper bound, because a third query appearing here is a
+     * per-minute cost on every deployment forever and should have to be
+     * argued for.
+     */
+    expect($queries)->toBe(2);
 });
 
 it('does not sweep another team’s messages into this one', function (): void {

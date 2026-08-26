@@ -579,6 +579,32 @@ These come from PRD §8 and should guide the eventual build:
   `gates.overridden`** — `blocksAdvance()` does, after the verdict — so an
   overridden gate's verdict stays unmet and never transitions at all.
 
+- **"Nobody owns this" and "somebody is doing it right now" look identical on
+  the row.** `action_instances` `pending` carrying a `message_key` does not
+  mean the worker died — it means *some* worker claimed it and has not written
+  its outcome yet, and the commonest reading of that is a sibling delivery
+  inside `Mail::send` at this instant. Two workers on one row is what a queue
+  does after a visibility timeout, which is why the claim exists at all.
+
+  Marking that row failed put *"an automated message did not go out"* on the
+  deal beside the *"Emailed …"* the other worker was about to write about the
+  same message; with the saves the other way round it left `failed` on a
+  delivered message, which invites a resend — the double-send the claim
+  prevents — and dropped the row out of the ceiling's `sent` count during the
+  one incident the ceiling is for. `updated_at` is what tells them apart,
+  because the claim writes it, and the window is read from the queue's own
+  `retry_after` rather than written down: a guard that disagreed with the queue
+  about how long a worker gets would be the thing declaring live sends dead.
+
+- **A type check against a concrete date class fails closed, silently.** The
+  fix above shipped as `$claimedAt instanceof Illuminate\Support\Carbon`, and
+  this project runs on immutable dates — so `updated_at` hydrates as
+  `Carbon\CarbonImmutable`, the check was false for **every** row, and every
+  claim went down the stand-down path. The blocker it was written to fix was
+  reinstated by the guard meant to fix it, with all tests passing, because the
+  failure direction happened to be the one the old code took. Type against
+  `CarbonInterface`.
+
 - **A rail with no hand on it is a column.** F5.9's kill switch, its rate
   ceiling and its sandbox all live in `SendRails`, in the worker, because issue
   #96 requires them to hold *"when a message is sent by a scheduled job at 3am
