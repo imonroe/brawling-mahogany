@@ -191,9 +191,12 @@ function focusOurOwnChrome(event: Event): void {
 
                 <!--
                     Rendered always, because a live region announces *changes
-                    to itself* and one that arrives already populated has no
-                    change to report. `v-if` on the wrapper meant it announced
-                    neither the wait nor the end of it.
+                    to itself*. That buys the useful half rather than both:
+                    this region is inside the portal, so it arrives already
+                    populated and the **wait** is not announced either way —
+                    what the `v-if` version lost, and this recovers, is the
+                    transition to "loaded", which is the part somebody is
+                    waiting on.
 
                     `cn()` is deliberately not used here: it is bare
                     `twMerge`, which files `text-13` in the text-*colour*

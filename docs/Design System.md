@@ -1027,7 +1027,8 @@ Icons: `layout-dashboard`, `list-checks`, `briefcase`, `users`, `house`, `calend
 `h-14 px-6 gap-3 border-b bg-background` (`px-4 gap-1.5` below `md`, where
 four 44px controls and a breadcrumb compete for a 375px bar — the toggle and
 the search box are `display: none` there, so five gaps rather than seven, and
-the tighter gap returns 30px to the breadcrumb), laid out as
+the tighter gap returns up to 30px to the breadcrumb — 24px without Log
+contact), laid out as
 `[Breadcrumb] [flex-1] [Search 300×32] [Report a bug] [Log contact] [Notifications] [Help]`.
 
 - **Breadcrumb**: root 14/600 `text-foreground`; on a detail screen a 13px `chevron-right` and a 14/500 muted leaf appear.

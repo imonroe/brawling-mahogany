@@ -122,10 +122,12 @@ Four things to know when it does not appear:
    | `url_not_http` | The address is not `http://` or `https://` |
    | `url_own_origin` | The address is on a host and port this app answers on — give n8n its own hostname or its own port |
 
-   `reason_code` rather than `reason`, because `App\Logging\Redactor` strips
-   any key containing `reason` — an override reason is free text that quotes
-   clients — and a diagnostic that reaches the log as `[redacted]` is silence
-   with extra steps. Hiding the button rather than raising is deliberate: a
+   `reason_code` rather than `reason`, because `App\Logging\Redactor` strips a
+   key containing `reason` **unless its allowlist rescues it** — an override
+   reason is free text that quotes clients — and a diagnostic that reaches the
+   log as `[redacted]` is silence with extra steps. `ALLOWED_KEY_PATTERNS`'
+   `_code$` is what rescues this one, which is why the suffix is load-bearing
+   rather than decorative. Hiding the button rather than raising is deliberate: a
    bug-report form is not worth a white screen. The cooldown is in the cache
    rather than in a static, because this runs on every authenticated request
    and PHP tears a static down at each request boundary — a per-process latch

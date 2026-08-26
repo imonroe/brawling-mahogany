@@ -46,8 +46,10 @@ const { can } = usePermissions();
         `gap-1.5` below `md`, where four 44px controls and a breadcrumb compete
         for a 375px bar. The sidebar toggle and the search box are
         `display: none` there and so are not flex items at all, which leaves
-        six children and five gaps: 30px back to the breadcrumb, not the 42px
-        a first count of seven gaps claimed. §8.3's `gap-3` is the desktop
+        six children and five gaps: **up to** 30px back to the breadcrumb — five
+        children and four gaps, so 24px, for somebody without `people.manage`
+        and therefore without Log contact. Not the 42px a first count of seven
+        gaps claimed. §8.3's `gap-3` is the desktop
         measurement and holds from `md`, the same way `px-6` does.
     -->
     <header
