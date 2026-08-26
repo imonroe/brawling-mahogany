@@ -793,6 +793,39 @@ These come from PRD §8 and should guide the eventual build:
   re-alerts about the same standing backlog every time it expires, forever,
   until somebody clears rows nobody may ever clear.
 
+- **A mark that points at a row loses the row's siblings; a mark that points at
+  a boundary cannot.** `action_instances.executed_at` is `timestamp(0)`, so a
+  burst puts many failures in one second. Storing the newest reported row's
+  timestamp and asking for strictly greater next time silences **every sibling
+  that landed in that same second after the `SELECT`** — permanently, because
+  the mark has already moved past them. Half a burst reported, half gone.
+
+  So the sweep picks its own boundary, the start of the current second, and
+  reports `[mark, boundary)`. Every instant belongs to exactly one window:
+  nothing counted twice, nothing between two. A failure in the current second
+  is the next window's.
+
+  **A frozen clock cannot see this defect**, which is why it survived a round
+  of review with a green suite: every test made its failures and swept inside
+  one second, which is the one arrangement the scheduler never produces. The
+  test helper travels a second first, and says why.
+
+  The same reasoning killed the `LIMIT`: a page of 500 rows reported 500 and
+  moved the mark past the rest. Count with an aggregate, not with `count($rows)`.
+
+- **A durability promise cannot live in a cache.** The mark was a Redis key
+  for one round, and Redis is evictable and empty after a restart — while
+  `automation.md` promises a team *"never twice about the same failure"* in
+  those words. It is a column on `teams` now.
+
+  The second half is subtler and review caught it: the no-audience branch
+  deliberately does not *advance* the mark, and with a null column that meant
+  falling back to a cold-start floor **relative to `now()`**, which slides
+  forward every sweep. A backlog nobody could be told about was silenced the
+  moment it aged past a day, by the branch whose comment promised to preserve
+  it. It writes the unchanged mark back — anchoring the floor rather than
+  moving it.
+
 - **A headline that asserts is a headline that will be wrong for one caller.**
   *"An automated message did not go out"* is the natural sentence and it is
   false over the top of the reaper's *"it may have reached the recipient"* —

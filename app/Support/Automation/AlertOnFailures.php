@@ -14,9 +14,9 @@ use App\Models\TeamMembership;
 use App\Support\Messages\ResolveRecipients;
 use App\Support\Permissions;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Mail\Mailables\Address;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
@@ -55,6 +55,26 @@ use Throwable;
  * the discriminator was unavailable because it was caused by the thing being
  * measured. A sweep a few minutes later can simply count.
  *
+ * ## Half-open windows, because a second holds more than one failure
+ *
+ * `action_instances.executed_at` is `timestamp(0)`. The first version of this
+ * sweep stored the newest reported row's timestamp and asked for strictly
+ * greater next time, which loses **every sibling that landed in the same
+ * second after the `SELECT` ran** — permanently, because the mark had already
+ * moved past them. A burst with a sweep landing in the middle of it reported
+ * half and silenced half, and the failure is invisible to a frozen clock,
+ * which is what every test in the suite uses.
+ *
+ * So the sweep chooses its own boundary — the start of the current second —
+ * and reports `[mark, boundary)`. Every instant then belongs to exactly one
+ * window: nothing is counted twice and nothing falls between two. A failure in
+ * the current second is simply the next window's, one sweep later.
+ *
+ * The one thing this does not survive is a row **backdated** below the mark,
+ * which needs a clock moving backwards between two runs. The schedule is
+ * `onOneServer`, and nothing in the product writes `executed_at` from anywhere
+ * but `now()`.
+ *
  * ## What it does not alert about
  *
  * A **halt** — F5.9's kill switch, the hourly ceiling, sandbox with no owner.
@@ -70,9 +90,6 @@ use Throwable;
  */
 final class AlertOnFailures
 {
-    /** How long the high-water mark is remembered. Long, because forgetting it costs an extra email. */
-    public const WATERMARK_DAYS = 30;
-
     /**
      * How far back a team with no watermark is allowed to look.
      *
@@ -118,18 +135,42 @@ final class AlertOnFailures
     {
         $since = $this->watermark($team);
 
-        /** @var list<ActionInstance> $failures */
-        $failures = ActionInstance::query()
+        /*
+         * The sweep's own boundary, exclusive. Anything failing in the current
+         * second belongs to the next window rather than being split across
+         * this one — see the note on the class.
+         */
+        $through = Carbon::now()->startOfSecond();
+
+        if ($through <= $since) {
+            // Two sweeps inside one second. Nothing can have been missed.
+            return false;
+        }
+
+        $window = fn (): Builder => ActionInstance::query()
             ->where('team_id', $team->getKey())
             ->where('state', AutomationState::Failed->value)
-            ->where('executed_at', '>', $since)
-            ->with('deal')
-            ->orderByDesc('executed_at')
-            ->limit(500)
-            ->get()
-            ->all();
+            /*
+             * `COALESCE`, so the claim this class makes — *a row is failed
+             * however it got there* — is true of the column it actually keys
+             * on. Every writer of `failed` in the product sets `executed_at`
+             * in the same statement, and a row corrected by hand may not.
+             * `updated_at` is never null.
+             */
+            ->whereRaw('COALESCE(executed_at, updated_at) >= ?', [$since])
+            ->whereRaw('COALESCE(executed_at, updated_at) < ?', [$through]);
 
-        if ($failures === []) {
+        /*
+         * Three aggregates rather than a page of rows. The first version
+         * loaded up to 500 and counted those, so a burst over that size
+         * reported 500 and moved the mark past the rest — the same silence the
+         * window fixes, arriving through a `LIMIT` instead.
+         */
+        $count = $window()->count();
+
+        if ($count === 0) {
+            $this->remember($team, $through);
+
             return false;
         }
 
@@ -137,32 +178,56 @@ final class AlertOnFailures
 
         if ($audience === []) {
             /*
-             * The watermark is **not** moved. A team with nobody to tell today
+             * Not advanced — **anchored**. A team with nobody to tell today
              * may have somebody tomorrow, and a mark advanced now would mean
              * they were never told about this morning.
+             *
+             * Writing `$since` back rather than leaving the column null is the
+             * half that is easy to miss, and review caught the first version
+             * without it: a mark that has never been written falls back to the
+             * cold-start floor, which is relative to `now()` and therefore
+             * **slides forward** with every sweep. The backlog was silenced
+             * the moment it aged past a day — by the very branch whose comment
+             * promised to be preserving it. Anchoring stops the floor moving.
              */
+            $this->remember($team, $since);
+
             return false;
         }
 
-        $newest = $failures[0];
-        $carriedEmail = $this->anyEmail($failures);
+        $newest = $window()
+            ->with('deal')
+            ->orderByRaw('COALESCE(executed_at, updated_at) DESC')
+            ->first();
+
+        if (! $newest instanceof ActionInstance) {
+            // Unreachable behind the count above, and cheap insurance against
+            // a row purged between the two queries.
+            $this->remember($team, $through);
+
+            return false;
+        }
+
+        $carriedEmail = $window()
+            ->where('action_type', AutomationActionType::SendEmail->value)
+            ->exists();
 
         Mail::to($audience)->send(new InternalAlertMail(
             team: $team,
-            headline: $this->headline(count($failures), $carriedEmail),
-            detail: $this->detail($newest, count($failures)),
+            headline: $this->headline($count, $carriedEmail),
+            detail: $this->detail($newest, $count),
             /*
              * One failure gets a link to itself; several get the queue, since
              * picking one of twelve to open is a choice nobody can make from
              * an inbox.
              */
-            actionUrl: count($failures) === 1
+            actionUrl: $count === 1
                 ? route('messages.show', ['message' => $newest->getKey()])
                 : route('messages.index'),
-            actionLabel: count($failures) === 1 ? 'See what happened' : 'Open the message queue',
+            actionLabel: $count === 1 ? 'See what happened' : 'Open the message queue',
         ));
 
-        $this->remember($team, $newest->executed_at);
+        $this->remember($team, $through);
 
         return true;
     }
@@ -175,28 +240,31 @@ final class AlertOnFailures
      * every time it expires, forever, until somebody clears rows nobody may
      * ever clear. This only ever speaks about failures nobody has been told
      * about.
+     *
+     * On the **team row**, not in the cache. A cache is evictable and empty
+     * after a restart, and *"never twice about the same failure"* is a promise
+     * `resources/help/automation.md` makes to a team in those words — it has to
+     * survive a flush. The migration argues the rest.
      */
     private function watermark(Team $team): CarbonInterface
     {
-        $stored = Cache::get($this->key($team));
+        $stored = $team->automation_alerted_through;
 
-        return is_string($stored)
-            ? Carbon::parse($stored)
+        return $stored instanceof CarbonInterface
+            ? $stored
+            /*
+             * Never swept. A floor of the last day rather than all of history,
+             * so shipping this does not email somebody about a month of
+             * failures they have already worked through — and it applies
+             * exactly once per team, because the column is written from then
+             * on whether or not there was anything to say.
+             */
             : Carbon::now()->subHours(self::COLD_START_HOURS);
     }
 
-    private function remember(Team $team, ?CarbonInterface $at): void
+    private function remember(Team $team, CarbonInterface $through): void
     {
-        Cache::put(
-            $this->key($team),
-            ($at ?? Carbon::now())->toIso8601String(),
-            Carbon::now()->addDays(self::WATERMARK_DAYS),
-        );
-    }
-
-    private function key(Team $team): string
-    {
-        return 'automation-alert-watermark:'.$team->getKey();
+        $team->forceFill(['automation_alerted_through' => $through])->save();
     }
 
     /**
@@ -239,24 +307,18 @@ final class AlertOnFailures
             : ($reason !== '' ? $reason : 'A failure was recorded with no reason.');
 
         if ($count > 1) {
-            $sentence .= ' '.($count - 1).' other'.($count === 2 ? '' : 's').' also need looking at.';
+            /*
+             * The verb agrees with the number, which the first version did not:
+             * at two failures it read *"1 other also need looking at."*
+             */
+            $others = $count - 1;
+
+            $sentence .= $others === 1
+                ? ' 1 other also needs looking at.'
+                : ' '.$others.' others also need looking at.';
         }
 
         return $sentence;
-    }
-
-    /**
-     * @param  list<ActionInstance>  $failures
-     */
-    private function anyEmail(array $failures): bool
-    {
-        foreach ($failures as $failure) {
-            if ($failure->action_type === AutomationActionType::SendEmail) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

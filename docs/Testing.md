@@ -127,6 +127,21 @@ way.**
 A file that does this is asserting on rendering. Anything asserting on *whether*
 a message was sent, to whom, or how many, stays on the fake.
 
+### A frozen clock hides a whole class of defect
+
+Everything in a test tends to happen inside one second, and for anything that
+partitions time — a sweep with a high-water mark, a rolling window, a rate
+ceiling — **that is the one arrangement production never produces**. S91's
+alert shipped a round of review with a green suite and a boundary bug that lost
+half of every burst, because every test made its failures and swept in the same
+second, and the bug is only reachable when they differ.
+
+The rule that follows: when a test exercises something that compares
+*before* with *after*, move the clock between them deliberately, and say in the
+helper why the movement is the point rather than a workaround.
+`tests/Feature/Mail/InternalAlertTest.php`'s `sweepAlerts()` is the worked
+example.
+
 ---
 
 ## 4. Helpers

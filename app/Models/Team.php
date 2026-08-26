@@ -24,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property string $slug
  * @property string|null $logo_path
  * @property string|null $brand_accent_color
+ * @property Carbon|null $automation_alerted_through
  * @property string|null $sending_identity_name
  * @property string|null $sending_identity_email
  * @property string|null $signature_block
@@ -117,6 +118,7 @@ class Team extends Model
             'sandbox_mode' => 'boolean',
             'sends_disabled_at' => 'datetime',
             'approval_required_until' => 'datetime',
+            'automation_alerted_through' => 'datetime',
             'suspended_at' => 'datetime',
             'purge_after' => 'datetime',
         ];

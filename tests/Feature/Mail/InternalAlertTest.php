@@ -64,8 +64,22 @@ function carryOutFailing(ActionInstance $instance): ActionInstance
     return $instance->fresh();
 }
 
+/**
+ * Sweep, a second after whatever just failed.
+ *
+ * The second is the point, not a workaround. The sweep reports a half-open
+ * window ending at the start of the **current** second, so a failure in that
+ * second belongs to the next window rather than being split across this one —
+ * which is what stops a burst losing the rows that land between a sweep's
+ * `SELECT` and its watermark write. In production five minutes separate the
+ * two; in a test the whole scenario happens inside one second unless it is
+ * moved, and a helper that swept without moving would be testing a moment the
+ * scheduler never occupies.
+ */
 function sweepAlerts(): bool
 {
+    test()->travel(1)->second();
+
     return app(AlertOnFailures::class)->sweep(test()->team);
 }
 
@@ -345,9 +359,123 @@ it('sweeps every team from the scheduled command, without a resolved tenant', fu
     // What a scheduler has: no resolved tenant at all.
     app(App\Support\Tenancy\TeamContext::class)->set(null);
 
+    // Out of the second the failures landed in — see `sweepAlerts()`.
+    $this->travel(1)->second();
+
     $this->artisan('automations:alert-on-failures')
         ->expectsOutputToContain('Alerted 2 team(s).')
         ->assertSuccessful();
 
     Mail::assertSent(InternalAlertMail::class, 2);
+});
+
+it('reports the failures that land while it is sweeping, one window later', function (): void {
+    /*
+     * Round 2's blocker, and it is invisible to a frozen clock. `executed_at`
+     * is `timestamp(0)`, so a burst puts many rows in one second — and a mark
+     * set to a reported row's own timestamp, read back with a strict `>`,
+     * silences every sibling that landed in that same second **after** the
+     * sweep's `SELECT`. Permanently, because the mark had already moved past
+     * them.
+     *
+     * The window ends at the start of the current second, so a row failing in
+     * it is the next sweep's rather than nobody's.
+     */
+    carryOutFailing(failingMessage());
+
+    sweepAlerts();
+
+    Mail::assertSent(InternalAlertMail::class, 1);
+
+    // A sibling in the same second the sweep just ran in.
+    carryOutFailing(failingMessage());
+
+    expect(app(AlertOnFailures::class)->sweep($this->team))->toBeFalse();
+
+    $this->travel(1)->second();
+
+    expect(app(AlertOnFailures::class)->sweep($this->team))->toBeTrue();
+
+    Mail::assertSent(InternalAlertMail::class, 2);
+});
+
+it('counts a burst larger than any page it could have loaded', function (): void {
+    /*
+     * The first version read up to 500 rows and counted those, so a burst over
+     * that size reported 500 and then moved the mark past the rest — the same
+     * silence the window fixes, arriving through a `LIMIT`. The count is an
+     * aggregate now, and the number below is deliberately small: what matters
+     * is that nothing between the count and the mark can disagree.
+     */
+    $deal = $this->deal;
+
+    ActionInstance::factory()->count(30)->failed()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    sweepAlerts();
+
+    Mail::assertSent(InternalAlertMail::class, fn (InternalAlertMail $mail): bool => str_starts_with($mail->headline, '30 '));
+
+    // And the whole window is behind the mark, so a second sweep says nothing.
+    $this->travel(1)->second();
+
+    expect(app(AlertOnFailures::class)->sweep($this->team))->toBeFalse();
+});
+
+it('agrees with itself about the number of others', function (): void {
+    ActionInstance::factory()->count(2)->failed()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    sweepAlerts();
+
+    Mail::assertSent(InternalAlertMail::class, fn (InternalAlertMail $mail): bool => str_contains($mail->detail, '1 other also needs looking at.'));
+});
+
+it('remembers what it has said across a cache flush', function (): void {
+    /*
+     * The mark is a column, not a cache key. `resources/help/automation.md`
+     * promises a team *"never twice about the same failure"*, and Redis is
+     * evictable and empty after a restart — a promise that survives a flush
+     * has to live where the rows live.
+     */
+    carryOutFailing(failingMessage());
+
+    sweepAlerts();
+
+    Illuminate\Support\Facades\Cache::flush();
+
+    $this->travel(1)->second();
+
+    expect(app(AlertOnFailures::class)->sweep($this->team))->toBeFalse();
+
+    Mail::assertSent(InternalAlertMail::class, 1);
+});
+
+it('still tells a team about a backlog nobody could be told about last week', function (): void {
+    /*
+     * The empty-audience branch does not move the mark, and that promise is
+     * only worth making because the mark is a column: held in a cache, an
+     * unwritten mark fell back to the 24-hour cold-start floor, so a backlog
+     * older than that was silenced by the very branch that claimed to be
+     * preserving it.
+     */
+    carryOutFailing(failingMessage());
+
+    App\Models\TeamMembership::query()
+        ->where('team_id', $this->team->getKey())
+        ->update(['email' => null]);
+
+    expect(sweepAlerts())->toBeFalse();
+
+    $this->travel(8)->days();
+
+    App\Models\TeamMembership::query()
+        ->where('team_id', $this->team->getKey())
+        ->update(['email' => 'owner@example.test']);
+
+    expect(app(AlertOnFailures::class)->sweep($this->team))->toBeTrue();
 });
