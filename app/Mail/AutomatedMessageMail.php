@@ -173,12 +173,24 @@ class AutomatedMessageMail extends Mailable
     /**
      * @return array<int, Address>
      */
+    /**
+     * Where a client's reply lands.
+     *
+     * The template's own `from_identity` when it has one, and the team's
+     * `sending_identity_email` otherwise — the second half was missing, so a
+     * team that had filled in S72's **Reply-to address** field and left the
+     * template alone (the ordinary case, since `from_identity` is null by
+     * default) sent messages a client could not reply to. See
+     * {@see SendingIdentity::replyTo()}, which also stopped the team's name
+     * reaching this header unstripped.
+     *
+     * @return list<Address>
+     */
     private function replyToAddresses(): array
     {
-        $identity = $this->instance->messageTemplate?->from_identity;
-
-        return is_string($identity) && $identity !== ''
-            ? [new Address($identity, $this->team->name)]
-            : [];
+        return SendingIdentity::replyTo(
+            $this->team,
+            $this->instance->messageTemplate?->from_identity,
+        );
     }
 }

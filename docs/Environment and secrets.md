@@ -75,12 +75,16 @@ sending status in the SES console — and note that S91's alert (#97) now
 surfaces exactly this failure on the message queue rather than letting it go
 quiet.
 
-**A team's own address never goes in `From`.** It rides in `Reply-To`, because
-that slot needs no DNS and no verification, and a `From` the domain is not
-authorised for fails SPF and DKIM. What a team *does* get in the inbox line is
-their **name**: `App\Support\Mail\SendingIdentity` composes *"Bosart Group via
-Goldieflow"* onto the verified address, so a client sees the agency they know
-beside an address that would otherwise look forged.
+**A team's own address never goes in `From`.** It rides in `Reply-To`, which
+needs no DNS and no verification. A `From` SES is not authorised to send as is
+rejected at the API, and one the message is not DKIM-aligned with fails DMARC —
+not SPF, which is evaluated against the envelope MAIL FROM rather than this
+header. What a team *does* get in the inbox line is their **name**:
+`App\Support\Mail\SendingIdentity` composes *"Bosart Group via Goldieflow"*
+onto the verified address, so a client sees the agency they know beside an
+address that would otherwise look forged — and the same class puts their
+`sending_identity_email` in `Reply-To`, so hitting Reply reaches them and not
+the product's mailbox.
 
 ### The two staging guardrails that are not optional
 

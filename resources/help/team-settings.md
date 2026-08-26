@@ -45,6 +45,28 @@ status page uses the colour differently and cannot make that choice for you.
 Everything else in an email is fixed. That is deliberate: it means no colour
 you pick can produce an email a client cannot read.
 
+## Sending identity
+
+What your clients see when an automated message arrives from you, and where
+their reply goes.
+
+**From name** is the name in their inbox. Leave it blank and your team's name
+is used. Either way it appears as _"Bosart Group via Goldieflow"_ — your name
+first, because that is who your client thinks is writing, and the app's after,
+because the address beside it belongs to the app and would otherwise look like
+somebody pretending to be you.
+
+**Reply-to address** is where a reply lands. This one matters more than it
+looks: without it a client can read your name in their inbox, hit Reply, and
+reach nobody. Put the address you actually want clients writing to.
+
+**Signature block** goes at the foot of the emails your clients get, and is
+what the `agent_contact_block` merge field fills in.
+
+You cannot yet send _from_ your own address — that needs your domain verified
+with the mail provider — so messages go out from the app's address with your
+name on them and your reply-to behind them.
+
 ## Deal types
 
 The kinds of transaction your team runs. Three ship — seller representation,

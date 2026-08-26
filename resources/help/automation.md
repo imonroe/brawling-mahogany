@@ -45,10 +45,11 @@ Two of them are listed and cannot be filled in yet — the next deadline and the
 client's status page link — because the features behind them have not been
 built. The editor says so, and refuses to save a template using one.
 
-**“Send from” is saved and not used yet.** Every message goes out from the
-team’s sending identity. Per-template addresses need a verified sending domain,
-which is not built — the field is there so a template written today does not
-have to be revisited, and the editor says so underneath it.
+**“Send from” sets the reply address for this template.** Leave it blank and
+replies go to the reply-to address in **Settings → Team**, which is the right
+answer almost always. Fill it in when one kind of message should be answered by
+somebody else — inspection chasers to your coordinator, say. It does not change
+who the message appears to be **from**; that is always your team.
 
 **Every message carries a plain-text version.** It is what a watch, a screen
 reader, and an inbox with images turned off will show, and it is not optional.
@@ -207,6 +208,13 @@ uploaded one, your accent colour, your words in the middle, and a plain-text
 version underneath for watches, screen readers and inboxes with images turned
 off. Set both in **Settings → Team**.
 
+**In their inbox it says your team's name** — _"Bosart Group via Goldieflow"_ —
+and the address beside it is the app's. That combination is deliberate: the
+name is who your client thinks is writing, and the address is the one the mail
+system is allowed to send from, so putting yours there would send the message
+to spam instead. **A reply comes to you**, at the reply-to address in
+**Settings → Team**.
+
 **When the stage that just finished is a milestone**, the email opens with what
 you called that milestone for the client — the wording on the stage in your
 template, never the internal stage name. "Your home is on the market", not
@@ -228,9 +236,10 @@ changing them updates everything still queued.
 **Delivery tracking**, so a bounced message is something you find out about
 rather than something a client mentions three weeks later.
 
-**Your own sending address.** Messages currently go out from the app's address
-with your team's as the reply-to — the "send from" field on a template is saved
-and waiting for a verified sending domain.
+**Your own sending address.** Your clients see your team's name in their inbox,
+and a reply reaches you — but the address underneath it is the app's, not
+yours. Sending as `you@youragency.com` needs your domain verified with the mail
+provider, which is a setup step rather than a feature.
 
 **A link to the client's status page** in a milestone email. The email has a
 place for it; the page itself is still being built.

@@ -33,11 +33,24 @@ class TeamInvitationMail extends Mailable
     public function envelope(): Envelope
     {
         $team = $this->invitation->team()->sole();
+        $inviter = $this->invitation->invitedBy;
 
         return new Envelope(
             // The inviting team, for the reason `SendingIdentity` gives: the
             // recipient knows the agency and has never heard of the product.
             from: SendingIdentity::forTeam($team),
+            /*
+             * And somewhere for *"who is this?"* to go. An invitation is the
+             * one message that reaches somebody with no account, no context,
+             * and every reason to be suspicious of it — a From line naming an
+             * agency over a reply that reaches nobody is exactly the shape of
+             * the thing they should be suspicious of.
+             *
+             * The inviter first, because they are the person who did this and
+             * the one who can explain it; the team's own reply-to address
+             * after, for an invitation whose sender has since left.
+             */
+            replyTo: SendingIdentity::replyTo($team, $inviter?->email),
             subject: "You’ve been invited to {$team->name}",
         );
     }

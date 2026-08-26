@@ -14,6 +14,7 @@ use App\Models\TeamInvitation;
 use App\Support\Branding\TeamLogo;
 use App\Support\Mail\BrandedEmail;
 use App\Support\Mail\EmailPalette;
+use App\Support\Mail\SendingIdentity;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Mime\Email;
@@ -336,7 +337,7 @@ it('uses the sending identity name a team set, when they set one', function (): 
         'sending_identity_name' => 'Emily Bosart',
     ])->save();
 
-    expect(App\Support\Mail\SendingIdentity::displayName($this->team))
+    expect(SendingIdentity::displayName($this->team))
         ->toBe('Emily Bosart via '.config()->string('app.name'));
 });
 
@@ -348,9 +349,9 @@ it('refuses to let a team split the From header', function (): void {
      */
     $this->team->forceFill(['name' => "Bosart Group\r\nBcc: someone@evil.test"])->save();
 
-    expect(App\Support\Mail\SendingIdentity::displayName($this->team))
+    expect(SendingIdentity::displayName($this->team))
         ->not->toContain("\r")
-        ->and(App\Support\Mail\SendingIdentity::displayName($this->team))->not->toContain("\n");
+        ->and(SendingIdentity::displayName($this->team))->not->toContain("\n");
 });
 
 it('does not attribute the product’s own alert to the team', function (): void {
@@ -364,4 +365,156 @@ it('does not attribute the product’s own alert to the team', function (): void
     $from = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getFrom()[0];
 
     expect($from->getName())->toBe(config()->string('mail.from.name'));
+});
+
+it('gives a client somewhere to reply, which is the half that makes the From honest', function (): void {
+    /*
+     * Round 1's blocker, and it was a regression: the From line named the
+     * agency while a reply went to the product's own mailbox. That is worse
+     * than the line it replaced, which said *Goldieflow* and at least matched
+     * where replies went.
+     *
+     * `teams.sending_identity_email` is the field S72 has labelled **"Reply-to
+     * address"** since Slice 1, and until now nothing read it into a header at
+     * all — `MergeFields::contactBlock()` put it in the body and that was the
+     * end of it.
+     */
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => 'emily@bosart.test',
+    ])->save();
+
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    Mail::to('client@example.test')->send(
+        new AutomatedMessageMail($instance, $instance->rendered(), $this->team),
+    );
+
+    $replyTo = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getReplyTo();
+
+    expect($replyTo)->toHaveCount(1)
+        ->and($replyTo[0]->getAddress())->toBe('emily@bosart.test')
+        // The team's own name, without the "via": a reply is going *to* them,
+        // so the product has no part in it.
+        ->and($replyTo[0]->getName())->toBe('Bosart Group');
+});
+
+it('lets a template name a more specific reply address than the team’s', function (): void {
+    $this->actingAsPerson($this->owner, $this->team);
+
+    $this->team->forceFill(['sending_identity_email' => 'emily@bosart.test'])->save();
+
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+    $template = MessageTemplate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'from_identity' => 'coordinator@bosart.test',
+    ]);
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+        'message_template_id' => $template->getKey(),
+    ]);
+
+    Mail::to('client@example.test')->send(
+        new AutomatedMessageMail($instance, $instance->rendered(), $this->team),
+    );
+
+    $replyTo = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getReplyTo();
+
+    expect($replyTo[0]->getAddress())->toBe('coordinator@bosart.test');
+});
+
+it('sends an invitation from the inviting team, and back to the person who sent it', function (): void {
+    /*
+     * Untested until round 1 found that deleting the `from:` left the entire
+     * Feature suite green. An invitation is the one message reaching somebody
+     * with no account and every reason to be suspicious of it, so both halves
+     * matter: a name they recognise, and somewhere for *"who is this?"* to go.
+     */
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => 'emily@bosart.test',
+    ])->save();
+
+    $invitation = TeamInvitation::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'invited_by_person_id' => $this->owner->getKey(),
+    ]);
+
+    Mail::to('newcomer@example.test')->send(
+        new TeamInvitationMail($invitation, TeamInvitation::newToken()),
+    );
+
+    $message = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage();
+
+    expect($message->getFrom()[0]->getName())->toBe('Bosart Group via '.config()->string('app.name'))
+        ->and($message->getFrom()[0]->getAddress())->toBe(config()->string('mail.from.address'))
+        // The person who did this, because they are the one who can explain it.
+        ->and($message->getReplyTo()[0]->getAddress())->toBe($this->owner->email);
+});
+
+it('keeps the product’s own name on a test send', function (): void {
+    /*
+     * The other half of the four-way split, which had no assertion either. A
+     * template test send reaches its own author and the product genuinely is
+     * what they are testing.
+     */
+    $this->actingAsPerson($this->owner, $this->team);
+
+    $template = MessageTemplate::factory()->create(['team_id' => $this->team->getKey()]);
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    Mail::to('author@example.test')->send(
+        new MessageTemplateTestMail($template, $instance->rendered(), $this->team),
+    );
+
+    $from = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getFrom()[0];
+
+    expect($from->getName())->toBe(config()->string('mail.from.name'));
+});
+
+it('says nothing rather than inventing a reply address when a team has set none', function (): void {
+    $this->team->forceFill(['sending_identity_email' => null])->save();
+
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    Mail::to('client@example.test')->send(
+        new AutomatedMessageMail($instance, $instance->rendered(), $this->team),
+    );
+
+    expect(Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getReplyTo())
+        ->toBe([]);
+});
+
+it('refuses to send at all when no verified identity is configured', function (): void {
+    /*
+     * The one value in this class that has no fallback. A message that goes
+     * out claiming an identity SES has not authorised is rejected at the API
+     * — so the honest failure is here, in a sentence naming the variable, and
+     * not four layers down in a queue worker.
+     */
+    config()->set('mail.from.address', null);
+
+    expect(fn (): mixed => SendingIdentity::forTeam($this->team))
+        ->toThrow(RuntimeException::class, 'MAIL_FROM_ADDRESS');
+});
+
+it('does not accept a blank sending address as a configured one', function (): void {
+    // `config()->string()` would hand this straight through: it is a string.
+    config()->set('mail.from.address', '   ');
+
+    expect(fn (): mixed => SendingIdentity::forTeam($this->team))
+        ->toThrow(RuntimeException::class);
 });
