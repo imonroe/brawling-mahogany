@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
+use App\Enums\AutomationTrigger;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use App\Support\Messages\RenderedMessage;
@@ -29,6 +30,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $stage_id
  * @property string|null $action_definition_id
  * @property AutomationActionType $action_type
+ * @property AutomationTrigger $trigger
  * @property string|null $message_template_id
  * @property array<string, mixed>|null $config
  * @property AutomationState $state
@@ -37,6 +39,7 @@ use Illuminate\Support\Carbon;
  * @property array<string, mixed>|null $payload
  * @property string|null $approved_by
  * @property Carbon|null $approved_at
+ * @property string|null $message_key
  * @property string|null $provider_message_id
  * @property int $attempts
  * @property string|null $error
@@ -57,6 +60,7 @@ class ActionInstance extends Model
     {
         return [
             'action_type' => AutomationActionType::class,
+            'trigger' => AutomationTrigger::class,
             'state' => AutomationState::class,
             'config' => 'array',
             'payload' => 'array',
@@ -143,16 +147,19 @@ class ActionInstance extends Model
     }
 
     /**
-     * Whether this row has already been accepted by a provider.
+     * Whether this row has already been handed to a transport.
      *
      * Asked **before** the state, and that ordering is the idempotency
-     * guarantee: `provider_message_id` is written before the state moves, so a
-     * retry after a timeout that the provider actually accepted finds this
-     * true and stops. Reading the state alone would send again.
+     * guarantee. It reads `message_key` — ours, written before the mailer is
+     * called — and never `provider_message_id`, which is theirs and arrives
+     * after they answer. The whole case this defends against is the send that
+     * went out and never came back, and that row has no provider id at all;
+     * asking for one would let the retry through on exactly the send that
+     * already reached a client.
      */
     public function reachedTheProvider(): bool
     {
-        return $this->provider_message_id !== null;
+        return $this->message_key !== null;
     }
 
     public function isSendable(): bool
@@ -188,6 +195,15 @@ class ActionInstance extends Model
         $at ??= Carbon::now();
 
         return $query->where('state', AutomationState::Pending)
+            /*
+             * And never one already handed to a transport. `pending` with a
+             * `message_key` is what a send that crashed between the mailer
+             * call and the state write leaves behind, and it is the exact row
+             * the scheduler would otherwise pick up and send a second time.
+             * `ExecuteAction` refuses it as well; a sweep that keeps handing
+             * it over would just refuse it forever.
+             */
+            ->whereNull('message_key')
             ->where(fn (Builder $inner) => $inner
                 ->whereNull('scheduled_for')
                 ->orWhere('scheduled_for', '<=', $at));

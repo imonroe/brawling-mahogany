@@ -19,6 +19,7 @@ use App\Http\Controllers\Deals\StageStateController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\HelpController;
+use App\Http\Controllers\Messages\MessageQueueController;
 use App\Http\Controllers\Messages\MessageTemplateController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
@@ -576,6 +577,39 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     Route::post('templates/messages/{messageTemplate}/test', [MessageTemplateController::class, 'test'])
         ->middleware('throttle:10,1')
         ->name('message-templates.test');
+
+    /*
+     * S47, S48, S49 — the approval queue, the preview, and one message's
+     * record (F5.7, F5.8, #93).
+     *
+     * PRD §4.5 calls the queue a **launch blocker, not an enhancement**, and
+     * there is deliberately no bulk-approve route: #93 says *"bulk approve
+     * teaches people to approve without reading"*, and a route that took an
+     * array of ids would be that feature whatever the screen chose to draw.
+     *
+     * No destroy either. Stopping a message is `cancel` — IA §7's verb, and
+     * not Delete: S49 has to be able to answer *"why did the client never hear
+     * about this"* months later, and a deleted row answers nothing.
+     *
+     * `/messages` rather than `/deals/{deal}/messages`, because the question
+     * this screen answers is *"what needs me"* across every deal at once. One
+     * message's own page links back to the deal it belongs to.
+     */
+    Route::get('messages', [MessageQueueController::class, 'index'])
+        ->name('messages.index');
+    Route::get('messages/{message}', [MessageQueueController::class, 'show'])
+        ->name('messages.show');
+    /*
+     * Throttled, because this is the route that puts an email on a transport.
+     * A ceiling here is not F5.9's — that one is per team and lives in the
+     * worker, where it catches the 3am scheduled send with no human present —
+     * it is the ordinary bound on a write endpoint somebody can hold down.
+     */
+    Route::post('messages/{message}/approval', [MessageQueueController::class, 'approve'])
+        ->middleware('throttle:30,1')
+        ->name('messages.approve');
+    Route::delete('messages/{message}/approval', [MessageQueueController::class, 'cancel'])
+        ->name('messages.cancel');
 
     Route::scopeBindings()->group(function (): void {
         Route::get('templates', [TemplateController::class, 'index'])->name('templates.index');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Mail;
 
+use App\Mail\AutomatedMessageMail;
 use App\Mail\MessageTemplateTestMail;
 use App\Mail\TeamInvitationMail;
 
@@ -87,6 +88,28 @@ final class EmailIndependence
                 .'show what a mail client does with it, and it can reach nobody but the person '
                 .'who asked for it — so an install with no mail transport loses the rendering '
                 .'check and none of the content check.',
+        ],
+
+        'automated-message' => [
+            'label' => 'Telling a client what has happened on their deal',
+            'sends' => AutomatedMessageMail::class,
+            'alternatives' => [
+                // S47 and S49. The exact words, the exact recipients, and —
+                // when the transport refused it — the reason, on a screen the
+                // team already opens.
+                'route:messages.index',
+                'route:messages.show',
+            ],
+            'note' => 'This is the flow that most needs the rule and satisfies it least '
+                .'comfortably, so the reasoning is worth stating rather than implying. What the '
+                .'second door is **not** is another way to reach the client — email is the '
+                .'channel v1 has, and #103 adds push for the team rather than for clients. What '
+                .'it is, is a way for the *team* to find out and act: on an install with no mail '
+                .'transport, or one whose credentials expired, every message that did not go out '
+                .'is on S47 in red with its reason, its recipients and its full text, and a '
+                .'person can send it by hand or pick up the phone. ADR 0003\'s failure is a flow '
+                .'that becomes unreachable **without anybody being told**; this one cannot go '
+                .'quiet, because a message that fails is a row somebody has to clear.',
         ],
 
         'password-reset' => [

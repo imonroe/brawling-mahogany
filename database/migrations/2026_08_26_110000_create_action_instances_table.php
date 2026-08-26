@@ -37,11 +37,21 @@ use Illuminate\Support\Facades\Schema;
  *
  * ## Idempotency lives in this table, not in the queue
  *
- * A provider call can time out after the provider has accepted the message.
- * `provider_message_id` is written **before** the state moves to `sent`, and
- * the send path refuses an instance that is not `pending`, so a retry after a
- * timeout finds a row it will not send again. The queue's own retry semantics
- * are not enough on their own — Horizon will happily run a job twice.
+ * A provider call can time out **after** the provider has accepted the
+ * message, so an id handed back by the provider is exactly the thing a
+ * timed-out send does not have. Two columns rather than one, and the
+ * distinction is the whole guarantee:
+ *
+ *  - `message_key` is **ours**, generated and written before the mailer is
+ *    called at all. A row carrying one has been handed to a transport, and is
+ *    never handed to one again whatever else the row says.
+ *  - `provider_message_id` is **theirs**, written after they answer, and null
+ *    for every send that went out and never came back. #95 correlates
+ *    delivery notifications on it.
+ *
+ * The queue's own retry semantics are not enough on their own — Horizon will
+ * happily run a job twice, and the second run is exactly the one that must
+ * find the door shut.
  */
 return new class extends Migration
 {
@@ -74,6 +84,21 @@ return new class extends Migration
             // Snapshotted from the definition, so a deleted or edited one
             // cannot change what a queued instance does.
             $table->string('action_type');
+
+            /*
+             * What made it fire, and it is load-bearing rather than reporting.
+             *
+             * `AdvanceWorkflow::reopen()` wrote the contract before this table
+             * existed: *"an action that already fired stays fired — a client
+             * emailed when the stage first completed must not be emailed again
+             * on the second advance"*, and *"the dedupe belongs on the sending
+             * side, keyed by the stage and the action rather than by a count
+             * of advances."* Reopening and re-advancing a stage raises the
+             * same `stage_completion` a second time, and this column plus
+             * `stage_id` and `action_definition_id` is the key that catches
+             * it. S49 also shows it, which is the smaller of the two reasons.
+             */
+            $table->string('trigger');
             $table->foreignUlid('message_template_id')->nullable();
             $table->config('config');
 
@@ -105,9 +130,15 @@ return new class extends Migration
             $table->timestamp('approved_at')->nullable();
 
             /*
-             * Written **before** the state moves to `sent` — see the class
-             * docblock. A row carrying one has been accepted by the provider
-             * whatever the state says, so it is never sent again.
+             * Written **before** the mailer is called — see the class
+             * docblock. A row carrying one has been handed to a transport
+             * whatever the state says, so it is never handed to one again.
+             */
+            $table->string('message_key')->nullable();
+
+            /*
+             * And what the provider called it, once it answers. Null on every
+             * send that timed out, which is the case `message_key` exists for.
              */
             $table->string('provider_message_id')->nullable();
 
@@ -118,6 +149,11 @@ return new class extends Migration
             // scheduler asks for pending instances that are due.
             $table->index(['team_id', 'state', 'scheduled_for']);
             $table->index(['deal_id', 'state']);
+
+            // The "has this already fired" question, asked once per automation
+            // per advance. Without it, re-advancing a stage on a busy team is
+            // a sequential scan on the widest table in the product.
+            $table->index(['stage_id', 'trigger', 'action_definition_id']);
         });
     }
 

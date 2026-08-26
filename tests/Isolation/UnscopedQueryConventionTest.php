@@ -173,6 +173,16 @@ const SANCTIONED_UNSCOPED_QUERIES = [
         'reason' => 'Accepting an invitation has no team context by definition — the '.
             'hashed single-use token is what establishes one.',
     ],
+
+    'Console/Commands/DispatchDueAutomations.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant, and the sweep shape PurgeSoftDeletedRecords '.
+            'already uses: a scheduled run has no session, and the question is which '.
+            'automation instances are due across every team at once. Nothing is read from '.
+            'the row but its id and its team_id, and the job it dispatches re-establishes '.
+            'that team before touching anything — RunsForTeam throws rather than running '.
+            'unscoped, which is what makes the hand-off safe.',
+    ],
 ];
 
 /**

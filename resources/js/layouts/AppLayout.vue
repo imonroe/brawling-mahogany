@@ -24,7 +24,7 @@ import type { BreadcrumbItem, PendingInvitation } from '@/types';
 const props = withDefaults(
     defineProps<{
         breadcrumbs?: BreadcrumbItem[];
-        counts?: { myWork?: number | null };
+        counts?: { myWork?: number | null; pendingMessages?: number | null };
     }>(),
     { breadcrumbs: () => [] },
 );

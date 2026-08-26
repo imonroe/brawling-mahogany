@@ -15,6 +15,7 @@ import {
     House,
     LayoutDashboard,
     LayoutTemplate,
+    Mail,
     ListChecks,
     Settings,
     Users,
@@ -28,7 +29,7 @@ export interface NavEntry {
     /** When set, the entry renders only if the person holds this permission. */
     permission?: string;
     /** Key into the shell's counts prop — My Work carries a count. */
-    countKey?: 'myWork';
+    countKey?: 'myWork' | 'pendingMessages';
 }
 
 export const NAV_GROUPS: NavEntry[][] = [
@@ -89,6 +90,25 @@ export const NAV_GROUPS: NavEntry[][] = [
         },
     ],
     [
+        /*
+         * S47 (#93). Above Templates, because it is a queue somebody has to
+         * clear rather than a place to go and build something — and the count
+         * beside it is the only thing on the shell that says a client message
+         * is waiting on a person. PRD §4.5 makes the queue a launch blocker;
+         * a queue nobody is told about holds messages that silently never go.
+         *
+         * Gated on `deals.view` rather than `message.approve`: reading the
+         * queue is the wider permission, and a screen that showed nothing to
+         * somebody who can see every one of these messages on the deal itself
+         * would be hiding a fact rather than protecting one.
+         */
+        {
+            label: 'Messages',
+            href: '/messages',
+            icon: Mail,
+            permission: 'deals.view',
+            countKey: 'pendingMessages',
+        },
         {
             label: 'Templates',
             href: '/templates',

@@ -781,7 +781,9 @@ py-2.5  gap-2.5  items-start
 [icon circle 24] [ Text 14 (wraps) / Time 12 ]
 ```
 
-The icon circle is `size-6 rounded-full bg-muted` holding a 14px icon tinted by event type: completion `state-success`, message sent `state-info`, override `state-warning`, everything else `state-neutral`. The text must be allowed to wrap; the timestamp must not.
+The icon circle is `size-6 rounded-full bg-muted` holding a 14px icon tinted by event type: completion `state-success`, message sent `state-info`, override `state-warning`, a message that **failed to send** `state-danger`, everything else `state-neutral`. The text must be allowed to wrap; the timestamp must not.
+
+`state-danger` was added with Slice 3's automations (#92). The rule had four tones because until then nothing on the feed reported something the product had *tried and failed* to do — every other row records something that happened. A failed client message is the one entry a team must not scroll past, and PRD §1.1's second question is *"has the client been told?"*: rendering that row in the same grey as a renamed task is the feed answering it wrongly. A **sandbox-redirected** message is `state-warning` rather than `state-info` for the neighbouring reason — it went out, but not to the client, and reading it as a send is the specific misunderstanding F5.9's sandbox creates.
 
 The event-type mapping lives in `resources/js/lib/activity.ts`, never at a call site — S12, S31 and the deal timeline all render this row, and three copies of a colour rule disagree within a month. A default slot sits under the timestamp for the supporting lines a feed carries (a logged note, the deal, who did it); it is inside the text column deliberately, so those lines align under the text rather than under the icon.
 
