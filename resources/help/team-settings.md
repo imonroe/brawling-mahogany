@@ -30,6 +30,23 @@ buyer representation, rental placement — and you can add your own.
 Deal types are **archived, never deleted**, and the screen shows how many
 deals use one before you archive it.
 
+## Sending
+
+What can leave the building, and what stops it. Three controls, and the first
+one is the one to remember exists before you need it.
+
+**Stop all automated sending** holds everything, including messages already
+queued and waiting for review. They are held rather than cancelled, so turning
+it off releases them. The screen says how many it is currently holding.
+
+**Sandbox** sends everything to the team owner instead of the real recipient,
+with a banner on it. New teams start here.
+
+**Limits per hour and per day** cap how much can go out. Reaching one pauses
+sending rather than cancelling it.
+
+The detail is in [Automated messages](/help/automation).
+
 ## Roles
 
 See [Roles and permissions](/help/roles-and-permissions).

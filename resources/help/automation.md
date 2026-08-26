@@ -1,35 +1,29 @@
 ---
 title: Automated messages
 summary: Client updates that send themselves, and the approval step in front of them.
-section: coming-later
-order: 3
-arrives_with: A later release
+section: setup
+order: 4
 ---
 
 Messages to clients that send themselves when something happens — a stage
 completing, a deadline approaching — so the update that keeps somebody calm
 does not depend on remembering to send it.
 
-## What exists today
+## How it works, end to end
 
-**You can write the messages and set up the automations. Nothing sends them.**
+You write the words once as a **message template**. You attach an **automation**
+to a stage in a workflow template, saying when it should go and who it goes to.
+Then, on every deal running that workflow, reaching that moment prepares the
+message with the right client's name and the right property in it — and, unless
+you have said otherwise, waits for a person to read it before it goes.
 
-That is deliberate rather than half-finished. An email to the wrong client
-cannot be recalled, so the parts that decide _whether_ something goes out — the
-review queue, the rate limit, the switch that stops everything — are being
-built as one piece with the part that actually sends. Until all of it works,
-none of it does.
+The waiting is the part worth understanding, so it has its own section below.
 
-So today you can:
-
-- **Write message templates**, with merge fields, and see them rendered against
-  a real deal of yours before anybody else does.
-- **Send yourself a test**, which reaches you and nobody else.
-- **Attach automations to a stage template**, saying what should happen when
-  the stage starts or completes.
-
-An automation you set up now will start working when the sending half lands.
-Nothing you write is wasted, and nothing you write is going anywhere yet.
+> **Your first month, everything waits.** For a new team, every outbound email
+> is held for review regardless of how its automation is set up. An email to the
+> wrong client cannot be recalled, and a template's first few real sends are
+> when a mistake in it is most likely and least expected. You can turn this off
+> in team settings once you trust what you have written.
 
 ## Message templates
 
@@ -102,14 +96,72 @@ which takes it out of the picker and leaves the automations already using it
 alone. The list shows how many are using each one before you choose. Archiving
 is reversible.
 
-## What is still to come
+## The review queue
 
-**The approval queue.** Messages waiting for a person to release them, with the
-rendered message in front of them and the ability to edit before it goes.
+**Messages** in the sidebar, with a count beside it when something is
+waiting.
+
+Each row is one message about one deal. Open it and you see exactly what the
+client would see — the subject, the body, and the addresses it would go to. Then
+**Approve and send**, or **Stop this message**.
+
+**You can edit before sending.** The change belongs to that one message, not to
+the template it came from. Fixing a sentence about this deal's inspection does
+not rewrite what every future deal gets — that is the template editor's job, and
+deliberately a different screen.
+
+One thing the editor will not let you do is type a merge field. The words in
+front of you are already filled in, so `{{ client_name }}` typed there would go
+to the client exactly as written. Type the name.
+
+**A message with a merge field that could not be filled in cannot be approved.**
+The blanks are listed at the top of the page. Usually the fix is on the deal —
+a property that has not been linked, a client with no name — and sometimes it is
+in the template. Either way the message waits rather than going out with a gap
+in it.
+
+**There is no approve-all.** That is deliberate: a button that clears the queue
+in one click is a button people press without reading, which is the entire
+failure this queue exists to prevent.
+
+## What did not go out
+
+The same screen carries failures, above the queue rather than behind a tab. A
+message that failed to send answers "has the client been told?" exactly as badly
+as one still waiting, and it is the thing you most need to notice.
+
+Each one says why in plain words — the address resolved to nobody, the mail
+service refused it, somebody stopped it. Opening it shows the full message, so
+you can send it by hand or pick up the phone.
+
+**Stopping a message keeps the record.** It is marked stopped rather than
+deleted, because three months from now the question is not "is this tidy", it is
+"why did the client never hear about the inspection".
+
+## The safety rails
+
+**Settings → Sending.** Three of them, and they apply to every send —
+including one that happens at 3am with nobody watching.
+
+**Sandbox mode.** Everything is redirected to the team owner instead of the real
+recipient, with a banner saying so. New teams start here. Turn it off in team
+settings when you are ready.
+
+**A limit per hour and per day.** If a template goes wrong in a loop, this is
+what stops it at sixty rather than six thousand. Reaching the limit **pauses**
+sending rather than cancelling it — the messages go when the hour rolls over.
+
+**A switch that stops everything.** One toggle in team settings, and it catches
+what is already queued as well as what has not been prepared yet. This is the
+one to reach for when something is wrong and you are not yet sure what.
+
+## What is still to come
 
 **Delivery tracking**, so a bounced message is something you find out about
 rather than something a client mentions three weeks later.
 
-**The safety rails**: a limit on how many messages can go out in an hour, a
-switch that stops all sending immediately, and a sandbox mode where nothing
-reaches a real address.
+**Your own sending address.** Messages currently go out from the app's address
+with your team's as the reply-to — the "send from" field on a template is saved
+and waiting for a verified sending domain.
+
+**Push notifications and calendar events** as things an automation can do.

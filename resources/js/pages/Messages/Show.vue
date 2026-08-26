@@ -77,6 +77,16 @@ const props = defineProps<{
 
 const editing = ref(false);
 
+/*
+ * Built in script rather than written into the template.
+ *
+ * Vue's own interpolation is `{{ }}`, so a merge field written inline is a
+ * parse error — `{{ '{{ client_name }}' }}` reads as an unterminated string
+ * to the SFC compiler. Worth the constant: the sentence beside this field is
+ * about braces, and it cannot make its point without showing a pair.
+ */
+const EXAMPLE_TOKEN = '{' + '{ client_name }' + '}';
+
 const form = useForm({
     subject: props.message.rendered.subject ?? '',
     bodyText: props.message.rendered.bodyText,
@@ -326,9 +336,9 @@ function cancel(): void {
                         />
                         <p class="text-[11px] text-muted-foreground">
                             These words are already filled in, so
-                            <code>{{ '{{ client_name }}' }}</code> here would go
-                            to the client exactly as written. Type the value
-                            instead.
+                            <code v-text="EXAMPLE_TOKEN" />
+                            here would go to the client exactly as written. Type
+                            the value instead.
                         </p>
                         <p
                             v-if="form.errors.bodyText"

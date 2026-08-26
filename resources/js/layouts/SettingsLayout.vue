@@ -41,6 +41,15 @@ const sidebarNavItems = computed<NavItem[]>(() => {
         items.push({ title: 'Deal types', href: '/settings/deal-types' });
     }
 
+    /*
+     * F5.9's rails (#96). Directly under Team rather than at the bottom: this
+     * is the item somebody looks for in a hurry because a client has just
+     * phoned, and a list is scanned from the top.
+     */
+    if (page.props.team && can('settings.manage')) {
+        items.push({ title: 'Sending', href: '/settings/sending' });
+    }
+
     if (page.props.team && can('team.export')) {
         items.push({ title: 'Export', href: '/settings/export' });
     }
