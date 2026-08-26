@@ -173,11 +173,20 @@ final class SensitiveContent
     {
         $text = ReadableText::from($bytes, $mimeType);
 
-        if ($text === null) {
+        if ($text === null || trim($text) === '') {
             return ScanOutcome::unreadable();
         }
 
-        $haystack = mb_strtolower($text);
+        /*
+         * **However little there is.** Round 2 of review found the confidence
+         * floor sitting in front of this, so the five shortest documents in
+         * the threat model — a MICR-only cheque, a one-line wire instruction,
+         * an SSN card — were never scanned at all. Confidence decides the
+         * *label* at the bottom of this method; it never decides whether to
+         * look.
+         */
+        $haystack = self::collapsed($text);
+        $squashed = self::squashed($text);
 
         /*
          * Conclusive on its own. A MICR line is the machine-readable strip
@@ -185,7 +194,7 @@ final class SensitiveContent
          * "pay to the order of" is a legal formula rather than a phrase.
          */
         foreach (self::MICR_SYMBOLS as $symbol) {
-            if (str_contains($text, $symbol)) {
+            if (str_contains($squashed, $symbol)) {
                 return ScanOutcome::refused(
                     RestrictedDocumentCategory::EarnestMoneyInstrument,
                     'micr_line',
@@ -194,7 +203,7 @@ final class SensitiveContent
         }
 
         foreach (self::CHEQUE_PHRASES as $phrase) {
-            if (str_contains($haystack, $phrase)) {
+            if (str_contains($haystack, $phrase) || str_contains($squashed, self::squashed($phrase))) {
                 return ScanOutcome::refused(
                     RestrictedDocumentCategory::EarnestMoneyInstrument,
                     'cheque_phrasing',
@@ -213,7 +222,8 @@ final class SensitiveContent
          * space-separated, and a word processor turns a typed hyphen into an
          * en dash. Spaces, dots and the whole Unicode dash range now count.
          */
-        if (preg_match('/\b(?!000|666|9\d\d)\d{3}[-\x{2010}-\x{2015}\s.]\s?(?!00)\d{2}[-\x{2010}-\x{2015}\s.]\s?(?!0000)\d{4}\b/u', $text) === 1) {
+        if (preg_match('/\b(?!000|666|9\d\d)\d{3}[-\x{2010}-\x{2015}.]\s?(?!00)\d{2}[-\x{2010}-\x{2015}.]\s?(?!0000)\d{4}\b/u', $text) === 1
+            || preg_match('/(?<!\d)(?!000|666|9\d\d)\d{3}\s(?!00)\d{2}\s(?!0000)\d{4}(?!\d)/u', $text) === 1) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::GovernmentId,
                 'ssn_pattern',
@@ -226,7 +236,8 @@ final class SensitiveContent
          * the word "account" appears in half the correspondence a team writes.
          * Together they are a bank document.
          */
-        if (self::hasRoutingNumber($text) && self::mentions($haystack, self::BANKING_CONTEXT)) {
+        if ((self::hasRoutingNumber($text) || self::hasRoutingNumber($squashed))
+            && self::countOfEither($haystack, $squashed, self::BANKING_CONTEXT) > 0) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::BankStatement,
                 'routing_number_in_banking_context',
@@ -239,15 +250,15 @@ final class SensitiveContent
          * and "purchase agreement" is what the draft somebody is negotiating
          * is called. Together they are a document that has been executed.
          */
-        if (self::mentions($haystack, self::EXECUTION_PHRASES)
-            && self::mentions($haystack, self::CONTRACT_PHRASES)) {
+        if (self::countOfEither($haystack, $squashed, self::EXECUTION_PHRASES) > 0
+            && self::countOfEither($haystack, $squashed, self::CONTRACT_PHRASES) > 0) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::ExecutedContract,
                 'execution_evidence_in_contract',
             );
         }
 
-        if (self::countOf($haystack, self::STATEMENT_PHRASES) >= 2) {
+        if (self::countOfEither($haystack, $squashed, self::STATEMENT_PHRASES) >= 2) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::BankStatement,
                 'statement_phrasing',
@@ -266,8 +277,8 @@ final class SensitiveContent
          * Nobody writes "uniform residential loan application" in a covering
          * note, so those refuse alone.
          */
-        if (self::mentions($haystack, self::LENDING_TITLES)
-            || self::countOf($haystack, self::LENDING_PHRASES) >= 2) {
+        if (self::countOfEither($haystack, $squashed, self::LENDING_TITLES) > 0
+            || self::countOfEither($haystack, $squashed, self::LENDING_PHRASES) >= 2) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::LendingPacket,
                 'lending_phrasing',
@@ -279,14 +290,28 @@ final class SensitiveContent
          * date of birth; a form carrying a date of birth *and* a licence
          * number is an identity document.
          */
-        if (self::countOf($haystack, self::IDENTITY_PHRASES) >= 2) {
+        if (self::countOfEither($haystack, $squashed, self::IDENTITY_PHRASES) >= 2) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::GovernmentId,
                 'identity_phrasing',
             );
         }
 
-        return ScanOutcome::clean();
+        /*
+         * **Nothing was found — but was there anything to find?**
+         *
+         * This is the only place confidence is consulted, and it is the last
+         * question rather than the first. A decode that produced a few bytes,
+         * or a page of armoured binary that happened to yield letters, has not
+         * been *checked* in any sense a person would recognise, and `clean` is
+         * a word this product must only use when it means something.
+         *
+         * `not_scanned` claims nothing, which is the right answer when nothing
+         * can honestly be claimed. Every screen distinguishes the two.
+         */
+        return ReadableText::isConfident($text)
+            ? ScanOutcome::clean()
+            : ScanOutcome::unreadable();
     }
 
     /**
@@ -324,22 +349,54 @@ final class SensitiveContent
     }
 
     /**
-     * @param  list<string>  $needles
+     * Collapse every whitespace run to one space, and lower-case it.
+     *
+     * PDF text extraction inserts separators the author never typed: a
+     * justified line arrives with runs of spaces between words, and a table
+     * cell arrives column-aligned. Round 2 of review measured the cost — an
+     * identical bank statement was refused single-spaced and passed as
+     * `clean` column-aligned. A phrase list matched against raw extraction is
+     * a phrase list matched against one producer's spacing.
      */
-    private static function mentions(string $haystack, array $needles): bool
+    private static function collapsed(string $text): string
     {
-        return self::countOf($haystack, $needles) > 0;
+        return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $text)));
     }
 
     /**
+     * The same text with **every** space removed.
+     *
+     * Collapsing fixes spacing *between* words and cannot fix a space injected
+     * *inside* one: a kerning pair splits `PAY` into `[(PA) -20 (Y …)]`, and
+     * the extractor rebuilds it as `PA Y TO THE ORDER OF` — a cheque that
+     * walks past every phrase in the list. Matching a squashed needle against
+     * squashed text is blind to where the producer chose to break, which is
+     * the only property that survives every producer.
+     *
+     * It costs the ability to require a word boundary, so it is used *beside*
+     * the collapsed form rather than instead of it.
+     */
+    private static function squashed(string $text): string
+    {
+        return mb_strtolower((string) preg_replace('/\s+/u', '', $text));
+    }
+
+    /**
+     * How many of these phrases appear, in **either** normalised form.
+     *
+     * One helper rather than a collapsed check and a squashed check at each
+     * call site: round 2 of review found the whitespace hole because the rule
+     * lived in the callers, and a rule in seven callers is a rule the eighth
+     * is written without. Every phrase test in this class goes through here.
+     *
      * @param  list<string>  $needles
      */
-    private static function countOf(string $haystack, array $needles): int
+    private static function countOfEither(string $haystack, string $squashed, array $needles): int
     {
         $found = 0;
 
         foreach ($needles as $needle) {
-            if (str_contains($haystack, $needle)) {
+            if (str_contains($haystack, $needle) || str_contains($squashed, self::squashed($needle))) {
                 $found++;
             }
         }

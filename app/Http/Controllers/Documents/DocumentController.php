@@ -282,7 +282,14 @@ class DocumentController extends Controller
      */
     private function dealsWithDocuments(): array
     {
+        /*
+         * Scoped like the rows. Round 2 of review proved the leak with a
+         * fixture: a role holding only `properties.view` got a deal's
+         * `displayName()` — its address — in the filter picker while the row
+         * itself was correctly withheld. A filter is a read.
+         */
         $ids = Document::query()
+            ->where($this->readable(...))
             ->where('documentable_type', (new Deal)->getMorphClass())
             ->distinct()
             ->pluck('documentable_id')

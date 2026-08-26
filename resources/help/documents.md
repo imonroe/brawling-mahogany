@@ -51,8 +51,9 @@ event, and this app is not the system of record for any of them — your
 e-signature platform and your lender already hold them, under arrangements
 built for it.
 
-The check reads the file, not its name. A bank statement saved as
-`notes.pdf` is still a bank statement, and renaming it will not get it past.
+The check reads the file, not its name — a bank statement saved as `notes.pdf`
+is still read as one. It is not perfect at it: what a PDF gives up depends on
+how it was produced, and some files hand over less than others.
 When something is refused you are told what it looked like and where it does
 belong; nothing is stored in the meantime.
 

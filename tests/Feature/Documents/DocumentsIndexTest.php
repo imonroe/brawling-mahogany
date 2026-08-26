@@ -382,3 +382,54 @@ it('does not pay a query per row to name what each document hangs off', function
      */
     expect($withFive - $withOne)->toBeLessThanOrEqual(1);
 });
+
+it('keeps a deal out of the filter picker for somebody who cannot see deals', function (): void {
+    /*
+     * Round 2 of review, blocker 4. `dealsWithDocuments()` was unscoped, so a
+     * role holding only `properties.view` got a deal's `displayName()` — its
+     * address — in the picker while the row itself was correctly withheld.
+     *
+     * A filter is a read.
+     */
+    storeOn($this->deal, 'disclosure.txt', DocumentCategory::Disclosure);
+
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+    storeOn($property, 'survey.txt', DocumentCategory::Other);
+
+    $narrow = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($narrow): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $narrow->getKey(),
+            'first_name' => 'Dana',
+            'last_name' => 'Alvarez',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'properties_only_picker',
+            'name' => 'Properties Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_PROPERTIES])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($narrow, $this->team);
+
+    $response = $this->get('/documents');
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('deals', 0)
+            ->has('documents', 1)
+            ->where('documents.0.name', 'survey.txt'),
+        );
+
+    expect($response->getContent())->not->toContain($this->deal->displayName());
+});

@@ -320,3 +320,99 @@ it('refuses a contract that has been signed, and keeps the one being negotiated'
 
     expect($document->scan_state)->toBe('clean');
 });
+
+it('scans the shortest and most dangerous documents, whatever their length', function (string $label, string $content): void {
+    /*
+     * Round 2 of review, blocker 2. The confidence floor sat in front of the
+     * scan, so a document below it came back `null` and was never looked at —
+     * and the five shortest documents in the threat model are the five that
+     * matter most. A MICR-only cheque has **zero** letters; the `micr_line`
+     * check, documented as *"conclusive on its own"*, was unreachable for any
+     * document whose only text is a MICR line.
+     *
+     * Confidence decides the label now. It never decides whether to look.
+     */
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('short.txt', $content),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+})->with([
+    'a MICR line alone' => ['micr', '⑆021000021⑆ 4419827733⑈ 1042'],
+    'a one-line wire instruction' => ['wire', 'Wire to routing 021000021 account 4419827733'],
+    'an SSN card' => ['ssn', 'SOCIAL SECURITY 412-55-8931'],
+]);
+
+it('sees a cheque the extractor split mid-word', function (): void {
+    /*
+     * Round 2's first blocker. A kerning pair splits `PAY` across two string
+     * literals — `[(PA) -20 (Y TO THE ORDER OF …)] TJ` — and the extractor
+     * rebuilds it as `PA Y TO THE ORDER OF`, which matches no phrase in the
+     * list. Every phrase test now runs against a whitespace-**squashed** copy
+     * as well, which is blind to where the producer chose to break.
+     */
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('cheque.txt', "FIRST MERIDIAN BANK\nPA Y TO THE ORDER OF Bosart Group\nMemo: earnest money"),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+});
+
+it('sees a statement the extractor column-aligned', function (): void {
+    /*
+     * The other shape: a justified line or a table cell arrives with runs of
+     * spaces between words, and an identical statement was refused
+     * single-spaced and passed as `clean` column-aligned. Whitespace is
+     * collapsed before matching now.
+     */
+    $aligned = "FIRST   MERIDIAN   BANK\nAccount    Number:     4419827733\n"
+        ."Routing    Number:     021000021\nBeginning     Balance      4,201.55\n"
+        .'Deposits   and   Other   Credits';
+
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('statement.txt', $aligned),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+});
+
+it('does not read a tax proration line as a social security number', function (): void {
+    /*
+     * The cost of round 1's separator widening, which round 2 measured:
+     * `1,204.55 2026` on a settlement statement matched the space-separated
+     * form. Spaces are now their own pattern with a digit boundary either
+     * side, so a decimal followed by a year no longer reads as an SSN.
+     */
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('proration.txt', "Settlement figures\nCounty tax proration 1,204.55 2026 tax year\n"
+            .'Seller credit at closing applies to the buyer side of the ledger.'),
+        $this->owner,
+        DocumentCategory::Other,
+    );
+
+    expect($document->scan_state)->toBe('clean');
+});
+
+it('sees a statement whose phrases the extractor split mid-word', function (): void {
+    /*
+     * The cheque test above exercises the inline phrase check; this one
+     * exercises the shared `countOfEither()`, which every other phrase list
+     * goes through. Both need the squashed form, and a mutation that removes
+     * it from one must not pass because the other still has it.
+     *
+     * `Begi nning Balance` is what a kerning pair does to a heading.
+     */
+    $split = "FIRST MERIDIAN BANK\nBegi nning Balance 4,201.55\nEnd ing Balance 3,880.12\n"
+        .'Depos its and Other Credits';
+
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('split.txt', $split),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+});

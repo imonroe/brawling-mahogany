@@ -67,16 +67,17 @@ export const NAV_GROUPS: NavEntry[][] = [
          * question it answers — "where is that disclosure" — is asked from a
          * standing start, without a deal already in mind.
          *
-         * Gated on `deals.view`: the screen shows both deal and property
-         * documents and authorizes each row on its way out, so requiring the
-         * narrower pair would hide a team's own deal documents from somebody
-         * who can open every one of them from the deal itself.
+         * **Ungated**, and that is not an oversight. `DocumentPolicy::viewAny()`
+         * admits either subject permission and the query scopes each row to
+         * what the person may see, so gating the link on `deals.view` hid the
+         * screen from somebody holding `properties.view` who has documents to
+         * find there. A nav rule narrower than the policy is a screen nobody
+         * can reach; one wider is a 403 they can read.
          */
         {
             label: 'Documents',
             href: '/documents',
             icon: FileText,
-            permission: 'deals.view',
         },
         {
             label: 'Calendar',

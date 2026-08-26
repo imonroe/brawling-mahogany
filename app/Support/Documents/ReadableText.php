@@ -57,6 +57,26 @@ final class ReadableText
     private const MIN_LETTERS = 24;
 
     /**
+     * How many whitespace-separated tokens make a decode look like prose.
+     *
+     * With {@see self::MAX_WORD_LENGTH} this is the structural half of
+     * {@see self::isConfident()}: armoured binary is one enormous token and a
+     * font header is a few long identifiers, so neither clears both bars.
+     */
+    private const MIN_TOKENS = 6;
+
+    /**
+     * How many zip entries an OOXML file may cost before it stops being read.
+     *
+     * Enough for a long document split across parts and a workbook with a
+     * sheet per month; far short of what a hand-built archive can hold.
+     */
+    private const MAX_OFFICE_PARTS = 64;
+
+    /** Longer than any English word, and shorter than a base85 blob. */
+    private const MAX_WORD_LENGTH = 40;
+
+    /**
      * Which parts of an OOXML zip hold the visible words.
      *
      * Prefixes, not filenames: a long `.docx` splits across `document2.xml`
@@ -81,11 +101,11 @@ final class ReadableText
         $mimeType = mb_strtolower(trim($mimeType));
 
         if ($mimeType === 'application/pdf') {
-            return self::meaningful(self::fromPdf($bytes));
+            return self::fromPdf($bytes);
         }
 
         if (array_key_exists($mimeType, self::OFFICE_PARTS)) {
-            return self::meaningful(self::fromOffice($bytes, self::OFFICE_PARTS[$mimeType]));
+            return self::fromOffice($bytes, self::OFFICE_PARTS[$mimeType]);
         }
 
         if (str_starts_with($mimeType, 'text/')) {
@@ -120,27 +140,79 @@ final class ReadableText
     }
 
     /**
-     * Text that is actually text, or nothing.
+     * Is this decode good enough to call the document **checked**?
      *
-     * The second half of round 1's blocker, and the one that holds however the
-     * extraction is later changed. `clean` means *read, and found nothing* —
-     * so a handful of bytes that survived a bad decode must not earn it, or a
-     * bank statement gets a badge saying it was checked.
+     * ## It answers the label, never whether to scan
      *
-     * The bar is deliberately low: enough letters that a routing number and
-     * the word "account" could both have been present and found. Below it,
-     * **null** — which records `not_scanned`, the honest answer, and is what
-     * a photograph of a cheque gets too.
+     * Round 1 put this floor inside `from()`, so a document below it was
+     * returned as `null` and never scanned at all. Round 2 measured what that
+     * cost: a MICR-only cheque has **zero** letters, a one-line wire
+     * instruction seven, an SSN card fourteen — the five shortest and most
+     * dangerous documents in the threat model were the five the scanner
+     * refused to look at. The `micr_line` check, documented as *"conclusive on
+     * its own"*, was unreachable for any document whose only text is a MICR
+     * line.
+     *
+     * So the order is now: extract whatever is there, **scan it however
+     * little it is**, and ask this only to choose between `clean` and
+     * `not_scanned`. A refusal never depends on it.
      */
-    private static function meaningful(?string $text): ?string
+    public static function isConfident(?string $text): bool
     {
-        if ($text === null) {
-            return null;
+        if ($text === null || $text === '') {
+            return false;
+        }
+
+        /*
+         * **Truncated is not checked.** Extraction stops at
+         * `MAX_CHARACTERS`, so a document longer than that was read in part —
+         * and a routing number on the last page of a partial read is a routing
+         * number nobody looked at. Reporting `clean` there is the same lie as
+         * reporting it over an unreadable scan, arriving from the other end.
+         *
+         * Rare in practice: half a megabyte of extracted *text* is upwards of
+         * a hundred pages. When it does happen, `not_scanned` is the honest
+         * answer and the safe one.
+         */
+        if (mb_strlen($text) >= self::MAX_CHARACTERS) {
+            return false;
         }
 
         $letters = preg_match_all('/\p{L}/u', $text);
 
-        return is_int($letters) && $letters >= self::MIN_LETTERS ? $text : null;
+        if (! is_int($letters) || $letters < self::MIN_LETTERS) {
+            return false;
+        }
+
+        /*
+         * **Letters alone are not language**, which round 2 of review proved
+         * three ways on a page with no real text: an ASCII85 image stream
+         * yielded 7,021 of them, an uncompressed Type1 font header 60, and an
+         * XMP metadata packet enough to tip the count. All three would have
+         * been labelled `clean`.
+         *
+         * What separates them from prose is **structure**. Armoured binary is
+         * one enormous token; a font header is a handful of long identifiers.
+         * Real text is many short words with spaces between them, so that is
+         * what this asks for.
+         */
+        $tokens = preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY);
+
+        if (! is_array($tokens) || count($tokens) < self::MIN_TOKENS) {
+            return false;
+        }
+
+        $wordLike = 0;
+
+        foreach ($tokens as $token) {
+            // PREG_SPLIT_NO_EMPTY guarantees the lower bound.
+            if (mb_strlen($token) <= self::MAX_WORD_LENGTH) {
+                $wordLike++;
+            }
+        }
+
+        // Most of what is there has to look like a word, not merely some of it.
+        return $wordLike >= (int) ceil(count($tokens) * 0.6);
     }
 
     /**
@@ -184,9 +256,22 @@ final class ReadableText
             }
 
             $text = '';
+            $read = 0;
 
             foreach ($parts as $part) {
                 for ($index = 0; $index < $zip->numFiles; $index++) {
+                    /*
+                     * A cap on **parts**, not only on characters. A 14MB
+                     * `.docx` with thousands of matching entries cost three
+                     * seconds of synchronous CPU on the request that uploaded
+                     * it — an upload endpoint is a place somebody can choose
+                     * the cost of, and `MAX_CHARACTERS` alone does not bound
+                     * how many entries are opened to reach it.
+                     */
+                    if ($read >= self::MAX_OFFICE_PARTS) {
+                        break 2;
+                    }
+
                     $name = $zip->getNameIndex($index);
 
                     /*
@@ -198,6 +283,8 @@ final class ReadableText
                     if (! is_string($name) || ! str_starts_with($name, $part)) {
                         continue;
                     }
+
+                    $read++;
 
                     $xml = $zip->getFromIndex($index, self::MAX_CHARACTERS);
 
@@ -237,8 +324,39 @@ final class ReadableText
             return null;
         }
 
-        if (preg_match_all('/stream\r?\n(.*?)endstream/s', $bytes, $matches) === false) {
+        /*
+         * **A silent failure, and the worst kind.** `preg_match_all` with `.*?`
+         * over a multi-megabyte stream exceeds PCRE's backtrack limit and
+         * returns `false` — so a single large stream meant the whole document
+         * was never scanned, and round 2 of review measured the threshold
+         * between 900KB and 1.2MB. Every scanned contract in this product is
+         * larger than that.
+         *
+         * Split on the delimiters instead, which does no backtracking at all
+         * and has no size beyond which it stops working. A stream that reaches
+         * this is bounded by `MAX_STREAMS` and `MAX_CHARACTERS` downstream, so
+         * the cost of reading a large one is still capped.
+         */
+        /*
+         * The lookbehind is load-bearing: `endstream` ends in `stream`, so a
+         * naive split consumes the closing delimiter too and every chunk loses
+         * the marker the loop below looks for. Nothing was found and the
+         * document read as having no text layer at all.
+         */
+        $chunks = preg_split('/(?<!end)stream\r?\n/', $bytes);
+
+        if (! is_array($chunks) || count($chunks) < 2) {
             return null;
+        }
+
+        $matches = [1 => []];
+
+        foreach (array_slice($chunks, 1) as $chunk) {
+            $end = mb_strpos($chunk, 'endstream', 0, '8bit');
+
+            if ($end !== false) {
+                $matches[1][] = mb_substr($chunk, 0, $end, '8bit');
+            }
         }
 
         $text = '';
@@ -318,7 +436,24 @@ final class ReadableText
      */
     private static function looksLikeContent(string $stream): bool
     {
+        /*
+         * A **text operator**, not merely a parenthesis. Round 2 of review got
+         * an uncompressed Type1 font header through the printable-ratio test
+         * with sixty letters, and a font header is structurally
+         * indistinguishable from prose once it reaches the confidence check —
+         * short space-separated tokens, plenty of letters.
+         *
+         * The distinguishing fact is one layer earlier: a content stream shows
+         * text, and shows it with `Tj`, `TJ`, `'` or `"`. A font program, an
+         * image, and an XMP packet do not. Testing for that here is cheaper
+         * and far more certain than another heuristic downstream, which is
+         * where the previous two attempts at this lived.
+         */
         if ($stream === '' || ! str_contains($stream, '(')) {
+            return false;
+        }
+
+        if (preg_match('/(?:\)|\])\s*(?:Tj|TJ|\x27|")/', $stream) !== 1) {
             return false;
         }
 

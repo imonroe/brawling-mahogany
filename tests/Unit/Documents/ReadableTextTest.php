@@ -131,13 +131,65 @@ it('refuses to call unreadable bytes readable, however many it finds', function 
     expect($clean)->toBe(0);
 });
 
-it('says nothing rather than a little, when a decode yields a handful of bytes', function (): void {
-    // The floor under the word "clean". A stream that decoded to three
-    // characters was read in no useful sense, and `not_scanned` is the honest
-    // answer — the same one a photograph of a cheque gets.
+it('hands back a short decode rather than swallowing it', function (): void {
+    /*
+     * Round 2 of review: this floor used to live inside `from()`, so anything
+     * below it came back `null` and was **never scanned**. The five shortest
+     * documents in the threat model are the ones that cost — a MICR-only
+     * cheque has zero letters, a one-line wire instruction seven.
+     *
+     * Extraction returns what it got. Confidence is a separate question, and
+     * it decides the label rather than whether to look.
+     */
     $pdf = pdfWith('ok', 'tj');
 
+    expect(trim((string) ReadableText::from($pdf, 'application/pdf')))->toBe('ok')
+        ->and(ReadableText::isConfident('ok'))->toBeFalse();
+});
+
+it('does not mistake armoured binary for prose', function (string $label, string $decoded): void {
+    /*
+     * Round 2's third blocker: `looksLikeContent()`'s printable ratio passes
+     * ASCII-armoured binary, and letters alone are not language. An ASCII85
+     * image stream yielded 7,021 letters on a page with no text, and a Type1
+     * font header sixty.
+     *
+     * Structure is what separates them. Armoured binary is one enormous token
+     * and a font header is a few long identifiers; prose is many short words
+     * with spaces between them.
+     */
+    expect(ReadableText::isConfident($decoded))->toBeFalse();
+})->with([
+    'an ascii85 blob' => ['ascii85', str_repeat('9jqo^BlbD-BleB1DJ+*+F(f,q', 300)],
+    'one long identifier' => ['identifier', str_repeat('abcdefghijklmnopqrstuvwxyz', 40)],
+]);
+
+it('never reaches the confidence question with a font header, because it is not a content stream', function (): void {
+    /*
+     * A Type1 font header is structurally indistinguishable from prose once it
+     * gets as far as `isConfident()` — short space-separated tokens, sixty
+     * letters. Piling a third heuristic on there was the wrong answer; the
+     * distinguishing fact is one layer earlier.
+     *
+     * A content stream shows text, and shows it with `Tj`, `TJ`, `'` or `"`.
+     * A font program, an image and an XMP packet do not.
+     */
+    $header = '/FontMatrix[0.001 0 0 0.001 0 0]readonly def /Encoding StandardEncoding def '
+        .'/CharStrings 229 dict dup begin /space (nothing) put end';
+
+    $pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n"
+        .'2 0 obj<</Length '.strlen($header).">>stream\n".$header."\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
+
     expect(ReadableText::from($pdf, 'application/pdf'))->toBeNull();
+});
+
+it('does call real prose prose', function (): void {
+    // The control. Without it the test above passes against a method that
+    // returns false for everything.
+    expect(ReadableText::isConfident(
+        'The seller discloses that the roof was replaced in 2019 and that the '
+        .'basement has flooded once since purchase.',
+    ))->toBeTrue();
 });
 
 it('knows which types it can look inside', function (): void {
@@ -147,4 +199,24 @@ it('knows which types it can look inside', function (): void {
         ->and(ReadableText::supports('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))->toBeTrue()
         // An image has nothing to read, and must never claim otherwise.
         ->and(ReadableText::supports('image/jpeg'))->toBeFalse();
+});
+
+it('will not call a document checked when it only read part of it', function (): void {
+    /*
+     * Extraction stops at `MAX_CHARACTERS`, so a document longer than that was
+     * read in part — and a routing number on the last page of a partial read
+     * is a routing number nobody looked at. Reporting `clean` there is the
+     * same lie as reporting it over an unreadable scan, arriving from the
+     * other end.
+     *
+     * Found while fixing round 2's PCRE finding: the large PDF that finally
+     * *could* be read came back `clean` with its statement lines past the
+     * truncation point.
+     */
+    $long = str_repeat('The property was inspected and the roof is sound. ', 20_000);
+
+    $text = (string) ReadableText::from($long, 'text/plain');
+
+    expect(mb_strlen($text))->toBe(ReadableText::MAX_CHARACTERS)
+        ->and(ReadableText::isConfident($text))->toBeFalse();
 });
