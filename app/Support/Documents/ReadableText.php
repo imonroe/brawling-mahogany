@@ -73,6 +73,14 @@ final class ReadableText
      */
     private const MAX_OFFICE_PARTS = 64;
 
+    /**
+     * Whether the last extraction stopped before the end of the document.
+     *
+     * Not a cache and not a latch — reset at the top of every
+     * {@see self::from()} and read by the scan that called it.
+     */
+    private static bool $partial = false;
+
     /** Longer than any English word, and shorter than a base85 blob. */
     private const MAX_WORD_LENGTH = 40;
 
@@ -98,6 +106,14 @@ final class ReadableText
      */
     public static function from(string $bytes, string $mimeType): ?string
     {
+        /*
+         * Reset per call. A per-process latch would be the hazard CLAUDE.md
+         * records about statics in a web SAPI; this is a per-call detail of
+         * one extraction, read by `wasPartial()` immediately afterwards, and
+         * every entry point comes through here.
+         */
+        self::$partial = false;
+
         $mimeType = mb_strtolower(trim($mimeType));
 
         if ($mimeType === 'application/pdf') {
@@ -157,8 +173,25 @@ final class ReadableText
      * little it is**, and ask this only to choose between `clean` and
      * `not_scanned`. A refusal never depends on it.
      */
+    /**
+     * Did the last {@see self::from()} read the whole document?
+     *
+     * Three things can stop it — the character ceiling, the stream budget and
+     * the OOXML part cap — and until round 4 of review only the first was
+     * visible to the confidence check. A partial read must never be `clean`,
+     * whichever of the three ended it.
+     */
+    public static function wasPartial(): bool
+    {
+        return self::$partial;
+    }
+
     public static function isConfident(?string $text): bool
     {
+        if (self::$partial) {
+            return false;
+        }
+
         if ($text === null || $text === '') {
             return false;
         }
@@ -269,6 +302,11 @@ final class ReadableText
                      * how many entries are opened to reach it.
                      */
                     if ($read >= self::MAX_OFFICE_PARTS) {
+                        // The third door on to the same lie: a 70-sheet
+                        // workbook read in part is not a workbook that was
+                        // checked.
+                        self::$partial = true;
+
                         break 2;
                     }
 
@@ -364,16 +402,31 @@ final class ReadableText
 
         foreach ($matches[1] as $stream) {
             if ($inflated >= self::MAX_STREAMS || mb_strlen($text) >= self::MAX_CHARACTERS) {
+                /*
+                 * **Stopped early, so the read is partial.** Recorded rather
+                 * than inferred: round 4 of review found `isConfident()`
+                 * guarding only the `MAX_CHARACTERS` door, so a 78KB PDF whose
+                 * statement page sat at stream 460 of 500 came back `clean` —
+                 * a document nobody finished reading, labelled checked.
+                 */
+                self::$partial = true;
+
                 break;
             }
-
-            $inflated++;
 
             $decoded = self::inflate($stream);
 
             if ($decoded === null) {
+                /*
+                 * An image or a font costs nothing against the budget. It was
+                 * counted before the attempt, so a PDF whose first four
+                 * hundred streams are photographs spent the whole allowance on
+                 * bytes with no text in them and never reached page two.
+                 */
                 continue;
             }
+
+            $inflated++;
 
             $text .= self::operators($decoded);
         }
@@ -431,7 +484,22 @@ final class ReadableText
 
         foreach ($candidates as $candidate) {
             foreach (['gzuncompress', 'gzinflate'] as $filter) {
-                $decoded = @$filter($candidate);
+                /*
+                 * **Bounded**, and this is the argument that matters most in
+                 * the file. Round 4 of review built a **1MB** PDF that fatals
+                 * a 128MB process — PHP's default, and the FrankenPHP base
+                 * image installs no `php.ini` — because deflate compresses
+                 * repetition about a thousandfold. `@` suppresses a warning,
+                 * not an out-of-memory, so nothing downstream can catch it:
+                 * the request dies, the controller's `catch` never runs, and
+                 * an upload endpoint anybody can reach becomes a way to kill
+                 * a worker.
+                 *
+                 * `MAX_CHARACTERS` is the honest ceiling because it is what
+                 * the caller would keep anyway, and a stream inflating past it
+                 * is one this class was going to truncate.
+                 */
+                $decoded = @$filter($candidate, self::MAX_CHARACTERS);
 
                 if (is_string($decoded) && $decoded !== '') {
                     return $decoded;

@@ -482,3 +482,157 @@ it('still refuses a statement that labels its routing number', function (): void
         DocumentCategory::Other,
     ))->toThrow(RefusedDocument::class);
 });
+
+it('does not read a numeric column as a social security number', function (): void {
+    /*
+     * Round 4 of review measured **20.8%** of legitimate documents refused,
+     * every one of them as *Government ID* — telling an inspector to take his
+     * radon report "to whoever asked for your identity documents".
+     *
+     * The oscillation is the finding. Round 1 matched only `123-45-6789`;
+     * round 2 widened and started refusing a tax proration line; round 3
+     * narrowed and routed it through the collapsed text, which caught aligned
+     * forms and every three-two-four numeric column with them. Narrowing and
+     * widening the same pattern trades one direction for the other, because
+     * the **shape alone is not the signal**.
+     *
+     * The punctuated form still stands alone. The spaced form needs a label,
+     * exactly as a routing number does.
+     */
+    $estimate = "Repair estimate\nItem   Qty   Unit   Total\nRoof    124    22   2728\n"
+        ."Gutter   40    18    720\nSubtotal 3448";
+
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('estimate.txt', $estimate),
+        $this->owner,
+        DocumentCategory::Other,
+    );
+
+    expect($document->scan_state)->toBe('clean');
+});
+
+it('still refuses a form that says what its digits are', function (string $label, string $content): void {
+    // The control for the test above, in both directions: punctuated needs no
+    // label, spaced does, and an aligned form carries one.
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload($label.'.txt', $content),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+})->with([
+    'punctuated, unlabelled' => ['hyphen', "Applicant details\n412-55-8931\nDate of birth 1974-02-11"],
+    'spaced, labelled' => ['spaced', "Applicant\nSocial Security Number 412 55 8931"],
+    'spaced, labelled and aligned' => ['aligned', "Applicant\nSSN     412   55   8931"],
+]);
+
+it('will not call a document checked when the stream budget ran out', function (): void {
+    /*
+     * Round 4's third blocker, and the second of its three doors. Only the
+     * `MAX_CHARACTERS` one was visible to the confidence check, so a PDF whose
+     * statement page sat past the stream budget came back `clean` — a document
+     * nobody finished reading, labelled checked.
+     */
+    $streams = '';
+
+    for ($page = 0; $page < 600; $page++) {
+        $content = "BT /F1 10 Tf 40 750 Td (Page {$page} of ordinary narrative about the property.) Tj ET\n";
+        $compressed = (string) gzcompress($content, 9);
+
+        $streams .= '2 0 obj<</Length '.strlen($compressed)."/Filter/FlateDecode>>stream\n"
+            .$compressed."\nendstream endobj\n";
+    }
+
+    $pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n".$streams."trailer<</Root 1 0 R>>\n%%EOF";
+
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('long.pdf', $pdf),
+        $this->owner,
+        DocumentCategory::Other,
+    );
+
+    expect($document->scan_state)->toBe('not_scanned');
+});
+
+it('refuses a decompression bomb rather than dying on it', function (): void {
+    /*
+     * Round 4's second blocker. `gzuncompress` with no `$max_length` fatals a
+     * 128MB process — PHP's default, and the FrankenPHP base image installs no
+     * `php.ini`. `@` suppresses a warning, not an out-of-memory, so nothing
+     * downstream can catch it: the request dies, the controller's `catch`
+     * never runs, and an upload endpoint anybody can reach becomes a way to
+     * kill a worker.
+     *
+     * ## Why this runs in a subprocess
+     *
+     * Two in-process assertions were tried first and **neither could tell the
+     * fix from the defect**. The scan state is `not_scanned` either way — an
+     * unbounded inflate expands the whole 200MB and the caller truncates it —
+     * and `memory_get_peak_usage()` is monotonic across the run, so an earlier
+     * test's peak swallows the delta.
+     *
+     * What actually separates them is whether a process with production's
+     * memory limit survives, so that is what is measured. `-d memory_limit`
+     * is the one honest way to reproduce the condition the web SAPI dies of
+     * from a CLI that does not.
+     */
+    $bomb = (string) gzcompress(str_repeat('A', 200 * 1024 * 1024), 9);
+
+    $pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n"
+        .'2 0 obj<</Length '.strlen($bomb)."/Filter/FlateDecode>>stream\n"
+        .$bomb."\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
+
+    $path = (string) tempnam(sys_get_temp_dir(), 'bomb');
+    file_put_contents($path, $pdf);
+
+    $script = 'require "'.base_path('vendor/autoload.php').'";'
+        .'$t = App\Support\Documents\ReadableText::from(file_get_contents($argv[1]), "application/pdf");'
+        .'echo "survived";';
+
+    exec(
+        escapeshellcmd(PHP_BINARY).' -d memory_limit=128M -r '.escapeshellarg($script)
+            .' '.escapeshellarg($path).' 2>&1',
+        $output,
+        $status,
+    );
+
+    @unlink($path);
+
+    expect($status)->toBe(0, 'the extractor died on a 1MB upload: '.implode(' ', $output))
+        ->and(implode(' ', $output))->toContain('survived');
+});
+
+it('does not let images spend the budget meant for text', function (): void {
+    /*
+     * The budget was counted before inflation was attempted, so a PDF whose
+     * first four hundred streams are photographs spent the whole allowance on
+     * bytes with no text in them and never reached the page that mattered.
+     *
+     * Five hundred image streams, then the statement. A refusal is only
+     * possible if the images cost nothing.
+     */
+    $streams = '';
+
+    for ($image = 0; $image < 500; $image++) {
+        $blob = random_bytes(300);
+
+        $streams .= '2 0 obj<</Length '.strlen($blob).">>stream\n".$blob."\nendstream endobj\n";
+    }
+
+    $content = "BT /F1 10 Tf 40 750 Td (Routing Number: 021000021 Account Number: 4419827733) Tj ET\n";
+    $compressed = (string) gzcompress($content, 9);
+
+    $streams .= '2 0 obj<</Length '.strlen($compressed)."/Filter/FlateDecode>>stream\n"
+        .$compressed."\nendstream endobj\n";
+
+    $pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n".$streams."trailer<</Root 1 0 R>>\n%%EOF";
+
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('scanned.pdf', $pdf),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+});

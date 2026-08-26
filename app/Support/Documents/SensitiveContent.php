@@ -142,12 +142,27 @@ final class SensitiveContent
         'seller signature',
     ];
 
+    /**
+     * Two of these make an identity document.
+     *
+     * The British spellings are here because this product's own copy uses
+     * them and a scanned form does not care which side of the Atlantic wrote
+     * it — a list that catches `license` and misses `licence` catches whoever
+     * happened to type it. `issuing state` and `expiration date` join them
+     * from round 4's corpus: a licence record carries both, and a disclosure
+     * that legitimately asks for a date of birth carries neither.
+     */
     private const IDENTITY_PHRASES = [
         'social security number',
         'driver license number',
+        'driver licence number',
         'driver\'s license number',
+        'driver\'s licence number',
         'passport number',
         'date of birth',
+        'issuing state',
+        'expiration date',
+        'place of birth',
     ];
 
     /**
@@ -204,21 +219,10 @@ final class SensitiveContent
          * uses, and the area, group and serial parts each exclude zero — which
          * is what stops a date or a part number matching.
          *
-         * **The separator is not always a hyphen**, and it is not always one
-         * character. Round 1 found the pattern matching only `123-45-6789`;
-         * round 3 found this branch to be the **one test not routed through
-         * the normalisers**, so a column-aligned `123  45  6789` — which the
-         * previous revision refused — came back `clean`. That is the worst
-         * possible answer: a positive claim of "text read, nothing refused"
-         * over a social security number.
-         *
-         * Matching `$haystack` rather than `$text` collapses the alignment
-         * away and costs nothing: the single-space form still needs a digit
-         * boundary either side, which is what keeps `1,204.55 2026` — a tax
-         * proration line — from reading as an SSN.
+         * See {@see self::hasSocialSecurityNumber()} — three rounds of review
+         * went into the shape of that one question.
          */
-        if (preg_match('/\b(?!000|666|9\d\d)\d{3}[-\x{2010}-\x{2015}.]\s?(?!00)\d{2}[-\x{2010}-\x{2015}.]\s?(?!0000)\d{4}\b/u', $haystack) === 1
-            || preg_match('/(?<!\d)(?!000|666|9\d\d)\d{3}\s(?!00)\d{2}\s(?!0000)\d{4}(?!\d)/u', $haystack) === 1) {
+        if (self::hasSocialSecurityNumber($haystack)) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::GovernmentId,
                 'ssn_pattern',
@@ -401,6 +405,49 @@ final class SensitiveContent
     private static function squashed(string $text): string
     {
         return mb_strtolower((string) preg_replace('/\s+/u', '', $text));
+    }
+
+    /**
+     * Nine digits in the shape of a social security number.
+     *
+     * ## Punctuated stands alone; spaced needs a label
+     *
+     * This oscillated for three rounds and the oscillation is the finding.
+     * Round 1 matched only `123-45-6789` and missed every form PDF extraction
+     * actually produces. Round 2 widened the separator and started refusing
+     * `1,204.55 2026` — a tax proration line. Round 3 narrowed it and routed
+     * it through the collapsed text, which caught column-aligned forms and
+     * **also** caught every three-two-four numeric column in a repair
+     * estimate: round 4 measured 20.8% of legitimate documents refused, all of
+     * them as *Government ID*, telling an inspector to take his radon report
+     * to whoever asked for his identity documents.
+     *
+     * Narrowing and widening the same pattern trades one direction for the
+     * other because **the shape alone is not the signal**. Three digits, two
+     * digits, four digits is what a table looks like.
+     *
+     * So the punctuated form — hyphens, dashes, dots — still stands alone,
+     * because nothing else in a real estate document is written that way. The
+     * **spaced** form needs a label near it, exactly as a routing number does,
+     * and for the same reason: a form that carries an SSN says so, and a
+     * column of numbers does not.
+     */
+    private static function hasSocialSecurityNumber(string $haystack): bool
+    {
+        // Punctuated, and distinctive enough on its own.
+        if (preg_match('/\b(?!000|666|9\d\d)\d{3}[-\x{2010}-\x{2015}.](?!00)\d{2}[-\x{2010}-\x{2015}.](?!0000)\d{4}\b/u', $haystack) === 1) {
+            return true;
+        }
+
+        /*
+         * Spaced, and only where something says what it is. The window looks
+         * backwards for the same reason the routing one does: "412 55 8931
+         * social" is a sentence, "SSN 412 55 8931" is a field.
+         */
+        return preg_match(
+            '/\b(?:ssn|s\.s\.n|social\s*security(?:\s*(?:number|no\.?|#))?|taxpayer\s*identification)\b.{0,20}?(?<!\d)(?!000|666|9\d\d)\d{3}\s(?!00)\d{2}\s(?!0000)\d{4}(?!\d)/us',
+            $haystack,
+        ) === 1;
     }
 
     /**
