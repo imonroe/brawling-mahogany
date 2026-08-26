@@ -57,6 +57,9 @@ people who fix things.
 Close it whenever you like, with the **Close** button at the bottom. Nothing
 is sent until you submit the form.
 
+If the form does not appear, **Open in a new tab** takes you to the same
+place — some forms will not display inside another page.
+
 On a narrow screen the button shows as an icon rather than the words.
 
 If you cannot see it at all, this installation has not been given a form to

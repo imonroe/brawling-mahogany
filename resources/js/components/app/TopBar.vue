@@ -104,15 +104,20 @@ const { can } = usePermissions();
             Text from `lg` up, icon alone below it, where the bar is competing
             with a breadcrumb for room. `aria-label` rather than a second
             visually-hidden span, so the accessible name is the same sentence
-            at every width. `w-11` restores §11's 44px target once the label
-            is gone.
+            at every width.
+
+            Three widths, and the middle one is why `md:w-8` is here: below
+            `md` it is §11's 44px square, from `md` to `lg` it is the same
+            32×32 as the icon buttons beside it, and above `lg` it grows to
+            fit its words. Without the middle step it is a 44px-wide button in
+            a row of 32px ones at exactly the width where they sit together.
         -->
         <AppButton
             v-if="bugReport"
             variant="ghost"
             aria-label="Report a bug"
             title="Report a bug"
-            class="w-11 px-0 lg:w-auto lg:px-2.5"
+            class="w-11 px-0 md:w-8 lg:w-auto lg:px-2.5"
             @click="$emit('report-bug')"
         >
             <Bug aria-hidden="true" />

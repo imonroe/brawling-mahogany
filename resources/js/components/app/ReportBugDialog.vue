@@ -28,6 +28,15 @@
  * deal id, and that is a client's transaction. n8n has no use for it and this
  * product does not hand it over.
  *
+ * ## The way out that does not depend on the frame working
+ *
+ * A form can refuse to be framed — `X-Frame-Options`, or a `frame-ancestors`
+ * that does not name this host — and the refusal looks like a blank rectangle
+ * from out here, because a cross-origin frame tells the embedder nothing about
+ * what it rendered. There is no event to branch on. So the footer carries a
+ * plain link to the same URL: ADR 0003's shape rather than its letter, which
+ * is that a person is never left with one way to reach something.
+ *
  * ## Closing
  *
  * PRD-adjacent, but the issue asks for it in as many words: *"a user should be
@@ -106,6 +115,18 @@ watch(
             </div>
 
             <div class="flex items-center gap-2.5 border-t bg-muted px-6 py-4">
+                <!--
+                    Not an `AppButton`: it renders an Inertia `Link` when given
+                    an `href`, and an Inertia visit to somebody else's domain
+                    is not a navigation this application can make.
+                -->
+                <a
+                    :href="url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-13 text-muted-foreground underline underline-offset-2 transition-colors duration-150 ease-out hover:text-foreground"
+                    >Open in a new tab</a
+                >
                 <span class="flex-1" />
                 <AppButton
                     variant="secondary"

@@ -1036,9 +1036,10 @@ exception is the audience rather than the feature. Every other control here is
 an icon because the person pressing it knows the product; this one is aimed at
 somebody who has just hit something broken, is not going to recognise a bug
 glyph, and will give up rather than hunt. So it is `variant="ghost"` with a
-16px leading icon and its words — from `lg` up, where the bar has the room,
-and icon-only below it with `w-11` restoring §11's 44px target and an
-`aria-label` carrying the same sentence at both widths.
+16px leading icon and its words — at three widths: §11's 44px square below
+`md`, the same 32×32 as the icon buttons beside it from `md` to `lg`, and full
+width with its label above that. The `aria-label` carries the same sentence at
+all three.
 
 It is not a *primary* action, so the rule above still holds: the screen's own
 primary button is untouched. It appears only when the environment supplies a

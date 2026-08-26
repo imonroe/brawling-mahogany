@@ -80,6 +80,9 @@ describe('the Report a bug button', () => {
 
         expect(classes).toContain('w-11');
         expect(classes).toContain('min-h-11');
+        // And the 32px square its neighbours are, at the widths where it sits
+        // among them without its label.
+        expect(classes).toContain('md:w-8');
         expect(classes).toContain('lg:w-auto');
     });
 });
@@ -170,6 +173,28 @@ describe('the Report a bug modal', () => {
         await flush();
 
         expect(wrapper.emitted('update:open')?.at(-1)).toEqual([false]);
+
+        wrapper.unmount();
+    });
+
+    it('offers the same form outside the frame', async () => {
+        /*
+         * A form can refuse to be framed, and the refusal looks like a blank
+         * rectangle from out here — a cross-origin frame tells the embedder
+         * nothing about what it rendered, so there is no event to branch on.
+         * The link is the way out that does not depend on framing working.
+         */
+        const wrapper = await openDialog();
+
+        const link = Array.from(document.body.querySelectorAll('a')).find(
+            (anchor) => anchor.textContent?.trim() === 'Open in a new tab',
+        );
+
+        expect(link?.getAttribute('href')).toBe(URL);
+        expect(link?.getAttribute('target')).toBe('_blank');
+        // Never a bare `target="_blank"`: the opened page gets `window.opener`
+        // and can navigate the one it came from.
+        expect(link?.getAttribute('rel')).toContain('noopener');
 
         wrapper.unmount();
     });
