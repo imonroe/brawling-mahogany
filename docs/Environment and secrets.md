@@ -42,7 +42,8 @@ the container which uses them transparently."*
 | `APP_KEY` | generated | generated per run | real, unique | real, unique |
 | `DB_PASSWORD` | developer's choice | fixed, throwaway | real, unique | real, unique |
 | `REDIS_PASSWORD` | none | none | real | real |
-| `MAIL_*` | Mailpit, no credentials | array driver | **SES sandbox** | SES production |
+| `MAIL_*` | Mailpit, no credentials | array driver | **SES, every recipient redirected** | SES |
+| `MAIL_FROM_ADDRESS` | anything | unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
 | `MAIL_REDIRECT_TO` | optional | unset | **set — every message redirected** | **must be empty** |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
@@ -51,14 +52,46 @@ the container which uses them transparently."*
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
 | `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
 
+### The sending identity, and the two things it is not
+
+SES is configured and `monroedigitalconsulting.com` is a verified sending
+domain (#12). Every message this product sends leaves as
+`goldieflow@monroedigitalconsulting.com`, over SMTP.
+
+**It is not a dedicated sending subdomain**, which is what PRD §8.5 asks for.
+The product's reputation is therefore mixed with whatever else that domain
+sends, and a deliverability problem in one is a deliverability problem in the
+other. That is a deliberate trade to get Slice 3 sending — the alternative was
+waiting on the naming decision in #15 — and it is worth revisiting before there
+are enough customers for the reputation to be worth anything.
+
+**It is not necessarily production access.** A verified *domain identity* and a
+production *account* are two different grants: in the SES sandbox an account
+may only send to addresses it has also verified, so a message to a real
+client's inbox is rejected at the API rather than delivered. Both look
+identical from inside this application right up to the moment a client is
+supposed to receive something. Before the first real send, check the account's
+sending status in the SES console — and note that S91's alert (#97) now
+surfaces exactly this failure on the message queue rather than letting it go
+quiet.
+
+**A team's own address never goes in `From`.** It rides in `Reply-To`, because
+that slot needs no DNS and no verification, and a `From` the domain is not
+authorised for fails SPF and DKIM. What a team *does* get in the inbox line is
+their **name**: `App\Support\Mail\SendingIdentity` composes *"Bosart Group via
+Goldieflow"* onto the verified address, so a client sees the agency they know
+beside an address that would otherwise look forged.
+
 ### The two staging guardrails that are not optional
 
 PRD §8.6, restated because both protect somebody else's client:
 
-1. **SES runs in sandbox mode with all mail redirected.** `MAIL_REDIRECT_TO` is
-   set on staging, and `AppServiceProvider` rewrites every recipient to it. The
-   application **refuses to boot in production** with that value set, so the
-   guardrail cannot be left on by accident either.
+1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` is set on staging, and
+   `AppServiceProvider` rewrites every recipient to it. The application
+   **refuses to boot in production** with that value set, so the guardrail
+   cannot be left on by accident either. This is ours and it does not depend on
+   SES's own sandbox — which is the point, since the same SES account now
+   serves both environments.
 2. **A separate AI provider key with its own budget cap.** Staging never
    spends against the production budget, and a runaway loop in a test costs a
    small, capped amount rather than a large, uncapped one.

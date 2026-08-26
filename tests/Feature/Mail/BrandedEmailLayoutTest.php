@@ -301,3 +301,67 @@ it('renders every mailable in the product without throwing', function (): void {
             ->and($text)->toContain('Sent by');
     }
 });
+
+it('puts the team in the inbox line and the verified identity in the address', function (): void {
+    /*
+     * PRD §8.5's *"per-team sending identity"*, split across the two slots
+     * that can carry it. The **address** cannot move: it is the one identity
+     * the sending domain is authorised for, and a From that fails SPF and DKIM
+     * lands in spam — the same failure as not sending, except nobody finds out.
+     * The **display name** is what a person reads, and there the right answer
+     * is the agency they have been working with rather than a product they
+     * have never heard of.
+     */
+    $this->team->forceFill(['name' => 'Bosart Group'])->save();
+
+    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+    ]);
+
+    Mail::to('client@example.test')->send(
+        new AutomatedMessageMail($instance, $instance->rendered(), $this->team),
+    );
+
+    $from = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getFrom()[0];
+
+    expect($from->getAddress())->toBe(config()->string('mail.from.address'))
+        ->and($from->getName())->toBe('Bosart Group via '.config()->string('app.name'));
+});
+
+it('uses the sending identity name a team set, when they set one', function (): void {
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_name' => 'Emily Bosart',
+    ])->save();
+
+    expect(App\Support\Mail\SendingIdentity::displayName($this->team))
+        ->toBe('Emily Bosart via '.config()->string('app.name'));
+});
+
+it('refuses to let a team split the From header', function (): void {
+    /*
+     * The display name is a mail **header** and the value is typed into a
+     * settings form. The same CR/LF strip the subject goes through, in the one
+     * other place a tenant string reaches a header.
+     */
+    $this->team->forceFill(['name' => "Bosart Group\r\nBcc: someone@evil.test"])->save();
+
+    expect(App\Support\Mail\SendingIdentity::displayName($this->team))
+        ->not->toContain("\r")
+        ->and(App\Support\Mail\SendingIdentity::displayName($this->team))->not->toContain("\n");
+});
+
+it('does not attribute the product’s own alert to the team', function (): void {
+    /*
+     * S91 tells a team that *their* automations are failing. Signing that as
+     * the team would be a small lie in the one line a reader trusts most —
+     * so the alert, and a template test send, keep the application's name.
+     */
+    alertFor($this->team);
+
+    $from = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getFrom()[0];
+
+    expect($from->getName())->toBe(config()->string('mail.from.name'));
+});

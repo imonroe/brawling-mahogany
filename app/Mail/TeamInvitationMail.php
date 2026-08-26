@@ -6,6 +6,7 @@ namespace App\Mail;
 
 use App\Models\TeamInvitation;
 use App\Support\Mail\BrandedEmail;
+use App\Support\Mail\SendingIdentity;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -34,6 +35,9 @@ class TeamInvitationMail extends Mailable
         $team = $this->invitation->team()->sole();
 
         return new Envelope(
+            // The inviting team, for the reason `SendingIdentity` gives: the
+            // recipient knows the agency and has never heard of the product.
+            from: SendingIdentity::forTeam($team),
             subject: "You’ve been invited to {$team->name}",
         );
     }

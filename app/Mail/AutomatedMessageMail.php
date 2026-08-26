@@ -8,6 +8,7 @@ use App\Models\ActionInstance;
 use App\Models\Team;
 use App\Support\Mail\BrandedEmail;
 use App\Support\Mail\MilestoneAnnouncement;
+use App\Support\Mail\SendingIdentity;
 use App\Support\Messages\RenderedMessage;
 use App\Support\Messages\RenderMessage;
 use Illuminate\Bus\Queueable;
@@ -103,6 +104,14 @@ class AutomatedMessageMail extends Mailable
          * the enumerating test keeps working.
          */
         return new Envelope(
+            /*
+             * The team's name, on the product's verified address. A client who
+             * has been working with Bosart Group for six weeks should not
+             * receive *"your home is on the market"* from a product they have
+             * never heard of — see {@see SendingIdentity}, which argues why the
+             * two halves of this line answer to different masters.
+             */
+            from: SendingIdentity::forTeam($this->team),
             replyTo: $this->replyToAddresses(),
             subject: $subject,
         );
