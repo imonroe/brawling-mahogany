@@ -92,7 +92,7 @@ tags:
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S06 | App shell and sidebar | global | Team | Collapsed, mobile bottom bar, permission-hidden sections, impersonation banner, **pending-invitation banner** (ADR 0003) | F1.2 | 1 | **L** |
+| S06 | App shell and sidebar | global | Team | Collapsed, mobile bottom bar, permission-hidden sections, impersonation banner, **pending-invitation banner** (ADR 0003), **Report a bug** modal when the environment supplies a form (#176) | F1.2 | 1 | **L** |
 | S07 | Global search overlay | global | Team | Empty, no results, grouped results, recent | F9.3 | 2 | M |
 | S08 | Notification panel | global | Team | Empty, unread, grouped, mark all read | F5.3 | 3 | M |
 | S92 | Help | `/help`, `/help/{article}` | Team | Contents, one article, planned feature, unknown article (404) | — | 2 | S |

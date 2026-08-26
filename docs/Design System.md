@@ -1024,12 +1024,32 @@ Icons: `layout-dashboard`, `list-checks`, `briefcase`, `users`, `house`, `calend
 
 ### 8.3 TopBar — 56px
 
-`h-14 px-6 gap-3 border-b bg-background`, laid out as
-`[Breadcrumb] [flex-1] [Search 300×32] [Notifications] [Help]`.
+`h-14 px-6 gap-3 border-b bg-background` (`px-4 gap-1.5` below `md`, where
+four 44px controls and a breadcrumb compete for a 375px bar — the toggle and
+the search box are `display: none` there, so five gaps rather than seven, and
+the tighter gap returns up to 30px to the breadcrumb — 24px without Log
+contact), laid out as
+`[Breadcrumb] [flex-1] [Search 300×32] [Report a bug] [Log contact] [Notifications] [Help]`.
 
 - **Breadcrumb**: root 14/600 `text-foreground`; on a detail screen a 13px `chevron-right` and a 14/500 muted leaf appear.
 - **Search**: `w-[300px] h-8 rounded-md border px-2.5 gap-2` — 14px `search` icon, 13px muted placeholder, `flex-1`, then a `⌘K` kbd pill (`rounded-sm px-[5px] py-0.5 bg-muted`, 11px/500).
 - The top bar carries **no primary action**. One primary button per screen, and it belongs to the page header.
+
+**Report a bug is the one labelled control in the row** (#176), and the
+exception is the audience rather than the feature. Every other control here is
+an icon because the person pressing it knows the product; this one is aimed at
+somebody who has just hit something broken, is not going to recognise a bug
+glyph, and will give up rather than hunt. So it is `variant="ghost"` with a
+16px leading icon and its words — at three widths: §11's 44px square below
+`md`, the icon buttons' own 32×32 box from `md` to `lg`, and full width with
+its label above that. The `aria-label` carries the same sentence at all three.
+The glyph stays 16px in the middle band where the boxes match, because §7.2
+gives every *button* a 16px leading icon and `IconButton`'s 18px belongs to a
+different control.
+
+It is not a *primary* action, so the rule above still holds: the screen's own
+primary button is untouched. It appears only when the environment supplies a
+form URL, which means most developer installations never see it.
 
 ### 8.4 DealHeader — 120px
 
@@ -1122,6 +1142,17 @@ Width **600px** for a focused decision, **660px** when a checklist or preview ne
 | Section | `py-[18px] px-6 gap-3 border-b`. Opens with a 12/600 muted heading. |
 | Inline alert | `py-3.5 px-6 border-b`, filled with the relevant state background, full-bleed to the dialog edges. |
 | Footer | `py-4 px-6 gap-2.5 bg-muted`. Left: an optional 12px muted note. Right: cancel (ghost) → alternate (secondary) → primary. |
+
+**One exception to the full-bleed inline alert** (#176). A full-bleed band sits
+*between* bands, which necessarily puts it outside the dialog's
+`DialogDescription` — and therefore outside `aria-describedby`. That is right
+for an alert *about* the dialog's state and wrong for one that is part of what
+the dialog is telling you. S06's Report a bug modal carries the warning PRD §10
+names as the whole of its mitigation, and drawn as a full-bleed band it was
+visible to everyone except the one reader who cannot see amber. Inside the
+header band it becomes a `rounded-md px-3 py-2.5` inset card instead. **When an
+alert is load-bearing content rather than status, it goes inside the
+description and takes the inset form.**
 
 **Dialogs must not scroll their own header or footer away.** If content exceeds the viewport, the middle sections scroll.
 

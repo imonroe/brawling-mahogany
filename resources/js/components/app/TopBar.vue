@@ -1,18 +1,21 @@
 <script setup lang="ts">
 /**
- * Design System §8.3. 56px: breadcrumb, spacer, search, notifications, help.
+ * Design System §8.3. 56px: breadcrumb, spacer, search, then the shell's own
+ * controls — Report a bug, Log contact, notifications, help.
  * The top bar carries no primary action — one primary button per screen, and
  * it belongs to the page header.
  */
 import { Link } from '@inertiajs/vue3';
 import {
     Bell,
+    Bug,
     ChevronRight,
     CircleQuestionMark,
     MessageSquarePlus,
     PanelLeft,
     Search,
 } from '@lucide/vue';
+import AppButton from '@/components/app/AppButton.vue';
 import IconButton from '@/components/app/IconButton.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { toUrl } from '@/lib/utils';
@@ -22,18 +25,35 @@ withDefaults(
     defineProps<{
         breadcrumbs?: BreadcrumbItem[];
         unreadNotifications?: boolean;
+        /** Whether the n8n bug-report form is configured (issue #176). */
+        bugReport?: boolean;
     }>(),
-    { breadcrumbs: () => [], unreadNotifications: false },
+    { breadcrumbs: () => [], unreadNotifications: false, bugReport: false },
 );
 
-defineEmits<{ 'toggle-sidebar': []; 'log-contact': []; search: [] }>();
+defineEmits<{
+    'toggle-sidebar': [];
+    'log-contact': [];
+    search: [];
+    'report-bug': [];
+}>();
 
 const { can } = usePermissions();
 </script>
 
 <template>
+    <!--
+        `gap-1.5` below `md`, where four 44px controls and a breadcrumb compete
+        for a 375px bar. The sidebar toggle and the search box are
+        `display: none` there and so are not flex items at all, which leaves
+        six children and five gaps: **up to** 30px back to the breadcrumb — five
+        children and four gaps, so 24px, for somebody without `people.manage`
+        and therefore without Log contact. Not the 42px a first count of seven
+        gaps claimed. §8.3's `gap-3` is the desktop
+        measurement and holds from `md`, the same way `px-6` does.
+    -->
     <header
-        class="flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6"
+        class="flex h-14 shrink-0 items-center gap-1.5 border-b bg-background px-4 md:gap-3 md:px-6"
         data-slot="top-bar"
     >
         <IconButton
@@ -83,6 +103,36 @@ const { can } = usePermissions();
                 >⌘K</kbd
             >
         </button>
+
+        <!--
+            Issue #176. The one labelled control in a bar of icons, and
+            deliberately so: it is aimed at somebody who has just hit
+            something broken and is not going to recognise a bug glyph. §8.3
+            says the top bar carries no *primary* action — this is a ghost
+            button, and the screen's primary action is still its own.
+
+            Text from `lg` up, icon alone below it, where the bar is competing
+            with a breadcrumb for room. `aria-label` rather than a second
+            visually-hidden span, so the accessible name is the same sentence
+            at every width.
+
+            Three widths, and the middle one is why `md:w-8` is here: below
+            `md` it is §11's 44px square, from `md` to `lg` it is the same
+            32×32 as the icon buttons beside it, and above `lg` it grows to
+            fit its words. Without the middle step it is a 44px-wide button in
+            a row of 32px ones at exactly the width where they sit together.
+        -->
+        <AppButton
+            v-if="bugReport"
+            variant="ghost"
+            aria-label="Report a bug"
+            title="Report a bug"
+            class="w-11 px-0 md:w-8 lg:w-auto lg:px-2.5"
+            @click="$emit('report-bug')"
+        >
+            <Bug aria-hidden="true" />
+            <span class="hidden lg:inline">Report a bug</span>
+        </AppButton>
 
         <!--
             S26's third entry point (issue #81). The other two already know
