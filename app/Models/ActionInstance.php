@@ -200,8 +200,13 @@ class ActionInstance extends Model
              * `message_key` is what a send that crashed between the mailer
              * call and the state write leaves behind, and it is the exact row
              * the scheduler would otherwise pick up and send a second time.
-             * `ExecuteAction` refuses it as well; a sweep that keeps handing
-             * it over would just refuse it forever.
+             *
+             * `ExecuteAction` refuses it as well — with a sentence saying
+             * nobody knows whether it arrived — so the row does not sit here
+             * unexplained. The refusal is what takes it out of `pending` and
+             * therefore out of this scope; a sweep that kept handing over a
+             * row already excluded by the `whereNull` above would be arguing
+             * with itself.
              */
             ->whereNull('message_key')
             ->where(fn (Builder $inner) => $inner

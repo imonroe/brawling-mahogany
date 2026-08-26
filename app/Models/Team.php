@@ -67,9 +67,6 @@ class Team extends Model
     use HasFactory, HasProductDefaults;
 
     /**
-     * @return array<string, string>
-     */
-    /**
      * The window opens when the team does (PRD §4.5 F5.7 · #96).
      *
      * On the model rather than in `ProvisionTeam`, and that is the whole
@@ -93,12 +90,21 @@ class Team extends Model
     protected static function booted(): void
     {
         static::creating(function (self $team): void {
-            if ($team->approval_required_until === null && ! array_key_exists('approval_required_until', $team->getAttributes())) {
+            /*
+             * `array_key_exists` and not a null check, which is the whole of
+             * it: an explicit `null` is a caller **saying** this team has no
+             * window, and a hook that could not tell that from "nothing was
+             * passed" would make the state untestable.
+             */
+            if (! array_key_exists('approval_required_until', $team->getAttributes())) {
                 $team->approval_required_until = Carbon::now()->addDays(self::APPROVAL_WINDOW_DAYS);
             }
         });
     }
 
+    /**
+     * @return array<string, string>
+     */
     protected function casts(): array
     {
         return [

@@ -20,6 +20,7 @@ use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Models\WorkflowTemplate;
 use App\Support\Automation\RaiseAutomations;
+use App\Support\Deals\DealTasks;
 use App\Support\Workflow\AdvanceWorkflow;
 use App\Support\Workflow\InstantiateWorkflow;
 use Illuminate\Support\Facades\Queue;
@@ -582,6 +583,99 @@ it('does not raise gate_cleared a second time when the gate is re-evaluated', fu
 
     // No required tasks at all, so the gate is met on the first evaluation.
     app(AdvanceWorkflow::class)->handle($workflow, $this->member);
+    app(AdvanceWorkflow::class)->handle($workflow->fresh(), $this->member);
+
+    expect(ActionInstance::query()->where('trigger', AutomationTrigger::GateCleared)->count())->toBe(1);
+});
+
+it('queues a gate_cleared message even when the advance itself refuses', function (): void {
+    /*
+     * The branch `AdvanceWorkflow`'s comment claims and nothing pinned: a
+     * requirement that cleared during an attempt has cleared whether or not
+     * two others are still in the way, and telling the client the survey is
+     * back should not wait for the rest of the stage. `$raised` is passed by
+     * reference precisely so the blocked branch's early return still reaches
+     * `dispatchRaised()`.
+     */
+    $template = templateWithAutomations([]);
+
+    $stageTemplate = $template->stageTemplates()->where('sort_order', 0)->sole();
+
+    $clearing = GateTemplate::factory()->create([
+        'stage_template_id' => $stageTemplate->getKey(),
+        'gate_type' => 'required_tasks_complete',
+        'sort_order' => 0,
+    ]);
+
+    // A second gate that cannot clear on its own, so the advance is refused
+    // while the first one goes from unmet to met on the same attempt.
+    GateTemplate::factory()->create([
+        'stage_template_id' => $stageTemplate->getKey(),
+        'gate_type' => 'manual_confirmation',
+        'sort_order' => 1,
+    ]);
+
+    ActionDefinition::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'stage_template_id' => $stageTemplate->getKey(),
+        'trigger' => AutomationTrigger::GateCleared,
+        'config' => ['gateTemplateId' => $clearing->getKey(), 'taskTitle' => 'Tell the buyer'],
+    ]);
+
+    $workflow = instantiate($template);
+
+    $result = app(AdvanceWorkflow::class)->handle($workflow, $this->member);
+
+    expect($result->advanced)->toBeFalse()
+        ->and(ActionInstance::query()->where('trigger', AutomationTrigger::GateCleared)->count())->toBe(1);
+
+    Queue::assertPushed(RunAutomation::class);
+});
+
+it('notices a requirement clearing on the next advance rather than when the task is done', function (): void {
+    /*
+     * The gap the help text now names, pinned so a later reader meets the
+     * behaviour rather than the sentence. `evaluateGates()` has one caller;
+     * nothing re-evaluates a gate when a task is completed, so completing the
+     * last required task raises nothing until somebody presses Advance —
+     * including a press that is then refused.
+     *
+     * Evaluating from `DealTasks::complete()` is the follow-up that would make
+     * *"when a requirement clears"* literal. Until then this is what happens,
+     * and a test saying so is what stops the documentation drifting back.
+     */
+    $template = templateWithAutomations([]);
+
+    $stageTemplate = $template->stageTemplates()->where('sort_order', 0)->sole();
+
+    $gateTemplate = GateTemplate::factory()->create([
+        'stage_template_id' => $stageTemplate->getKey(),
+        'gate_type' => 'required_tasks_complete',
+        'sort_order' => 0,
+    ]);
+
+    TaskTemplate::factory()->required()->create([
+        'stage_template_id' => $stageTemplate->getKey(),
+        'title' => 'File the disclosure',
+    ]);
+
+    ActionDefinition::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'stage_template_id' => $stageTemplate->getKey(),
+        'trigger' => AutomationTrigger::GateCleared,
+        'config' => ['gateTemplateId' => $gateTemplate->getKey(), 'taskTitle' => 'Tell the buyer'],
+    ]);
+
+    $workflow = instantiate($template);
+    $stage = $workflow->stages()->where('sort_order', 0)->sole();
+    $task = $stage->tasks()->sole();
+
+    app(DealTasks::class)->complete($this->deal, $task, $this->member);
+
+    // The requirement is satisfied in the world and nothing has noticed.
+    expect(ActionInstance::query()->count())->toBe(0)
+        ->and($stage->gates()->sole()->fresh()->is_met)->toBeFalse();
+
     app(AdvanceWorkflow::class)->handle($workflow->fresh(), $this->member);
 
     expect(ActionInstance::query()->where('trigger', AutomationTrigger::GateCleared)->count())->toBe(1);

@@ -194,10 +194,20 @@ it('will not send a message whose team has been handed in wrong', function (): v
     );
 
     expect($decision->allowed)->toBeFalse()
-        // A refusal, not a stand-down: nothing about this row is going to
-        // become sendable by waiting, and it is not team A's to hold either.
-        ->and($decision->ownedByAnother)->toBeFalse()
+        /*
+         * A **stand-down**, so nothing is written. A refusal would send
+         * `ExecuteAction` into `fail()`, and the guard against touching
+         * another tenant's row would answer by writing to another tenant's
+         * row — under this team's established scope, at that.
+         */
+        ->and($decision->ownedByAnother)->toBeTrue()
         ->and($decision->reason)->toContain('does not belong to the team');
+
+    // And the row really is untouched, which is the half the assertion above
+    // only implies.
+    expect($theirs->fresh()->state)->toBe(AutomationState::Pending)
+        ->and($theirs->fresh()->error)->toBeNull()
+        ->and($theirs->fresh()->message_key)->toBeNull();
 
     /*
      * And the control, without which the assertion above passes for any

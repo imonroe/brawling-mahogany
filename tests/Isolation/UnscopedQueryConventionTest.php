@@ -175,13 +175,18 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 
     'Console/Commands/DispatchDueAutomations.php' => [
-        'count' => 1,
+        'count' => 2,
         'reason' => 'A context with no tenant, and the sweep shape PurgeSoftDeletedRecords '.
             'already uses: a scheduled run has no session, and the question is which '.
             'automation instances are due across every team at once. Nothing is read from '.
             'the row but its id and its team_id, and the job it dispatches re-establishes '.
             'that team before touching anything — RunsForTeam throws rather than running '.
-            'unscoped, which is what makes the hand-off safe.',
+            'unscoped, which is what makes the hand-off safe. '.
+            'The **second** is the same question one step earlier: which teams have their '.
+            'outbound email held by a rail right now, so the sweep stops knocking on them '.
+            'every minute. It reads a count per team and nothing else — no payload, no '.
+            'recipient, no deal — and it exists because counting per row instead would be '.
+            'two queries per queued message, every minute, for as long as the rail holds.',
     ],
 ];
 

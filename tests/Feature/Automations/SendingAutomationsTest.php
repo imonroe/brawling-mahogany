@@ -14,6 +14,7 @@ use App\Support\Automation\ExecuteAction;
 use App\Support\Automation\SendRails;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 /**
  * F5.9's three rails and the send path behind them (PRD §4.5 · #92, #96).
@@ -439,7 +440,7 @@ it('refuses a message belonging to another team', function (): void {
     $decision = app(SendRails::class)->decide($instance, $otherTeam);
 
     expect($decision->allowed)->toBeFalse()
-        ->and($decision->ownedByAnother)->toBeFalse()
+        ->and($decision->ownedByAnother)->toBeTrue()
         ->and($decision->reason)->toContain('does not belong to the team');
 });
 
@@ -480,4 +481,63 @@ it('logs a ceiling breach without naming anybody', function (): void {
             return true;
         },
     );
+});
+
+it('records a send that crashed between the mailer and the state write', function (): void {
+    /*
+     * The row nobody owns, and the one round 2 found had gone silent.
+     *
+     * `pending` carrying a `message_key` is exactly what a worker OOM, a
+     * `queue:restart` mid-send, or a container eviction leaves behind — the
+     * crash window the claim ordering deliberately accepts, because the other
+     * ordering sends a client the same message twice.
+     *
+     * Standing down on it left the row `pending` forever: excluded from
+     * `scopeDue()`, on no list on S47 (which renders `awaiting_approval` and
+     * the three terminal states, never `pending`), with no timeline entry and
+     * no audit entry — reachable only by already knowing its id. PRD §1.1's
+     * worst answer to *"has the client been told?"* is silence with no failure
+     * anywhere to find, and this was it, on the one operation that cannot be
+     * taken back.
+     */
+    $instance = pendingMessage();
+
+    $instance->forceFill(['message_key' => (string) Str::ulid()])->save();
+
+    carryOut($instance);
+
+    Mail::assertNothingSent();
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Failed)
+        // And the sentence says what is actually true, rather than claiming
+        // either that it went or that it did not.
+        ->and($instance->fresh()->error)->toContain('never confirmed')
+        ->and($instance->fresh()->error)->toContain('may have reached the recipient');
+
+    expect(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->pluck('event_type')->all())
+        ->toContain('message.failed');
+});
+
+it('still stands down on the retry after a transport threw', function (): void {
+    /*
+     * The other half of the same branch, and the reason it is a branch: a row
+     * that is already terminal belongs to whoever put it there. `ExecuteAction`
+     * writes `failed` **before** it rethrows, so the queue's retry finds a
+     * non-pending row and must add nothing — three more "did not go out"
+     * entries about a message that may well have been delivered is the noise
+     * round 1 objected to.
+     */
+    $instance = pendingMessage();
+
+    $instance->forceFill([
+        'message_key' => (string) Str::ulid(),
+        'state' => AutomationState::Failed->value,
+        'error' => 'The mail transport rejected this message (RuntimeException).',
+        'executed_at' => now(),
+    ])->save();
+
+    carryOut($instance);
+
+    expect($instance->fresh()->error)->toBe('The mail transport rejected this message (RuntimeException).')
+        ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
 });

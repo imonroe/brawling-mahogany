@@ -563,8 +563,21 @@ These come from PRD §8 and should guide the eventual build:
   building *"when the required tasks are done, email the buyer"* got an
   automation that saved cleanly, showed as active, and never fired. It is now
   raised where `is_met` actually transitions, in `evaluateGates()`, in the
-  false→true direction only; an override raises nothing, because IA §8 insists
-  overridden is not a kind of met.
+  false→true direction only.
+
+  **Which is when somebody presses Advance, not when the world changes** —
+  `evaluateGates()` has one caller and nothing re-evaluates a gate on task
+  completion. That is a real improvement on never firing and it is not what
+  *"when a requirement clears"* sounds like, so `automation.md` says which. The
+  second door — evaluating from `DealTasks::complete()` — is the fix that would
+  make the sentence literal, and it has to go through `AdvanceWorkflow` because
+  `gates.is_met` is guarded.
+
+  An override raises nothing, and the mechanism is worth stating precisely
+  because the obvious explanation is only half of it: `override()` not touching
+  `is_met` matters, but the load-bearing reason is that **no evaluator reads
+  `gates.overridden`** — `blocksAdvance()` does, after the verdict — so an
+  overridden gate's verdict stays unmet and never transitions at all.
 
 - **A rail with no hand on it is a column.** F5.9's kill switch, its rate
   ceiling and its sandbox all live in `SendRails`, in the worker, because issue

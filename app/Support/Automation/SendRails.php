@@ -71,7 +71,16 @@ final class SendRails
          * team A's ceiling pausing team B's sends.
          */
         if ($instance->team_id !== $live->getKey()) {
-            return SendDecision::refuse('This message does not belong to the team being asked about.');
+            /*
+             * **Stand down, not refuse**, and round 2 was right about why: a
+             * refusal sends `ExecuteAction` into `fail()`, which writes state
+             * onto the row — so the guard against touching another tenant's
+             * message would have answered by touching another tenant's
+             * message, under this team's established scope. The row is
+             * emphatically not this worker's; nothing about it is ours to
+             * record.
+             */
+            return SendDecision::standDown('This message does not belong to the team being asked about.');
         }
 
         if ($live->sendsAreDisabled()) {
@@ -85,16 +94,38 @@ final class SendRails
          * again, whatever its state says. See
          * `ActionInstance::reachedTheProvider()`.
          *
-         * **Stand down rather than refuse**, and the distinction is not
-         * cosmetic. This branch is reached by the queue's own retry after a
-         * transport threw — `ExecuteAction` records the failure and rethrows —
-         * so refusing here would write *"An automated message did not go out:
-         * this message has already been accepted by the provider"* onto the
-         * deal, up to three more times, about a message that may well have
-         * been delivered.
+         * **Two row shapes satisfy this, and they need opposite answers.**
+         * Round 2 found that collapsing them turned a noisy failure into a
+         * silent one, which is the worse of the two.
+         *
+         * A row that is already terminal — `sent`, `failed`, `cancelled` —
+         * belongs to whoever put it there. This branch is reached by the
+         * queue's own retry after a transport threw (`ExecuteAction` records
+         * the failure and rethrows), so refusing would write *"an automated
+         * message did not go out: this message has already been handed to a
+         * transport"* onto the deal three more times, about a message that may
+         * well have been delivered. Stand down.
+         *
+         * A row that is still **`pending`** and carrying a key is owned by
+         * **nobody**: the worker claimed the key and never came back. That is
+         * the crash window the claim ordering deliberately leaves — a worker
+         * OOM, a `queue:restart` mid-send, a container eviction — and standing
+         * down left it `pending` forever, excluded from `scopeDue()`, on no
+         * list on S47, with no timeline entry and no audit entry. Reachable
+         * only by already knowing its id. That is PRD §1.1's worst answer to
+         * *"has the client been told?"*: silence, with no failure anywhere to
+         * find, on the one operation this product cannot take back.
+         *
+         * So it is recorded — and the sentence says what is actually true,
+         * which is that nobody knows whether it arrived.
          */
         if ($instance->reachedTheProvider()) {
-            return SendDecision::standDown('This message has already been handed to a transport.');
+            return $instance->state === AutomationState::Pending
+                ? SendDecision::refuse(
+                    'This message was handed to a transport and never confirmed. '
+                    .'It may have reached the recipient — check before sending it again.',
+                )
+                : SendDecision::standDown('This message has already been handed to a transport.');
         }
 
         /*
