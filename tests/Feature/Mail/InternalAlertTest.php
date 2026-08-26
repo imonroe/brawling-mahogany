@@ -65,20 +65,20 @@ function carryOutFailing(ActionInstance $instance): ActionInstance
 }
 
 /**
- * Sweep, a second after whatever just failed.
+ * Sweep, from far enough away that the failures are settled.
  *
- * The second is the point, not a workaround. The sweep reports a half-open
- * window ending at the start of the **current** second, so a failure in that
- * second belongs to the next window rather than being split across this one —
- * which is what stops a burst losing the rows that land between a sweep's
- * `SELECT` and its watermark write. In production five minutes separate the
- * two; in a test the whole scenario happens inside one second unless it is
- * moved, and a helper that swept without moving would be testing a moment the
- * scheduler never occupies.
+ * The distance is the point, not a workaround. The sweep's window ends
+ * `VISIBILITY_LAG_SECONDS` **behind** it, because a row stamped in PHP on
+ * another host and committed a moment later is below any boundary taken at the
+ * instant of the sweep — so a boundary at `now()` walks over rows that were
+ * never visible to it. In production five minutes separate a failure from the
+ * sweep that reports it; in a test the whole scenario happens inside one second
+ * unless it is moved, and a helper that swept without moving would be testing a
+ * moment the scheduler never occupies.
  */
-function sweepAlerts(): bool
+function settleAndSweep(): bool
 {
-    test()->travel(1)->second();
+    test()->travel(AlertOnFailures::VISIBILITY_LAG_SECONDS + 1)->seconds();
 
     return app(AlertOnFailures::class)->sweep(test()->team);
 }
@@ -86,7 +86,7 @@ function sweepAlerts(): bool
 it('tells the team when an automated message has failed', function (): void {
     carryOutFailing(failingMessage());
 
-    expect(sweepAlerts())->toBeTrue();
+    expect(settleAndSweep())->toBeTrue();
 
     Mail::assertSent(InternalAlertMail::class, function (InternalAlertMail $mail): bool {
         return $mail->hasTo($this->owner->email)
@@ -111,7 +111,7 @@ it('sees a row that failed by a route no hook ever ran on', function (): void {
         'deal_id' => $this->deal->getKey(),
     ]);
 
-    expect(sweepAlerts())->toBeTrue();
+    expect(settleAndSweep())->toBeTrue();
 
     Mail::assertSent(InternalAlertMail::class);
 });
@@ -170,7 +170,7 @@ it('counts the burst, because it looks after the burst rather than during it', f
         carryOutFailing(failingMessage());
     }
 
-    sweepAlerts();
+    settleAndSweep();
 
     Mail::assertSent(InternalAlertMail::class, 1);
 
@@ -198,7 +198,7 @@ it('does not say "did not go out" over the top of a message that may have arrive
 
     app(ExecuteAction::class)->reapUnconfirmed($instance);
 
-    sweepAlerts();
+    settleAndSweep();
 
     Mail::assertSent(InternalAlertMail::class, function (InternalAlertMail $mail): bool {
         return ! str_contains($mail->headline, 'did not go out')
@@ -221,7 +221,7 @@ it('does not call a failed task an automated message', function (): void {
 
     carryOutFailing($instance);
 
-    sweepAlerts();
+    settleAndSweep();
 
     Mail::assertSent(InternalAlertMail::class, fn (InternalAlertMail $mail): bool => $mail->headline === 'An automation needs looking at');
 
@@ -232,7 +232,7 @@ it('does not call a failed task an automated message', function (): void {
 });
 
 it('says nothing at all when nothing has failed', function (): void {
-    expect(sweepAlerts())->toBeFalse();
+    expect(settleAndSweep())->toBeFalse();
 
     Mail::assertNotSent(InternalAlertMail::class);
 });
@@ -246,21 +246,21 @@ it('does not tell the same team about the same failures twice', function (): voi
      */
     carryOutFailing(failingMessage());
 
-    expect(sweepAlerts())->toBeTrue()
-        ->and(sweepAlerts())->toBeFalse();
+    expect(settleAndSweep())->toBeTrue()
+        ->and(settleAndSweep())->toBeFalse();
 
     Mail::assertSent(InternalAlertMail::class, 1);
 });
 
 it('tells them about the next one', function (): void {
     carryOutFailing(failingMessage());
-    sweepAlerts();
+    settleAndSweep();
 
     $this->travel(2)->minutes();
 
     carryOutFailing(failingMessage());
 
-    expect(sweepAlerts())->toBeTrue();
+    expect(settleAndSweep())->toBeTrue();
 
     Mail::assertSent(InternalAlertMail::class, 2);
 });
@@ -279,7 +279,7 @@ it('does not alert on a halt, which is a message that has not been lost', functi
 
     carryOutFailing(failingMessage(['recipients' => [['name' => 'Dana', 'email' => 'dana@example.test']]]));
 
-    expect(sweepAlerts())->toBeFalse();
+    expect(settleAndSweep())->toBeFalse();
 
     Mail::assertNotSent(InternalAlertMail::class);
 });
@@ -289,7 +289,7 @@ it('never alerts one team about another team’s failure', function (): void {
 
     carryOutFailing(failingMessage());
 
-    sweepAlerts();
+    settleAndSweep();
 
     Mail::assertSent(InternalAlertMail::class, fn (InternalAlertMail $mail): bool => ! $mail->hasTo($otherOwner->email));
 
@@ -309,7 +309,7 @@ it('does not let a broken transport take the sweep down with it', function (): v
 
     Mail::shouldReceive('to->send')->andThrow(new RuntimeException('Connection refused'));
 
-    expect(sweepAlerts())->toBeFalse();
+    expect(settleAndSweep())->toBeFalse();
 
     Log::shouldHaveReceived('warning')->once();
 });
@@ -326,13 +326,13 @@ it('does not move the watermark past failures nobody could be told about', funct
         ->where('team_id', $this->team->getKey())
         ->update(['email' => null]);
 
-    expect(sweepAlerts())->toBeFalse();
+    expect(settleAndSweep())->toBeFalse();
 
     App\Models\TeamMembership::query()
         ->where('team_id', $this->team->getKey())
         ->update(['email' => 'owner@example.test']);
 
-    expect(sweepAlerts())->toBeTrue();
+    expect(settleAndSweep())->toBeTrue();
 });
 
 it('sweeps every team from the scheduled command, without a resolved tenant', function (): void {
@@ -359,8 +359,8 @@ it('sweeps every team from the scheduled command, without a resolved tenant', fu
     // What a scheduler has: no resolved tenant at all.
     app(App\Support\Tenancy\TeamContext::class)->set(null);
 
-    // Out of the second the failures landed in — see `sweepAlerts()`.
-    $this->travel(1)->second();
+    // Far enough past the failures for them to be settled — see `settleAndSweep()`.
+    $this->travel(AlertOnFailures::VISIBILITY_LAG_SECONDS + 1)->seconds();
 
     $this->artisan('automations:alert-on-failures')
         ->expectsOutputToContain('Alerted 2 team(s).')
@@ -383,7 +383,7 @@ it('reports the failures that land while it is sweeping, one window later', func
      */
     carryOutFailing(failingMessage());
 
-    sweepAlerts();
+    settleAndSweep();
 
     Mail::assertSent(InternalAlertMail::class, 1);
 
@@ -392,20 +392,21 @@ it('reports the failures that land while it is sweeping, one window later', func
 
     expect(app(AlertOnFailures::class)->sweep($this->team))->toBeFalse();
 
-    $this->travel(1)->second();
+    $this->travel(AlertOnFailures::VISIBILITY_LAG_SECONDS + 1)->seconds();
 
     expect(app(AlertOnFailures::class)->sweep($this->team))->toBeTrue();
 
     Mail::assertSent(InternalAlertMail::class, 2);
 });
 
-it('counts a burst larger than any page it could have loaded', function (): void {
+it('reports every failure in the window and then nothing more', function (): void {
     /*
-     * The first version read up to 500 rows and counted those, so a burst over
-     * that size reported 500 and then moved the mark past the rest — the same
-     * silence the window fixes, arriving through a `LIMIT`. The count is an
-     * aggregate now, and the number below is deliberately small: what matters
-     * is that nothing between the count and the mark can disagree.
+     * The count and the mark have to describe the same set. An earlier version
+     * read a page of 500 rows and counted those while the mark moved to the
+     * end of the window, so a burst over that size reported 500 and silenced
+     * the rest — the same silence the window fixes, arriving through a `LIMIT`.
+     * The count is an aggregate now, so the number below is deliberately small:
+     * what is being asserted is that the two agree, not that 500 is enough.
      */
     $deal = $this->deal;
 
@@ -414,12 +415,12 @@ it('counts a burst larger than any page it could have loaded', function (): void
         'deal_id' => $deal->getKey(),
     ]);
 
-    sweepAlerts();
+    settleAndSweep();
 
     Mail::assertSent(InternalAlertMail::class, fn (InternalAlertMail $mail): bool => str_starts_with($mail->headline, '30 '));
 
     // And the whole window is behind the mark, so a second sweep says nothing.
-    $this->travel(1)->second();
+    $this->travel(AlertOnFailures::VISIBILITY_LAG_SECONDS + 1)->seconds();
 
     expect(app(AlertOnFailures::class)->sweep($this->team))->toBeFalse();
 });
@@ -430,7 +431,7 @@ it('agrees with itself about the number of others', function (): void {
         'deal_id' => $this->deal->getKey(),
     ]);
 
-    sweepAlerts();
+    settleAndSweep();
 
     Mail::assertSent(InternalAlertMail::class, fn (InternalAlertMail $mail): bool => str_contains($mail->detail, '1 other also needs looking at.'));
 });
@@ -444,11 +445,11 @@ it('remembers what it has said across a cache flush', function (): void {
      */
     carryOutFailing(failingMessage());
 
-    sweepAlerts();
+    settleAndSweep();
 
     Illuminate\Support\Facades\Cache::flush();
 
-    $this->travel(1)->second();
+    $this->travel(AlertOnFailures::VISIBILITY_LAG_SECONDS + 1)->seconds();
 
     expect(app(AlertOnFailures::class)->sweep($this->team))->toBeFalse();
 
@@ -469,7 +470,7 @@ it('still tells a team about a backlog nobody could be told about last week', fu
         ->where('team_id', $this->team->getKey())
         ->update(['email' => null]);
 
-    expect(sweepAlerts())->toBeFalse();
+    expect(settleAndSweep())->toBeFalse();
 
     $this->travel(8)->days();
 
@@ -478,4 +479,82 @@ it('still tells a team about a backlog nobody could be told about last week', fu
         ->update(['email' => 'owner@example.test']);
 
     expect(app(AlertOnFailures::class)->sweep($this->team))->toBeTrue();
+});
+
+it('reports a failure stamped by a clock that was running behind', function (): void {
+    /*
+     * Round 3's blocker. `executed_at` is stamped in PHP by whichever process
+     * wrote the row — a queue worker, on a host that is not the scheduler's —
+     * and it becomes visible at COMMIT rather than at assignment. So a row can
+     * carry a timestamp *below* a boundary that a `count()` taken at that
+     * boundary could not see, and a mark set to the sweep's own instant walks
+     * over it forever.
+     *
+     * `onOneServer` does not help: it pins the scheduler, not the writers.
+     * Neither does a clock running backwards — a worker one second slow is
+     * enough.
+     *
+     * The boundary sits `VISIBILITY_LAG_SECONDS` behind the sweep for exactly
+     * this row.
+     */
+    carryOutFailing(failingMessage());
+
+    expect(settleAndSweep())->toBeTrue();
+
+    Mail::assertSent(InternalAlertMail::class, 1);
+
+    /*
+     * A second failure stamped **before the instant that sweep ran at** — what
+     * a worker on a slow clock writes, and what a late commit makes visible.
+     *
+     * Anchored to the sweep's own instant and not to the boundary it stored,
+     * which is the difference between a test that reproduces this and one that
+     * moves with the fix: with the lag the boundary is a minute behind the
+     * sweep, so this row is comfortably ahead of the mark. Without it the
+     * boundary *is* the sweep's instant, and this row is already below the
+     * mark and can never be reported.
+     */
+    $sweptAt = now();
+
+    ActionInstance::factory()->failed()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'executed_at' => $sweptAt->copy()->subSeconds(30),
+    ]);
+
+    expect(settleAndSweep())->toBeTrue();
+
+    Mail::assertSent(InternalAlertMail::class, 2);
+});
+
+it('says nothing about a failed row that never recorded when it failed', function (): void {
+    /*
+     * The window keys on `executed_at` and deliberately **not** on
+     * `COALESCE(executed_at, updated_at)`. The coalesce was a round-2 answer to
+     * a narrower claim and bought the wrong thing: `updated_at` moves on any
+     * save, so a row with no `executed_at` is dragged in front of the mark
+     * every time anything touches it — an email about the same row every five
+     * minutes, against a promise `automation.md` makes in the words *never
+     * twice about the same failure*.
+     *
+     * The hole the coalesce covered is not reachable: `ExecuteAction::fail()`
+     * is the only writer of `failed` and sets both columns in one statement.
+     * For a row made by hand, silence is the better of the two wrong answers.
+     */
+    ActionInstance::factory()->failed()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'executed_at' => null,
+    ]);
+
+    expect(settleAndSweep())->toBeFalse();
+
+    Mail::assertNotSent(InternalAlertMail::class);
+
+    // And it does not start being reported when somebody touches the row.
+    ActionInstance::query()->update(['error' => 'Somebody annotated this row.']);
+
+    expect(settleAndSweep())->toBeFalse();
+
+    Mail::assertNotSent(InternalAlertMail::class);
 });

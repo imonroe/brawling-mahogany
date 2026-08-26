@@ -384,7 +384,7 @@ Real design work, and easy to forget in an inventory. These are what the client 
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S86 | Base branded email layout | email | Client | Per-team logo and colours, dark mode clients, plain text fallback. **Built** (#97). Every mailable extends `mail.layout`; the accent is a fill with a computed foreground and never text; the logo is embedded, on a plate | F5.5 | 3 | M |
+| S86 | Base branded email layout | email | Client | Per-team logo and colours, dark mode clients, plain text fallback. **Built** (#97). Every `Mailable` in `app/Mail` extends `mail.layout` — Fortify's password reset is a framework notification and deliberately outside it, see the layout's own note; the accent is a fill with a computed foreground and never text; the logo is embedded, on a plate | F5.5 | 3 | M |
 | S87 | Milestone notification | email | Client | With and without MLS link, with and without status link, long address. **Built** (#97), as a frame rather than a second mailable — see the note below | F5.5 | 3 | M |
 | S88 | Deadline reminder | email | Team | Single date, several dates, critical styling | F8.4 | 4 | S |
 | S89 | Magic link | email | Client | Link, expiry note, "you did not request this". ADR 0003 applies: the agent must be able to hand the client a link without the message | F7.1 | 4 | S |

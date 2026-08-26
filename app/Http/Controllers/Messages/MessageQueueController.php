@@ -90,6 +90,17 @@ class MessageQueueController extends Controller
              */
             ->with(['deal', 'messageTemplate'])
             ->oldest()
+            /*
+             * A tiebreaker on every one of these lists, because the columns
+             * they sort by are `timestamp(0)` and a busy second puts several
+             * rows in it. Without one Postgres returns heap order, which is
+             * stable only until something churns the pages — so the queue
+             * reorders under a reader between two refreshes over identical
+             * data, and a fixture that creates its rows in one second orders
+             * differently depending on what ran before it. That last part is
+             * how it was found: an intermittent `MessageQueueBudgetTest`.
+             */
+            ->oldest('id')
             ->get();
 
         /*
@@ -104,6 +115,7 @@ class MessageQueueController extends Controller
             ->where('state', AutomationState::Failed)
             ->with(['deal', 'messageTemplate'])
             ->oldest('executed_at')
+            ->oldest('id')
             ->limit(self::FAILURES)
             ->get();
 
@@ -146,6 +158,7 @@ class MessageQueueController extends Controller
                 ->orWhereNotNull('message_key'))
             ->with(['deal', 'messageTemplate'])
             ->oldest()
+            ->oldest('id')
             ->limit(self::FAILURES)
             ->get();
 

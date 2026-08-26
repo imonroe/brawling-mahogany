@@ -128,8 +128,9 @@ final class EmailIndependence
                 .'door is not a worse version of the first, it is the record itself. An install '
                 .'with no transport loses the interruption and none of the information — and the '
                 .'failure this alert is about is very often the transport, so the design assumes '
-                .'the email may not arrive. That is also why it cannot throw: see '
-                .'`AlertOnFailure::deliver()`.',
+                .'the email may not arrive. That is also why the sweep that sends it cannot '
+                .'throw — `AlertOnFailures::sweep()` runs for every team on the platform, and '
+                .'one broken team must not stop it reaching the next.',
         ],
 
         'password-reset' => [

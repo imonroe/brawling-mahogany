@@ -91,6 +91,18 @@ use Throwable;
 final class AlertOnFailures
 {
     /**
+     * How far behind the sweep its own boundary sits.
+     *
+     * A row is only reported once it has been settled for this long, which
+     * absorbs the two ways a timestamp can be below a boundary and invisible
+     * to a query taken at it: the gap between stamping a value in PHP and
+     * committing it, and ordinary clock drift between the hosts that write
+     * rows and the one that sweeps. The cost is a minute of latency on a sweep
+     * that runs every five.
+     */
+    public const VISIBILITY_LAG_SECONDS = 60;
+
+    /**
      * How far back a team with no watermark is allowed to look.
      *
      * A cache flush, or the first run after this shipped, would otherwise
@@ -136,14 +148,41 @@ final class AlertOnFailures
         $since = $this->watermark($team);
 
         /*
-         * The sweep's own boundary, exclusive. Anything failing in the current
-         * second belongs to the next window rather than being split across
-         * this one — see the note on the class.
+         * The boundary is **behind** the sweep, not at it.
+         *
+         * `startOfSecond()` alone was the right half of the idea and rested on
+         * a premise that is not true: that a row stamped below the boundary is
+         * visible to a query taken at it. Two things break that, and neither
+         * needs a clock running backwards.
+         *
+         * `executed_at` is stamped in **PHP**, by whichever process wrote the
+         * row — a queue worker, on a host that is not this one — and it
+         * becomes visible at COMMIT rather than at assignment. So a row
+         * stamped a moment ago and committed a moment from now sits below a
+         * boundary the `count()` has already passed, and the mark moves over
+         * it. And `onOneServer` pins the *scheduler*, not the writers: a
+         * worker whose clock is a second slow backdates every row it writes.
+         *
+         * Distance is the answer, which is the same answer
+         * `automations:reap-unconfirmed` reaches at a much larger scale — a
+         * minute here rather than six hours, because the thing being outrun is
+         * commit latency and ordinary NTP drift rather than a queue's
+         * visibility timeout.
+         *
+         * What it does **not** survive is gross skew: a host minutes out of
+         * step still writes rows below any boundary this picks. That is an
+         * operational failure the product cannot paper over — the F5.9 rate
+         * window and the reaper's `--hours` both assume the same shared clock
+         * — and it is worth stating rather than implying.
          */
-        $through = Carbon::now()->startOfSecond();
+        $through = Carbon::now()->subSeconds(self::VISIBILITY_LAG_SECONDS)->startOfSecond();
 
         if ($through <= $since) {
-            // Two sweeps inside one second. Nothing can have been missed.
+            /*
+             * Nothing new can be safely reported yet. Not an error: a sweep
+             * inside the lag of the previous one has nothing to say, and the
+             * mark stays where it is.
+             */
             return false;
         }
 
@@ -151,14 +190,23 @@ final class AlertOnFailures
             ->where('team_id', $team->getKey())
             ->where('state', AutomationState::Failed->value)
             /*
-             * `COALESCE`, so the claim this class makes — *a row is failed
-             * however it got there* — is true of the column it actually keys
-             * on. Every writer of `failed` in the product sets `executed_at`
-             * in the same statement, and a row corrected by hand may not.
-             * `updated_at` is never null.
+             * `executed_at`, and **not** `COALESCE(executed_at, updated_at)`.
+             *
+             * The coalesce was a round-2 answer to *"the claim is one column
+             * wide of true"*, and it bought the wrong thing: `updated_at`
+             * moves on any save, so a row already behind the mark could be
+             * dragged back in front of it and reported a second time —
+             * breaking the promise the help article makes in the same words.
+             *
+             * The hole it was covering is not reachable. `ExecuteAction::fail()`
+             * is the only writer of `failed` in the product and it sets
+             * `executed_at` in the same statement. A row without one has been
+             * made by hand, and for an artificial state, saying nothing is the
+             * better of the two wrong answers — the alternative is an email
+             * about it every five minutes forever.
              */
-            ->whereRaw('COALESCE(executed_at, updated_at) >= ?', [$since])
-            ->whereRaw('COALESCE(executed_at, updated_at) < ?', [$through]);
+            ->where('executed_at', '>=', $since)
+            ->where('executed_at', '<', $through);
 
         /*
          * Three aggregates rather than a page of rows. The first version
@@ -169,8 +217,14 @@ final class AlertOnFailures
         $count = $window()->count();
 
         if ($count === 0) {
-            $this->remember($team, $through);
-
+            /*
+             * The mark is **not** advanced over an empty window, and that is a
+             * saving rather than a subtlety: advancing it would write every
+             * team's row every five minutes forever, churning `teams.updated_at`
+             * for every tenant on the platform to record that nothing happened.
+             * An unmoved mark simply widens the next window, which returns the
+             * same nothing at the same cost.
+             */
             return false;
         }
 
@@ -197,7 +251,14 @@ final class AlertOnFailures
 
         $newest = $window()
             ->with('deal')
-            ->orderByRaw('COALESCE(executed_at, updated_at) DESC')
+            /*
+             * A tiebreaker, because `executed_at` is `timestamp(0)` and a
+             * burst puts many rows in one second. Without it Postgres returns
+             * whichever the heap hands back first, so the failure named in the
+             * alert changes between two runs over identical data.
+             */
+            ->orderByDesc('executed_at')
+            ->orderByDesc('id')
             ->first();
 
         if (! $newest instanceof ActionInstance) {
@@ -330,6 +391,14 @@ final class AlertOnFailures
             ->where('team_id', $team->getKey())
             ->active()
             ->with('roles.permissions')
+            /*
+             * Ordered, because the list is truncated. Without it *which five*
+             * of a nine-person team get told is whatever the heap returns, and
+             * it can differ between two alerts about the same outage — so the
+             * person who saw the first one is not necessarily the person who
+             * sees the second.
+             */
+            ->orderBy('id')
             ->get()
             ->filter(static fn (TeamMembership $membership): bool => $membership->hasPermission(Permissions::APPROVE_MESSAGE));
 

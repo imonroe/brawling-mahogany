@@ -170,12 +170,7 @@ it('refuses a message with an unfilled merge field', function (): void {
         ],
     ]));
 
-    /*
-     * Not `assertNothingSent()`. A failure raises S91's internal alert (#97),
-     * which is a message to the *team* and is exactly what should happen here
-     * — the assertion that matters is that nothing reached the client.
-     */
-    Mail::assertNotSent(AutomatedMessageMail::class);
+    Mail::assertNothingSent();
 
     expect($instance->state)->toBe(AutomationState::Failed)
         ->and($instance->error)->toContain('property_address');
@@ -192,12 +187,7 @@ it('refuses a message with a dropped brace', function (): void {
         ],
     ]));
 
-    /*
-     * Not `assertNothingSent()`. A failure raises S91's internal alert (#97),
-     * which is a message to the *team* and is exactly what should happen here
-     * — the assertion that matters is that nothing reached the client.
-     */
-    Mail::assertNotSent(AutomatedMessageMail::class);
+    Mail::assertNothingSent();
     expect($instance->state)->toBe(AutomationState::Failed);
 });
 
@@ -214,12 +204,7 @@ it('refuses a message that resolves to nobody', function (): void {
         ],
     ]));
 
-    /*
-     * Not `assertNothingSent()`. A failure raises S91's internal alert (#97),
-     * which is a message to the *team* and is exactly what should happen here
-     * — the assertion that matters is that nothing reached the client.
-     */
-    Mail::assertNotSent(AutomatedMessageMail::class);
+    Mail::assertNothingSent();
 
     expect($instance->state)->toBe(AutomationState::Failed)
         ->and($instance->error)->toContain('resolved to nobody');

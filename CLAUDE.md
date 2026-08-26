@@ -808,10 +808,48 @@ These come from PRD §8 and should guide the eventual build:
   **A frozen clock cannot see this defect**, which is why it survived a round
   of review with a green suite: every test made its failures and swept inside
   one second, which is the one arrangement the scheduler never produces. The
-  test helper travels a second first, and says why.
+  test helper travels past the lag first, and says why.
+
+- **A boundary at `now()` walks over rows that were never visible to it.** The
+  half-open window fixed *which* second a row belongs to and left a second
+  assumption standing: that a row stamped below the boundary can be seen by a
+  query taken at it. Two things break that, and neither needs a clock running
+  backwards. `executed_at` is stamped in **PHP**, by whichever process wrote
+  the row, and becomes visible at **COMMIT** rather than at assignment; and
+  `onOneServer` pins the *scheduler*, not the writers, so a worker one second
+  slow backdates everything it writes.
+
+  So the boundary sits `VISIBILITY_LAG_SECONDS` **behind** the sweep. Distance
+  again, which is `automations:reap-unconfirmed`'s answer at a much larger
+  scale — a minute here rather than six hours, because what is being outrun is
+  commit latency and NTP drift rather than a queue's visibility timeout. Gross
+  skew still defeats it, and the docblock says so rather than implying
+  otherwise: the F5.9 rate window and the reaper's `--hours` assume the same
+  shared clock.
+
+- **`COALESCE(a, b)` to widen a claim widens what can move it.** The window
+  keyed on `COALESCE(executed_at, updated_at)` so that *"a row is failed
+  however it got there"* would be true of the column it actually reads. But
+  `updated_at` moves on **any** save, so a row with no `executed_at` is dragged
+  in front of the mark every time anything touches it — an email about the same
+  row every five minutes, against the promise the help article makes in the
+  words *never twice about the same failure*.
+
+  The hole it covered is not reachable: `ExecuteAction::fail()` is the only
+  writer of `failed` and sets both columns in one statement. So the window keys
+  on `executed_at` alone, and for a row made by hand **silence is the better of
+  the two wrong answers**. Widening a query to cover an artificial state is
+  worth checking against what else the wider column lets in.
 
   The same reasoning killed the `LIMIT`: a page of 500 rows reported 500 and
   moved the mark past the rest. Count with an aggregate, not with `count($rows)`.
+
+  And **a `timestamp(0)` sort needs a tiebreaker**, which is the same fact one
+  layer up. S47's three lists ordered by second-precision columns alone, so
+  Postgres returned heap order — stable until something churned the pages,
+  which meant the queue reordered under a reader between two refreshes and
+  `MessageQueueBudgetTest` failed intermittently depending on what ran before
+  it. `->oldest('id')` behind each sort.
 
 - **A durability promise cannot live in a cache.** The mark was a Redis key
   for one round, and Redis is evictable and empty after a restart — while

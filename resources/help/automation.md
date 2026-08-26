@@ -147,9 +147,11 @@ you can send it by hand or pick up the phone.
 deleted, because three months from now the question is not "is this tidy", it is
 "why did the client never hear about the inspection".
 
-**And you get told.** Whoever on your team can approve messages gets an email
+**And you get told.** People on your team who can approve messages get an email
 about anything that has failed since the last one — within a few minutes, and
-never twice about the same failure. When several have gone wrong it says how
+never twice about the same failure. On a large team it goes to the first few
+rather than to everybody, because an alert copied to twenty people is an alert
+twenty people assume somebody else is dealing with. When several have gone wrong it says how
 many and links to the queue rather than to one of them, because one expired
 password can take out a morning's worth and you want the list, not the first
 row.
