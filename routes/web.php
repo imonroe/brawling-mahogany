@@ -6,6 +6,7 @@ use App\Http\Controllers\Activity\ActivityController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
 use App\Http\Controllers\Deals\ConfirmGateController;
+use App\Http\Controllers\Deals\DealDocumentController;
 use App\Http\Controllers\Deals\DealIndexController;
 use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
@@ -317,6 +318,25 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.offers.update');
         Route::delete('deals/{deal}/offers/{offer}', [OfferController::class, 'destroy'])
             ->name('deals.offers.destroy');
+
+        /*
+         * S21 — a deal's documents (F6.1–F6.3, F6.7 · #98, #99, #100).
+         *
+         * The general upload path Slice 2 deliberately did not build. #63
+         * closed its residual window by restricting the context — images only,
+         * against a property only — and this exists because
+         * `SensitiveContent` inspects the bytes instead, so a photographed
+         * cheque is refused on what it is rather than on where it was going.
+         *
+         * `{document}` resolves through `{deal}` by scoped binding, like
+         * `{offer}` above: only the nesting answers whose deal it is on.
+         */
+        Route::get('deals/{deal}/documents', [DealDocumentController::class, 'index'])
+            ->name('deals.documents.index');
+        Route::post('deals/{deal}/documents', [DealDocumentController::class, 'store'])
+            ->name('deals.documents.store');
+        Route::delete('deals/{deal}/documents/{document}', [DealDocumentController::class, 'destroy'])
+            ->name('deals.documents.destroy');
 
         /*
          * F4.11 — a note on a deal (#72).

@@ -9,6 +9,7 @@ import {
     formatDateShort,
     formatDateTime,
     formatDealName,
+    formatFileSize,
     formatLocality,
     formatPersonName,
     formatRelativeDate,
@@ -194,5 +195,31 @@ describe('formatters', () => {
         expect(formatCount(3, 'deal')).toBe('3 deals');
         expect(formatCount(1, 'task')).toBe('1 task');
         expect(formatCount(2, 'property', 'properties')).toBe('2 properties');
+    });
+});
+
+describe('formatFileSize', () => {
+    it('counts bytes as bytes below a kilobyte', () => {
+        expect(formatFileSize(0)).toBe('0 bytes');
+        expect(formatFileSize(1)).toBe('1 byte');
+        expect(formatFileSize(840)).toBe('840 bytes');
+    });
+
+    it('uses 1024, because that is what every operating system shows', () => {
+        // Not 1 KB at 1000, which is what a disk manufacturer would say.
+        expect(formatFileSize(1000)).toBe('1,000 bytes');
+        expect(formatFileSize(1024)).toBe('1 KB');
+    });
+
+    it('drops the decimal below a megabyte and keeps one above', () => {
+        // "17.0 KB" is noise; "1.4 MB" is a size somebody is deciding about.
+        expect(formatFileSize(17 * 1024)).toBe('17 KB');
+        expect(formatFileSize(Math.round(1.4 * 1024 * 1024))).toBe('1.4 MB');
+        expect(formatFileSize(15 * 1024 * 1024)).toBe('15.0 MB');
+    });
+
+    it('says nothing rather than guessing at a size it cannot read', () => {
+        expect(formatFileSize(-1)).toBe('—');
+        expect(formatFileSize(Number.NaN)).toBe('—');
     });
 });

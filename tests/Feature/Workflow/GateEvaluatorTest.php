@@ -214,9 +214,30 @@ it('explains a deferred gate rather than failing silently', function (string $ty
         ->and($verdict->linkTarget['type'])->toBe('awaiting_slice')
         ->and($verdict->linkTarget['issue'])->toBe($issue);
 })->with([
-    'document present' => ['document_present', '#104'],
+    // `document_present` left this list when S21 landed (#98, #104). What it
+    // does instead is asserted below, because a type quietly dropped from a
+    // dataset is a type nothing covers.
     'date reached' => ['date_reached', '#109'],
 ]);
+
+it('sends somebody to the upload that clears a document gate', function (): void {
+    /*
+     * CLAUDE.md names `DocumentPresentEvaluator` as one of two evaluators
+     * owing the *"a row nothing can reach"* check: a gate type with exactly
+     * one way to be satisfied, never verified as reachable from a screen.
+     *
+     * PRD §5.4 asks that *"each unmet gate links directly to the thing that
+     * clears it"*, so the verdict carries where to go rather than only what is
+     * wrong — which is the difference between a blocker somebody can act on
+     * and one they have to go looking for.
+     */
+    $verdict = verdictFor(gateOfType('document_present', ['category' => 'inspection_report']));
+
+    expect($verdict->met)->toBeFalse()
+        ->and($verdict->explanation)->not->toContain('not wired up yet')
+        ->and($verdict->linkTarget['type'])->toBe('document_upload')
+        ->and($verdict->linkTarget['category'])->toBe('inspection_report');
+});
 
 /*
  * `action_completed` was the third of them and is wired as of #92, so it is

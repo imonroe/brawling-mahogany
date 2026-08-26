@@ -67,6 +67,13 @@ final class DealHeader
                 'properties' => $deal->propertyLinks->count(),
                 'tasks' => self::openTasks($deal),
                 'offers' => $deal->offers()->count(),
+                /*
+                 * A total, like People and Properties — a document is a thing
+                 * the deal *has*, not a thing left to do. Counted rather than
+                 * eager-loaded: no cell on any tab reads the rows themselves
+                 * except S21, which loads its own.
+                 */
+                'documents' => $deal->documents()->count(),
             ],
             /*
              * Whether this deal's type has offers at all (IA §5.2 · #73).

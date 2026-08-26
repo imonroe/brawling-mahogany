@@ -25,6 +25,7 @@ const DEAL_TAB_PAGES = [
     'Deals/People',
     'Deals/Properties',
     'Deals/Offers',
+    'Deals/Documents',
 ];
 
 createInertiaApp({

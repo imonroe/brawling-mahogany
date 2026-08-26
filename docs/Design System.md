@@ -639,7 +639,7 @@ Everything in this section is measured from the built designs. Tailwind classes 
 | `PersonPicker` | `components/app/` | Not yet designed |
 | `EmptyState` | `components/app/` | **Built.** Two variants: nothing exists yet, and nothing matches this filter |
 | `ConfirmDestructive` | `components/app/` | Not yet designed |
-| `UploadZone` | `components/app/` | Not yet designed (S51) |
+| `UploadZone` | `components/app/` | **Built** (S51). A button that opens the file picker, with drop handling layered on top — built the other way, the keyboard path is a thing somebody remembers to add. Refuses nothing client-side: the bytes decide, server-side, and two copies of an allowlist disagree the moment one is edited |
 
 ### 7.2 Atoms
 

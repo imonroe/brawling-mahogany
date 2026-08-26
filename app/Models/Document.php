@@ -47,6 +47,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $scan_state
  * @property Carbon|null $scanned_at
  * @property string|null $uploaded_by
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 #[Fillable(['caption', 'visibility'])]
 class Document extends Model
