@@ -25,6 +25,21 @@ final class UnsupportedDocument extends RuntimeException
         );
     }
 
+    /**
+     * A document, which accepts more than the gallery does.
+     *
+     * Named separately because the sentence has to list what is accepted, and
+     * *"this gallery takes photographs"* is useless advice to somebody
+     * attaching an inspection report to a deal.
+     */
+    public static function documentType(): self
+    {
+        return new self(
+            'That file type is not accepted. A document can be a PDF, a Word or Excel file, '
+            .'plain text, or a photograph — not an archive or anything that can run.',
+        );
+    }
+
     public static function tooLarge(int $bytes): self
     {
         return new self(sprintf(

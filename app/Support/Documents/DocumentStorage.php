@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Documents;
 
 use App\Enums\DocumentCategory;
+use App\Enums\DocumentVisibility;
 use App\Models\Document;
 use App\Models\Person;
 use Illuminate\Database\Eloquent\Model;
@@ -99,15 +100,42 @@ final class DocumentStorage
     ];
 
     /**
+     * What a **document** may be, beyond the gallery's images.
+     *
+     * A working document is a report, a disclosure, a receipt, a letter — so
+     * PDF, plain text, and the two office formats a team actually exchanges.
+     * Keyed by detected type for the same reason {@see self::IMAGE_TYPES} is:
+     * an allowlist checked against the browser's claim is a denylist with
+     * extra steps.
+     *
+     * **Deliberately no `.zip`, and no `.docm`.** An archive hides its
+     * contents from the scan by construction — F6.7 would be looking at a
+     * container — and a macro-enabled document is an executable a team member
+     * would open. Both are refusals somebody can work around by exporting
+     * differently, which is the right kind of refusal to make.
+     *
+     * @var array<string, string>
+     */
+    public const DOCUMENT_TYPES = [
+        'application/pdf' => 'pdf',
+        'text/plain' => 'txt',
+        'text/csv' => 'csv',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+    ];
+
+    /**
      * Store one file against a subject, and record it.
      *
      * @throws UnsupportedDocument when the file is not something this slice accepts
+     * @throws RefusedDocument when the scan finds something the product will not keep
      */
     public function store(
         Model $subject,
         UploadedFile $file,
         Person $actor,
         DocumentCategory $category = DocumentCategory::Photo,
+        DocumentVisibility $visibility = DocumentVisibility::Internal,
     ): Document {
         /*
          * **The bytes decide, not the filename.**
@@ -126,19 +154,51 @@ final class DocumentStorage
          */
         $detected = mb_strtolower((string) $file->getMimeType());
 
-        if (! array_key_exists($detected, self::IMAGE_TYPES)) {
-            throw UnsupportedDocument::extension(
-                mb_strtolower($file->getClientOriginalExtension()) ?: $detected,
-            );
+        /*
+         * A photograph goes in the gallery and everything else is a document,
+         * and the allowlist follows the category rather than the caller. A
+         * `photo` that is a PDF is a mistake somebody will make and should be
+         * told about; a `disclosure` that is a JPEG is a photographed
+         * document, which is ordinary and allowed.
+         */
+        $accepted = $category === DocumentCategory::Photo
+            ? self::IMAGE_TYPES
+            : self::IMAGE_TYPES + self::DOCUMENT_TYPES;
+
+        if (! array_key_exists($detected, $accepted)) {
+            throw $category === DocumentCategory::Photo
+                ? UnsupportedDocument::extension(mb_strtolower($file->getClientOriginalExtension()) ?: $detected)
+                : UnsupportedDocument::documentType();
         }
 
-        $extension = self::IMAGE_TYPES[$detected];
+        $extension = $accepted[$detected];
 
         if ($file->getSize() > self::MAX_BYTES) {
             throw UnsupportedDocument::tooLarge(self::MAX_BYTES);
         }
 
-        return DB::transaction(function () use ($subject, $file, $actor, $category, $extension, $detected): Document {
+        /*
+         * **The scan, here, before the transaction and before any write.**
+         *
+         * PRD §4.6's four requirements in order: scan on receipt, refuse and
+         * discard before anything reaches permanent storage, log without
+         * retaining, never hand a refused file to a third party. The position
+         * of this call is the second one — everything below it writes, and
+         * nothing above it does.
+         *
+         * The honest limit, because §14.3 says not to claim more than §8.4
+         * delivers: PHP wrote this upload to its own temporary directory
+         * before any of this code ran, so *"in memory"* means the bytes never
+         * reach the **permanent** store, not that they never touched a disk.
+         * The temporary copy is unlinked when the request ends.
+         */
+        $outcome = SensitiveContent::scan((string) file_get_contents($file->getRealPath()), $detected);
+
+        if ($outcome->isRefused() && $outcome->category !== null && $outcome->signal !== null) {
+            throw RefusedDocument::detected($outcome->category, $outcome->signal);
+        }
+
+        return DB::transaction(function () use ($subject, $file, $actor, $category, $visibility, $outcome, $extension, $detected): Document {
             $teamId = $subject->getAttribute('team_id');
 
             $path = $file->storeAs(
@@ -177,6 +237,21 @@ final class DocumentStorage
                  */
                 'is_primary' => ! $this->hasAny($subject),
                 'uploaded_by' => $actor->getKey(),
+                /*
+                 * F6.3: internal unless somebody says otherwise. The third
+                 * place this default lives — the enum, the column, and here —
+                 * because a default only the form knows is a default the next
+                 * caller does not have.
+                 */
+                'visibility' => $visibility,
+                /*
+                 * What the scan actually did, which is not always *"passed"*.
+                 * A file this build cannot look inside is recorded as
+                 * `not_scanned`, because writing `clean` would put PRD §14.1
+                 * Q6's *"guarantee that is not there"* on the row permanently.
+                 */
+                'scan_state' => $outcome->state(),
+                'scanned_at' => now(),
             ])->save();
 
             return $document;
