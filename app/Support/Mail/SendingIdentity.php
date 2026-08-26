@@ -212,6 +212,19 @@ final class SendingIdentity
             $team,
             fn (): ?TeamMembership => TeamMembership::query()
                 ->where('team_id', $team->getKey())
+                /*
+                 * **Revoked owners are not owners.** Without this the founding
+                 * membership wins on `oldest('id')` however long ago they left,
+                 * so a client's reply goes to somebody who no longer works
+                 * there — and silently, since the address still exists.
+                 *
+                 * Both other owner queries in the codebase filter revocation
+                 * (`ResolveRecipients::owners()`, `RevokeMembership`), and the
+                 * first of those is F5.9's sandbox redirect target: without it
+                 * here, the rail and the reply chain name different people for
+                 * the same team.
+                 */
+                ->active()
                 ->holdingSystemRole(SystemRole::TeamOwner->value)
                 ->whereNotNull('email')
                 /*
@@ -246,7 +259,7 @@ final class SendingIdentity
      * rejected this message"*, which points at SES for a value typed into a
      * form here.
      *
-     * `SaveTeamRequest` refuses one on the way in now. This is the other end of
+     * `TeamController::update()` refuses one on the way in now. This is the other end of
      * that pair, for the rows already stored and for a template's
      * `from_identity`, which has its own form: a candidate that cannot be
      * parsed is **skipped**, so the chain falls through to an address that can

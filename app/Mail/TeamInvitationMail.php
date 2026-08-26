@@ -7,6 +7,7 @@ namespace App\Mail;
 use App\Models\TeamInvitation;
 use App\Support\Mail\BrandedEmail;
 use App\Support\Mail\SendingIdentity;
+use App\Support\Messages\RenderMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -50,16 +51,34 @@ class TeamInvitationMail extends Mailable
          * writes to Emily. The team's settings and then a team owner stand
          * behind it, for an invitation whose sender has since left.
          */
+        /*
+         * The inviter's **membership** address, not `Person::email`.
+         *
+         * `people.email` is a login credential; `team_memberships.email` is the
+         * address a team recorded for somebody, which is what IA §11's
+         * "Person, not User" split is for. Publishing the first to a stranger
+         * who has not accepted an invitation yet tells them which address signs
+         * in — and the display name beside it already came from the membership,
+         * so the two halves of this header were reading different tables.
+         */
+        $membership = $inviter?->membershipIn($team);
+
         $identity = SendingIdentity::for(
             $team,
-            $inviter?->email,
-            $inviter?->displayNameWithin($team),
+            $membership?->email,
+            $membership?->fullName(),
         );
 
         return new Envelope(
             from: $identity->from,
             replyTo: $identity->replyTo,
-            subject: "You’ve been invited to {$team->name}",
+            /*
+             * Through the strip, like the From name beside it. CLAUDE.md
+             * claims every tenant string reaching a header goes through
+             * `headerSafe()`; this was the one that did not, and a subject is
+             * a header for exactly the reason `RenderMessage` says it is.
+             */
+            subject: 'You’ve been invited to '.RenderMessage::headerSafe($team->name),
         );
     }
 

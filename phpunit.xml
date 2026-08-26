@@ -41,6 +41,20 @@
         <env name="DB_DATABASE" value="brawling_mahogany_test"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
+        <!--
+            Pinned so a stale `.env` cannot decide what the product calls
+            itself in a test run. Round 3 of review on #12 found `.env.example`
+            corrected and `config/mail.php` not, so `MAIL_FROM_NAME` still
+            chained to `APP_NAME` — the infrastructure identifier that
+            deliberately still carries the pre-rename codename. A developer
+            whose `.env` predates the split has the same line, and a test that
+            reads it would be asserting their environment rather than this
+            product's behaviour. Real environments are covered where they are
+            actually written: `.env.example` and the provisioning script's
+            managed block, each with its own test.
+        -->
+        <env name="APP_PRODUCT_NAME" value="Goldieflow"/>
+        <env name="MAIL_FROM_NAME" value="Goldieflow"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <!--
             The Redis integration test opens a real connection (that is its

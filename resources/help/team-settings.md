@@ -57,9 +57,10 @@ because the address beside it belongs to the app and would otherwise look like
 somebody pretending to be you.
 
 **Reply-to address** is where a reply lands. Leave it blank and replies go to
-a team owner, so a client is never left writing to nobody — but "a team owner"
-may not be the person who should be reading it. Put the address you actually
-want clients writing to.
+whoever holds Team Owner — the longest-standing one still on the team, never
+somebody whose access has been revoked. So a client is never left writing to
+nobody, but "a team owner" may not be the person who should be reading it. Put
+the address you actually want clients writing to.
 
 If your team somehow has no reachable address at all, messages go out under the
 app's own name instead of yours. Your name in an inbox is a promise that

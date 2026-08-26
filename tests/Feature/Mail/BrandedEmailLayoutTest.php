@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Teams\ProvisionTeam;
 use App\Mail\AutomatedMessageMail;
 use App\Mail\InternalAlertMail;
 use App\Mail\MessageTemplateTestMail;
@@ -9,6 +10,7 @@ use App\Mail\TeamInvitationMail;
 use App\Models\ActionInstance;
 use App\Models\Deal;
 use App\Models\MessageTemplate;
+use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Support\Branding\TeamLogo;
@@ -406,7 +408,15 @@ it('does not attribute the product’s own alert to the team', function (): void
 
     $from = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getFrom()[0];
 
-    expect($from->getName())->toBe(config()->string('mail.from.name'));
+    /*
+     * The literal, not `config('mail.from.name')`. Asserting the config a slot
+     * reads is true of whatever that config holds — which is exactly how
+     * `MAIL_FROM_NAME`'s chain to `APP_NAME` survived round 2's fix: the
+     * example file was corrected, `config/mail.php` was not, and both of these
+     * assertions went on passing against "Brawling Mahogany".
+     */
+    expect($from->getName())->toBe('Goldieflow')
+        ->and($from->getName())->not->toContain('Brawling');
 });
 
 it('gives a client somewhere to reply, which is the half that makes the From honest', function (): void {
@@ -520,7 +530,8 @@ it('keeps the product’s own name on a test send', function (): void {
 
     $from = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getFrom()[0];
 
-    expect($from->getName())->toBe(config()->string('mail.from.name'));
+    expect($from->getName())->toBe('Goldieflow')
+        ->and($from->getName())->not->toContain('Brawling');
 });
 
 it('falls back to a team owner when nobody has filled the reply-to field in', function (): void {
@@ -552,16 +563,15 @@ it('falls back to a team owner when nobody has filled the reply-to field in', fu
 
     $message = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage();
 
-    $ownerEmail = app(TeamContext::class)->runFor(
-        $this->team,
-        fn (): mixed => $this->team->memberships()
-            ->whereNotNull('email')
-            ->oldest('id')
-            ->value('email'),
-    );
-
+    /*
+     * The owner's own address, asserted directly. Re-deriving it with a query
+     * here would make the test agree with whatever the code did — and a
+     * weaker query than the code's (no `active()`, no role filter) agrees with
+     * the wrong answer too, which is how round 3 found a revoked owner still
+     * winning.
+     */
     expect($message->getReplyTo())->toHaveCount(1)
-        ->and($message->getReplyTo()[0]->getAddress())->toBe($ownerEmail)
+        ->and($message->getReplyTo()[0]->getAddress())->toBe($this->owner->email)
         // And the agency's name is still safe to put in the inbox line,
         // because there is now somebody behind it.
         ->and($message->getFrom()[0]->getName())->toBe('Bosart Group via Goldieflow');
@@ -661,4 +671,110 @@ it('does not accept a blank sending address as a configured one', function (): v
 
     expect(fn (): mixed => SendingIdentity::for($this->team))
         ->toThrow(RuntimeException::class);
+});
+
+it('does not reply to an owner who has left the team', function (): void {
+    /*
+     * Round 3's blocker. `oldest('id')` picks the **founding** membership, so
+     * without a revocation filter a client's reply goes to whoever set the
+     * team up, however long ago they left — and silently, because the address
+     * still exists and still belongs to a real person.
+     *
+     * The two other owner queries in the codebase both filter revocation, and
+     * one of them (`ResolveRecipients::owners()`) is F5.9's sandbox redirect
+     * target: without it here, the rail and the reply chain name different
+     * people for the same team.
+     */
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => null,
+    ])->save();
+
+    $successor = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($successor): void {
+        app(ProvisionTeam::class)->attachOwner($this->team, $successor);
+
+        $this->owner->membershipIn($this->team)?->revoke();
+    });
+
+    $reply = SendingIdentity::for($this->team->fresh())->replyTo;
+
+    expect($reply)->toHaveCount(1)
+        ->and($reply[0]->address)->not->toBe($this->owner->email)
+        ->and($reply[0]->address)->toBe($successor->email);
+});
+
+it('signs as the product when every owner has gone', function (): void {
+    // And the honest degradation still applies once the filter is in: a team
+    // with only a revoked owner has nobody to answer, so it is not named.
+    $this->team->forceFill([
+        'name' => 'Bosart Group',
+        'sending_identity_email' => null,
+    ])->save();
+
+    app(TeamContext::class)->runFor(
+        $this->team,
+        fn () => $this->owner->membershipIn($this->team)?->revoke(),
+    );
+
+    $identity = SendingIdentity::for($this->team->fresh());
+
+    expect($identity->replyTo)->toBe([])
+        ->and($identity->from->name)->toBe('Goldieflow');
+});
+
+it('strips a header split out of the invitation subject, not only the From name', function (): void {
+    /*
+     * CLAUDE.md claims *"every tenant string reaching a header goes through
+     * `headerSafe()`"*. This was the one that did not: the From name beside it
+     * was stripped while the subject interpolated `$team->name` raw. A claim
+     * that is true of every case but one is the shape of a rule people stop
+     * checking.
+     */
+    $team = Team::factory()->create(['name' => "Bosart Group\r\nBcc: someone@evil.test"]);
+    $invitation = TeamInvitation::factory()->create(['team_id' => $team->getKey()]);
+
+    Mail::to('newcomer@example.test')->send(
+        new TeamInvitationMail($invitation, TeamInvitation::newToken()),
+    );
+
+    $subject = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getSubject();
+
+    expect($subject)->not->toContain("\r")
+        ->and($subject)->not->toContain("\n")
+        ->and($subject)->toContain('Bosart Group');
+});
+
+it('replies to the inviter’s team address rather than their login address', function (): void {
+    /*
+     * `people.email` is a credential; `team_memberships.email` is what a team
+     * recorded for somebody — IA §11's *"Person, not User"* split. An
+     * invitation reaches a stranger who has not accepted anything yet, and
+     * telling them which address signs in is not what a Reply-To is for.
+     *
+     * The display name already came from the membership, so the two halves of
+     * this one header were reading different tables.
+     */
+    $inviter = Person::factory()->create(['email' => 'login@credentials.test']);
+    [$team] = $this->teamWithOwner($inviter);
+
+    app(TeamContext::class)->runFor(
+        $team,
+        fn () => $inviter->membershipIn($team)?->forceFill(['email' => 'emily@bosart.test'])->save(),
+    );
+
+    $invitation = TeamInvitation::factory()->create([
+        'team_id' => $team->getKey(),
+        'invited_by_person_id' => $inviter->getKey(),
+    ]);
+
+    Mail::to('newcomer@example.test')->send(
+        new TeamInvitationMail($invitation, TeamInvitation::newToken()),
+    );
+
+    $replyTo = Mail::mailer()->getSymfonyTransport()->messages()->last()->getOriginalMessage()->getReplyTo();
+
+    expect($replyTo[0]->getAddress())->toBe('emily@bosart.test')
+        ->and($replyTo[0]->getAddress())->not->toBe('login@credentials.test');
 });

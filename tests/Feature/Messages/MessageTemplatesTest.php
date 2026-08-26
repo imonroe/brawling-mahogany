@@ -787,3 +787,19 @@ it('refuses the whole screen to somebody without templates.manage', function ():
 
     $this->get('/templates/messages')->assertForbidden();
 });
+
+it('refuses a reply address the mail transport would throw on', function (): void {
+    // The other form carrying `SendableEmailAddress`. `email:rfc` accepts this
+    // too — it is the rule that *implements* the RFC, and the comment is in
+    // the RFC. See tests/Unit/SendableEmailAddressTest.php.
+    $this->post('/templates/messages', [
+        'name' => 'Inspection scheduled',
+        'channel' => MessageChannel::Email->value,
+        'subject' => 'Your inspection is booked',
+        'body_text' => 'Hello.',
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+        'from_identity' => 'coordinator(desk)@bosart.test',
+    ])->assertSessionHasErrors('from_identity');
+
+    expect(MessageTemplate::query()->count())->toBe(0);
+});

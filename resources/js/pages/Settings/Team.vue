@@ -284,6 +284,18 @@ function removeLogo(): void {
                                 v-model="form.sending_identity_email"
                                 type="email"
                             />
+                            <!--
+                                The field has a real fallback now, so silence
+                                here would leave a team assuming replies go
+                                nowhere — or assuming they go somewhere in
+                                particular. Naming the fallback is what makes
+                                leaving it blank a decision rather than an
+                                oversight.
+                            -->
+                            <p class="text-[11px] text-muted-foreground">
+                                Where a client’s reply lands. Leave it blank and
+                                replies go to a Team Owner.
+                            </p>
                             <p
                                 v-if="form.errors.sending_identity_email"
                                 class="text-[11px] text-state-danger"

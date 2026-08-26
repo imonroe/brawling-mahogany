@@ -128,7 +128,15 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
+        /*
+         * `APP_PRODUCT_NAME`, not `APP_NAME`. The latter is slugged into the
+         * session cookie and three cache prefixes, which is why it still
+         * carries the pre-rename codename — and chaining a **display** default
+         * to it is how the product signed its own mail "Brawling Mahogany".
+         * `.env.example` was corrected without this line, so every environment
+         * with a real `.env` kept the old answer. See config/app.php.
+         */
+        'name' => env('MAIL_FROM_NAME', env('APP_PRODUCT_NAME', 'Goldieflow')),
     ],
 
 ];
