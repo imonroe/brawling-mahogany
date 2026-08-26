@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\DocumentCategory;
 use App\Enums\DocumentVisibility;
+use App\Models\AuditEntry;
 use App\Models\Deal;
 use App\Models\Document;
 use App\Models\Property;
@@ -164,4 +165,72 @@ it('shows one team nothing of another team’s', function (): void {
     $this->get('/documents')
         ->assertOk()
         ->assertInertia(fn ($page) => $page->has('documents', 0)->where('storageUsed', 0));
+});
+
+it('shows one document, with a preview decided by the stored type', function (): void {
+    $document = storeOn($this->deal, 'notes.txt', DocumentCategory::Other);
+
+    $this->get("/documents/{$document->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Documents/Show')
+            ->where('document.name', 'notes.txt')
+            /*
+             * Derived from the bytes by `finfo` at upload, never from the
+             * filename — which is what makes it safe to decide a preview from.
+             */
+            ->where('document.mimeType', 'text/plain')
+            ->where('document.missing', false)
+            // The bytes come from the subject's own audited route. One path to
+            // a file, one place the authorization lives.
+            ->where('downloadUrl', '/deals/'.$this->deal->getKey().'/documents/'.$document->getKey()),
+        );
+});
+
+it('says the file is gone rather than drawing an empty frame', function (): void {
+    $document = storeOn($this->deal, 'notes.txt', DocumentCategory::Other);
+
+    Storage::disk(DocumentStorage::DISK)->delete($document->path);
+
+    $this->get("/documents/{$document->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('document.missing', true));
+});
+
+it('audits a change of visibility, because publishing is a disclosure decision', function (): void {
+    /*
+     * The moment somebody outside the team can read a seller's inspection
+     * report. PRD §9 wants the record of who decided that — and the reverse
+     * direction too, since "who un-shared this" is the same question asked
+     * after the fact.
+     */
+    $document = storeOn($this->deal, 'disclosure.txt', DocumentCategory::Disclosure);
+
+    expect($document->visibility)->toBe(DocumentVisibility::Internal);
+
+    $this->patch("/documents/{$document->getKey()}/visibility", [
+        'visibility' => DocumentVisibility::ClientVisible->value,
+    ])->assertRedirect();
+
+    expect($document->fresh()->visibility)->toBe(DocumentVisibility::ClientVisible);
+
+    $entry = AuditEntry::query()->where('action', 'document.visibility_changed')->sole();
+
+    expect($entry->auditable_id)->toBe($document->getKey())
+        ->and($entry->actor_person_id)->toBe($this->member->getKey());
+});
+
+it('will not show one team a document belonging to another', function (): void {
+    $document = storeOn($this->deal, 'ours.txt', DocumentCategory::Other);
+
+    [$otherTeam, $stranger] = $this->teamWithMember();
+    $this->actingAsPerson($stranger, $otherTeam);
+
+    $this->get("/documents/{$document->getKey()}")->assertNotFound();
+
+    $this->patch("/documents/{$document->getKey()}/visibility", [
+        'visibility' => DocumentVisibility::ClientVisible->value,
+    ])->assertNotFound();
+
+    expect($document->fresh()->visibility)->toBe(DocumentVisibility::Internal);
 });

@@ -269,9 +269,9 @@ tags:
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S50 | Documents index | `/documents` | Team | Empty, categorised, filtered by deal, storage used | F6.1 | 3 | M |
+| S50 | Documents index | `/documents` | Team | Empty, categorised, filtered by deal, storage used | F6.1 | 3 | M | **Built** (#98). Storage used is **reported, never enforced** — no plan tier exists, so a bar toward an invented limit would be a lie somebody later builds a billing assumption on |
 | S51 | Upload dialog | modal | TC | **Prominent PII warning**, category required, drag and drop, progress, ~~multi-file~~ | F6.6 | 3 | M | **Built** (#98). One file at a time, deliberately: the dialog carries a category *and* a visibility, and a multi-file drop would have to guess how those apply to the rest — guessing wrong on visibility publishes somebody's document. The warning is a panel above the control, not a description line, because the note below says it cannot be softened |
-| S52 | Document viewer | `/documents/{document}` | Team | PDF, image, unsupported type, download, visibility toggle | F6.4 | 3 | M |
+| S52 | Document viewer | `/documents/{document}` | Team | PDF, image, unsupported type, download, visibility toggle | F6.4 | 3 | M | **Built** (#98). The preview is decided by the stored `mime_type`, which `finfo` derived from the bytes — never the filename. Bytes are served only by the subject's own audited route, so a preview is an access with an entry behind it |
 | S53 | Upload refused | modal | TC | Detected financial instrument, explanation, what to do instead | F6.7 | 3 | S | **Built** (#99). Read off the session rather than flashed as a toast: a refusal has three things to say and has to stay on screen until they are read |
 
 > [!danger] S51 and S53 carry legal weight, not just UX

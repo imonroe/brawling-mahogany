@@ -10,7 +10,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\Document;
 use App\Models\Property;
+use App\Support\Audit\AuditLogger;
+use App\Support\Documents\DocumentStorage;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -81,6 +84,91 @@ class DocumentController extends Controller
             'deals' => $this->dealsWithDocuments(),
             'storageUsed' => (int) Document::query()->sum('size_bytes'),
         ]);
+    }
+
+    /**
+     * S52 — one document, and what can be done about it (F6.4 · #98).
+     *
+     * ## The preview is decided by the stored type, and refuses to guess
+     *
+     * `mime_type` is derived from the bytes by `finfo` at upload, so it is
+     * true of the file rather than a claim the browser made — which is what
+     * makes it safe to decide a preview from. An image previews, a PDF
+     * previews in an object frame, and everything else says plainly that it
+     * cannot be shown here and offers the download. **Unsupported is a state
+     * the screen has**, not a blank box somebody stares at.
+     *
+     * The preview loads through `deals.documents.show`, which authorizes and
+     * audits every read (PRD §9), so a rendered preview is an access with an
+     * entry behind it exactly like a download.
+     */
+    public function show(Document $document, DocumentStorage $storage): Response
+    {
+        $this->authorize('view', $document);
+
+        $subject = $this->subject($document);
+
+        return Inertia::render('Documents/Show', [
+            'document' => [
+                ...$this->row($document),
+                'mimeType' => $document->mime_type,
+                'missing' => ! $storage->exists($document),
+            ],
+            'downloadUrl' => $this->downloadUrl($document),
+            'subjectUrl' => $subject['url'],
+            'visibilities' => DocumentVisibility::options(),
+            'can' => ['update' => request()->user()?->can('update', $document) ?? false],
+        ]);
+    }
+
+    /**
+     * F6.3's toggle, and the only thing on this screen that writes.
+     *
+     * Audited, because making a document client-visible is a **disclosure
+     * decision**: it is the moment somebody outside the team can read a
+     * seller's inspection report, and PRD §9 wants the record of who decided
+     * that. The reverse direction is audited too — "who un-shared this, and
+     * when" is the same question asked after the fact.
+     */
+    public function updateVisibility(
+        Request $request,
+        Document $document,
+        AuditLogger $audit,
+    ): RedirectResponse {
+        $this->authorize('update', $document);
+
+        $validated = $request->validate([
+            'visibility' => ['required', Rule::enum(DocumentVisibility::class)],
+        ]);
+
+        $document->forceFill(['visibility' => $validated['visibility']])->save();
+
+        $audit->recordChange('document.visibility_changed', $document);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Visibility updated.')]);
+
+        return back(fallback: route('documents.show', $document));
+    }
+
+    /**
+     * The audited read, which lives on the deal route because that is where
+     * the authorization is nested.
+     *
+     * A property's photograph goes through the gallery's own download, for the
+     * same reason: each route authorizes the subject it hangs off, and a
+     * second path to the bytes would be a second place the rule could drift.
+     */
+    private function downloadUrl(Document $document): ?string
+    {
+        if ($document->documentable_type === (new Deal)->getMorphClass()) {
+            return '/deals/'.$document->documentable_id.'/documents/'.$document->getKey();
+        }
+
+        if ($document->documentable_type === (new Property)->getMorphClass()) {
+            return '/properties/'.$document->documentable_id.'/photos/'.$document->getKey();
+        }
+
+        return null;
     }
 
     /**

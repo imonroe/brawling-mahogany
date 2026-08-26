@@ -476,6 +476,17 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * disclosure", which is asked from a standing start.
      */
     Route::get('documents', [DocumentController::class, 'index'])->name('documents.index');
+    /*
+     * S52. The viewer is team-level rather than nested under a deal, because a
+     * document reached from S50 has no deal in the URL to nest under — and the
+     * **bytes** are not served here: the preview and the download both go
+     * through the subject's own audited route, so there is exactly one path to
+     * a file and one place the authorization lives.
+     */
+    Route::get('documents/{document}', [DocumentController::class, 'show'])
+        ->name('documents.show');
+    Route::patch('documents/{document}/visibility', [DocumentController::class, 'updateVisibility'])
+        ->name('documents.visibility.update');
 
     Route::get('properties', [PropertyController::class, 'index'])->name('properties.index');
     Route::post('properties', [PropertyController::class, 'store'])->name('properties.store');
