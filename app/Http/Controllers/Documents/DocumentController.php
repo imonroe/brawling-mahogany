@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\Document;
 use App\Models\Property;
+use App\Models\Stage;
 use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentStorage;
 use Illuminate\Database\Eloquent\Builder;
@@ -54,6 +55,7 @@ class DocumentController extends Controller
         ]);
 
         $documents = $this->filtered($filters)
+            ->where($this->readable(...))
             ->with('uploader')
             ->latest('created_at')
             /*
@@ -82,7 +84,12 @@ class DocumentController extends Controller
              * the question this screen gets asked is "which deal was that on".
              */
             'deals' => $this->dealsWithDocuments(),
-            'storageUsed' => (int) Document::query()->sum('size_bytes'),
+            /*
+             * Scoped by the same rule as the rows. An unscoped total is a side
+             * channel: it reports the size of documents the same request has
+             * just refused to name, which is the leak in a quieter voice.
+             */
+            'storageUsed' => (int) Document::query()->where($this->readable(...))->sum('size_bytes'),
         ]);
     }
 
@@ -169,6 +176,52 @@ class DocumentController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Only the subjects this person may see (round 1 of review, blocker 3).
+     *
+     * `viewAny` is deliberately the **wider** of the two subject permissions,
+     * and the justification written beside it was *"each row is still
+     * authorized on its way out"*. It was not: `index()` mapped rows straight
+     * out of the query, so a role holding `deals.view` without
+     * `properties.view` was shown a property document's filename, size,
+     * uploader — and the property's address in `subjectLabel`.
+     *
+     * A claim in a docblock is not a mechanism. This is the mechanism, and it
+     * is in the **query** rather than a filter over the results: filtering
+     * after pagination would report a total the page does not contain, and
+     * "25 documents" over 19 rows is its own kind of leak.
+     *
+     * `whereRaw('false')` rather than an empty result set by luck: a person
+     * with neither permission cannot reach `viewAny` at all, so this arm is
+     * unreachable today — and an unreachable arm that returned *everything*
+     * is the failure this method exists to prevent.
+     *
+     * @param  Builder<Document>  $query
+     */
+    private function readable(Builder $query): void
+    {
+        $person = request()->user();
+
+        $subjects = [];
+
+        if ($person?->can('viewDeals', Document::class) ?? false) {
+            $subjects[] = (new Deal)->getMorphClass();
+            $subjects[] = (new Stage)->getMorphClass();
+        }
+
+        if ($person?->can('viewProperties', Document::class) ?? false) {
+            $subjects[] = (new Property)->getMorphClass();
+        }
+
+        if ($subjects === []) {
+            $query->whereRaw('false');
+
+            return;
+        }
+
+        $query->whereIn('documentable_type', $subjects);
     }
 
     /**

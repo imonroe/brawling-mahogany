@@ -7,8 +7,14 @@ use App\Enums\DocumentVisibility;
 use App\Models\AuditEntry;
 use App\Models\Deal;
 use App\Models\Document;
+use App\Models\Permission;
+use App\Models\Person;
 use App\Models\Property;
+use App\Models\Role;
+use App\Models\TeamMembership;
 use App\Support\Documents\DocumentStorage;
+use App\Support\Permissions;
+use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -233,4 +239,107 @@ it('will not show one team a document belonging to another', function (): void {
     ])->assertNotFound();
 
     expect($document->fresh()->visibility)->toBe(DocumentVisibility::Internal);
+});
+
+it('shows a deals-only role no trace of a property document', function (): void {
+    /*
+     * Round 1 of review, blocker 3. `viewAny` is deliberately the wider of the
+     * two subject permissions, and the justification written beside it was
+     * *"each row is still authorized on its way out"* — which was a claim in a
+     * docblock rather than a mechanism. `index()` mapped rows straight out of
+     * the query, so a role holding `deals.view` without `properties.view` was
+     * shown a property document's filename, size, uploader, **and the
+     * property's address** in `subjectLabel`.
+     *
+     * The scope is in the query rather than a filter over the results:
+     * filtering after pagination would report a total the page does not
+     * contain, and "25 documents" over 19 rows is its own kind of leak.
+     */
+    $property = Property::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'street' => '4820 Rosslyn Avenue',
+    ]);
+
+    storeOn($property, 'survey.txt', DocumentCategory::Other);
+    storeOn($this->deal, 'disclosure.txt', DocumentCategory::Disclosure);
+
+    $narrow = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($narrow): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $narrow->getKey(),
+            'first_name' => 'Dana',
+            'last_name' => 'Alvarez',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only_index',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_DEALS])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($narrow, $this->team);
+
+    $response = $this->get('/documents');
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('documents', 1)
+            ->where('documents.0.name', 'disclosure.txt')
+            // The total has to agree with the page, or it leaks the count.
+            ->where('total', 1),
+        );
+
+    // Not the filename, and not the address the label is built from.
+    $body = $response->getContent();
+
+    expect($body)->not->toContain('survey.txt')
+        ->and($body)->not->toContain('Rosslyn');
+});
+
+it('offers a deals-only role no property in the storage figure', function (): void {
+    // Storage used is a fact about what this person can see, not about the
+    // team — otherwise it is a side channel reporting the size of documents
+    // the same request refuses to name.
+    $property = Property::factory()->create(['team_id' => $this->team->getKey()]);
+
+    storeOn($property, 'survey.txt', DocumentCategory::Other);
+
+    $narrow = Person::factory()->create();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($narrow): void {
+        $membership = TeamMembership::query()->create([
+            'team_id' => $this->team->getKey(),
+            'person_id' => $narrow->getKey(),
+            'first_name' => 'Dana',
+            'last_name' => 'Alvarez',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only_storage',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_DEALS])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+    });
+
+    $this->actingAsPerson($narrow, $this->team);
+
+    $this->get('/documents')
+        ->assertInertia(fn ($page) => $page->where('storageUsed', 0));
 });

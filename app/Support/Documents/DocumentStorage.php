@@ -6,11 +6,13 @@ namespace App\Support\Documents;
 
 use App\Enums\DocumentCategory;
 use App\Enums\DocumentVisibility;
+use App\Logging\Redactor;
 use App\Models\Document;
 use App\Models\Person;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -195,6 +197,31 @@ final class DocumentStorage
         $outcome = SensitiveContent::scan((string) file_get_contents($file->getRealPath()), $detected);
 
         if ($outcome->isRefused() && $outcome->category !== null && $outcome->signal !== null) {
+            /*
+             * **Recorded, because a refusal that happened silently did not
+             * happen.** PRD §4.6 and #100 item 3 both ask for it, and three
+             * docblocks in this module claimed it while nothing wrote a line —
+             * round 1 of review found it with `grep`, which is the right tool
+             * for a promise nobody had asked to see.
+             *
+             * What it records is the **kind** of thing found and nothing else:
+             * no filename, no matched string, no offset, no bytes. PRD §9
+             * keeps PII out of logs, and the matched text of a refusal is by
+             * definition the most sensitive string in the request.
+             *
+             * `reason_code`, never `reason` — `Redactor::SENSITIVE_KEY_PARTS`
+             * holds `reason`, so a diagnostic under that key reaches the
+             * operator as `[redacted]` and the entry says nothing at all.
+             */
+            Log::warning('document.refused', Redactor::context([
+                'reason_code' => $outcome->signal,
+                'category' => $outcome->category->value,
+                'team_id' => $subject->getAttribute('team_id'),
+                'actor_person_id' => $actor->getKey(),
+                'mime_type' => $detected,
+                'size_bytes' => (int) $file->getSize(),
+            ]));
+
             throw RefusedDocument::detected($outcome->category, $outcome->signal);
         }
 

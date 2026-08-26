@@ -10,6 +10,7 @@ use App\Support\Documents\DocumentStorage;
 use App\Support\Documents\RefusedDocument;
 use App\Support\Documents\UnsupportedDocument;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -165,10 +166,120 @@ it('still refuses a PDF for the photo gallery, which takes photographs', functio
 });
 
 it('takes a PDF as a document', function (): void {
-    $pdf = upload('disclosure.pdf', "%PDF-1.4\n4 0 obj\n<< /Length 40 >>\nstream\nBT (Roof replaced in 2019) Tj ET\nendstream\nendobj\n%%EOF");
+    /*
+     * A sentence rather than a fragment, because `clean` now needs enough
+     * letters to be believable — see `ReadableText::meaningful()`. The floor
+     * exists so a handful of bytes surviving a bad decode cannot earn the word
+     * "clean", and it errs toward `not_scanned`, which claims nothing. A real
+     * disclosure clears it comfortably; the four-word fixture this used to be
+     * did not, which is the floor working rather than the fixture being wrong.
+     */
+    $pdf = upload('disclosure.pdf', "%PDF-1.4\n4 0 obj\n<< /Length 200 >>\nstream\nBT (The seller discloses that the roof was replaced in 2019 and that the basement has flooded once since purchase.) Tj ET\nendstream\nendobj\n%%EOF");
 
     $document = app(DocumentStorage::class)->store($this->deal, $pdf, $this->owner, DocumentCategory::Disclosure);
 
     expect($document->mime_type)->toBe('application/pdf')
         ->and($document->scan_state)->toBe('clean');
+});
+
+it('records a short but genuine document as not scanned rather than clean', function (): void {
+    // The floor's cost, stated rather than discovered. `not_scanned` claims
+    // nothing, so erring this way is the safe direction — but it is a trade,
+    // and a trade nobody wrote down is a bug report waiting to happen.
+    $pdf = upload('note.pdf', "%PDF-1.4\n4 0 obj\n<< /Length 40 >>\nstream\nBT (Roof done) Tj ET\nendstream\nendobj\n%%EOF");
+
+    $document = app(DocumentStorage::class)->store($this->deal, $pdf, $this->owner, DocumentCategory::Disclosure);
+
+    expect($document->scan_state)->toBe('not_scanned');
+});
+
+it('records that a refusal happened, and nothing about what was in the file', function (): void {
+    /*
+     * PRD §4.6 and #100 item 3 both ask for it, and three docblocks in this
+     * module claimed it while nothing wrote a line — round 1 of review found
+     * that with `grep`, which is the right tool for a promise nobody had asked
+     * to see.
+     *
+     * `reason_code`, never `reason`: `Redactor::SENSITIVE_KEY_PARTS` holds
+     * `reason`, so a diagnostic under that key reaches an operator as
+     * `[redacted]`. And asserted through `Redactor::context()` rather than
+     * `Log::spy()`, because a spy intercepts above Monolog and cannot see the
+     * redaction — every test would pass while the operator got nothing.
+     */
+    $statement = "FIRST MERIDIAN BANK Statement of Account\nAccount Number: 4419827733\n"
+        ."Routing Number: 021000021\nBeginning Balance 4,201.55\nDeposits and Other Credits";
+
+    Log::shouldReceive('warning')
+        ->once()
+        ->withArgs(function (string $message, array $context) use ($statement): bool {
+            $encoded = json_encode($context, JSON_THROW_ON_ERROR);
+
+            expect($message)->toBe('document.refused')
+                ->and($context['reason_code'])->toBeString()
+                ->and($context)->not->toHaveKey('reason')
+                // Not the filename, not the matched string, not the bytes.
+                ->and($encoded)->not->toContain('statement.txt')
+                ->and($encoded)->not->toContain('021000021')
+                ->and($encoded)->not->toContain($statement);
+
+            return true;
+        });
+
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('statement.txt', $statement),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+});
+
+it('sees a social security number however the form separated it', function (string $separated): void {
+    /*
+     * Round 1 of review: the pattern matched only `123-45-6789`. PDF text
+     * extraction is exactly where that breaks — a form with boxed digits comes
+     * out space-separated, and a word processor turns a typed hyphen into an
+     * en dash.
+     */
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('form.txt', "Applicant details\nSSN {$separated}\nDate of birth 1974-02-11"),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
+})->with([
+    'hyphens' => '412-55-8931',
+    'spaces' => '412 55 8931',
+    'en dashes' => "412\u{2013}55\u{2013}8931",
+    'dots' => '412.55.8931',
+]);
+
+it('does not refuse an agent explaining the closing disclosure timeline', function (): void {
+    /*
+     * The false positive round 1 measured, and the one that would teach a team
+     * the check is broken. One phrase is a *mention*; a lending packet repeats
+     * its own vocabulary. The class's stated rule everywhere else is that a
+     * single weak signal does not refuse — this arm was the exception.
+     */
+    $email = 'Hi Emily — the lender should send the Closing Disclosure three business '
+        .'days before we sign, so if it has not arrived by Tuesday let me know and I will '
+        .'chase them. Nothing for you to do until then.';
+
+    $document = app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('note-to-emily.txt', $email),
+        $this->owner,
+        DocumentCategory::Correspondence,
+    );
+
+    expect($document->scan_state)->toBe('clean');
+});
+
+it('still refuses the form itself, on its own title', function (): void {
+    // Nobody types "uniform residential loan application" in a covering note.
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('app.txt', 'Uniform Residential Loan Application. Borrower information follows.'),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
 });

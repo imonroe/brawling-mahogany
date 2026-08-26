@@ -80,13 +80,31 @@ final class SensitiveContent
         'withdrawals and subtractions',
     ];
 
+    /**
+     * Phrases that name a lending document without being one on their own.
+     *
+     * An agent explaining the Closing Disclosure timeline to a buyer writes
+     * one of these; the packet itself carries several.
+     */
     private const LENDING_PHRASES = [
         'loan estimate',
         'closing disclosure',
-        'uniform residential loan application',
-        'form 1003',
         'truth in lending',
         'annual percentage rate (apr)',
+        'total interest percentage',
+        'lender credits',
+        'estimated escrow',
+        'loan terms',
+    ];
+
+    /**
+     * Titles that appear on the form and essentially nowhere else, so one is
+     * enough. The test for this list is whether an agent would ever type the
+     * phrase in a covering note.
+     */
+    private const LENDING_TITLES = [
+        'uniform residential loan application',
+        'form 1003',
     ];
 
     private const IDENTITY_PHRASES = [
@@ -153,8 +171,14 @@ final class SensitiveContent
          * A US Social Security number is nine digits in a shape nothing else
          * uses, and the area, group and serial parts each exclude zero — which
          * is what stops a date or a part number matching.
+         *
+         * **The separator is not always a hyphen.** Round 1 of review found
+         * the pattern matching only `123-45-6789`, and PDF text extraction is
+         * exactly where that breaks: a form with boxed digits comes out
+         * space-separated, and a word processor turns a typed hyphen into an
+         * en dash. Spaces, dots and the whole Unicode dash range now count.
          */
-        if (preg_match('/\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/', $text) === 1) {
+        if (preg_match('/\b(?!000|666|9\d\d)\d{3}[-\x{2010}-\x{2015}\s.]\s?(?!00)\d{2}[-\x{2010}-\x{2015}\s.]\s?(?!0000)\d{4}\b/u', $text) === 1) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::GovernmentId,
                 'ssn_pattern',
@@ -181,7 +205,20 @@ final class SensitiveContent
             );
         }
 
-        if (self::mentions($haystack, self::LENDING_PHRASES)) {
+        /*
+         * **Two, not one**, and round 1 of review is why: on a single phrase
+         * this refused an agent's own email explaining the Closing Disclosure
+         * timeline — a sentence every buyer's agent writes — as a lending
+         * packet. One phrase is a *mention*; the document itself repeats its
+         * vocabulary, and the class's stated rule everywhere else is that a
+         * single weak signal does not refuse.
+         *
+         * The exception is a phrase that is only ever a form's own title.
+         * Nobody writes "uniform residential loan application" in a covering
+         * note, so those refuse alone.
+         */
+        if (self::mentions($haystack, self::LENDING_TITLES)
+            || self::countOf($haystack, self::LENDING_PHRASES) >= 2) {
             return ScanOutcome::refused(
                 RestrictedDocumentCategory::LendingPacket,
                 'lending_phrasing',

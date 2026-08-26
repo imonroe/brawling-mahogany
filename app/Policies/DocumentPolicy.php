@@ -53,6 +53,24 @@ class DocumentPolicy
             || $this->allows($person, Permissions::VIEW_PROPERTIES);
     }
 
+    /**
+     * The two halves `viewAny` is the union of, asked separately.
+     *
+     * `DocumentController::readable()` needs to know *which* subjects to
+     * include, not merely whether there are any — so the question lives here
+     * with the rest of the document authorization rather than as a second
+     * reading of the permission catalogue in a controller.
+     */
+    public function viewDeals(Person $person): bool
+    {
+        return $this->allows($person, Permissions::VIEW_DEALS);
+    }
+
+    public function viewProperties(Person $person): bool
+    {
+        return $this->allows($person, Permissions::VIEW_PROPERTIES);
+    }
+
     public function view(Person $person, Document $document): bool
     {
         return $this->belongsToCurrentTeam($document)
