@@ -172,17 +172,30 @@ describe('the Report a bug modal', () => {
         wrapper.unmount();
     });
 
-    it('warns that a report is published, before anybody types a client’s name', async () => {
+    it('warns that a report is published, in the dialog’s own description', async () => {
         /*
          * The form opens a GitHub issue on a public repository, and the help
          * article asks for what the reporter was doing — which for an agent is
-         * a deal, a client and an address. The caution belongs where the
-         * typing happens, not only in the manual.
+         * a deal, a client and an address. PRD §10 records that the warning is
+         * the whole of the mitigation.
+         *
+         * So this asserts the **accessible description** rather than the
+         * page's text: drawn as a sibling of `DialogDescription` the warning
+         * was present in the DOM, styled amber, and outside `aria-describedby`
+         * — visible to everyone except the one reader who cannot see a colour.
+         * A `textContent` assertion passed the whole time.
          */
         const wrapper = await openDialog();
 
-        expect(document.body.textContent).toContain('published publicly');
-        expect(document.body.textContent).toContain('client');
+        const dialog = document.body.querySelector('[role="dialog"]');
+        const describedBy = dialog?.getAttribute('aria-describedby');
+
+        expect(describedBy).toBeTruthy();
+
+        const description = document.getElementById(describedBy as string);
+
+        expect(description?.textContent).toContain('published publicly');
+        expect(description?.textContent).toContain('no names, no address');
 
         wrapper.unmount();
     });
@@ -257,16 +270,30 @@ describe('the Report a bug modal', () => {
         wrapper.unmount();
     });
 
-    it('covers the frame until it answers', async () => {
-        // A blank rectangle for however long n8n takes reads as broken.
+    it('covers the frame until it answers, and says so out loud', async () => {
+        /*
+         * A blank rectangle for however long n8n takes reads as broken — and
+         * for somebody who cannot see the rectangle, nothing at all happens
+         * between pressing the button and the form being usable.
+         *
+         * The region is rendered from the start rather than switched on with
+         * `v-if`, because a live region announces changes *to itself*: one
+         * that arrives already populated has no change to report, so the
+         * `v-if` version announced neither the wait nor its end.
+         */
         const wrapper = await openDialog();
 
-        expect(document.body.textContent).toContain('Loading the form…');
+        const status = document.body.querySelector('[role="status"]');
+
+        expect(status?.textContent?.trim()).toBe('Loading the form…');
 
         document.body.querySelector('iframe')?.dispatchEvent(new Event('load'));
         await flush();
 
-        expect(document.body.textContent).not.toContain('Loading the form…');
+        // The same element, with new text in it — which is the change a
+        // screen reader is listening for.
+        expect(status?.textContent?.trim()).toBe('The form is ready.');
+        expect(status?.classList.contains('opacity-0')).toBe(true);
 
         wrapper.unmount();
     });

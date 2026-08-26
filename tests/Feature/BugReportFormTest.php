@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Support\Feedback\BugReportForm;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Inertia\Testing\AssertableInertia;
 
@@ -100,8 +98,9 @@ it('refuses it on the host actually serving the request, however stale APP_URL i
 
     $this->actingAsPerson($this->member, $this->team);
 
-    $this->withServerVariables(['HTTP_HOST' => 'app.goldieflow.test'])
-        ->get('http://app.goldieflow.test/dashboard')
+    // The absolute URL is what sets the host — `Request::create` derives
+    // `HTTP_HOST` from it, so a `withServerVariables` alongside would be inert.
+    $this->get('http://app.goldieflow.test/dashboard')
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
 });
@@ -137,6 +136,31 @@ it('allows n8n on its own port beside the application', function (): void {
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->where('bugReport.url', 'http://localhost:5678/form/bugs'));
 });
+
+it('refuses http on the host it serves over https', function (string $appUrl, string $formUrl): void {
+    /*
+     * `http://app.test` is port 80 and `https://app.test` is 443, so deriving
+     * one port from the scheme made them different origins and let the form
+     * through. Two things then happen: `Deployment.md` §3 turns HSTS on, so
+     * the browser upgrades that frame to https — and it lands same-origin with
+     * `allow-scripts allow-same-origin`, which is the exact configuration the
+     * guard exists to refuse.
+     *
+     * So an origin written with no port stands for both defaults, in whichever
+     * direction the mismatch was written.
+     */
+    config()->set('app.url', $appUrl);
+    config()->set('services.bug_report.url', $formUrl);
+
+    $this->actingAsPerson($this->member, $this->team);
+
+    $this->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('bugReport', null));
+})->with([
+    'http form, https app' => ['https://goldieflow.example.test', 'http://goldieflow.example.test/n8n/form'],
+    'https form, http app' => ['http://goldieflow.example.test', 'https://goldieflow.example.test/n8n/form'],
+]);
 
 it('sees through a spelled-out default port', function (): void {
     // `https://app.test` and `https://app.test:443` are the same origin and do
@@ -185,14 +209,47 @@ it('says once, and only once, that the flag is on with no address behind it', fu
             && str_contains((string) $context['reason'], 'BUG_REPORT_URL is empty'));
 
     /*
-     * And deliberately white-box, because the count above cannot see the part
-     * that matters. A static property suppresses the second warning inside one
-     * PHP execution — which a test process is and a classic-SAPI request is
-     * not — so it would pass everything above while writing a line per request
-     * in production. That the cooldown is held somewhere outliving a request
-     * is the mechanism, so the mechanism is what gets asserted.
+     * And then travel past the cooldown, which is what tells this apart from
+     * the static property it replaced.
+     *
+     * A static suppresses the second warning inside one PHP execution — which
+     * a test process is and a classic-SAPI request is not — so it would pass
+     * every assertion above while writing a line per request in production.
+     * What it would *not* do is start talking again an hour later. This is the
+     * one observation that separates them, and it is black-box.
      */
-    expect(Cache::has(BugReportForm::WARNING_KEY))->toBeTrue();
+    $this->travel(61)->minutes();
+
+    $this->get('/dashboard')->assertOk();
+
+    Log::shouldHaveReceived('warning')->twice();
+});
+
+it('says nothing more about a problem somebody has already fixed', function (): void {
+    /*
+     * One cooldown key for all three reasons would mean: set the flag with no
+     * URL, get told; fix that and mistype the next one; and then be told
+     * nothing for the rest of the hour — or worse, be told about the empty URL
+     * that no longer exists. The key carries the reason.
+     */
+    Log::spy();
+
+    config()->set('services.bug_report.url', null);
+
+    $this->actingAsPerson($this->member, $this->team);
+    $this->get('/dashboard')->assertOk();
+
+    // A different mistake, inside the same hour.
+    config()->set('services.bug_report.url', 'ftp://n8n.example.test/form');
+
+    $this->get('/dashboard')->assertOk();
+
+    // Two, not one: a shared key would have swallowed the second mistake.
+    Log::shouldHaveReceived('warning')->twice();
+
+    // And the second one is about the mistake that actually stands.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context): bool => str_contains((string) $context['reason'], 'not an http or https'));
 });
 
 it('refuses a URL that is not http or https', function (string $url): void {

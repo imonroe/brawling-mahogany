@@ -21,15 +21,27 @@
  * the page it is sitting in, open a modal over it, or start a download.
  * `allow-same-origin` means *the form keeps its own origin*, which is what lets
  * it use its own storage and its own cookies. That it is not **our** origin is
- * now enforced rather than assumed: `BugReportForm` refuses a URL on the
- * application's own host, because `allow-scripts allow-same-origin` on a
- * same-origin document is not a sandbox at all — the frame reaches
+ * now enforced rather than assumed: `BugReportForm` refuses a URL on a host and
+ * port this application answers on, because `allow-scripts allow-same-origin`
+ * on a same-origin document is not a sandbox at all — the frame reaches
  * `window.parent` and reads the session. A self-host that proxies n8n under the
- * app's domain is an ordinary layout, not a contrivance.
+ * app's domain is an ordinary layout, not a contrivance; n8n on its own port
+ * beside the app is a different origin and is allowed.
  *
  * **No referrer.** The URL of the screen somebody is standing on carries a
  * deal id, and that is a client's transaction. n8n has no use for it and this
  * product does not hand it over.
+ *
+ * ## The warning lives inside the description, not beside it
+ *
+ * PRD §10 records that this product has no control over what reaches a public
+ * issue tracker — only a warning — so the warning *is* the mitigation, and a
+ * mitigation that renders as a coloured box is one a screen reader never
+ * reaches. Drawn as a sibling of `DialogDescription` it was outside
+ * `aria-describedby` and was not a tab stop either, so the one reader who
+ * cannot see the amber was the one reader never told. `as="div"` is what lets
+ * a block sit inside the description element; the inner nodes are `span`s
+ * because a `p` may not contain one.
  *
  * ## The way out that does not depend on the frame working
  *
@@ -77,6 +89,7 @@ import {
     DialogDescription,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 import AppButton from './AppButton.vue';
 
 const props = defineProps<{
@@ -131,37 +144,40 @@ function focusOurOwnChrome(event: Event): void {
             :show-close-button="false"
             @open-auto-focus="focusOurOwnChrome"
         >
-            <div class="flex flex-col gap-1 border-b px-6 py-5">
+            <div class="flex flex-col gap-3 border-b px-6 py-5">
                 <DialogTitle class="text-lg font-semibold"
                     >Report a bug</DialogTitle
                 >
-                <DialogDescription class="text-13 text-muted-foreground">
-                    Tell us what went wrong and what you were doing at the time.
-                    The screen you were on and what you had just clicked is
-                    usually enough.
-                </DialogDescription>
-            </div>
 
-            <!--
-                PRD §10 catalogues this risk and records that the warning is
-                the whole of the mitigation — the tracker on the other end is
-                public and nothing in the pipeline redacts. So it is the band
-                `PhotoGallery` uses before somebody photographs a cheque,
-                rather than a bold run inside 13px muted text: the same job,
-                and §13.2 rule 9's tone is background and foreground together.
-            -->
-            <div
-                class="flex items-start gap-2.5 border-b bg-state-warning-bg px-6 py-3"
-                data-slot="publication-warning"
-            >
-                <TriangleAlert
-                    class="mt-0.5 size-4 shrink-0 text-state-warning"
-                    aria-hidden="true"
-                />
-                <p class="text-xs text-secondary-foreground">
-                    Reports are published publicly. Leave your clients out of
-                    one — no names, no address, nothing about the deal.
-                </p>
+                <!--
+                    Both halves inside the description, and `as="div"` so a
+                    block may live in it — see the docblock. The warning is the
+                    whole of PRD §10's mitigation, so it has to reach the one
+                    reader who never sees a colour: `aria-describedby` names
+                    this element, and a screen reader reads what is in it.
+                -->
+                <DialogDescription as="div" class="flex flex-col gap-3">
+                    <p class="text-13 text-muted-foreground">
+                        Tell us what went wrong and what you were doing at the
+                        time. The screen you were on and what you had just
+                        clicked is usually enough.
+                    </p>
+
+                    <span
+                        class="flex items-start gap-2.5 rounded-md bg-state-warning-bg px-3 py-2.5"
+                        data-slot="publication-warning"
+                    >
+                        <TriangleAlert
+                            class="mt-0.5 size-4 shrink-0 text-state-warning"
+                            aria-hidden="true"
+                        />
+                        <span class="text-xs text-secondary-foreground">
+                            Reports are published publicly. Leave your clients
+                            out of one — no names, no address, nothing about the
+                            deal.
+                        </span>
+                    </span>
+                </DialogDescription>
             </div>
 
             <div class="relative min-h-0 flex-1 bg-background">
@@ -174,12 +190,22 @@ function focusOurOwnChrome(event: Event): void {
                     @load="loaded = true"
                 ></iframe>
 
+                <!--
+                    Rendered always, because a live region announces *changes
+                    to itself* and one that arrives already populated has no
+                    change to report. `v-if` on the wrapper meant it announced
+                    neither the wait nor the end of it.
+                -->
                 <div
-                    v-if="!loaded"
                     role="status"
-                    class="absolute inset-0 flex items-center justify-center bg-background text-13 text-muted-foreground"
+                    :class="
+                        cn(
+                            'absolute inset-0 flex items-center justify-center bg-background text-13 text-muted-foreground',
+                            loaded && 'pointer-events-none opacity-0',
+                        )
+                    "
                 >
-                    Loading the form…
+                    {{ loaded ? 'The form is ready.' : 'Loading the form…' }}
                 </div>
             </div>
 

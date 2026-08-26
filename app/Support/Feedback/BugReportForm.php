@@ -68,8 +68,16 @@ use Illuminate\Support\Facades\Log;
  * different origins, so the sandbox holds between them — and a developer
  * running n8n on its own port beside this app is the ordinary local setup.
  * Comparing hosts alone refused that one and logged a security reason that did
- * not apply to it. The scheme is deliberately *not* compared: `http` and
- * `https` on one host and port cannot both be somebody else.
+ * not apply to it.
+ *
+ * **But a URL with no port stands for both defaults.** `http://app.test` is
+ * port 80 and `https://app.test` is 443, so deriving one port from the scheme
+ * let `BUG_REPORT_URL=http://app.test/n8n` past a guard protecting
+ * `https://app.test` — and `Deployment.md` §3 turns HSTS on, so the browser
+ * would upgrade that frame to https and land it same-origin after all. An
+ * origin written without a port therefore contributes **both** candidates; an
+ * explicitly written port is matched exactly, which is what keeps
+ * `localhost:5678` allowed beside `localhost:8000`.
  *
  * ## A rejected URL is hidden rather than raised, and said once an hour
  *
@@ -86,6 +94,10 @@ use Illuminate\Support\Facades\Log;
  * Pest process, which runs the whole suite in one execution — so the guard
  * appeared to work in the one place it was never needed and nowhere it was.
  * The cache outlives a request, which is the property actually required.
+ *
+ * **Keyed by the reason**, because there are three of them and one key would
+ * mean fixing the empty URL, mistyping the next one, and then being told for
+ * the rest of the hour about a problem that no longer exists.
  */
 final class BugReportForm
 {
@@ -95,13 +107,14 @@ final class BugReportForm
     /**
      * Where the cooldown lives.
      *
-     * Public because a test has to name it: whether the latch survives a
-     * request is the whole of this mechanism, and it is not observable from
-     * outside within one PHP execution — a static would suppress the second
-     * warning in a test process exactly as this does, and would not suppress
-     * it in production, which is the case that matters.
+     * Private, because the difference between this and a static *is* observable
+     * from outside after all: travel past the TTL and the cache forgets while a
+     * static would not. The first version of this test asserted the key
+     * directly on the argument that nothing else could tell them apart, which
+     * was wrong — and a white-box assertion bought with a wrong argument is one
+     * that stops being checked the day the storage changes.
      */
-    public const WARNING_KEY = 'feedback:bug-report:warned';
+    private const WARNING_KEY = 'feedback:bug-report:warned';
 
     /**
      * What the shell needs, or null when there is no button to draw.
@@ -167,52 +180,76 @@ final class BugReportForm
     /** Whether this URL is served by an origin the application answers on. */
     private static function isOwnOrigin(string $url, ?string $servingOrigin): bool
     {
-        $form = self::hostAndPort($url);
+        $form = self::originsOf($url);
 
-        if ($form === null) {
+        if ($form === []) {
             return false;
         }
 
-        $ours = array_filter([
-            self::hostAndPort((string) config('app.url')),
-            self::hostAndPort((string) $servingOrigin),
-        ]);
+        $ours = [
+            ...self::originsOf((string) config('app.url')),
+            ...self::originsOf((string) $servingOrigin),
+        ];
 
-        return in_array($form, $ours, true);
+        return array_intersect($form, $ours) !== [];
     }
 
     /**
-     * `host:port`, with the scheme's default port filled in.
+     * The `host:port` origins a URL could resolve to.
      *
-     * Written out rather than compared as strings, because `https://app.test`
-     * and `https://app.test:443` are the same origin and do not look alike.
+     * One when the port is written out, two when it is not — see the docblock:
+     * a scheme-derived port is a guess, and guessing `80` for
+     * `http://app.test` is what let it past a guard protecting the same host
+     * on `443`.
+     *
+     * @return list<string>
      */
-    private static function hostAndPort(string $url): ?string
+    private static function originsOf(string $url): array
     {
         $parts = parse_url($url);
-        $host = $parts['host'] ?? null;
+
+        // `parse_url` answers false on a malformed URL rather than an array.
+        $host = is_array($parts) ? ($parts['host'] ?? null) : null;
 
         if (! is_string($host) || $host === '') {
-            return null;
+            return [];
         }
 
-        $port = $parts['port']
-            ?? (mb_strtolower((string) ($parts['scheme'] ?? '')) === 'https' ? 443 : 80);
+        $host = mb_strtolower($host);
+        $port = is_array($parts) ? ($parts['port'] ?? null) : null;
 
-        return mb_strtolower($host).':'.$port;
+        return $port === null
+            ? [$host.':80', $host.':443']
+            : [$host.':'.$port];
     }
 
     /**
-     * Say it, and then be quiet about it for an hour.
+     * Say it, and then be quiet about *that* for an hour.
      *
      * Deliberately **not** a `Cache::lock`: the point is a cooldown that
-     * expires on its own, not mutual exclusion. `add` is atomic on every store
-     * this application runs on, so two workers arriving together still produce
-     * one line.
+     * expires on its own, not mutual exclusion. `add` is atomic on redis, which
+     * is what every deployed environment runs, so two workers arriving together
+     * still produce one line. (The `array` store the test suite pins is
+     * single-process and the question does not arise.)
+     *
+     * `rescue` because this is a log line: a cache store that cannot be reached
+     * must not turn a bug-report misconfiguration into a 500 on every
+     * authenticated page. Not hypothetical — sessions can be on the database
+     * while the cache is on redis, and then an authenticated request outlives a
+     * redis outage that this would otherwise kill. Saying nothing is the right
+     * failure for a mechanism whose whole job is to say something once.
      */
     private static function warnOnce(string $reason): void
     {
-        if (! Cache::add(self::WARNING_KEY, true, now()->addMinutes(self::WARNING_TTL_MINUTES))) {
+        $key = self::WARNING_KEY.':'.md5($reason);
+
+        $first = rescue(
+            fn (): bool => Cache::add($key, true, now()->addMinutes(self::WARNING_TTL_MINUTES)),
+            false,
+            report: false,
+        );
+
+        if (! $first) {
             return;
         }
 
