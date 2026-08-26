@@ -324,6 +324,12 @@ function cancel(): void {
                             v-model="form.bodyText"
                             :rows="10"
                         />
+                        <p class="text-[11px] text-muted-foreground">
+                            These words are already filled in, so
+                            <code>{{ '{{ client_name }}' }}</code> here would go
+                            to the client exactly as written. Type the value
+                            instead.
+                        </p>
                         <p
                             v-if="form.errors.bodyText"
                             class="text-[11px] text-state-danger"

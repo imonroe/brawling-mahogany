@@ -274,21 +274,51 @@ final class ApproveMessage
                     .implode('” and “', $stray).'”. Fix it before approving.';
             }
 
+            /*
+             * And **no merge fields at all** in an edited field.
+             *
+             * This is the part that is easy to get wrong, and the first
+             * version of this method did: it filtered the carried-over lists
+             * and never noticed a token somebody had just typed. The payload
+             * is text that has *already been substituted* — the render
+             * happened at raise time, so F5.10 could pre-fill it — which means
+             * a `{{ closing_date }}` typed here has nothing left to replace it
+             * and reaches the client exactly as written. Whether the token is
+             * one this product knows is beside the point: registered or not,
+             * it goes out as braces.
+             *
+             * Refused rather than substituted, because substituting would make
+             * an approver's edit behave differently from the template it came
+             * from — the values would be fixed at approval time rather than at
+             * raise time, on one message out of two raised from the same
+             * words. The approver is looking at the deal; they can type the
+             * date.
+             */
+            $tokens = MergeFields::extract(is_string($value) ? $value : null);
+
+            if ($tokens !== []) {
+                return 'The words in this message are already filled in, so “{{ '
+                    .implode(' }}” and “{{ ', $tokens)
+                    .' }}” would go to the client exactly as written. Type the value instead.';
+            }
+
             $payload[$field] = $value;
         }
 
         /*
-         * The three lists are recomputed rather than carried over.
+         * And the lists are narrowed to what the edited words still contain.
          *
-         * They describe the words in the payload, and the payload has just
-         * changed. An approver who fixed the sentence containing `{{ mls_url
-         * }}` has removed the reason the message was incomplete, and a stale
-         * `unresolved` list would go on blocking an approval that is now
-         * sound. The reverse matters more: an approver who *added* a token
-         * must not inherit an empty list saying everything is fine.
+         * They describe the payload, and the payload has just changed: an
+         * approver who rewrote the sentence containing `{{ mls_link }}` has
+         * removed the reason the message was incomplete, and a stale
+         * `unresolved` would go on blocking an approval that is now sound.
          *
-         * Only what the edited text still contains is kept, which is what
-         * makes both directions true.
+         * A *filter* rather than a fresh render, and only because of the rule
+         * directly above: no edited field may contain a token at all, so the
+         * only tokens that can survive are ones in a field nobody touched —
+         * a subject left alone while the body was fixed, which must go on
+         * blocking. Nothing new can appear here, which is what the refusal
+         * above is for.
          */
         $body = implode("\n", array_filter([
             is_string($payload['subject'] ?? null) ? $payload['subject'] : null,
