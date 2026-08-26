@@ -49,6 +49,7 @@ the container which uses them transparently."*
 | `AI_API_KEY` | unset | unset | **separate key, own budget cap** | real, production cap |
 | `VAPID_*` | generated locally | unset | real | real |
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
+| `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
 
 ### The two staging guardrails that are not optional
 
@@ -82,6 +83,76 @@ Both commands are audited (`invitation.link_issued`,
 production unless given `--force`. They are ordinary product features rather
 than staging tools: a path that exists only in pre-production is a path nobody
 tests and nobody reviews with production eyes.
+
+### Bug reporting, which is configuration rather than a secret
+
+`BUG_REPORT_URL` is the n8n form behind the top bar's **Report a bug** button
+(#176); n8n turns each submission into a GitHub issue on this repository.
+`BUG_REPORT_ENABLED` is whether the button appears.
+
+Neither is a credential — the form is a public URL and nothing here
+authenticates to it — so both live in `.env` beside everything else and neither
+needs rotating. They are two keys rather than one so that the button can be
+switched off during an n8n outage without losing the address.
+
+Four things to know when it does not appear:
+
+1. **It is signed-in only.** The URL is never in the page props of the sign-in
+   screen, which is the one page the internet can reach.
+2. **A URL that is not `http` or `https` is treated as unset.** An `iframe src`
+   is not inert, and the same allowlist that guards `external_links` guards
+   this (`App\Support\Links\SafeUrl`).
+3. **A URL on an origin this application answers on is refused too.** The
+   frame is sandboxed `allow-scripts allow-same-origin`, which a hosted form
+   needs and which is not a sandbox at all against a same-origin document — it
+   reaches `window.parent` and reads the session. Host **and port**: n8n on
+   `localhost:5678` beside an app on `localhost:8000` is a different origin and
+   is allowed; n8n proxied under the app's own hostname on the same port is
+   not. Both `APP_URL` **and the host actually serving the request** are
+   checked, because `APP_URL` is the value most likely to be stale — a guard
+   against operator error that depends on the commonest adjacent operator error
+   is not a guard.
+4. **A misconfiguration is logged at most once an hour, per problem** — `The
+   bug report button is switched on but has no usable form URL`, carrying a
+   `reason_code`:
+
+   | `reason_code` | What to do |
+   |---|---|
+   | `url_empty` | `BUG_REPORT_ENABLED` is on and `BUG_REPORT_URL` is unset |
+   | `url_not_http` | The address is not `http://` or `https://` |
+   | `url_own_origin` | The address is on a host and port this app answers on — give n8n its own hostname or its own port |
+
+   `reason_code` rather than `reason`, because `App\Logging\Redactor` strips a
+   key containing `reason` **unless its allowlist rescues it** — an override
+   reason is free text that quotes clients — and a diagnostic that reaches the
+   log as `[redacted]` is silence with extra steps. `ALLOWED_KEY_PATTERNS`'
+   `_code$` is what rescues this one, which is why the suffix is load-bearing
+   rather than decorative. Hiding the button rather than raising is deliberate: a
+   bug-report form is not worth a white screen. The cooldown is in the cache
+   rather than in a static, because this runs on every authenticated request
+   and PHP tears a static down at each request boundary — a per-process latch
+   would have written a line per page view for as long as the mistake stood.
+
+`BUG_REPORT_ENABLED` is read with `filter_var`, not a cast, so `false`, `off`,
+`no` and `0` all switch it off — as does **anything else not recognised as
+true**, silently and with no log line, because nothing is wrong with a switch
+that is off. `BUG_REPORT_ENABLED=enabled` therefore turns it off; write `true`.
+Failing towards off is the safe end. `env()` converts only four spellings and
+leaves the rest as strings, and `(bool) 'off'` is `true` — which would fail
+open on the one setting somebody changes in a hurry during the outage it exists
+for.
+
+Local and CI leave both unset, which is why a developer never sees the button
+unless they go looking for it.
+
+> [!warning] A report is published the moment it is filed
+> `imonroe/brawling-mahogany` is a **public** repository, so every submission
+> becomes a public issue. Nothing in the pipeline redacts, and the tracker is
+> outside both the 30-day purge and the audit log. The dialog and
+> `resources/help/finding-your-way.md` both warn against putting client details
+> in a report; that warning is the whole of the mitigation. Making the tracker
+> private, or adding a redaction step to the n8n flow, is the real fix. See
+> PRD §10.
 
 ---
 

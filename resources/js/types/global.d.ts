@@ -28,6 +28,12 @@ declare module '@inertiajs/core' {
              * with no resolved team, which is every auth screen.
              */
             lookups: { contactTypes: Record<string, string> } | null;
+            /**
+             * The n8n bug-report form (issue #176), or null when it is not
+             * configured, switched off, or nobody is signed in. All three are
+             * one absence to the shell: there is no button.
+             */
+            bugReport: { url: string } | null;
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

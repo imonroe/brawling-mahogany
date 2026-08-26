@@ -11,6 +11,7 @@ use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Queries\MyWork;
 use App\Support\Admin\Impersonation;
+use App\Support\Feedback\BugReportForm;
 use App\Support\Permissions;
 use App\Support\Teams\PendingInvitations;
 use App\Support\Tenancy\TeamContext;
@@ -133,6 +134,20 @@ class HandleInertiaRequests extends Middleware
                     'pendingMessages' => ActionInstance::query()->awaitingApproval()->count(),
                 ]
                 : null,
+            /*
+             * The top bar's Report a bug button (issue #176).
+             *
+             * Shared rather than supplied per page for the reason the search
+             * box is: the button is part of the shell, and no page controller
+             * knows the shell is there. Null for a guest and null when the
+             * form is not configured, which is the same thing to the front
+             * end — there is no button either way.
+             *
+             * The serving origin is handed over because the form may not be on
+             * one of ours, and `config('app.url')` alone is a guard that
+             * depends on the operator having kept `APP_URL` current.
+             */
+            'bugReport' => BugReportForm::propsFor($person, $request->getSchemeAndHttpHost()),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

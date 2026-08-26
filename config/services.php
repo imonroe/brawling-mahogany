@@ -30,6 +30,21 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    /*
+     * The n8n form behind the top bar's Report a bug button (issue #176).
+     *
+     * A URL rather than a credential: n8n hosts the form, takes the
+     * submission, and opens the GitHub issue. Nothing here authenticates to
+     * it, and this application never sees what somebody types into it.
+     *
+     * `enabled` is separate from `url` on purpose — see
+     * `App\Support\Feedback\BugReportForm`.
+     */
+    'bug_report' => [
+        'enabled' => env('BUG_REPORT_ENABLED', false),
+        'url' => env('BUG_REPORT_URL'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

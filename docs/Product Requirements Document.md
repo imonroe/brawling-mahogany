@@ -828,6 +828,7 @@ Not legal advice, and worth a real conversation with a lawyer before taking payi
 | **Records retention** | Many states require brokers to retain transaction records for three to seven years. State clearly that this is not a compliance archive; CTM is. |
 | **State privacy law** | CCPA/CPRA and similar create access and deletion obligations. Export and deletion features cover most of it. |
 | **Terms and DPA** | Terms of service, a privacy policy, and a data processing addendum are needed before the first paying customer. |
+| **In-app bug reports** | **New in v0.5** (#176). The top bar's **Report a bug** button posts to an n8n form that opens an issue on `imonroe/brawling-mahogany`, **which is a public repository** — so a report is published the moment it is filed, and the reporter is an agent describing what they were doing when it broke. That is a deal, a client and an address. Nothing in the pipeline redacts, and the issue tracker is outside the 30-day purge and outside the audit log. The mitigation is the only one available at this scale and it is a warning rather than a control: the dialog and the manual both say plainly that reports are published and to leave client details out. **Making the tracker private, or putting a redaction step in the n8n flow, is the real fix and is not built.** |
 
 ---
 
