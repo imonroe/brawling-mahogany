@@ -580,30 +580,43 @@ These come from PRD §8 and should guide the eventual build:
   overridden gate's verdict stays unmet and never transitions at all.
 
 - **"Nobody owns this" and "somebody is doing it right now" look identical on
-  the row.** `action_instances` `pending` carrying a `message_key` does not
-  mean the worker died — it means *some* worker claimed it and has not written
-  its outcome yet, and the commonest reading of that is a sibling delivery
-  inside `Mail::send` at this instant. Two workers on one row is what a queue
-  does after a visibility timeout, which is why the claim exists at all.
+  the row, and no amount of staleness arithmetic separates them.**
+  `action_instances` `pending` carrying a `message_key` does not mean the
+  worker died — it means *some* worker claimed it and has not written its
+  outcome, and the commonest reading is a sibling inside `Mail::send` at this
+  instant. Two workers on one row is what a queue does after a visibility
+  timeout, which is what the claim exists for.
 
-  Marking that row failed put *"an automated message did not go out"* on the
-  deal beside the *"Emailed …"* the other worker was about to write about the
-  same message; with the saves the other way round it left `failed` on a
-  delivered message, which invites a resend — the double-send the claim
-  prevents — and dropped the row out of the ceiling's `sent` count during the
-  one incident the ceiling is for. `updated_at` is what tells them apart,
-  because the claim writes it, and the window is read from the queue's own
-  `retry_after` rather than written down: a guard that disagreed with the queue
-  about how long a worker gets would be the thing declaring live sends dead.
+  Three review rounds went into trying to decide that row inside the next
+  worker. It cannot be done: **the second delivery happens because the claim
+  aged past the visibility timeout**, so the crashed worker and the live
+  sibling present the same age at the only moment anything asks. A threshold
+  below `retry_after` narrates failures about live sends; one above it is never
+  evaluated at all, because standing down completes the job and there is no
+  third delivery. The second attempt shipped a dead branch and a passing test,
+  because the fixture manufactured a staleness the product never produces.
 
-- **A type check against a concrete date class fails closed, silently.** The
-  fix above shipped as `$claimedAt instanceof Illuminate\Support\Carbon`, and
-  this project runs on immutable dates — so `updated_at` hydrates as
-  `Carbon\CarbonImmutable`, the check was false for **every** row, and every
-  claim went down the stand-down path. The blocker it was written to fix was
-  reinstated by the guard meant to fix it, with all tests passing, because the
-  failure direction happened to be the one the old code took. Type against
-  `CarbonInterface`.
+  So a worker **always stands down**, and the outcome is decided twice over
+  where no worker is standing: the row is *listed* on S47 — a read, which
+  cannot contradict anybody — and `automations:reap-unconfirmed` records the
+  failure hours later. Before adding a discriminator, ask whether the thing you
+  are measuring is caused by the thing you are trying to detect.
+
+- **A type check against a concrete date class fails closed, silently.** One of
+  those attempts shipped as `$claimedAt instanceof Illuminate\Support\Carbon`,
+  and this project runs on immutable dates — so `updated_at` hydrates as
+  `Carbon\CarbonImmutable`, the check was false for **every** row, and the whole
+  branch was dead with all tests passing, because the failure direction
+  happened to be the one the old code took. Type against `CarbonInterface`.
+
+- **A rail's own reason is a write, so ask whether the row is yours first.**
+  `SendRails::decide()` had the kill switch first, on the argument that it is
+  the one somebody is on the phone about. But a halt stamps `error`, so a
+  worker arriving late at a **cancelled** message overwrote the reason a person
+  typed with *"sending is switched off for this team"*, and a duplicate
+  delivery for a **sent** one wrote a rail error onto a delivered message.
+  Ownership costs the switch nothing — a `pending`, unclaimed row still reaches
+  it, and that is every row the switch is for.
 
 - **A rail with no hand on it is a column.** F5.9's kill switch, its rate
   ceiling and its sandbox all live in `SendRails`, in the worker, because issue
@@ -672,6 +685,7 @@ These come from PRD §8 and should guide the eventual build:
 | `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
 | `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it (`--demote-last` to skip the only-administrator warning). Audited |
 | `php artisan db:seed --class='Database\Seeders\PerformanceFixtureSeeder'` | G8's volumes in a database you can open (PRD §9): 25 active deals mid-flight, 500 past clients, 2,000 activity events. Sign in as `perf@example.test` / `password`. Deliberately **not** part of `migrate:fresh --seed` — a developer wanting a demo team does not want 2,000 events on every schema change |
+| `php artisan automations:reap-unconfirmed` | Record the outcome of sends handed to a transport that never confirmed (#92). Hourly, `--hours=6` by default. A worker cannot decide that row — see the finding below — so this does, far enough from the claim that there is no live sibling to contradict. It never resends |
 | `php artisan automations:dispatch-due` | Queue automation instances that are due and have nothing coming for them (#92). Scheduled every minute. It catches two things: a message with a future `scheduled_for`, and one stranded by a web process that died between committing an advance and dispatching its job — without which the message simply never goes and nothing anywhere says so |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 | `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation, with no mail transport and no session (ADR 0003). `--team=<slug>` when the address is invited to more than one. Rotates the token, so it replaces any link already sent. Audited |

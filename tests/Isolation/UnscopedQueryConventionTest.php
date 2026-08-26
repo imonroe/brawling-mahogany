@@ -174,6 +174,16 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'hashed single-use token is what establishes one.',
     ],
 
+    'Console/Commands/ReapUnconfirmedSends.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant, for the same reason the sweep beside it has '.
+            'none: it asks which sends were handed to a transport and never confirmed, '.
+            'across every team at once, hours after the fact. Each row is then handled '.
+            'inside runFor() on its own team, so the state write and the timeline entry '.
+            'land under the right tenant — the unscoped part is only the question of '.
+            'which rows exist.',
+    ],
+
     'Console/Commands/DispatchDueAutomations.php' => [
         'count' => 3,
         'reason' => 'A context with no tenant, and the sweep shape PurgeSoftDeletedRecords '.

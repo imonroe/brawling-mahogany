@@ -457,3 +457,40 @@ it('names a message a rail is holding', function (): void {
         ->where('totals.held', 1)
         ->where('held.0.error', 'This team has reached its limit of messages for the day. Sending is paused, not cancelled.'));
 });
+
+it('refuses an approval that empties the subject line', function (): void {
+    /*
+     * `null` means a channel that never had a subject; `''` is the one a
+     * person can produce, from S48's own field. The mailable's fallback guards
+     * null only, so an emptied subject reached the wire as a message with no
+     * subject line at all — from the screen that exists so the words get read
+     * before they go.
+     */
+    $instance = queued();
+
+    $this->post("/messages/{$instance->getKey()}/approval", [
+        'subject' => '   ',
+    ])->assertSessionHas('error');
+
+    expect($instance->fresh()->state)->toBe(AutomationState::AwaitingApproval)
+        ->and($instance->fresh()->rendered()->subject)->toBe('Your inspection is scheduled');
+});
+
+it('names a message handed to a transport and never confirmed', function (): void {
+    /*
+     * The final form of round 2's blocker. The row cannot be narrated by a
+     * worker — three rounds established that — so it is *listed* instead, and
+     * told apart from a message a rail is merely holding: one of those goes
+     * out on its own when the reason clears and the other never will.
+     */
+    ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'state' => AutomationState::Pending,
+        'message_key' => 'claimed-and-never-confirmed',
+    ]);
+
+    $this->get('/messages')->assertInertia(fn ($page) => $page
+        ->has('held', 1)
+        ->where('held.0.isUnconfirmed', true));
+});

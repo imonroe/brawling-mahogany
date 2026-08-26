@@ -9,6 +9,9 @@ use App\Enums\AutomationState;
 use App\Jobs\RunAutomation;
 use App\Models\ActionInstance;
 use App\Models\Team;
+use App\Models\TeamMembership;
+use App\Support\Messages\ResolveRecipients;
+use App\Support\Tenancy\TeamContext;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -48,6 +51,35 @@ class DispatchDueAutomations extends Command
     protected $signature = 'automations:dispatch-due {--limit=500}';
 
     protected $description = 'Queue automation instances that are due and have nothing coming for them';
+
+    /**
+     * Whether sandbox mode has somebody to redirect to.
+     *
+     * Asked the way `SendRails::teamOwnerAddress()` asks it, through the same
+     * resolver, so the sweep and the worker cannot disagree about which teams
+     * are stuck. One query per sandboxed team with work waiting — and the set
+     * is already bounded by the work, so on a platform with nothing queued
+     * this is never reached.
+     */
+    private function hasAnOwnerToRedirectTo(Team $team): bool
+    {
+        /*
+         * **Inside that team's context**, and this is the trap it fell into
+         * first. `TeamMembership` is team-scoped, and this command runs with
+         * no tenant at all — so asking outside a context returns nothing for
+         * every team, which reads as *"no owner to redirect to"* and would
+         * have held every sandboxed team on the platform forever. In a test,
+         * where a context happens to be resolved, it would have quietly
+         * answered about the wrong team instead.
+         *
+         * `ExecuteAction` reaches the same resolver from inside `withinTeam()`
+         * for the same reason. The sweep is unscoped about *which rows exist*
+         * and scoped about everything it then asks.
+         */
+        return $this->teams->runFor($team, fn (): bool => app(ResolveRecipients::class)
+            ->teamOwners($team)
+            ->contains(fn (TeamMembership $membership): bool => ($membership->email ?? '') !== ''));
+    }
 
     /**
      * Teams whose outbound email is currently held by a rail.
@@ -105,10 +137,26 @@ class DispatchDueAutomations extends Command
 
         $held = [];
 
-        foreach (Team::query()->whereKey($teams)->get(['id', 'sends_disabled_at', 'hourly_send_limit', 'daily_send_limit']) as $team) {
+        foreach (Team::query()->whereKey($teams)->get(['id', 'sends_disabled_at', 'sandbox_mode', 'hourly_send_limit', 'daily_send_limit']) as $team) {
             $id = (string) $team->getKey();
 
             if ($team->sendsAreDisabled()) {
+                $held[] = $id;
+
+                continue;
+            }
+
+            /*
+             * The **third** halting rail, and the one that stayed behind
+             * through two rounds of fixing the other two. `SendRails` halts
+             * when sandbox mode is on and no owner has an email address to
+             * redirect to — and `sandbox_mode` defaults **on** for a new team,
+             * which is exactly the population whose owner membership is most
+             * likely to have no `email` yet. Those rows were re-dispatched
+             * every sixty seconds forever, each one a team lookup, two counts,
+             * and a `save()` writing the same sentence back.
+             */
+            if ($team->sandbox_mode && ! $this->hasAnOwnerToRedirectTo($team)) {
                 $held[] = $id;
 
                 continue;
@@ -131,6 +179,11 @@ class DispatchDueAutomations extends Command
         }
 
         return $held;
+    }
+
+    public function __construct(private readonly TeamContext $teams)
+    {
+        parent::__construct();
     }
 
     public function handle(): int

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Console\Commands\DispatchDueAutomations;
 use App\Console\Commands\PurgeSoftDeletedRecords;
+use App\Console\Commands\ReapUnconfirmedSends;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -37,5 +38,18 @@ Schedule::command(PurgeSoftDeletedRecords::class)
  */
 Schedule::command(DispatchDueAutomations::class)
     ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * The outcome of a send nobody came back from (#92).
+ *
+ * Hourly rather than every minute, and that cadence is the point: this
+ * command's whole job is to decide at a distance from the claim, where no live
+ * worker can be contradicted. Running it often would put it back inside the
+ * window it exists to stay out of.
+ */
+Schedule::command(ReapUnconfirmedSends::class)
+    ->hourly()
     ->withoutOverlapping()
     ->onOneServer();

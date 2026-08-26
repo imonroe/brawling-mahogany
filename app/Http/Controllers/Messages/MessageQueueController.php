@@ -10,6 +10,7 @@ use App\Http\Requests\Messages\ApproveMessageRequest;
 use App\Http\Requests\Messages\CancelMessageRequest;
 use App\Models\ActionInstance;
 use App\Support\Automation\ApproveMessage;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -124,7 +125,25 @@ class MessageQueueController extends Controller
          */
         $held = ActionInstance::query()
             ->where('state', AutomationState::Pending)
-            ->whereNotNull('error')
+            ->where(fn (Builder $query): Builder => $query
+                ->whereNotNull('error')
+                /*
+                 * **And a claim nobody came back from.** A row carrying a
+                 * `message_key` and still `pending` was handed to a transport
+                 * by a worker that never wrote its outcome. Nothing will pick
+                 * it up — `scopeDue()` excludes it — and it was on no list at
+                 * all until it appeared here, which is round 2's blocker in
+                 * its final form: not a wrong sentence, an absent one.
+                 *
+                 * Listing it is a **read**, which is why this is the right
+                 * place for it. A worker asked at the moment of the second
+                 * delivery cannot tell a crashed sibling from a live one; a
+                 * screen does not have to, because it is not writing
+                 * anything. `automations:reap-unconfirmed` records the
+                 * outcome hours later, and until then the row says what is
+                 * actually known, which is that nobody knows.
+                 */
+                ->orWhereNotNull('message_key'))
             ->with(['deal', 'messageTemplate'])
             ->oldest()
             ->limit(self::FAILURES)
@@ -164,7 +183,9 @@ class MessageQueueController extends Controller
                 'failing' => ActionInstance::query()->where('state', AutomationState::Failed)->count(),
                 'held' => ActionInstance::query()
                     ->where('state', AutomationState::Pending)
-                    ->whereNotNull('error')
+                    ->where(fn (Builder $query): Builder => $query
+                        ->whereNotNull('error')
+                        ->orWhereNotNull('message_key'))
                     ->count(),
             ],
             'can' => [
@@ -284,6 +305,14 @@ class MessageQueueController extends Controller
                 'unresolved' => $rendered->unresolved,
             ],
             'error' => $message->error,
+            /*
+             * Whether this row is *held by a rail* or *unconfirmed*, which the
+             * Held list has to tell apart: one goes out on its own when the
+             * reason clears and the other never will. Both look like `pending`
+             * from outside.
+             */
+            'isUnconfirmed' => $message->state === AutomationState::Pending
+                && $message->reachedTheProvider(),
             'raisedAt' => $message->created_at?->toIso8601String(),
             'executedAt' => $message->executed_at?->toIso8601String(),
         ];

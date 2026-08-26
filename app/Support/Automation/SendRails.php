@@ -10,7 +10,6 @@ use App\Models\ActionInstance;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Messages\ResolveRecipients;
-use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
@@ -48,6 +47,65 @@ final class SendRails
 
     public function decide(ActionInstance $instance, Team $team): SendDecision
     {
+        /*
+         * **Is this row still ours to act on at all** — before anything else,
+         * including the kill switch.
+         *
+         * Round 4's finding, and the ordering is the whole of it. Every rail
+         * below can *write* to the row: a halt stamps `error`. So asking the
+         * kill switch first meant a worker arriving late at a **cancelled**
+         * message overwrote the reason a person typed with *"sending is
+         * switched off for this team"* — round 1's finding #2 arriving through
+         * the one branch left above the state gate, on the screen whose job is
+         * to answer *"why did the client never hear about this"* — and a
+         * duplicate delivery for a **sent** message wrote a rail error onto a
+         * delivered one.
+         *
+         * Putting ownership first costs the switch nothing: a row that is
+         * `pending` and unclaimed still reaches it, and that is every row the
+         * switch is for.
+         *
+         * A row carrying a `message_key` has been handed to a transport and is
+         * never handed to one again. **Stand down, always** — three rounds of
+         * review went into that word. `pending` plus a key does not mean the
+         * worker died; it means *some* worker claimed it and has not written
+         * its outcome, and the commonest reading is a sibling inside
+         * `Mail::send` at this instant. Two workers on one row is what a queue
+         * does after a visibility timeout, which is what the claim exists for.
+         *
+         * There is no signal here that separates the two. `updated_at` looked
+         * like one and is not: the second delivery happens *because* the claim
+         * aged past the queue's visibility timeout, so the crashed worker and
+         * the live sibling present the same age at the only moment anything
+         * asks. A threshold below it calls live sends failures; a threshold
+         * above it is never evaluated, because the stand-down completes the
+         * job and there is no third delivery.
+         *
+         * So the outcome of a claim nobody came back for is decided **away
+         * from the claim**, by `automations:reap-unconfirmed` hours later,
+         * where no worker is standing — and in the meantime the row is
+         * *visible* on S47 rather than narrated, because a read cannot
+         * contradict anybody.
+         */
+        if ($instance->reachedTheProvider()) {
+            return SendDecision::standDown('This message has already been handed to a transport.');
+        }
+
+        /*
+         * And a row in any other state belongs to whoever put it there.
+         *
+         * The case that matters is `cancelled`: `ApproveMessage::cancel()`
+         * deliberately allows stopping a `pending` instance, and a `pending`
+         * instance is one that has **already been dispatched**. So "queued →
+         * somebody presses Stop → the worker arrives" is the ordinary
+         * sequence, not a race.
+         */
+        if ($instance->state !== AutomationState::Pending) {
+            return SendDecision::standDown(
+                'This message is '.$instance->state->label().' and is not waiting to be sent.',
+            );
+        }
+
         /*
          * Rail 2 — the hard switch, first.
          *
@@ -87,83 +145,6 @@ final class SendRails
         if ($live->sendsAreDisabled()) {
             return SendDecision::halt(
                 $live->sends_disabled_reason ?? 'Sending is switched off for this team.',
-            );
-        }
-
-        /*
-         * A message already handed to a transport is never handed to one
-         * again, whatever its state says. See
-         * `ActionInstance::reachedTheProvider()`.
-         *
-         * **Two row shapes satisfy this, and they need opposite answers.**
-         * Round 2 found that collapsing them turned a noisy failure into a
-         * silent one, which is the worse of the two.
-         *
-         * A row that is already terminal — `sent`, `failed`, `cancelled` —
-         * belongs to whoever put it there. This branch is reached by the
-         * queue's own retry after a transport threw (`ExecuteAction` records
-         * the failure and rethrows), so refusing would write *"an automated
-         * message did not go out: this message has already been handed to a
-         * transport"* onto the deal three more times, about a message that may
-         * well have been delivered. Stand down.
-         *
-         * A row that is still **`pending`** and carrying a *stale* key is
-         * owned by **nobody**: the worker claimed it and never came back. That
-         * is the crash window the claim ordering deliberately leaves — a
-         * worker OOM, a `queue:restart` mid-send, a container eviction — and
-         * standing down left it `pending` forever, excluded from `scopeDue()`,
-         * on no list on S47, with no timeline entry and no audit entry.
-         * Reachable only by already knowing its id. That is PRD §1.1's worst
-         * answer to *"has the client been told?"*: silence, with no failure
-         * anywhere to find, on the one operation this product cannot take
-         * back. So it is recorded, and the sentence says what is actually
-         * true, which is that nobody knows whether it arrived.
-         *
-         * **Stale is the whole of it, and the first version left it out.**
-         * `pending` plus a key does not mean *the worker is gone*; it means
-         * *some worker claimed this and has not written its outcome yet* —
-         * and the commonest reading of that is a sibling delivery **inside
-         * `Mail::send` right now**. Two workers on one row is what a queue
-         * does after a visibility timeout, which `ExecuteAction` and
-         * `RunAutomation` both say out loud. Marking that row `failed` writes
-         * *"an automated message did not go out"* onto the deal beside the
-         * *"Emailed …"* the other worker is about to write about the same
-         * message; if the two saves land the other way round the row ends
-         * `failed` for a message that was delivered, which invites a resend —
-         * the double-send the claim exists to prevent — and drops the row out
-         * of the ceiling's `sent` count during the one incident the ceiling is
-         * for.
-         *
-         * `updated_at` tells them apart, and it is already on the row because
-         * the claim writes it. A claim younger than the queue's `retry_after`
-         * belongs to a worker that is still alive by definition.
-         */
-        if ($instance->reachedTheProvider()) {
-            return $this->claimIsAbandoned($instance)
-                ? SendDecision::refuse(
-                    'This message was handed to a transport and never confirmed. '
-                    .'It may have reached the recipient — check before sending it again.',
-                )
-                : SendDecision::standDown('This message has already been handed to a transport.');
-        }
-
-        /*
-         * And a row in any other state belongs to whoever put it there.
-         *
-         * The case that matters is `cancelled`: `ApproveMessage::cancel()`
-         * deliberately allows stopping a `pending` instance, and a `pending`
-         * instance is one that has **already been dispatched**. So "queued →
-         * somebody presses Stop → the worker arrives" is the ordinary
-         * sequence, not a race — and a refusal here overwrote the reason they
-         * typed, contradicted itself on the timeline, and flipped the row from
-         * `cancelled` to `failed`, where `RaiseAutomations::alreadyRaised()`
-         * counts it. A skipped stage that was later reopened then silently
-         * never re-raised its message, which is the contract this whole
-         * feature is built around.
-         */
-        if ($instance->state !== AutomationState::Pending) {
-            return SendDecision::standDown(
-                'This message is '.$instance->state->label().' and is not waiting to be sent.',
             );
         }
 
@@ -214,71 +195,6 @@ final class SendRails
         }
 
         return SendDecision::send($recipients);
-    }
-
-    /**
-     * Whether the worker that claimed this row is gone rather than working.
-     *
-     * Measured against the queue's own `retry_after` — see
-     * {@see self::abandonedAfter()} — because that is the number defining the
-     * window: a job is only re-delivered once the queue believes the first
-     * attempt is dead, so a claim younger than it belongs to a worker the
-     * queue still considers alive.
-     *
-     * The margin is deliberate and one-directional. Waiting longer to call a
-     * send abandoned costs a delay before a row appears on a screen; calling a
-     * live one abandoned costs a contradictory timeline entry about a message
-     * being delivered as it is written.
-     */
-    private function claimIsAbandoned(ActionInstance $instance): bool
-    {
-        if ($instance->state !== AutomationState::Pending) {
-            return false;
-        }
-
-        $claimedAt = $instance->updated_at;
-
-        /*
-         * `CarbonInterface`, not a concrete class.
-         *
-         * This project runs on immutable dates, so `updated_at` hydrates as
-         * `Carbon\CarbonImmutable` and an `instanceof Illuminate\Support\Carbon`
-         * check is false for **every** row — which sent every claim down the
-         * stand-down path and reinstated, silently, the exact blocker this
-         * method was written to fix. A type check that fails closed is still a
-         * type check that is wrong.
-         *
-         * No timestamp at all really is the safe direction: a row that somehow
-         * carries a key and no `updated_at` is not one to narrate a failure
-         * about.
-         */
-        return $claimedAt instanceof CarbonInterface
-            && $claimedAt->lt(Carbon::now()->subSeconds($this->abandonedAfter()));
-    }
-
-    /**
-     * How long a claimed-but-unfinished send is given before it is called
-     * abandoned.
-     *
-     * Twice the queue's own `retry_after`, plus a minute. `retry_after` is
-     * when the **queue** hands the row to a second worker; this is when *we*
-     * are willing to say the first one is not coming back, and it has to be
-     * comfortably the later of the two or the second worker declares the first
-     * one's live send a failure — which is the defect this method exists to
-     * prevent, arriving through the arithmetic instead.
-     *
-     * Read from the configured connection rather than written down here: a
-     * deployment that raises `retry_after` widens the same window, and a guard
-     * that disagreed with the queue about how long a worker gets would be the
-     * thing declaring live sends dead.
-     */
-    private function abandonedAfter(): int
-    {
-        $connection = (string) config('queue.default');
-
-        $retryAfter = config("queue.connections.{$connection}.retry_after");
-
-        return 2 * (is_numeric($retryAfter) ? (int) $retryAfter : 90) + 60;
     }
 
     /**

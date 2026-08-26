@@ -483,56 +483,123 @@ it('logs a ceiling breach without naming anybody', function (): void {
     );
 });
 
-it('records a send that crashed between the mailer and the state write', function (): void {
+it('never narrates an outcome for a claim it does not own', function (): void {
     /*
-     * The row nobody owns, and the one round 2 found had gone silent.
+     * Three rounds of review went into this one word, and the answer is
+     * **stand down, always**.
      *
-     * `pending` carrying a `message_key` is exactly what a worker OOM, a
-     * `queue:restart` mid-send, or a container eviction leaves behind — the
-     * crash window the claim ordering deliberately accepts, because the other
-     * ordering sends a client the same message twice.
+     * A `pending` row carrying a `message_key` does not mean the worker died.
+     * It means *some* worker claimed it and has not written its outcome, and
+     * the commonest reading is a sibling inside `Mail::send` at this instant —
+     * two workers on one row is what a queue does after a visibility timeout,
+     * which is the thing the claim exists for.
      *
-     * Standing down on it left the row `pending` forever: excluded from
-     * `scopeDue()`, on no list on S47 (which renders `awaiting_approval` and
-     * the three terminal states, never `pending`), with no timeline entry and
-     * no audit entry — reachable only by already knowing its id. PRD §1.1's
-     * worst answer to *"has the client been told?"* is silence with no failure
-     * anywhere to find, and this was it, on the one operation that cannot be
-     * taken back.
+     * There is no signal here that separates them. `updated_at` looked like
+     * one and is not: the second delivery happens *because* the claim aged
+     * past the visibility timeout, so the crashed worker and the live sibling
+     * are the same age at the only moment a worker looks. A threshold below it
+     * calls live sends failures; a threshold above it is never reached,
+     * because standing down completes the job and there is no third delivery.
+     *
+     * So the outcome is decided away from the claim, by
+     * `automations:reap-unconfirmed`, and the row is *visible* on S47 in the
+     * meantime — a read, which cannot contradict anybody.
      */
     $instance = pendingMessage();
 
-    /*
-     * **Stale**, and that is the whole fixture. The first version of this test
-     * claimed the key and executed immediately, which is the *live* shape
-     * being asserted as abandoned — so it passed while the code was calling
-     * a send that was happening right now a failure.
-     */
-    /*
-     * Written through the query builder, not `save()` — Eloquent stamps
-     * `updated_at` on every save, so a model-level "claimed an hour ago" is a
-     * claim made this instant. That is why the first version of this test
-     * passed against code that could not tell the two apart.
-     */
     ActionInstance::query()->whereKey($instance->getKey())->update([
         'message_key' => (string) Str::ulid(),
+        // Old enough that any staleness threshold would have fired.
         'updated_at' => now()->subHour(),
     ]);
 
-    // Re-read, because that is what a worker does: `RunAutomation` carries an
-    // id and finds the row, precisely so the rails see what is true now.
     carryOut($instance->fresh());
 
     Mail::assertNothingSent();
 
+    expect($instance->fresh()->state)->toBe(AutomationState::Pending)
+        ->and($instance->fresh()->error)->toBeNull()
+        ->and($instance->fresh()->executed_at)->toBeNull()
+        ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
+});
+
+it('records the outcome of an unconfirmed send from a distance', function (): void {
+    /*
+     * The other end of the same problem. Hours later there is no live sibling
+     * to contradict: a send that has not written its outcome by then is not
+     * going to. The sentence is deliberately not a claim in either direction,
+     * because nobody knows — and a person deciding whether to resend needs to
+     * be told that rather than reassured.
+     */
+    $instance = pendingMessage();
+
+    ActionInstance::query()->whereKey($instance->getKey())->update([
+        'message_key' => (string) Str::ulid(),
+        'updated_at' => now()->subDay(),
+    ]);
+
+    $this->artisan('automations:reap-unconfirmed')->assertSuccessful();
+
     expect($instance->fresh()->state)->toBe(AutomationState::Failed)
-        // And the sentence says what is actually true, rather than claiming
-        // either that it went or that it did not.
         ->and($instance->fresh()->error)->toContain('never confirmed')
         ->and($instance->fresh()->error)->toContain('may have reached the recipient');
 
     expect(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->pluck('event_type')->all())
         ->toContain('message.failed');
+});
+
+it('leaves a claim the reaper is not yet sure about', function (): void {
+    // The cost of waiting is a row on S47 saying it is unconfirmed, which is
+    // true. The cost of being hasty is telling a team a message failed while
+    // it is being delivered — the failure this command exists because of.
+    $instance = pendingMessage();
+
+    ActionInstance::query()->whereKey($instance->getKey())->update([
+        'message_key' => (string) Str::ulid(),
+        'updated_at' => now()->subMinutes(20),
+    ]);
+
+    $this->artisan('automations:reap-unconfirmed');
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Pending)
+        ->and($instance->fresh()->error)->toBeNull();
+});
+
+it('does not narrate a cancelled message when the kill switch is on', function (): void {
+    /*
+     * The ordering round 4 found: every rail below can *write* to the row —
+     * a halt stamps `error` — so asking the kill switch before the state gate
+     * meant a worker arriving late at a stopped message overwrote the reason a
+     * person typed with the rail's own sentence. Round 1's finding #2 again,
+     * through the one branch left above the gate.
+     */
+    $instance = pendingMessage();
+
+    $instance->forceFill([
+        'state' => AutomationState::Cancelled->value,
+        'error' => 'The buyer called; do not send.',
+    ])->save();
+
+    $this->team->forceFill(['sends_disabled_at' => now()])->save();
+
+    carryOut($instance);
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Cancelled)
+        ->and($instance->fresh()->error)->toBe('The buyer called; do not send.');
+});
+
+it('does not write a rail error onto a message that was sent', function (): void {
+    $instance = ActionInstance::factory()->sent()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $this->team->forceFill(['sends_disabled_at' => now()])->save();
+
+    carryOut($instance);
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Sent)
+        ->and($instance->fresh()->error)->toBeNull();
 });
 
 it('still stands down on the retry after a transport threw', function (): void {
@@ -556,37 +623,5 @@ it('still stands down on the retry after a transport threw', function (): void {
     carryOut($instance);
 
     expect($instance->fresh()->error)->toBe('The mail transport rejected this message (RuntimeException).')
-        ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
-});
-
-it('leaves a send that another worker is still making alone', function (): void {
-    /*
-     * The other half, and the one round 3 found missing. `pending` plus a key
-     * does not mean *the worker is gone* — it means *some worker claimed this
-     * and has not written its outcome yet*, and the commonest reading of that
-     * is a sibling delivery inside `Mail::send` **right now**. Two workers on
-     * one row is what a queue does after a visibility timeout, which
-     * `ExecuteAction` and `RunAutomation` both say out loud.
-     *
-     * Marking it failed put *"an automated message did not go out"* on the
-     * deal beside the *"Emailed …"* the other worker was about to write about
-     * the same message — and if the saves landed the other way round, left the
-     * row `failed` for a message that was delivered, which invites a resend.
-     */
-    $instance = pendingMessage();
-
-    // Claimed a moment ago, exactly as `ExecuteAction` claims it.
-    $instance->forceFill([
-        'message_key' => (string) Str::ulid(),
-        'updated_at' => now(),
-    ])->save();
-
-    carryOut($instance);
-
-    Mail::assertNothingSent();
-
-    expect($instance->fresh()->state)->toBe(AutomationState::Pending)
-        ->and($instance->fresh()->error)->toBeNull()
-        ->and($instance->fresh()->executed_at)->toBeNull()
         ->and(ActivityEvent::query()->where('deal_id', $this->deal->getKey())->count())->toBe(0);
 });

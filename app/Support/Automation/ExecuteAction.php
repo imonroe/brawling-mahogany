@@ -206,6 +206,41 @@ final class ExecuteAction
     }
 
     /**
+     * A claim nobody came back for, decided far from the claim (#92).
+     *
+     * `automations:reap-unconfirmed` calls this and nothing else does. The
+     * distinction it can make and a worker cannot is **distance**: a worker
+     * asked at the moment of the second delivery cannot tell a crashed sibling
+     * from a live one, because the staleness it would measure is the very
+     * thing that caused the delivery. Hours later there is no live sibling to
+     * contradict — a send that has not written its outcome by then is not
+     * going to.
+     *
+     * It records `failed`, and the sentence is deliberately not a claim in
+     * either direction: nobody knows whether the message arrived, and a person
+     * deciding whether to resend needs to be told exactly that rather than
+     * reassured.
+     *
+     * Lives here rather than in the command because this file is the only
+     * writer of `action_instances.state` on the send path, which is what
+     * `SingleMutationPathTest` holds. A command that wrote the column itself
+     * would be the second implementation that remembers the state and forgets
+     * the timeline entry.
+     */
+    public function reapUnconfirmed(ActionInstance $instance): void
+    {
+        if ($instance->state !== AutomationState::Pending || ! $instance->reachedTheProvider()) {
+            return;
+        }
+
+        $this->fail(
+            $instance,
+            'This message was handed to a transport and never confirmed. '
+            .'It may have reached the recipient — check before sending it again.',
+        );
+    }
+
+    /**
      * F5.3's *create a task*, which reaches nobody outside the team.
      *
      * No rails: they are about messages leaving the building, and a task is

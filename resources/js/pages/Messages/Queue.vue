@@ -22,7 +22,7 @@
  * noticing their mail credentials expired.
  */
 import { Head, Link } from '@inertiajs/vue3';
-import { MailCheck, MailX, PauseCircle } from '@lucide/vue';
+import { CircleHelp, MailCheck, MailX, PauseCircle } from '@lucide/vue';
 import { computed } from 'vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
@@ -51,6 +51,14 @@ type MessageRow = {
         unresolved: string[];
     };
     error: string | null;
+    /**
+     * Handed to a transport, with no outcome written.
+     *
+     * A different thing from held-by-a-rail, and the difference is the whole
+     * reason the Held section splits its copy: one of these goes out on its
+     * own when the reason clears, and the other never will.
+     */
+    isUnconfirmed: boolean;
     raisedAt: string | null;
     executedAt: string | null;
 };
@@ -84,6 +92,12 @@ const props = defineProps<{
 
 const moreWaiting = computed(() => props.totals.waiting - props.waiting.length);
 const moreHeld = computed(() => props.totals.held - props.held.length);
+
+const unconfirmed = computed(
+    () => props.held.filter((message) => message.isUnconfirmed).length,
+);
+
+const heldByARail = computed(() => props.held.length - unconfirmed.value);
 const moreFailing = computed(() => props.totals.failing - props.failing.length);
 
 /**
@@ -165,7 +179,10 @@ function recipientNames(message: MessageRow): string {
                     class="flex flex-col gap-1 px-4 py-3"
                 >
                     <div class="flex items-start gap-2">
-                        <PauseCircle
+                        <component
+                            :is="
+                                message.isUnconfirmed ? CircleHelp : PauseCircle
+                            "
                             class="mt-0.5 size-4 shrink-0 text-state-warning"
                             aria-hidden="true"
                         />
@@ -174,24 +191,43 @@ function recipientNames(message: MessageRow): string {
                                 {{ message.subject ?? message.actionLabel }}
                             </TextLink>
                             <p class="text-13 text-muted-foreground">
-                                {{ message.error }}
+                                <template v-if="message.isUnconfirmed">
+                                    Handed to the mail service, which never
+                                    confirmed it. It may have reached the
+                                    recipient — check before sending it again.
+                                </template>
+                                <template v-else>{{ message.error }}</template>
                             </p>
                         </div>
                     </div>
                 </li>
             </ul>
 
+            <!--
+                The footer used to say, flatly, "these go out on their own once
+                the reason clears". That is true of a message a rail is holding
+                and false of one handed to a transport that never answered —
+                and the second kind is exactly what this list was widened to
+                show, so the one row a reader was told would send itself was
+                the one row that never will.
+            -->
             <p
                 class="border-t border-border px-4 py-2.5 text-13 text-muted-foreground"
             >
                 <template v-if="moreHeld > 0">
                     and {{ moreHeld }} more.
                 </template>
-                These go out on their own once the reason clears — nothing is
-                cancelled.
-                <Link href="/settings/sending" class="underline">
-                    Sending settings
-                </Link>
+                <template v-if="heldByARail > 0">
+                    A message paused by a limit or by the stop switch goes out
+                    on its own once the reason clears — nothing is cancelled.
+                    <Link href="/settings/sending" class="underline">
+                        Sending settings</Link
+                    >.
+                </template>
+                <template v-if="unconfirmed > 0">
+                    An unconfirmed one will not go on its own; open it to see
+                    what it said and decide.
+                </template>
             </p>
         </Card>
 

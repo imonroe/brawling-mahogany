@@ -236,6 +236,21 @@ final class ApproveMessage
     }
 
     /**
+     * Whether this message has a subject line at all.
+     *
+     * Read off the payload as it stood before the edit, which is the only
+     * thing that knows: a `null` subject on an email somebody just cleared and
+     * a `null` subject on a push template that never had one are the same
+     * value meaning opposite things.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function carriesASubject(array $payload): bool
+    {
+        return is_string($payload['subject'] ?? null) && trim($payload['subject']) !== '';
+    }
+
+    /**
      * Fold an approver's changes into the instance's own payload.
      *
      * @param  array<string, mixed>  $edits
@@ -254,6 +269,29 @@ final class ApproveMessage
 
             if ($value !== null && ! is_string($value)) {
                 return 'That is not something this message can carry.';
+            }
+
+            /*
+             * An emptied **subject** is refused, and the shape it arrives in is
+             * not the obvious one. Laravel's `TrimStrings` and
+             * `ConvertEmptyStringsToNull` mean an approver who clears S48's
+             * field posts `null`, not `''` — and `AutomatedMessageMail` falls
+             * back to the **team's name** for a null subject, so clearing the
+             * field would quietly send a client an email subjected *"Vanterpool
+             * Realty"*. A surprise, from the one screen that exists so the
+             * words get read before they go.
+             *
+             * Which is why the test is *"does this message carry a subject at
+             * all"* rather than *"is the value null"*: the fallback is right
+             * for a channel that never had one and wrong for one somebody
+             * emptied, and only the payload can tell those apart.
+             *
+             * The bodies are not held to this: a push message legitimately has
+             * no HTML body, and `body_text` is already `required` on the
+             * template it came from.
+             */
+            if ($field === 'subject' && trim((string) $value) === '' && $this->carriesASubject($payload)) {
+                return 'A message needs a subject line. Type one, or cancel this message.';
             }
 
             /*

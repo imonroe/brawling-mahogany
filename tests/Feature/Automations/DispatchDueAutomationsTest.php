@@ -6,6 +6,7 @@ use App\Enums\AutomationState;
 use App\Jobs\RunAutomation;
 use App\Models\ActionInstance;
 use App\Models\Deal;
+use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -184,6 +185,41 @@ it('asks the rails nothing when nothing is waiting', function (): void {
      * argued for.
      */
     expect($queries)->toBe(2);
+});
+
+it('stops knocking on a sandboxed team with nobody to redirect to', function (): void {
+    /*
+     * The **third** halting rail, and the one that stayed behind through two
+     * rounds of fixing the other two. `sandbox_mode` defaults on for a new
+     * team — which is exactly the population whose owner membership is most
+     * likely to have no email address yet — so these rows were re-dispatched
+     * every sixty seconds forever, each one a team lookup, two counts, and a
+     * save writing the same sentence back.
+     */
+    $this->team->forceFill(['sandbox_mode' => true])->save();
+
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        TeamMembership::query()
+            ->whereHas('roles', fn ($query) => $query->where('roles.key', 'team_owner'))
+            ->update(['email' => null]);
+    });
+
+    stranded();
+
+    $this->artisan('automations:dispatch-due');
+
+    Queue::assertNothingPushed();
+});
+
+it('keeps sweeping a sandboxed team that has somebody to redirect to', function (): void {
+    // The control, without which the case above passes for any reason at all.
+    $this->team->forceFill(['sandbox_mode' => true])->save();
+
+    stranded();
+
+    $this->artisan('automations:dispatch-due');
+
+    Queue::assertPushed(RunAutomation::class, 1);
 });
 
 it('does not sweep another team’s messages into this one', function (): void {

@@ -24,9 +24,12 @@ use Illuminate\Support\Facades\DB;
  * from. So every row here has a deal and a template, or the guard measures
  * nothing.
  *
- * It is also the screen most likely to grow a third list. It already carries
- * three — waiting, failing, recent — plus two counts, and each is a fixed cost
- * that a per-row budget would not notice. Hence `toBe` rather than a range.
+ * It is also the screen most likely to grow another list. It already carries
+ * four — waiting, held, failing, recent — plus three counts, and each is a
+ * fixed cost that a per-row budget cannot see. `toBe($small)` proves the
+ * absence of an N+1 and nothing else; the **absolute** assertion beside it is
+ * what noticed two queries being added, which the growth check waved through
+ * while this paragraph claimed it would not.
  */
 function seedQueue(int $count): array
 {
@@ -93,6 +96,18 @@ it('does not grow its query count with the queue', function (): void {
     $large = countQueueQueries(fn () => $this->get('/messages')->assertOk());
 
     expect($large)->toBe($small);
+
+    /*
+     * **And the absolute number**, which the growth assertion above cannot
+     * see. `toBe($small)` is a per-row budget and is blind to fixed cost by
+     * construction — two queries were added to this screen and it stayed green
+     * throughout, while this file's own docblock claimed the opposite.
+     *
+     * So the count is pinned. It will need editing when a list is added, and
+     * that is the point: a fifth query on the screen a team opens all day
+     * should have to be argued for in a diff rather than absorbed.
+     */
+    expect($large)->toBe(33);
 });
 
 it('really did render the larger queue', function (): void {
@@ -113,6 +128,48 @@ it('really did render the larger queue', function (): void {
         // And the names really were resolved through the relation, which is
         // what the eager-load is for.
         ->where('waiting.0.templateName', 'Template 0'));
+});
+
+it('seeds every list the screen renders', function (): void {
+    /*
+     * `held` was the one list with no fixture anywhere in this file, so its
+     * eager loads were never executed by the guard — which is exactly
+     * `CLAUDE.md`'s S13 shape: *"a relation nothing renders is a relation
+     * nothing thinks to seed"*, and that one shipped a 500.
+     */
+    [$team, $member] = seedQueue(2);
+
+    app(TeamContext::class)->runFor($team, function () use ($team): void {
+        $deal = Deal::factory()->create(['team_id' => $team->getKey()]);
+
+        $template = MessageTemplate::factory()->create([
+            'team_id' => $team->getKey(),
+            'name' => 'Held template',
+        ]);
+
+        // One held by a rail, one handed to a transport and unconfirmed.
+        ActionInstance::factory()->create([
+            'team_id' => $team->getKey(),
+            'deal_id' => $deal->getKey(),
+            'message_template_id' => $template->getKey(),
+            'error' => 'This team has reached its limit of messages for the hour.',
+        ]);
+
+        ActionInstance::factory()->create([
+            'team_id' => $team->getKey(),
+            'deal_id' => $deal->getKey(),
+            'message_template_id' => $template->getKey(),
+            'message_key' => 'claimed-and-never-confirmed',
+        ]);
+    });
+
+    $this->actingAsPerson($member, $team);
+
+    $this->get('/messages')->assertInertia(fn ($page) => $page
+        ->has('held', 2)
+        ->where('totals.held', 2)
+        // Resolved through the eager load rather than the payload fallback.
+        ->where('held.0.templateName', 'Held template'));
 });
 
 it('bounds both lists rather than shipping every held message', function (): void {
