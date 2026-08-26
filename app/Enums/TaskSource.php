@@ -35,6 +35,16 @@ enum TaskSource: string implements HasLabel
      * a screen anybody works from.
      */
     case Override = 'override';
+    /**
+     * Raised by an automation (PRD F5.3 · issue #92).
+     *
+     * Its own source for the reason `Override` has one: nobody typed this
+     * either. A team scanning My Work has to be able to tell the task the
+     * workflow produced from the task a colleague wrote, because only one of
+     * them is somebody's considered judgement about this deal.
+     */
+    case Automation = 'automation';
+
     case Extracted = 'extracted';
 
     public function label(): string
@@ -43,6 +53,7 @@ enum TaskSource: string implements HasLabel
             self::Manual => 'Added by hand',
             self::Template => 'From the workflow',
             self::Override => 'From an override',
+            self::Automation => 'From an automation',
             self::Extracted => 'From Extract',
         };
     }

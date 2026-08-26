@@ -173,6 +173,37 @@ const SANCTIONED_UNSCOPED_QUERIES = [
         'reason' => 'Accepting an invitation has no team context by definition — the '.
             'hashed single-use token is what establishes one.',
     ],
+
+    'Console/Commands/ReapUnconfirmedSends.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant, for the same reason the sweep beside it has '.
+            'none: it asks which sends were handed to a transport and never confirmed, '.
+            'across every team at once, hours after the fact. Each row is then handled '.
+            'inside runFor() on its own team, so the state write and the timeline entry '.
+            'land under the right tenant — the unscoped part is only the question of '.
+            'which rows exist.',
+    ],
+
+    'Console/Commands/DispatchDueAutomations.php' => [
+        'count' => 3,
+        'reason' => 'A context with no tenant, and the sweep shape PurgeSoftDeletedRecords '.
+            'already uses: a scheduled run has no session, and the question is which '.
+            'automation instances are due across every team at once. Nothing is read from '.
+            'the row but its id and its team_id, and the job it dispatches re-establishes '.
+            'that team before touching anything — RunsForTeam throws rather than running '.
+            'unscoped, which is what makes the hand-off safe. '.
+            'The **second** is the same question one step earlier: which teams have their '.
+            'outbound email held by a rail right now, so the sweep stops knocking on them '.
+            'every minute. It reads a count per team and nothing else — no payload, no '.
+            'recipient, no deal — and it exists because counting per row instead would be '.
+            'two queries per queued message, every minute, for as long as the rail holds. '.
+            'The **third** is what bounds the other two: one distinct over the due rows, '.
+            'asking which teams have anything waiting at all. Without it the sweep read '.
+            'every team on the platform every sixty seconds whether or not anything was '.
+            'due, and built a whereNotIn list that only ever grew — every team that has '.
+            'ever left the kill switch on, forever, against Postgres\'s 65,535-parameter '.
+            'ceiling. It reads one column.',
+    ],
 ];
 
 /**

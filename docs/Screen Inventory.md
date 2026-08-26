@@ -32,13 +32,15 @@ tags:
 > nobody but its author; and automations on a stage template, with the triggers
 > and action types F5.2 and F5.3 name.
 >
-> **Nothing sends yet**, deliberately. `action_instances`, the queue, the
-> approval queue (S47, S48) and F5.9's rails are #92, #93 and #96, and they land
-> together — the first thing able to reach a client arrives with its safety rails
-> attached rather than shortly afterwards.
+> **S47, S48 and S49** — the runtime, which arrived with F5.9's rails attached
+> rather than shortly afterwards. A trigger raises an instance, the words are
+> rendered at that moment (F5.10's pre-fill), a person reads it, and only then
+> does a worker hand it to a transport — where the kill switch, the rate ceiling
+> and the sandbox are asked one last time, in the order the code argues.
 >
 > S45 and S46 were renamed from *email* to *message* templates, and their routes
-> with them. The note in section G argues it.
+> with them. The note in section G argues it. S47 and S49's routes moved too, and
+> S48 stopped being a modal — the note in section H says why.
 
 > [!success] Built in slice 2 so far
 > S76 (deal types), S35–S37 (properties), S19 and S25 (deal people), S20 (deal
@@ -217,9 +219,51 @@ tags:
 
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
-| S47 | Message approval queue | `/messages/pending` | Team | Empty, needs review, editing before send, bulk approve | F5.7 | 3 | M |
-| S48 | Message preview and test send | modal | Team | Rendered with real merge data, missing field, send to self | F5.6 | 3 | M |
-| S49 | Automation failure detail | `/messages/{message}` | Team | Bounced, complained, provider error, retry | F5.8 | 3 | S |
+| S47 | Message approval queue | `/messages` | Team | Empty, needs review, **held by a rail**, **handed over and never confirmed**, did not go out. **Built.** Failures and held messages are each their own query rather than a filter over recent sends, and every list says when it is truncated. No bulk approve, deliberately — see the note below | F5.7 | 3 | M |
+| S48 | Message preview and edit | `/messages/{message}` | Team | Rendered with real merge data, missing field, editing before send. **Built**, as a page rather than a modal — see the note below | F5.6 | 3 | M |
+| S49 | Automation failure detail | `/messages/{message}` | Team | Provider error, resolved to nobody, stopped by a person, sandbox redirect. **Built.** Bounces and complaints are #95 | F5.8 | 3 | S |
+
+> [!note] S47 has no bulk approve, and the absence is the feature
+> The row above listed *bulk approve* as a key state, and it is not built and
+> will not be. Issue #93 names the failure mode in as many words — *"bulk
+> approve teaches people to approve without reading"* — and PRD §4.5 makes this
+> queue a launch blocker precisely because the thing it guards cannot be
+> recalled. Every release is one message, opened, with its words on screen.
+> There is no route that takes an array of ids, and a test asserts the route
+> list, because a screen that chose not to draw the button would still leave the
+> endpoint there.
+>
+> The route is `/messages` rather than `/messages/pending`: the same screen
+> carries what did not go out, and a path naming one of its two halves would be
+> wrong the moment somebody's credentials expired. Failures sit **above** the
+> queue rather than behind a tab, which is the same argument — PRD §1.1's second
+> question is *"has the client been told?"*, and a message that failed answers it
+> exactly as badly as one still waiting.
+>
+> **And they are their own query.** The first build derived them by filtering the
+> 25 most-recently-touched rows, which made *"did this go out?"* a question about
+> how busy the team had been since: 25 successful sends pushed a failure off the
+> screen entirely. Both lists are bounded — a team inside F5.7's window has every
+> outbound message here — and both say so when they are, because a list that
+> silently shows 200 of 340 is a list somebody believes they have cleared.
+
+> [!note] S48 and S49 are one page, and it is not a modal
+> The rows had S48 as a modal preview and S49 as a separate failure page, and
+> building them showed they are the same screen asked at two moments. What a
+> reviewer needs before releasing a message — the words, the recipients, the deal,
+> what is unfilled — is exactly what somebody needs three months later when the
+> question is why the client never heard about the inspection. Two screens would
+> have been two renderings of one payload, disagreeing within a month about which
+> template a message came from.
+>
+> A page rather than a modal because the body is the point: F5.10 pre-fills a
+> message *"ready to review and send"*, and reviewing means reading an email at
+> the size an email is. The HTML body renders in a sandboxed iframe, never
+> `v-html` — S46's editor made the same choice for the same reason.
+>
+> **The test send stays on S46**, where the template lives. A test send of a
+> *queued instance* would be a second copy of a real client message on a real
+> transport, which is the thing this screen exists to make deliberate.
 
 ## I. Documents
 
@@ -290,7 +334,8 @@ tags:
 | ID | Screen | Route | User | Key states | PRD | Slice | Effort |
 |---|---|---|---|---|---|---|---|
 | S72 | Team profile and branding | `/settings/team` | Agent | Logo upload, colour picker, signature block, live preview of client page | F1.2, F7.5 | 1 | M |
-| S73 | Sending identity | `/settings/sending` | Agent | Unverified, DNS records to add, verifying, verified, failed | F5.9 | 3 | M |
+| S72b | Sending safety | `/settings/sending` | Agent | Stop everything, sandbox, hourly and daily limits, and the first-month review window — all four editable, not three and a notice. **Built** in Slice 3 — see the note below | F5.9 | 3 | S |
+| S73 | Sending identity | `/settings/sending/identity` | Agent | Unverified, DNS records to add, verifying, verified, failed | F5.9 | 3 | M |
 | S74 | Members and invitations | `/settings/members` | Agent | Empty, pending invites, revoke, last owner warning, **link issued** (shown once, replaces the emailed one — ADR 0003), **re-invite adds a role to an active member and replaces a revoked one's whole set** | F1.3 | 1 | M |
 | S75 | Roles and permissions | `/settings/roles` | Agent | System roles (locked), custom roles, permission matrix, in-use warning | F2.3 | 2 | **L** |
 | S76 | Deal types and lookups | `/settings/deal-types` | Agent | Defaults, custom, in-use warning | F3.1 | 2 | S |
@@ -298,6 +343,27 @@ tags:
 | S78 | Notification preferences | `/settings/notifications` | Team | Per event type, channel, quiet hours | F12.4 | 3 | S |
 | S79 | Data export | `/settings/export` | Agent | Request, preparing, ready, expired | NFR | 1 | S |
 | S80 | Billing | `/settings/billing` | Agent | Plan, packs owned, seats, invoices, payment method | Slice 7 | 7 | M |
+
+> [!note] S72b was not in the original inventory, and F5.9 required it
+> The rails themselves are `SendRails`, in the queue worker — issue #96 is
+> explicit that *"every one of them must hold when a message is sent by a
+> scheduled job at 3am with no human present"*, so no screen enforces anything
+> here. What this screen does is let somebody **reach** them, which is a
+> separate question the feature list did not ask: F5.9 describes the kill switch
+> as *"one toggle"*, and a toggle nobody can find is a column.
+>
+> Its own screen rather than a panel on S72, because this is the one somebody
+> opens in a hurry after a client phones, and burying the stop button under a
+> colour picker is how it takes forty seconds to find instead of five. It says
+> how many messages the switch is currently holding rather than promising that
+> it holds them.
+>
+> **S73 moved to `/settings/sending/identity` to make room**, and the nesting is
+> right rather than merely available: verifying a sending domain and deciding
+> what may leave the building are the same subject at two depths, and a person
+> setting up DNS records has arrived from this screen. Both are still to come
+> — S73 is #94 — but the route belonged to something built, and two screens
+> sharing one path is a bug waiting for the second one.
 
 ## P. Super admin
 

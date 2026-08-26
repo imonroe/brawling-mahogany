@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Support\Workflow;
 
+use App\Enums\AutomationState;
+use App\Enums\AutomationTrigger;
 use App\Enums\StageState;
 use App\Enums\TaskSource;
 use App\Enums\WorkflowState;
+use App\Jobs\RunAutomation;
+use App\Models\ActionInstance;
 use App\Models\Gate;
 use App\Models\Person;
 use App\Models\Stage;
@@ -14,6 +18,7 @@ use App\Models\Task;
 use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
+use App\Support\Automation\RaiseAutomations;
 use App\Support\Workflow\Gates\Evaluators\ManualConfirmationEvaluator;
 use App\Support\Workflow\Gates\GateRegistry;
 use App\Support\Workflow\Gates\GateVerdict;
@@ -48,8 +53,14 @@ use RuntimeException;
  * The transaction commits the state change; **the queue dispatch happens after
  * commit, never inside it.** A rolled-back transaction that has already queued
  * a client email is the failure PRD §4.5 calls unrecallable — the email goes,
- * the advance did not, and nobody can take it back. Slice 3 hangs the actual
- * dispatch on `pendingDispatch`.
+ * the advance did not, and nobody can take it back.
+ *
+ * Slice 3 made that real (#92), and split it in the one place it matters: the
+ * `action_instances` rows are written **inside** the transaction, because a
+ * message queued for an advance that rolled back is a message in a team's
+ * approval queue for something that never happened; the jobs are dispatched
+ * **after** it, by `dispatchRaised()`, because a job is picked up by a worker
+ * that has no idea whether the transaction it came from survived.
  *
  * ## Two public methods, one of them a way *past* the gates
  *
@@ -83,7 +94,40 @@ final class AdvanceWorkflow
         private readonly GateRegistry $gates,
         private readonly RecordActivity $activity,
         private readonly AuditLogger $audit,
+        private readonly RaiseAutomations $automations,
     ) {}
+
+    /**
+     * Queue everything a committed transaction raised (PRD §8.1 · #92).
+     *
+     * The seam this file's own docblock has named since Slice 2: **the rows
+     * are written inside the transaction and the jobs are dispatched after it
+     * commits.** A rolled-back advance that has already queued a client email
+     * is the failure PRD §4.5 calls unrecallable — the email goes, the advance
+     * did not, and nobody can take it back.
+     *
+     * `dispatchAfterResponse` is deliberately not used: a queued job is picked
+     * up by a worker, and the worker re-reads the row. Hanging the send off
+     * the web process would put a mail provider's latency inside somebody's
+     * click.
+     *
+     * @param  list<ActionInstance>  $raised
+     */
+    private function dispatchRaised(array $raised): void
+    {
+        foreach ($raised as $instance) {
+            /*
+             * Only the ones nothing is waiting on. An instance that opened in
+             * `awaiting_approval` — F5.7's 30-day window, or an automation the
+             * team marked for review — is released by `ApproveMessage` and by
+             * nothing else. Dispatching it here would send the message the
+             * approval queue exists to hold.
+             */
+            if ($instance->state === AutomationState::Pending) {
+                dispatch((new RunAutomation($instance->getKey()))->forTeam($instance->team_id));
+            }
+        }
+    }
 
     /**
      * Advance one stage, or refuse and say why.
@@ -99,7 +143,10 @@ final class AdvanceWorkflow
         ?Person $actor = null,
         ?string $expectedStageId = null,
     ): AdvanceResult {
-        return DB::transaction(function () use ($workflow, $actor, $expectedStageId): AdvanceResult {
+        /** @var list<ActionInstance> $raised */
+        $raised = [];
+
+        $result = DB::transaction(function () use ($workflow, $actor, $expectedStageId, &$raised): AdvanceResult {
             /*
              * Lock the workflow row first.
              *
@@ -162,7 +209,20 @@ final class AdvanceWorkflow
                 );
             }
 
-            $verdicts = $this->evaluateGates($stage);
+            /** @var list<Gate> $cleared Gates this evaluation moved to met. */
+            $cleared = [];
+
+            $verdicts = $this->evaluateGates($stage, $cleared);
+
+            /*
+             * Raised before the blocking check on purpose: a requirement that
+             * cleared during this attempt has cleared whether or not two
+             * others are still in the way, and telling the client the survey
+             * is back should not wait for the rest of the stage.
+             */
+            foreach ($cleared as $clearedGate) {
+                $raised = [...$raised, ...$this->automations->forGate($clearedGate)];
+            }
 
             $blocking = array_filter(
                 $verdicts,
@@ -190,6 +250,13 @@ final class AdvanceWorkflow
                     $stage->transitionTo(StageState::Blocked)->save();
                 }
 
+                /*
+                 * This branch returns from inside the transaction and
+                 * `dispatchRaised()` runs after it either way — `$raised` is
+                 * by reference precisely so a blocked advance still queues the
+                 * `gate_cleared` messages it raised above. An advance that
+                 * refuses is not an advance that cleared nothing.
+                 */
                 return AdvanceResult::blocked($stage, $blocking, $advisories);
             }
 
@@ -216,8 +283,12 @@ final class AdvanceWorkflow
              * to be pretended otherwise.
              */
 
-            return $this->applyAdvance($workflow, $stage, $actor, $advisories);
+            return $this->applyAdvance($workflow, $stage, $actor, $advisories, $raised);
         });
+
+        $this->dispatchRaised($raised);
+
+        return $result;
     }
 
     /**
@@ -559,6 +630,35 @@ final class AdvanceWorkflow
                 );
             }
 
+            /*
+             * And nothing queued for this stage goes out (#92).
+             *
+             * IA §7 keeps **Skip** and **Override** apart because they mean
+             * different things, and this is the difference in the one place a
+             * client would notice it: an overridden gate means *the condition
+             * should have been met and was not*, so the stage still happened
+             * and its messages still apply. A skipped stage did **not apply to
+             * this deal at all** — telling the client the inspection is
+             * scheduled, for a cash sale with no inspection, is the exact
+             * error F5.9 exists to prevent, arriving through the front door.
+             *
+             * Only what has not gone yet. `sent` and `failed` are what
+             * happened, and a record of an email a client has already read
+             * must not be rewritten to say it was cancelled.
+             */
+            ActionInstance::query()
+                ->where('stage_id', $stage->getKey())
+                ->whereIn('state', [
+                    AutomationState::Pending->value,
+                    AutomationState::AwaitingApproval->value,
+                ])
+                ->whereNull('message_key')
+                ->update([
+                    'state' => AutomationState::Cancelled->value,
+                    'error' => 'This stage was marked not applicable before the message went out.',
+                    'updated_at' => now(),
+                ]);
+
             $this->audit->record(
                 action: 'workflow.stage_skipped',
                 auditable: $stage,
@@ -612,10 +712,12 @@ final class AdvanceWorkflow
      *
      * An action that already fired stays fired: a client emailed when the
      * stage first completed must not be emailed again on the second advance.
-     * Nothing here can enforce that yet — `action_instances` is Slice 3's
-     * table — so the contract is recorded rather than implemented, and the
-     * dedupe belongs on the sending side, keyed by the stage and the action
-     * rather than by a count of advances.
+     * Slice 3 implemented that where this docblock said it belonged — on the
+     * sending side, keyed by the stage and the action rather than by a count
+     * of advances. See `RaiseAutomations::alreadyRaised()`, which also has to
+     * tell *"already said"* apart from *"never said"*: a stage that was
+     * skipped had its queue cancelled, so reopening and working it properly
+     * must fire what a completed-then-reopened stage must not.
      *
      * @throws StageNotOnWorkflow when the stage belongs to a different workflow
      */
@@ -811,7 +913,10 @@ final class AdvanceWorkflow
         Person $actor,
         bool $confirmed,
     ): ConfirmResult {
-        return DB::transaction(function () use ($workflow, $gate, $actor, $confirmed): ConfirmResult {
+        /** @var list<ActionInstance> $raised */
+        $raised = [];
+
+        $result = DB::transaction(function () use ($workflow, $gate, $actor, $confirmed, &$raised): ConfirmResult {
             $workflow = Workflow::query()
                 ->whereKey($workflow->getKey())
                 ->lockForUpdate()
@@ -889,8 +994,28 @@ final class AdvanceWorkflow
              * The timeline is the record for this, and it names the actor.
              */
 
+            /*
+             * F5.2's *when a requirement clears* (#92).
+             *
+             * Only on the way **in**. Unticking a gate is a correction to the
+             * record, and there is no reading of "a requirement cleared" that
+             * a retraction satisfies — but more to the point, an automation
+             * that fired on the tick has already sent something, and untick
+             * followed by re-tick must not send it again. That second half is
+             * `RaiseAutomations::alreadyRaised()`'s job rather than this
+             * branch's, because a gate can also be cleared by an override or
+             * by an evaluator noticing the world changed.
+             */
+            if ($confirmed) {
+                $raised = [...$raised, ...$this->automations->forGate($gate)];
+            }
+
             return ConfirmResult::confirmed($gate);
         });
+
+        $this->dispatchRaised($raised);
+
+        return $result;
     }
 
     /**
@@ -1019,12 +1144,14 @@ final class AdvanceWorkflow
 
     /**
      * @param  array<string, GateVerdict>  $advisories
+     * @param  list<ActionInstance>  $raised  filled with what the triggers produced, for the caller to dispatch after commit
      */
     private function applyAdvance(
         Workflow $workflow,
         Stage $stage,
         ?Person $actor,
         array $advisories,
+        array &$raised,
     ): AdvanceResult {
         $stage->transitionTo(StageState::Complete);
         $stage->forceFill([
@@ -1118,6 +1245,32 @@ final class AdvanceWorkflow
             ],
         );
 
+        /*
+         * And the automations, raised **inside** this transaction and
+         * dispatched outside it (#92).
+         *
+         * Written here rather than after the commit because a row that
+         * describes an advance that then rolled back is a message in a
+         * team's approval queue for something that never happened. The rows
+         * roll back with the advance; only the queue dispatch is deferred,
+         * and `dispatchRaised()` above is the whole of it.
+         *
+         * Three triggers, in the order a person would describe them: the
+         * stage that finished, the one that started, and the workflow if it
+         * has run out of stages. `workflow_completion` is asked of the
+         * workflow rather than of a stage — see `forWorkflow()`.
+         */
+        $raised = [
+            ...$raised,
+            ...$this->automations->forStage($stage, AutomationTrigger::StageCompletion),
+            ...($next instanceof Stage
+                ? $this->automations->forStage($next, AutomationTrigger::StageStart)
+                : []),
+            ...($workflowCompleted
+                ? $this->automations->forWorkflow($workflow, AutomationTrigger::WorkflowCompletion)
+                : []),
+        ];
+
         return AdvanceResult::advanced(
             completedStage: $stage,
             activatedStage: $next,
@@ -1135,9 +1288,10 @@ final class AdvanceWorkflow
      * the failure this product cannot have. The cache is refreshed here as a
      * side effect so the screens that do read it stay honest.
      *
+     * @param  list<Gate>  $cleared  filled with the gates this evaluation moved to met
      * @return array<string, GateVerdict>
      */
-    private function evaluateGates(Stage $stage): array
+    private function evaluateGates(Stage $stage, array &$cleared = []): array
     {
         $verdicts = [];
 
@@ -1150,6 +1304,33 @@ final class AdvanceWorkflow
             // a human ticking something and are never written by an
             // evaluation, or every re-render would rewrite who confirmed it.
             if ($gate->is_met !== $verdict->met) {
+                /*
+                 * A gate going **false → true** here is F5.2's *"when a
+                 * requirement clears"*, for every gate type that is not a
+                 * manual tick (#92, found in review).
+                 *
+                 * `confirm()` covers the manual one and covered nothing else,
+                 * so a team building *"when the inspection report is uploaded,
+                 * email the buyer"* got an automation that saved cleanly,
+                 * showed as active on S44, and never fired — the silent
+                 * non-delivery `CLAUDE.md` calls the worst possible answer to
+                 * *"has the client been told?"*. This line is where every
+                 * other type's answer actually changes, so it is where the
+                 * trigger belongs.
+                 *
+                 * **Only in that direction.** A gate going true → false is a
+                 * requirement that stopped being satisfied, which is not a
+                 * clearing, and re-firing on the next clear is what
+                 * `RaiseAutomations::alreadyRaised()` is there to prevent.
+                 *
+                 * An **override** deliberately raises nothing: IA §8 insists
+                 * overridden is not a kind of met, and `override()` never
+                 * touches `is_met`, so it cannot reach this branch.
+                 */
+                if ($verdict->met) {
+                    $cleared[] = $gate;
+                }
+
                 $gate->forceFill(['is_met' => $verdict->met])->save();
             }
         }

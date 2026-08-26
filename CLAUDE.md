@@ -42,10 +42,19 @@ template carries a **channel** and a recipient *rule* rather than an address,
 its merge fields are validated at save time, and its preview renders the
 **draft** against a real deal of the team's. Automations hang off
 `stage_templates` with the triggers and action types F5.2 and F5.3 name.
-Nothing in it reaches a client: `action_instances`, the queue, the approval
-queue and F5.9's rails are #92, #93 and #96, and they land **together**, so the
-first thing able to email a client arrives with its safety rails attached
-rather than shortly afterwards.
+**And then the half that does** (#92, #93, #96), which landed **together** so
+that the first thing able to email a client arrived with its safety rails
+attached rather than shortly afterwards. A trigger raises `action_instances`
+inside the advance's own transaction and the queue dispatch happens after it
+commits; the words are rendered at raise time, which is what F5.10's *"ready to
+review and send"* requires; F5.7's queue (S47–S49) stands in front of the
+transport; and F5.9's three rails are asked in `ExecuteAction`, in the worker,
+in the statement immediately before the mailer. `ActionCompletedEvaluator` is
+wired with them — the second of Slice 2's three deferred gates.
+
+What is left in the epic: branded email and SES (#94, #95, #97), documents and
+their guardrails (#98–#100, #104), and the mobile layer (#101–#103). #12 (SES
+production access) and #19 (web push on a real iPhone) are not code.
 
 Before making architectural decisions or writing code, read [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md) (the PRD), which is the source of truth for scope, data model, release plan, and open questions. It is a living draft (currently v0.5) — check its `status` and `version` frontmatter and its Decision Log (§15) before assuming a detail is settled.
 
@@ -468,7 +477,183 @@ These come from PRD §8 and should guide the eventual build:
   `tests/js/formatters.test.ts`'s worked examples verbatim, which is what makes
   a one-sided change fail in the pull request that made it.
 
-- **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements.
+- **Automation is the highest-blast-radius feature.** An email to the wrong client can't be recalled. Anything touching `action_definitions`/message sending needs the approval-queue and safety-rail behavior from PRD §4.5 (F5.7, F5.9) treated as launch blockers, not enhancements. **Built in Slice 3** (#92, #93, #96), and the five findings below are what building it taught.
+
+- **An idempotency key you generate is not the one the provider hands back.**
+  `action_instances` carries both, and the distinction is the whole guarantee.
+  A provider call can time out **after** the provider has accepted the message,
+  so the id they would have returned is exactly the thing a timed-out send does
+  not have — a retry keyed on `provider_message_id` sails through on precisely
+  the send that already reached a client. `message_key` is ours, claimed with a
+  conditional `UPDATE … WHERE message_key IS NULL` before the mailer is called
+  at all, which makes the database decide which of two workers owns the send.
+
+  The crash window that ordering leaves is the safe one: a `pending` row
+  carrying a key, which every path stands down on and
+  `automations:reap-unconfirmed` settles later. The other ordering leaves a row
+  that looks unsent and is not.
+
+- **The rows go inside the transaction; the jobs go after it.** Both halves are
+  load-bearing and they pull opposite ways. A row written outside is a message
+  in a team's approval queue for an advance that rolled back. A job dispatched
+  inside is one a worker may pick up before the commit lands, or after a
+  rollback the queue never hears about — and this particular job emails a
+  client. `AdvanceWorkflow` named this seam in its own docblock two slices
+  before anything could use it; `dispatchRaised()` is the whole of the second
+  half.
+
+- **A cache is only true at the moment something refreshed it — and a
+  *substituted* body is a cache of the deal.** `action_instances.payload` holds
+  words already rendered, because F5.10's *"ready to review and send"* cannot be
+  satisfied by a render that happens at send time. Which means a `{{ token }}`
+  typed into S48's editor by an approver has **nothing left to replace it** and
+  reaches the client as braces — registered or not, because the substitution
+  pass is over. `ApproveMessage` refuses tokens in an edited field rather than
+  re-substituting: substituting would fix the values at approval time on one
+  message out of two raised from the same words.
+
+  The first version filtered the carried-over `unresolved`/`unknown` lists and
+  never looked at what had just been typed. A test written for the other
+  direction found it.
+
+- **"Already happened" and "never happened" are different, and cancellation is
+  what separates them.** `AdvanceWorkflow::reopen()` recorded the contract
+  before there was a table for it: *"an action that already fired stays
+  fired… keyed by the stage and the action rather than by a count of
+  advances."* The dedupe that implements it excludes **cancelled** rows,
+  because a skipped stage cancels its queue and nothing went out — so a stage
+  that comes back and is worked properly is still owed its message. A `failed`
+  row does count: it will fail again for the same reason, and raising a second
+  one only puts a second identical failure on the timeline. An `exists()` over
+  every row silences the reopen case forever.
+
+- **A default nobody can leave is not a default, and a rule set in one caller
+  is set nowhere.** F5.7 holds every outbound email for a team's first 30 days,
+  and `teams.approval_required_until` carried the migration comment *"set on
+  team creation"* — which nothing did. `ProvisionTeam` writes four columns and
+  this was not one of them, the column has no database default, and there was
+  no hook. So the rail PRD §4.5 calls a launch blocker was live for every team
+  that already existed and dead for every team it was written for, exactly
+  backwards and completely silent.
+
+  It lives on `Team::booted()` now, because `ProvisionTeam` is not the only
+  door: `/admin` provisions teams, the factory builds them, and a later slice
+  adds signup. **And the screen can turn it off** — it rendered read-only while
+  `automation.md` promised otherwise, which is S17's finding one control over.
+
+- **"This message is not mine" and "this message is broken" are different
+  answers.** `SendRails` returned a plain refusal for both, and `ExecuteAction`
+  marked every refusal `failed` with a timeline entry. But
+  `ApproveMessage::cancel()` deliberately allows stopping a **pending**
+  instance, and a pending instance is one already dispatched — so *"queued →
+  somebody presses Stop → the worker arrives"* is the ordinary sequence, not a
+  race. It destroyed the reason a person typed, wrote *"an automated message
+  did not go out: this message is Cancelled"* onto the deal, and flipped the
+  row from `cancelled` to `failed`, where `alreadyRaised()` counts it — so a
+  skipped stage that was later reopened silently never re-raised its message.
+  One collapsed distinction defeating the contract two files over.
+
+  `SendDecision::standDown()` writes nothing at all, the same treatment a
+  worker that loses the `message_key` claim already got. Before adding a
+  refusal, ask whose problem it is.
+
+- **A trigger wired to one implementation of a thing is wired to none of it.**
+  `gate_cleared` fired from `AdvanceWorkflow::confirm()` — a person ticking a
+  manual gate — and from nowhere else, while S44 offered the trigger for all
+  seven gate types and `SaveAutomationRequest` accepted any of them. A team
+  building *"when the required tasks are done, email the buyer"* got an
+  automation that saved cleanly, showed as active, and never fired. It is now
+  raised where `is_met` actually transitions, in `evaluateGates()`, in the
+  false→true direction only.
+
+  **Which is when somebody presses Advance, not when the world changes** —
+  `evaluateGates()` has one caller and nothing re-evaluates a gate on task
+  completion. That is a real improvement on never firing and it is not what
+  *"when a requirement clears"* sounds like, so `automation.md` says which. The
+  second door — evaluating from `DealTasks::complete()` — is the fix that would
+  make the sentence literal, and it has to go through `AdvanceWorkflow` because
+  `gates.is_met` is guarded.
+
+  An override raises nothing, and the mechanism is worth stating precisely
+  because the obvious explanation is only half of it: `override()` not touching
+  `is_met` matters, but the load-bearing reason is that **no evaluator reads
+  `gates.overridden`** — `blocksAdvance()` does, after the verdict — so an
+  overridden gate's verdict stays unmet and never transitions at all.
+
+- **"Nobody owns this" and "somebody is doing it right now" look identical on
+  the row, and no amount of staleness arithmetic separates them.**
+  `action_instances` `pending` carrying a `message_key` does not mean the
+  worker died — it means *some* worker claimed it and has not written its
+  outcome, and the commonest reading is a sibling inside `Mail::send` at this
+  instant. Two workers on one row is what a queue does after a visibility
+  timeout, which is what the claim exists for.
+
+  Three review rounds went into trying to decide that row inside the next
+  worker. It cannot be done: **the second delivery happens because the claim
+  aged past the visibility timeout**, so the crashed worker and the live
+  sibling present the same age at the only moment anything asks. A threshold
+  below `retry_after` narrates failures about live sends; one above it is never
+  evaluated at all, because standing down completes the job and there is no
+  third delivery. The second attempt shipped a dead branch and a passing test,
+  because the fixture manufactured a staleness the product never produces.
+
+  So a worker **always stands down**, and the outcome is decided twice over
+  where no worker is standing: the row is *listed* on S47 — a read, which
+  cannot contradict anybody — and `automations:reap-unconfirmed` records the
+  failure hours later. Before adding a discriminator, ask whether the thing you
+  are measuring is caused by the thing you are trying to detect.
+
+- **A type check against a concrete date class fails closed, silently.** One of
+  those attempts shipped as `$claimedAt instanceof Illuminate\Support\Carbon`,
+  and this project runs on immutable dates — so `updated_at` hydrates as
+  `Carbon\CarbonImmutable`, the check was false for **every** row, and the whole
+  branch was dead with all tests passing, because the failure direction
+  happened to be the one the old code took. Type against `CarbonInterface`.
+
+- **A gate in the thing one branch calls is a gate the other branches do not
+  have.** `ExecuteAction::handle()` asks `SendRails` — where the ownership
+  check lives — for `send_email` and nothing else, so `create_task` had no
+  state check at all: an automation somebody **stopped** was carried out
+  anyway, the row moved `cancelled → sent`, the typed reason was destroyed,
+  and `alreadyRaised()` then counted it, so a stage skipped and later reopened
+  was never owed that task again. A duplicate delivery made the task twice,
+  because `message_key` is the send path's guarantee and that branch has none.
+  The gate belongs in `handle()`, ahead of the `match`, where every action type
+  passes.
+
+- **A rail's own reason is a write, so ask whether the row is yours first.**
+  `SendRails::decide()` had the kill switch first, on the argument that it is
+  the one somebody is on the phone about. But a halt stamps `error`, so a
+  worker arriving late at a **cancelled** message overwrote the reason a person
+  typed with *"sending is switched off for this team"*, and a duplicate
+  delivery for a **sent** one wrote a rail error onto a delivered message.
+  Ownership costs the switch nothing — a `pending`, unclaimed row still reaches
+  it, and that is every row the switch is for.
+
+- **A rail with no hand on it is a column.** F5.9's kill switch, its rate
+  ceiling and its sandbox all live in `SendRails`, in the worker, because issue
+  #96 requires them to hold *"when a message is sent by a scheduled job at 3am
+  with no human present"*. None of that gives anybody a way to **pull** the
+  switch, and F5.9 describes it as *"one toggle"* — so `/settings/sending`
+  exists, and it is S17's finding recurring one feature over: a row nothing can
+  reach is a rule nobody is following.
+
+  Its own screen rather than a panel on S72, because it is the one somebody
+  opens in a hurry after a client phones. It says how many messages the switch
+  is currently holding rather than promising that it holds them.
+
+- **A guard that never read the file is not a guard.**
+  `SingleMutationPathTest` could not see `action_instances.state` — not because
+  its patterns missed the shape, but because its *candidate filter* only opened
+  files mentioning `Stage`, `Workflow` or `Gate`, and `ExecuteAction` mentions
+  none of them. That column decides whether an email reaches a client: writing
+  `pending` releases a message past F5.7's queue, and writing `sent` tells a
+  team a client heard something they did not. Both are one array key, and both
+  look exactly like housekeeping. This is #68's own `DB::table('stages')` hole,
+  recurring at the filter rather than at the pattern — **adding a guarded
+  column means adding its model and its table to the filter**, and the file
+  says so; it was the sentence that got followed for the pattern and not for
+  the filter.
 - **No user flow depends on email alone.** Every flow the product initiates by
   email carries a second way to start or answer it that does not involve email
   — the recipient answering in-app, somebody who already controls the flow
@@ -512,6 +697,8 @@ These come from PRD §8 and should guide the eventual build:
 | `php artisan migrate:fresh --seed` | A working demo team. Sign in as `emily@example.test` / `password`; `ian@example.test` is the super administrator |
 | `php artisan platform:promote <email>` | Grant platform administrator to an existing account — the **first-run bootstrap**. `/admin` provisions teams and invites their owners; this is how the first person gets into `/admin`. `--demote` reverses it (`--demote-last` to skip the only-administrator warning). Audited |
 | `php artisan db:seed --class='Database\Seeders\PerformanceFixtureSeeder'` | G8's volumes in a database you can open (PRD §9): 25 active deals mid-flight, 500 past clients, 2,000 activity events. Sign in as `perf@example.test` / `password`. Deliberately **not** part of `migrate:fresh --seed` — a developer wanting a demo team does not want 2,000 events on every schema change |
+| `php artisan automations:reap-unconfirmed` | Record the outcome of sends handed to a transport that never confirmed (#92). Hourly, `--hours=6` by default. A worker cannot decide that row — see the finding below — so this does, far enough from the claim that there is no live sibling to contradict. It never resends |
+| `php artisan automations:dispatch-due` | Queue automation instances that are due and have nothing coming for them (#92). Scheduled every minute. It catches two things: a message with a future `scheduled_for`, and one stranded by a web process that died between committing an advance and dispatching its job — without which the message simply never goes and nothing anywhere says so |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, and abandoned import uploads. Scheduled nightly; safe to run by hand |
 | `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation, with no mail transport and no session (ADR 0003). `--team=<slug>` when the address is invited to more than one. Rotates the token, so it replaces any link already sent. Audited |
 | `php artisan auth:reset-link <email>` | Print a single-use password reset link for an existing account (ADR 0003). Starts a reset; only the account holder can finish one. Audited |

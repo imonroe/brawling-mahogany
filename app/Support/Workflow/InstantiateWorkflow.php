@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace App\Support\Workflow;
 
+use App\Enums\AutomationState;
+use App\Enums\AutomationTrigger;
 use App\Enums\StageState;
 use App\Enums\TaskSource;
 use App\Enums\WorkflowState;
+use App\Jobs\RunAutomation;
+use App\Models\ActionDefinition;
 use App\Models\Deal;
 use App\Models\Gate;
 use App\Models\GateTemplate;
@@ -18,6 +22,7 @@ use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Models\WorkflowTemplate;
 use App\Support\Activity\RecordActivity;
+use App\Support\Automation\RaiseAutomations;
 use App\Support\Tenancy\ForeignReferenceException;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
@@ -56,7 +61,10 @@ use Illuminate\Support\Facades\DB;
  */
 final class InstantiateWorkflow
 {
-    public function __construct(private readonly RecordActivity $activity) {}
+    public function __construct(
+        private readonly RecordActivity $activity,
+        private readonly RaiseAutomations $automations,
+    ) {}
 
     /**
      * @param  array<string, string>  $roleAssignments  owner_role => person id
@@ -100,7 +108,11 @@ final class InstantiateWorkflow
 
         // Loaded once, outside the transaction, and used for both the copy and
         // the snapshot — so the two cannot describe different things.
-        $template->load('stageTemplates.gateTemplates', 'stageTemplates.taskTemplates');
+        $template->load(
+            'stageTemplates.gateTemplates',
+            'stageTemplates.taskTemplates',
+            'stageTemplates.actionDefinitions',
+        );
 
         $workflow = DB::transaction(function () use ($deal, $template, $start, $roleAssignments): Workflow {
             $workflow = new Workflow;
@@ -158,7 +170,71 @@ final class InstantiateWorkflow
             deal: $deal,
         );
 
+        /*
+         * The two triggers a new workflow fires (#92).
+         *
+         * Raised **after** the transaction rather than inside it, and this is
+         * the one place that ordering differs from `AdvanceWorkflow`'s. The
+         * reason is `stage_id`: an instance points at a stage row, and the
+         * rows this method's transaction creates do not exist until it
+         * commits. There is nothing to roll back into an approval queue here
+         * either — a failed instantiation leaves no workflow at all, so the
+         * raise simply never runs.
+         *
+         * `stage_start` for the first stage as well as `workflow_start`,
+         * because activating the first stage is part of instantiation rather
+         * than a first advance — the comment inside the transaction argues
+         * that — and a stage that became active without firing its own
+         * `stage_start` is the kind of gap where each half works and the pair
+         * does not.
+         */
+        $raised = [
+            ...$this->automations->forWorkflow($workflow, AutomationTrigger::WorkflowStart),
+            ...($workflow->activeStage() instanceof Stage
+                ? $this->automations->forStage($workflow->activeStage(), AutomationTrigger::StageStart)
+                : []),
+        ];
+
+        foreach ($raised as $instance) {
+            // Same rule as `AdvanceWorkflow::dispatchRaised()`: an instance
+            // waiting for a person is released by `ApproveMessage` and by
+            // nothing else.
+            if ($instance->state === AutomationState::Pending) {
+                dispatch((new RunAutomation($instance->getKey()))->forTeam($instance->team_id));
+            }
+        }
+
         return $workflow;
+    }
+
+    /**
+     * Which gate on this stage template an automation is waiting on.
+     *
+     * Null unless the trigger names one, and null again when it names a gate
+     * that is no longer on the stage. The second case is reachable: the gate
+     * template can be deleted while the automation pointing at it survives, and
+     * an automation left waiting on a gate that will never exist is one that
+     * simply never fires — which is the same outcome as before, and a great
+     * deal better than firing on whichever gate happened to inherit the
+     * ordering.
+     */
+    private function gateSortOrder(StageTemplate $stage, ActionDefinition $automation): ?int
+    {
+        if (! $automation->trigger->needsGate()) {
+            return null;
+        }
+
+        $gateTemplateId = $automation->configuration()['gateTemplateId'] ?? null;
+
+        if (! is_string($gateTemplateId)) {
+            return null;
+        }
+
+        $gate = $stage->gateTemplates->first(
+            fn (GateTemplate $gate): bool => $gate->getKey() === $gateTemplateId,
+        );
+
+        return $gate instanceof GateTemplate ? $gate->sort_order : null;
     }
 
     /**
@@ -323,6 +399,51 @@ final class InstantiateWorkflow
                     'is_required' => $task->is_required,
                     'sort_order' => $task->sort_order,
                 ])->values()->all(),
+                /*
+                 * The automations, snapshotted like everything else (#92).
+                 *
+                 * This is what a trigger reads when it fires, rather than
+                 * `action_definitions` — F4.5 says a template edit must never
+                 * rewrite a deal already running, and an automation is as much
+                 * part of the process as a gate is. A team that adds
+                 * "email the seller on completion" today does not retroactively
+                 * owe an email on every stage that completed last month.
+                 *
+                 * `message_template_id` is the one pointer that stays live,
+                 * deliberately: the words are rendered when an instance is
+                 * raised, so a typo fixed in a template reaches the messages
+                 * raised after the fix and not the ones already queued for
+                 * approval. Fixing a typo should not require rebuilding a
+                 * workflow.
+                 */
+                'automations' => $stage->actionDefinitions
+                    ->filter(fn (ActionDefinition $automation): bool => $automation->is_active)
+                    ->map(fn (ActionDefinition $automation): array => [
+                        'action_definition_id' => $automation->getKey(),
+                        'trigger' => $automation->trigger->value,
+                        'action_type' => $automation->action_type->value,
+                        'message_template_id' => $automation->message_template_id,
+                        'config' => $automation->configuration(),
+                        /*
+                         * The gate a `gate_cleared` automation waits on, as a
+                         * **sort order** rather than the `gateTemplateId` the
+                         * editor stored.
+                         *
+                         * Resolved here because this is the only moment both
+                         * halves are in the same room. `gates` carries no
+                         * pointer back to the `gate_template` it was copied
+                         * from — the runtime layer deliberately does not reach
+                         * into the definition layer — so a template id in a
+                         * snapshot is an id nothing at runtime can match. What
+                         * both layers do carry verbatim is `sort_order`,
+                         * which is the same key stages are matched by, and
+                         * unique within its parent.
+                         */
+                        'gate_sort_order' => $this->gateSortOrder($stage, $automation),
+                        'requires_approval' => $automation->requires_approval,
+                        'is_manual' => $automation->is_manual,
+                        'sort_order' => $automation->sort_order,
+                    ])->values()->all(),
             ])->values()->all(),
         ];
     }

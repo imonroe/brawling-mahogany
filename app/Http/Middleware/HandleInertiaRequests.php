@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Enums\ContactType;
+use App\Models\ActionInstance;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
@@ -115,7 +116,22 @@ class HandleInertiaRequests extends Middleware
              * entirely before a team resolves.
              */
             'counts' => $person instanceof Person && $team instanceof Team
-                ? ['myWork' => MyWork::countFor($person)]
+                ? [
+                    'myWork' => MyWork::countFor($person),
+                    /*
+                     * S47's queue (#93), and the count is the whole reason the
+                     * queue is safe. PRD §4.5 makes the approval queue a
+                     * launch blocker; a queue nobody is told about is a set of
+                     * client messages that silently never go — which is a
+                     * worse failure than the one the queue prevents, because
+                     * it is invisible.
+                     *
+                     * Team-wide rather than per-person: `message.approve` is a
+                     * team responsibility and anybody holding it may clear
+                     * any row, unlike My Work, which is *mine*.
+                     */
+                    'pendingMessages' => ActionInstance::query()->awaitingApproval()->count(),
+                ]
                 : null,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

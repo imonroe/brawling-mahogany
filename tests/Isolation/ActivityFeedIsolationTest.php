@@ -215,12 +215,9 @@ it('never shows a person-subjected event to somebody who may not see people', fu
  *
  * A property chain, and **never a method call**. `subject:` is
  * `RecordActivity`'s named argument and it is always handed a model —
- * `$deal`, `$membership->person`. It is not the only named argument in the
- * codebase called `subject` any more: Slice 3's `RenderedMessage(subject: …)`
- * is an email's subject line, and the first version of this pattern read
- * `$template->channel->hasSubject()` as a subject type called `HasSubject`.
+ * `$deal`, `$membership->person`.
  *
- * The trailing lookahead is what separates them, and all three forbidden
+ * The trailing lookahead is what keeps a chain whole, and all three forbidden
  * characters earn their place — the engine backtracks off the end of a
  * rejected call and matches a shorter prefix of the same chain otherwise.
  * Without `-`, `$template->channel->hasSubject()` came back as `Channel`;
@@ -229,8 +226,135 @@ it('never shows a person-subjected event to somebody who may not see people', fu
  *
  * That is safe rather than a hole: a relation *call* returns a builder, not a
  * model, so it is never something `RecordActivity` could be given.
+ *
+ * ## Which `subject:` this is, though, is not the pattern's job
+ *
+ * `subject:` is no longer only `RecordActivity`'s. Slice 3 added mailables,
+ * and `new Envelope(subject: $subject)` is the plainest possible Laravel — so
+ * a scan that reads every `subject:` in `app/` reported an email's subject
+ * line as an activity subject type, twice, with two different names as the
+ * expression behind it changed.
+ *
+ * Narrowing the *expression* is what the first two attempts did, and it
+ * cannot work: `subject: $subject` and `subject: $deal` are the same shape.
+ * The thing that tells them apart is what is being **called**, so
+ * `activitySubjectsIn()` below decides that structurally and this pattern only
+ * reads the expression once the call is known. An unrecognised `subject:`
+ * fails the build rather than being guessed at — the same fail-closed
+ * direction as the allowlist it guards.
  */
-const ACTIVITY_SUBJECT_PATTERN = '/subject:\s*\$([A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)*)(?![\w(\-])/';
+const ACTIVITY_SUBJECT_PATTERN = '/^\s*\$([A-Za-z_][A-Za-z0-9_]*(?:->[A-Za-z_][A-Za-z0-9_]*)*)(?![\w(\-])/';
+
+/**
+ * Named arguments called `subject` that are **not** an activity subject.
+ *
+ * An allowlist of constructors rather than an exclusion of expressions, which
+ * is the correction this scan needed twice. `new Envelope(subject: $subject)`
+ * and `subject: $deal` are the same shape, so nothing about the *expression*
+ * can separate them — what separates them is what is being called.
+ *
+ * A constructor not on this list fails the build rather than being guessed at.
+ *
+ * @var list<string>
+ */
+const NON_ACTIVITY_SUBJECT_CALLS = [
+    // A mail subject line (Slice 3's mailables).
+    'Envelope',
+    // `RenderedMessage`'s own subject — the words, not who they are about.
+    'RenderedMessage',
+];
+
+/**
+ * The source as the scanner should see it: code, with the prose taken out.
+ *
+ * `SingleMutationPathTest` does the same thing for the same reason, and this
+ * scan needed it the moment it started failing closed: several files in `app/`
+ * *describe* `subject:` in a docblock — including the docblock explaining this
+ * very rule — and a guard that reads its own documentation as a violation is
+ * a guard nobody can satisfy.
+ *
+ * Strings are kept. Nothing here matches inside one today, and dropping them
+ * would be the kind of narrowing that quietly stops finding things.
+ */
+function activityScanSource(string $contents): string
+{
+    $code = '';
+
+    foreach (token_get_all($contents) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+
+        $code .= is_array($token) ? $token[1] : $token;
+    }
+
+    return $code;
+}
+
+/**
+ * Every `subject:` in one file, classified by the call it belongs to.
+ *
+ * Structural rather than a cleverer regex: each occurrence is read backwards
+ * to whatever opened the argument list.
+ *
+ *  - `->record(subject: …)` — `RecordActivity`. The expression is returned.
+ *  - `new X(subject: …)` where X is in {@see NON_ACTIVITY_SUBJECT_CALLS} — a
+ *    subject *line*, not a subject *type*. Ignored.
+ *
+ * Anything else lands in `unrecognised`, and the caller fails the build on it.
+ * That is deliberate and it is the whole reason this is not an exclusion list:
+ * a third kind of `subject:` in Slice 5 stops the build the day it is written
+ * rather than being silently read as a subject type or silently dropped.
+ *
+ * @return array{subjects: list<string>, unrecognised: list<string>}
+ */
+function activitySubjectsIn(string $source): array
+{
+    $subjects = [];
+    $unrecognised = [];
+
+    preg_match_all('/\bsubject:/', $source, $matches, PREG_OFFSET_CAPTURE);
+
+    foreach ($matches[0] as [$_, $offset]) {
+        $before = substr($source, 0, $offset);
+        $after = substr($source, $offset + strlen('subject:'));
+
+        /*
+         * Read backwards past the arguments already in this call and look at
+         * what opened it. Two levels of nested parentheses are tolerated in
+         * those earlier arguments — `replyTo: $this->replyToAddresses(),` is
+         * one, and a call site that nests deeper lands in `unrecognised`
+         * rather than being skipped, which is the fail-*closed* direction.
+         */
+        $opener = preg_match(
+            '/(?:->\s*(record)|new\s+([A-Za-z_][A-Za-z0-9_]*))\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*$/s',
+            $before,
+            $call,
+        ) === 1 ? $call : null;
+
+        if ($opener === null) {
+            $unrecognised[] = trim(substr($before, max(0, strlen($before) - 60)).'subject:');
+
+            continue;
+        }
+
+        if (($opener[2] ?? '') !== '') {
+            if (in_array($opener[2], NON_ACTIVITY_SUBJECT_CALLS, true)) {
+                continue;
+            }
+
+            $unrecognised[] = 'new '.$opener[2].'(… subject:';
+
+            continue;
+        }
+
+        if (preg_match(ACTIVITY_SUBJECT_PATTERN, $after, $expression) === 1) {
+            $subjects[] = $expression[1];
+        }
+    }
+
+    return ['subjects' => $subjects, 'unrecognised' => $unrecognised];
+}
 
 /**
  * The shape probes for the scan above.
@@ -246,19 +370,57 @@ const ACTIVITY_SUBJECT_PATTERN = '/subject:\s*\$([A-Za-z_][A-Za-z0-9_]*(?:->[A-Z
  * narrowing got wrong.
  */
 it('matches an activity subject and never a method call', function (string $source, ?string $expected): void {
-    preg_match(ACTIVITY_SUBJECT_PATTERN, $source, $match);
+    $found = activitySubjectsIn($source);
 
-    expect($match[1] ?? null)->toBe($expected);
+    expect($found['unrecognised'])->toBe([], 'A `subject:` shape the scan cannot classify.')
+        ->and($found['subjects'][0] ?? null)->toBe($expected);
 })->with([
-    'a bare model' => ['subject: $deal,', 'deal'],
-    'a relation' => ['subject: $membership->person,', 'membership->person'],
-    'last argument' => ['subject: $workflow)', 'workflow'],
-    'two deep' => ['subject: $stage->workflow->deal,', 'stage->workflow->deal'],
+    'a bare model' => ['$this->activity->record(subject: $deal,)', 'deal'],
+    'a relation' => ['$this->activity->record(subject: $membership->person,)', 'membership->person'],
+    'last argument' => ['$this->activity->record(subject: $workflow)', 'workflow'],
+    'two deep' => ['$this->activity->record(subject: $stage->workflow->deal,)', 'stage->workflow->deal'],
+    /*
+     * Not the first argument. The whole reason this is structural rather than
+     * a `->record(\s*subject:` regex: a call site that puts the actor first is
+     * ordinary PHP, and a scan that only ever looked immediately after the
+     * paren would drop its subject silently — which is the fail-open direction
+     * this file exists to refuse.
+     */
+    'after another argument' => ['$this->activity->record(actor: $person, subject: $deal)', 'deal'],
 
-    'a method call' => ['subject: $template->channel->hasSubject() ? 1 : 2,', null],
-    'a method call on the variable itself' => ['subject: $rendered->subject(),', null],
-    'a bare call' => ['subject: $value(),', null],
+    /*
+     * A method call is still never a subject, whatever the call it sits in.
+     */
+    'a method call' => ['$x->record(subject: $template->channel->hasSubject() ? 1 : 2,)', null],
+    'a method call on the variable itself' => ['$x->record(subject: $rendered->subject(),)', null],
+    'a bare call' => ['$x->record(subject: $value(),)', null],
+
+    /*
+     * The shape that started all this. `new Envelope(subject: $subject)` is
+     * the plainest Laravel there is, and it is not an activity subject — it
+     * is recognised and ignored rather than narrowed against, because
+     * `subject: $subject` and `subject: $deal` are the same shape and no
+     * expression-level pattern can tell them apart.
+     */
+    'a mail envelope' => ['return new Envelope(subject: $subject,);', null],
+    'a mail envelope after another argument' => [
+        'return new Envelope(replyTo: $to, subject: $subject);',
+        null,
+    ],
 ]);
+
+it('fails on a `subject:` it cannot classify', function (): void {
+    /*
+     * The probe for the fail-closed half, which is the half a passing suite
+     * cannot otherwise demonstrate. A third kind of `subject:` — a value
+     * object constructed directly, say — must stop the build rather than be
+     * quietly read as a subject type or quietly dropped.
+     */
+    $found = activitySubjectsIn('$thing = new SomethingElse(subject: $deal);');
+
+    expect($found['subjects'])->toBe([])
+        ->and($found['unrecognised'])->toHaveCount(1);
+});
 
 it('gives every subject type the feed carries a permission rule', function (): void {
     /*
@@ -278,11 +440,23 @@ it('gives every subject type the feed carries a permission rule', function (): v
      */
     $sources = collect(File::allFiles(app_path()))
         ->filter(fn ($file): bool => $file->getExtension() === 'php')
-        ->map(fn ($file): string => (string) file_get_contents($file->getPathname()));
+        ->map(fn ($file): string => activityScanSource((string) file_get_contents($file->getPathname())));
 
-    preg_match_all(ACTIVITY_SUBJECT_PATTERN, $sources->implode("\n"), $matches);
+    $found = activitySubjectsIn($sources->implode("\n"));
 
-    $subjects = collect($matches[1])->unique()->values();
+    /*
+     * An unclassifiable `subject:` fails here rather than being skipped. The
+     * alternative is the shape ADR 0002 keeps recording: a list that fails
+     * open, quietly, on exactly the case nobody thought about.
+     */
+    expect($found['unrecognised'])->toBe([], sprintf(
+        'A `subject:` argument in app/ belongs to neither RecordActivity nor a mail envelope, '
+        .'so the scan cannot say whether it names an activity subject type: %s. '
+        .'Teach activitySubjectsIn() about the call it belongs to.',
+        implode(' · ', $found['unrecognised']),
+    ));
+
+    $subjects = collect($found['subjects'])->unique()->values();
 
     // The scan has to be finding things: a pattern that quietly stopped
     // matching would make the assertion below pass over an empty list.

@@ -9,6 +9,7 @@ use App\Enums\ParticipantRole;
 use App\Enums\RecipientRuleType;
 use App\Models\MessageTemplate;
 use App\Rules\ValidMergeFields;
+use App\Support\Messages\MessageBodyLimits;
 use App\Support\Tenancy\TeamContext;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -56,7 +57,7 @@ trait MessageTemplateRules
                 ? [
                     'required',
                     'string',
-                    'max:200',
+                    'max:'.MessageBodyLimits::SUBJECT,
                     /*
                      * A subject line is a mail **header**, and the merged
                      * values are already stripped of CR and LF on the way into
@@ -77,12 +78,12 @@ trait MessageTemplateRules
                 // `markup: true` — a `<style>` block's nested CSS rules close
                 // with `}}`, and refusing that would refuse valid email on the
                 // one field HTML email is written into.
-                ? ['nullable', 'string', 'max:100000', new ValidMergeFields(markup: true)]
+                ? ['nullable', 'string', 'max:'.MessageBodyLimits::HTML, new ValidMergeFields(markup: true)]
                 : ['prohibited'],
 
             // Never nullable. Design System §12 wants a real plain-text
             // alternative on every message, and the column is NOT NULL.
-            'body_text' => ['required', 'string', 'max:100000', new ValidMergeFields],
+            'body_text' => ['required', 'string', 'max:'.MessageBodyLimits::TEXT, new ValidMergeFields],
 
             'recipient_rule' => ['required', 'array'],
             'recipient_rule.type' => [

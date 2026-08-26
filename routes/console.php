@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\DispatchDueAutomations;
 use App\Console\Commands\PurgeSoftDeletedRecords;
+use App\Console\Commands\ReapUnconfirmedSends;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -20,5 +22,34 @@ Artisan::command('inspire', function (): void {
  */
 Schedule::command(PurgeSoftDeletedRecords::class)
     ->dailyAt('03:15')
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * The automation sweep (#92).
+ *
+ * Every minute, because the two things it catches are both about latency a
+ * client would notice: a scheduled message that is now due, and one stranded
+ * by a web process that died between committing the advance and dispatching
+ * the job. `withoutOverlapping` because a slow run must not stack, and
+ * `onOneServer` because two schedulers picking up the same instance would
+ * queue it twice — survivable (the claim on `message_key` makes only one of
+ * them send) and pointless.
+ */
+Schedule::command(DispatchDueAutomations::class)
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * The outcome of a send nobody came back from (#92).
+ *
+ * Hourly rather than every minute, and that cadence is the point: this
+ * command's whole job is to decide at a distance from the claim, where no live
+ * worker can be contradicted. Running it often would put it back inside the
+ * window it exists to stay out of.
+ */
+Schedule::command(ReapUnconfirmedSends::class)
+    ->hourly()
     ->withoutOverlapping()
     ->onOneServer();

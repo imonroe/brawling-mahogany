@@ -7,6 +7,7 @@ use App\Http\Controllers\Settings\DealTypeController;
 use App\Http\Controllers\Settings\MemberController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
+use App\Http\Controllers\Settings\SendSafetyController;
 use App\Http\Controllers\Settings\TeamController;
 use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Support\Facades\Route;
@@ -73,6 +74,19 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         ->name('deal-types.archive');
     Route::post('settings/deal-types/{dealType}/restore', [DealTypeController::class, 'restore'])
         ->name('deal-types.restore');
+
+    /*
+     * F5.9's rails, where a person can reach them (#96).
+     *
+     * Its own screen rather than a panel on S72, because this is the one
+     * somebody opens in a hurry after a client phones — and burying the stop
+     * button under a colour picker is how it takes forty seconds to find
+     * instead of five. There is no separate "stop" route: the switch is a
+     * field on the same form, so a team cannot end up with sending off and a
+     * screen that has not noticed.
+     */
+    Route::get('settings/sending', [SendSafetyController::class, 'edit'])->name('team.send-safety.edit');
+    Route::patch('settings/sending', [SendSafetyController::class, 'update'])->name('team.send-safety.update');
 
     // S79 — team data export.
     Route::get('settings/export', [DataExportController::class, 'index'])->name('export.index');

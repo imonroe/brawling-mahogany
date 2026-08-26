@@ -28,7 +28,7 @@ import type { CurrentTeam, TeamOption } from '@/types';
 const props = withDefaults(
     defineProps<{
         collapsed?: boolean;
-        counts?: { myWork?: number | null };
+        counts?: { myWork?: number | null; pendingMessages?: number | null };
         /** The person's role in this team. Slice 1 supplies it. */
         role?: string | null;
     }>(),

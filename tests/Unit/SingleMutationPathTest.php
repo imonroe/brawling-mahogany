@@ -123,9 +123,9 @@ const STATE_WRITE_PATTERNS = [
     '/->\s*setRawAttributes\s*\(/',
     // DB::table('stages')->update(…) — Eloquent bypassed entirely, so the
     // model, its casts, and its transition map never see the write
-    '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows|gates)[\'"]\s*\)/',
+    '/DB::\s*table\s*\(\s*[\'"](?:stages|workflows|gates|action_instances)[\'"]\s*\)/',
     // …and the same by hand
-    '/\bUPDATE\s+(?:stages|workflows|gates)\b/i',
+    '/\bUPDATE\s+(?:stages|workflows|gates|action_instances)\b/i',
 
     /*
      * And the override flag, which is workflow state by every argument that
@@ -188,7 +188,10 @@ const STATE_WRITE_PATTERNS = [
  * @var array<string, string>
  */
 const SANCTIONED_STATE_WRITERS = [
-    'app/Support/Workflow/AdvanceWorkflow.php' => 'The single mutation path itself (#68).',
+    'app/Support/Workflow/AdvanceWorkflow.php' => 'The single mutation path itself (#68). It also '.
+        'writes `action_instances.state` in one direction only: skipping a stage cancels what was '.
+        'queued for it, because a stage that did not apply to this deal must not have told the '.
+        'client that it did (#92).',
 
     'app/Support/Workflow/InstantiateWorkflow.php' => 'Sets the opening state of a brand-new workflow. '.
         'There is no stage being left, so there is nothing for the gates to evaluate — routing this '.
@@ -208,6 +211,36 @@ const SANCTIONED_STATE_WRITERS = [
     'database/factories/StageFactory.php' => 'The same, one level down.',
     'database/factories/GateFactory.php' => 'The same, for `is_met`: a suite that could not build a '.
         'met gate could not test the service that reads one, or the advance that clears one.',
+
+    /*
+     * `action_instances.state`, added in Slice 3 (#92, #93).
+     *
+     * Four writers, and they are four steps of one path rather than four
+     * independent ones — a row is raised, released, carried out, or stopped,
+     * and each owns exactly one of those verbs. What the guard is for is the
+     * fifth: a controller that writes `pending` because it was quicker than
+     * calling `ApproveMessage`, which is the same shape as a controller
+     * writing `stages.state` and has a worse consequence.
+     */
+    'app/Support/Automation/RaiseAutomations.php' => 'Raises the row, and sets the one state no '.
+        'transition has an opinion about — there is no previous state to move from. F5.7\'s 30-day '.
+        'approval window is applied here precisely so one place decides whether a new instance '.
+        'waits for a person. Nothing here moves an instance that already exists.',
+
+    'app/Support/Automation/ApproveMessage.php' => 'The only door out of `awaiting_approval`, and a '.
+        'service rather than a controller for F5.7\'s reason: releasing a message is the state, an '.
+        'activity entry, an audit entry and a queue dispatch, and a second implementation would '.
+        'remember three of the four. It owns `cancelled` too, because stopping a message and '.
+        'releasing one are the same decision answered two ways.',
+
+    'app/Support/Automation/ExecuteAction.php' => 'The send path: the only writer of `sent`, and of '.
+        'the `failed` a refusal produces. It is where F5.9\'s rails are asked, immediately before '.
+        'the transport, which issue #96 requires in as many words — a rail checked anywhere earlier '.
+        'is one a message queued five minutes before somebody pulled the cord sails past.',
+
+    'database/factories/ActionInstanceFactory.php' => 'The same argument as the workflow and stage '.
+        'factories: a suite that could not build a sent, failed or awaiting-approval instance could '.
+        'not test the services that produce one.',
 ];
 
 /**
@@ -274,11 +307,25 @@ function touchesWorkflowState(string $contents): bool
      * The same shape as the `DB::table('stages')` hole #68's first review
      * found. **Adding a guarded column means adding its model and its table
      * here as well.**
+     *
+     * `ActionInstance` joined them in Slice 3 (#92, #93), and it is the same
+     * argument one table over. `action_instances.state` decides whether an
+     * email reaches a client: a caller moving a row from `awaiting_approval`
+     * to `pending` has released a message past F5.7's approval queue, which
+     * PRD §4.5 calls a **launch blocker, not an enhancement**, and one writing
+     * `sent` has told a team a client heard something they did not. Both are
+     * one array key, and both look exactly like housekeeping.
+     *
+     * No new pattern was needed: the column is called `state`, so the shapes
+     * `stages.state` already had cover it. What was needed was the filter —
+     * `ExecuteAction` and `ApproveMessage` were invisible to this test purely
+     * because neither happened to mention `Stage`, which is not a property
+     * anybody was maintaining.
      */
     foreach ([
-        '/\b(?:Stage|Workflow|Gate)(?:::|\s*\$)/',
-        '/[\'"](?:stages|workflows|gates)[\'"]/',
-        '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows|gates)\b/i',
+        '/\b(?:Stage|Workflow|Gate|ActionInstance)(?:::|\s*\$)/',
+        '/[\'"](?:stages|workflows|gates|action_instances)[\'"]/',
+        '/\b(?:UPDATE|INSERT\s+INTO)\s+(?:stages|workflows|gates|action_instances)\b/i',
     ] as $pattern) {
         if (preg_match($pattern, $code) === 1) {
             return true;

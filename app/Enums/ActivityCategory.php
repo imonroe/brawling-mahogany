@@ -74,7 +74,15 @@ enum ActivityCategory: string implements HasLabel
             // with a person — and a note is **written** about the deal. A
             // reader filtering to Contact Log is looking for "when did we last
             // speak to them", and a note about the lockbox code is not that.
-            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note', 'offer'],
+            //
+            // `message` joins them with Slice 3 (#92, #93). It belongs under
+            // Deals rather than Contact Log for the same reason `note` does,
+            // and the distinction is sharper here: IA §7's **Log** is
+            // something a person did with somebody — a call, a coffee — and an
+            // automated message is something the *product* did on the team's
+            // behalf. A reader filtering to Contact Log is asking "when did we
+            // last speak to them", and an automated stage email is not that.
+            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note', 'offer', 'message'],
             self::People => ['person'],
             self::Properties => ['property'],
         };

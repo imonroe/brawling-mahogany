@@ -36,6 +36,9 @@ import {
     ListPlus,
     ListX,
     Mail,
+    MailCheck,
+    MailWarning,
+    MailX,
     MessageSquare,
     PenLine,
     Phone,
@@ -74,9 +77,10 @@ const CONTACT_ICONS: Record<string, LucideIcon> = {
 /**
  * Every event type `app/` emits.
  *
- * Only three tones are ever assigned here, and they are the three Design
+ * Only four tones are ever assigned here, and they are the four Design
  * System §7.3 names: a completion is `success`, a message the product sent is
- * `info`, an override is `warning`. Everything else is `neutral` and is listed
+ * `info`, an override or a sandbox redirect is `warning`, a message that
+ * failed to send is `danger`. Everything else is `neutral` and is listed
  * anyway, so the icon is chosen rather than defaulted.
  */
 const EVENT_TYPES: Record<string, ActivityDescriptor> = {
@@ -103,6 +107,40 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
      * that looks like every other row is a bypassed gate nobody finds.
      */
     'gate.overridden': { icon: ShieldAlert, tone: 'warning' },
+
+    /*
+     * The messages an automation sent, or did not (§7.3 · #92, #93).
+     *
+     * `message.sent` is the only `info` in the table, and the only tone §7.3
+     * reserved for something that had not been built yet — *"message sent
+     * `state-info`"* has been in the Design System since Slice 0.
+     *
+     * The other two are the ones worth arguing. **Failed** is `danger`, which
+     * §7.3 gained for this row: every other entry on this feed records
+     * something that happened, and this one records something the product
+     * tried and could not do. PRD §1.1's second question is "has the client
+     * been told?", and a failed client email rendered in the same grey as a
+     * renamed task is that question answered wrongly.
+     *
+     * **Redirected** is `warning` rather than `info`, because sandbox mode
+     * sent it to the team and not to the client. Reading it as a send is the
+     * exact misunderstanding the sandbox creates, and the one the banner in
+     * the email itself also exists to prevent.
+     */
+    'message.sent': { icon: Mail, tone: 'info' },
+    'message.redirected': { icon: MailWarning, tone: 'warning' },
+    'message.failed': { icon: MailX, tone: 'danger' },
+    /*
+     * Neutral, both of them, and deliberately quieter than the send.
+     *
+     * Approving is a person doing their job on a queue, and #93 is precise
+     * about what the queue must not become: a list somebody clears without
+     * reading. A tinted row for every approval on a busy team is how the tint
+     * stops meaning anything, which costs the `danger` above its whole value.
+     */
+    'message.approved': { icon: MailCheck, tone: 'neutral' },
+    'message.cancelled': { icon: MailX, tone: 'neutral' },
+    'message.action_done': { icon: CircleCheck, tone: 'neutral' },
     /*
      * Ticking a manual gate. **Neutral, not success** — §7.3 tints a
      * *completion*, and clearing one of three blockers completes nothing. It

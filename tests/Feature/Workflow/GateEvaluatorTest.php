@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Enums\AutomationState;
+use App\Models\ActionInstance;
 use App\Models\Deal;
 use App\Models\Gate;
 use App\Models\Stage;
@@ -213,9 +215,66 @@ it('explains a deferred gate rather than failing silently', function (string $ty
         ->and($verdict->linkTarget['issue'])->toBe($issue);
 })->with([
     'document present' => ['document_present', '#104'],
-    'action completed' => ['action_completed', '#92'],
     'date reached' => ['date_reached', '#109'],
 ]);
+
+/*
+ * `action_completed` was the third of them and is wired as of #92, so it is
+ * off the list above rather than merely still on it and passing for a reason
+ * nobody checked. The cases below are what replaces it — a deferred evaluator
+ * whose slice landed and whose dataset entry stayed would be a test asserting
+ * the wrong sentence about working code.
+ */
+it('refuses an action gate that names no automation', function (): void {
+    $verdict = verdictFor(gateOfType('action_completed'));
+
+    expect($verdict->met)->toBeFalse()
+        ->and($verdict->explanation)->toContain('does not say which automation')
+        ->and($verdict->linkTarget['type'])->toBe('gate_config');
+});
+
+it('clears an action gate once its automation has been sent', function (): void {
+    $gate = gateOfType('action_completed', [
+        'actionDefinitionId' => '01ACTIONDEFINITION00000000',
+        'label' => 'The welcome email',
+    ]);
+
+    // Raised but not yet gone: the state F5.7 exists to create, and a gate
+    // that cleared on it would advance a deal past a message nobody has read.
+    $waiting = ActionInstance::factory()->awaitingApproval()->create([
+        'team_id' => $gate->team_id,
+        'deal_id' => $gate->stage->workflow->deal_id,
+        'stage_id' => $gate->stage_id,
+        'action_definition_id' => '01ACTIONDEFINITION00000000',
+    ]);
+
+    expect(verdictFor($gate)->met)->toBeFalse()
+        ->and(verdictFor($gate)->explanation)->toContain('waiting for somebody to review');
+
+    $waiting->forceFill(['state' => AutomationState::Sent, 'executed_at' => now()])->save();
+
+    expect(verdictFor($gate)->met)->toBeTrue()
+        ->and(verdictFor($gate)->explanation)->toContain('The welcome email has run');
+});
+
+it('does not let an automation sent on another stage clear this one', function (): void {
+    /*
+     * F4.7 lets one deal run several workflows at once, so one automation
+     * definition legitimately produces an instance per running stage. A gate
+     * that asked only about the definition would clear on somebody else's.
+     */
+    $gate = gateOfType('action_completed', ['actionDefinitionId' => '01ACTIONDEFINITION00000000']);
+
+    ActionInstance::factory()->sent()->create([
+        'team_id' => $gate->team_id,
+        'deal_id' => $gate->stage->workflow->deal_id,
+        'stage_id' => null,
+        'action_definition_id' => '01ACTIONDEFINITION00000000',
+    ]);
+
+    expect(verdictFor($gate)->met)->toBeFalse()
+        ->and(verdictFor($gate)->explanation)->toContain('has not run yet');
+});
 
 it('gives every verdict a sentence somebody could act on', function (): void {
     // PRD §5.4: "each unmet gate links directly to the thing that clears it."

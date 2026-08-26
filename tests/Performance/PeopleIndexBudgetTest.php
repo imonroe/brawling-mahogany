@@ -142,8 +142,23 @@ it('renders the people index within its query budget at 500 rows', function (): 
      * else, which is worse than no number — so the query is the price of the
      * count being true, and it is paid here, on `/deals`, and on everything
      * else wearing the shell.
+     *
+     * **24 rather than 23 since #93**, and the second shell count is the same
+     * bargain made a second time — which is the reason to name it rather than
+     * absorb it. S47's approval queue holds client messages that do not go
+     * out until somebody releases them, and PRD §4.5 makes that queue a launch
+     * blocker; a queue nobody is told about is a set of client emails that
+     * silently never send, which is a worse failure than the one the queue
+     * prevents because it is invisible. One indexed count against
+     * `(team_id, state, scheduled_for)`, once per request, is what makes the
+     * badge true everywhere.
+     *
+     * Two is where the shell's counts stop being free. A third would need a
+     * different mechanism — one query returning several counts — rather than a
+     * third line in `HandleInertiaRequests`, and this budget is the thing that
+     * should force that conversation rather than a reviewer noticing.
      */
-    expect($queries)->toBeLessThanOrEqual(23);
+    expect($queries)->toBeLessThanOrEqual(24);
 });
 
 it('does not grow its query count with the directory', function (): void {
