@@ -79,6 +79,23 @@ services:
   scheduler:
     <<: *app
     command: ['php', 'artisan', 'schedule:work']
+    # Without this the container inherits the image's own HEALTHCHECK, which
+    # asks Caddy's admin API on :2019 — a web server this container does not
+    # run. It reported `unhealthy` forever while dispatching on time, which is
+    # worse than no healthcheck: a real outage looks identical to the steady
+    # state. `app` and `worker` override it; scheduler was the one that did not.
+    #
+    # `schedule:work` serves no port, so liveness is the honest question. The
+    # bracket in `schedule:[w]ork` is load-bearing, not a typo: CMD-SHELL runs
+    # this string as a `sh -c` process whose own /proc entry therefore contains
+    # the pattern, so a literal one matches itself and the check can never fail.
+    # The bracketed regex matches the scheduler's cmdline and not its own.
+    healthcheck:
+      test: ['CMD-SHELL', 'grep -alqs "schedule:[w]ork" /proc/[0-9]*/cmdline']
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   postgres:
     # Pinned to the patch. "Matching production" is not a version range.
