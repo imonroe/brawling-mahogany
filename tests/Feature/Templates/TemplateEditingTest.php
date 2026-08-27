@@ -209,21 +209,25 @@ it('refuses a gate type this editor cannot fully specify', function (): void {
      * confirmation route removed at the runtime layer.
      *
      * Five of the seven evaluators read a `configuration` — a field name, a
-     * role, a key date, a document category — and S43 has no editor for any of
-     * them. `is_blocking` defaults to true, so a gate composed without its
-     * configuration is a **permanently blocked stage**: `notYetWired()` says
-     * so in its own words, *"it cannot clear on its own — override it with a
-     * reason if the deal needs to move."* Two clicks to build a stage only the
-     * audited exception can pass.
+     * role, a key date, a document category. `is_blocking` defaults to true,
+     * so a gate composed without its configuration is a **permanently blocked
+     * stage**: two clicks to build a stage only the audited exception can
+     * pass.
      *
      * So the picker offers what S43 can specify, and the validation is held to
      * the same list — a request naming one of the others is refused rather
      * than quietly accepted.
+     *
+     * `date_reached` left the refused list with Slice 4 (#109): S43 now has a
+     * field for the one thing it needs, which is the *name* of the key date.
+     * That is what `EDITOR_CONFIGURABLE` records, and the case below asserts
+     * the other half — offering the type without asking for its date would be
+     * the same permanently-blocked stage by a shorter route.
      */
     $template = teamTemplate();
     $stage = StageTemplate::query()->where('workflow_template_id', $template->getKey())->sole();
 
-    foreach (['document_present', 'field_populated', 'approval', 'date_reached', 'action_completed'] as $type) {
+    foreach (['document_present', 'field_populated', 'approval', 'action_completed'] as $type) {
         $this->post("/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates", [
             'gate_type' => $type,
             'label' => 'Composed without its configuration',
@@ -244,7 +248,27 @@ it('refuses a gate type this editor cannot fully specify', function (): void {
     expect($stage->gateTemplates()->count())->toBe(2);
 
     /*
-     * The page offers exactly those two, and can still *name* all seven — a
+     * And the one type this editor *can* configure is refused without its
+     * configuration and accepted with it. Offering a type whose configuration
+     * the form never asks for would be the permanently-blocked stage again,
+     * one layer down from the picker.
+     */
+    $this->post("/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates", [
+        'gate_type' => 'date_reached',
+        'label' => 'Objection period has run',
+    ])->assertSessionHasErrors('config.keyDateName');
+
+    $this->post("/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates", [
+        'gate_type' => 'date_reached',
+        'label' => 'Objection period has run',
+        'config' => ['keyDateName' => 'Inspection objection'],
+    ])->assertRedirect();
+
+    expect($stage->gateTemplates()->where('gate_type', 'date_reached')->sole()->config)
+        ->toBe(['keyDateName' => 'Inspection objection']);
+
+    /*
+     * The page offers exactly those three, and can still *name* all seven — a
      * gate a pack carries has to render with its name whether or not this
      * screen could have built it.
      */
@@ -254,6 +278,7 @@ it('refuses a gate type this editor cannot fully specify', function (): void {
             ->where('gateTypes', [
                 'manual_confirmation' => 'Manual confirmation',
                 'required_tasks_complete' => 'Required tasks complete',
+                'date_reached' => 'Date reached',
             ])
             ->where('gateTypeLabels.document_present', 'Document present'));
 });

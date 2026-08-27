@@ -123,6 +123,15 @@ class SendNotification
                 detail: $notification->type->description(),
                 actionUrl: url($notification->url() ?? '/notifications'),
                 actionLabel: $notification->deal_id === null ? 'Open the app' : 'Open the deal',
+                /*
+                 * S88's *"several dates"* state (#109). Composed by whoever
+                 * raised the notification, because that is where the facts
+                 * are — this class knows nothing about key dates and should
+                 * not have to. Empty for every other type, so the list simply
+                 * does not render.
+                 */
+                lines: $this->lines($notification),
+                emphasis: (bool) ($notification->data['emphasis'] ?? false),
             ));
         } catch (Throwable $failure) {
             /*
@@ -138,5 +147,28 @@ class SendNotification
                 'type_code' => $notification->type->value,
             ]));
         }
+    }
+
+    /**
+     * Supporting lines a notification carried, as strings and only as strings.
+     *
+     * Read defensively rather than trusted: `data` is a JSONB bag, and a row
+     * written by a later version of the product — or restored from a backup —
+     * may hold a shape this build does not expect. Rendering whatever is there
+     * would put an array into a Blade `{{ }}` and take the email down.
+     *
+     * @return list<string>
+     */
+    private function lines(Notification $notification): array
+    {
+        $lines = [];
+
+        foreach ((array) ($notification->data['lines'] ?? []) as $line) {
+            if (is_string($line) && trim($line) !== '') {
+                $lines[] = $line;
+            }
+        }
+
+        return $lines;
     }
 }

@@ -129,9 +129,7 @@ final class Format
             return '';
         }
 
-        $reference = self::day($now) ?? CarbonImmutable::now();
-
-        $days = (int) $reference->startOfDay()->diffInDays($date->startOfDay(), false);
+        $days = self::calendarDaysBetween($now ?? CarbonImmutable::now(), $date);
 
         return match (true) {
             $days === 0 => 'today',
@@ -141,6 +139,35 @@ final class Format
             $days < -1 && $days >= -7 => abs($days).' days ago',
             default => $date->format('M j'),
         };
+    }
+
+    /**
+     * Whole calendar days between two days. The mirror of
+     * `calendarDaysBetween()`.
+     *
+     * **Days, not instants**, and the difference is not academic: a team's
+     * midnight and a `date` column's midnight are in different zones, so
+     * subtracting them as instants gives 6.75 for a date exactly a week away —
+     * truncated to 6, which matches no reminder offset at all. That is a
+     * week's notice silently never firing for every team west of UTC, which is
+     * every team this product has.
+     *
+     * So both sides are reduced to a bare `YYYY-MM-DD` and re-parsed, which is
+     * exactly what `formatters.ts` does with `isoDateIn` for the same reason.
+     */
+    public static function calendarDaysBetween(
+        CarbonInterface|string|null $from,
+        CarbonInterface|string|null $to,
+    ): int {
+        $start = self::day($from);
+        $end = self::day($to);
+
+        if (! $start instanceof CarbonInterface || ! $end instanceof CarbonInterface) {
+            return 0;
+        }
+
+        return (int) CarbonImmutable::parse($start->toDateString())
+            ->diffInDays(CarbonImmutable::parse($end->toDateString()), false);
     }
 
     /**

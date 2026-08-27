@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Console\Commands\AlertOnAutomationFailures;
 use App\Console\Commands\DispatchDueAutomations;
 use App\Console\Commands\NotifyAboutDeadlines;
+use App\Console\Commands\NotifyAboutKeyDates;
 use App\Console\Commands\PurgeSoftDeletedRecords;
 use App\Console\Commands\ReapUnconfirmedSends;
 use App\Console\Commands\ReleaseHeldNotifications;
@@ -88,6 +89,21 @@ Schedule::command(AlertOnAutomationFailures::class)
  * to pick one zone and be wrong for every other team on the platform.
  */
 Schedule::command(NotifyAboutDeadlines::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * Deadline reminders ahead of a **key date** (#109 · F8.4).
+ *
+ * Hourly and team-local for the same reason its sibling above is, and a
+ * separate command rather than a second loop inside it: the two sweep
+ * different tables, aggregate differently (one notification per task, one
+ * *digest* per person), and fail independently. A long title in one team's
+ * tasks must not stop the deadline that has legal consequences from being
+ * announced.
+ */
+Schedule::command(NotifyAboutKeyDates::class)
     ->hourly()
     ->withoutOverlapping()
     ->onOneServer();

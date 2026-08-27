@@ -41,12 +41,29 @@ class InternalAlertMail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    /**
+     * @param  list<string>  $lines  supporting lines under the sentence — S88's
+     *                               *"several dates"* state (#109). Empty for
+     *                               every other caller, which is the shape that
+     *                               kept this one mailable rather than growing
+     *                               a second internal front door (#97).
+     */
     public function __construct(
         public readonly Team $team,
         public readonly string $headline,
         public readonly string $detail,
         public readonly string $actionUrl,
         public readonly string $actionLabel,
+        public readonly array $lines = [],
+        /**
+         * Whether the lines carry something with legal consequences (#109).
+         *
+         * A **weight**, not a colour. Design System §12.1 narrows where a
+         * tenant's accent may appear at all, and a state token has no
+         * definition in the email palette — so emphasis here is the border and
+         * the label, both of which bring their own ground.
+         */
+        public readonly bool $emphasis = false,
     ) {}
 
     public function envelope(): Envelope
@@ -62,6 +79,8 @@ class InternalAlertMail extends Mailable
             view: 'mail.internal-alert',
             text: 'mail.internal-alert-text',
             with: [
+                'lines' => $this->lines,
+                'emphasis' => $this->emphasis,
                 /*
                  * The team's own frame, not the product's. An alert that
                  * arrives looking like a different application is one a
