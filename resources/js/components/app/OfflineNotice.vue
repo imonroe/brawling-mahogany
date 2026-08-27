@@ -27,7 +27,7 @@
  */
 import { computed, ref, watch } from 'vue';
 import { useOfflineState } from '@/composables/useOfflineState';
-import { formatTime } from '@/lib/formatters';
+import { formatDateTime } from '@/lib/formatters';
 
 const { online, cachedAt } = useOfflineState();
 
@@ -83,8 +83,13 @@ const visible = computed(() => !online.value || reconnected.value);
                          A reader deciding whether to trust a task list needs
                          to know whether it is from this morning or Tuesday. -->
                     <span class="font-normal">
-                        This is what was saved at
-                        {{ formatTime(cachedAt.toISOString()) }}.
+                        <!-- The day as well as the time. `formatTime` alone
+                             renders a three-day-old copy as "saved at 3:09am",
+                             which reads as this morning — the exact "today or
+                             Tuesday" distinction this banner exists to draw,
+                             and what `help/mobile.md` promises. -->
+                        This is what was saved
+                        {{ formatDateTime(cachedAt.toISOString()) }}.
                     </span>
                 </template>
                 <template v-else>

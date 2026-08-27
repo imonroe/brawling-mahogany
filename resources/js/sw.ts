@@ -169,22 +169,40 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
         return;
     }
 
+    /*
+     * **About the page being read, not about the cache.**
+     *
+     * The first version answered with the newest stamp across *every* entry,
+     * and the page never said which URL it was on — so on any screen that is
+     * not cached at all (a deal, a person, settings) the banner claimed a
+     * save time belonging to a different page, and the honest *"this page was
+     * not saved for offline use"* branch became unreachable the moment
+     * anything was in the cache. Round 5 of review found it. #102's standard
+     * is that S56 must not lie, and a save time for a page that was never
+     * saved is the plainest kind.
+     */
+    const url = typeof event.data?.url === 'string' ? event.data.url : null;
+
     void (async () => {
-        const cache = await caches.open(OFFLINE_CACHE);
-        const keys = await cache.keys();
+        if (url === null) {
+            port.postMessage({ fetchedAt: null });
 
-        let newest: number | null = null;
-
-        for (const key of keys) {
-            const response = await cache.match(key);
-            const stamp = Number(response?.headers.get(FETCHED_AT) ?? NaN);
-
-            if (Number.isFinite(stamp) && (newest === null || stamp > newest)) {
-                newest = stamp;
-            }
+            return;
         }
 
-        port.postMessage({ fetchedAt: newest });
+        const cache = await caches.open(OFFLINE_CACHE);
+
+        /*
+         * `ignoreVary`, because the question is *"is there a copy of this
+         * page"* rather than *"is there one matching this exact request"*.
+         * The entries are stored against Inertia's `Vary: X-Inertia`, so a
+         * plain `match()` from the page's own context misses the one that
+         * would actually be served.
+         */
+        const response = await cache.match(url, { ignoreVary: true });
+        const stamp = Number(response?.headers.get(FETCHED_AT) ?? NaN);
+
+        port.postMessage({ fetchedAt: Number.isFinite(stamp) ? stamp : null });
     })();
 });
 

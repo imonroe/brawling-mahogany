@@ -111,7 +111,20 @@ class PushSubscriptionRegistry
     {
         $surplus = PushSubscription::query()
             ->where('person_id', $person->getKey())
-            ->orderByDesc('last_seen_at')
+            /*
+             * **`NULLS LAST`, because Postgres puts them first on `DESC`** —
+             * so the plain `orderByDesc()` this started as treated a
+             * subscription nothing has ever reached as the *newest* and kept
+             * it, evicting a real device instead. Measured:
+             *
+             *     order by x desc              → NULL, 3, 1
+             *     order by x desc nulls last   → 3, 1, NULL
+             *
+             * Wrong on the merits as well as against the docblock: a null
+             * `last_seen_at` means no push has ever landed there, which is
+             * the best evidence available that the device is gone.
+             */
+            ->orderByRaw('last_seen_at DESC NULLS LAST')
             ->orderByDesc('id')
             ->skip(self::MAX_DEVICES)
             ->take(PHP_INT_MAX)

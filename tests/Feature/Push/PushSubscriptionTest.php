@@ -320,3 +320,32 @@ it('does not wipe a customer’s devices when an operator signs out of a support
 
     expect(PushSubscription::query()->count())->toBe(2);
 });
+
+it('evicts a device nothing has ever reached before one that works', function (): void {
+    /*
+     * Postgres puts NULLs **first** on a `DESC` sort, so the plain
+     * `orderByDesc('last_seen_at')` this started as ranked a subscription
+     * nothing had ever reached as the newest and kept it — evicting a
+     * working device instead. Round 5 of review caught the docblock claiming
+     * the opposite of what the query did.
+     */
+    $neverReached = PushSubscription::factory()->create([
+        'person_id' => $this->member->getKey(),
+        'last_seen_at' => null,
+    ]);
+
+    $working = PushSubscription::factory()->create([
+        'person_id' => $this->member->getKey(),
+        'last_seen_at' => now()->subYear(),
+    ]);
+
+    PushSubscription::factory()
+        ->count(PushSubscriptionRegistry::MAX_DEVICES - 2)
+        ->create(['person_id' => $this->member->getKey()]);
+
+    $this->post('/settings/notifications/push', subscriptionPayload())
+        ->assertRedirect();
+
+    expect(PushSubscription::query()->find($neverReached->getKey()))->toBeNull()
+        ->and(PushSubscription::query()->find($working->getKey()))->not->toBeNull();
+});

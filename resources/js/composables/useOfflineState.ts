@@ -56,7 +56,15 @@ async function readCacheStatus(): Promise<void> {
                 resolve(event.data);
             };
 
-            worker.postMessage({ type: 'CACHE_STATUS' }, [channel.port2]);
+            /*
+             * The page we are on, so the answer is about *this* screen. Without
+             * it the worker could only report the newest stamp anywhere in the
+             * cache, which is a save time for a different page — see `sw.ts`.
+             */
+            worker.postMessage(
+                { type: 'CACHE_STATUS', url: window.location.href },
+                [channel.port2],
+            );
         },
     );
 
