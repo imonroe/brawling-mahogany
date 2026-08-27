@@ -42,6 +42,22 @@ it('registers a device', function (): void {
         ->and($subscription->user_agent)->not->toBe('');
 });
 
+it('answers the background re-post with no body to follow', function (): void {
+    /*
+     * `resources/js/lib/pwa.ts` re-posts the browser's subscription on every
+     * navigation with a plain `fetch`, and **`fetch` follows a 302** — so a
+     * bare `back()` meant every navigation quietly fetched and discarded a
+     * whole rendered page. Round 2 of review measured it.
+     *
+     * The S55 button still needs the redirect, because it re-renders the
+     * device list, so the two are told apart by what they asked for.
+     */
+    $this->postJson('/settings/notifications/push', subscriptionPayload())
+        ->assertNoContent();
+
+    expect(PushSubscription::query()->count())->toBe(1);
+});
+
 it('does not add a row every time the same browser re-registers', function (): void {
     /*
      * `resources/js/lib/pwa.ts` re-posts whatever subscription the browser

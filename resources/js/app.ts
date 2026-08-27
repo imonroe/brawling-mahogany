@@ -1,4 +1,4 @@
-import { createInertiaApp, usePage } from '@inertiajs/vue3';
+import { createInertiaApp, router, usePage } from '@inertiajs/vue3';
 import * as Sentry from '@sentry/vue';
 import { createApp, h } from 'vue';
 import { initializeTheme } from '@/composables/useAppearance';
@@ -145,43 +145,59 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
     window.addEventListener('load', () => {
         void navigator.serviceWorker
             .register('/sw.js', { scope: '/' })
-            .then(async () => {
-                /*
-                 * Two pieces of session bookkeeping, both on every load, and
-                 * both found missing by round 1 of review.
-                 *
-                 * The cache reconciliation has to happen before anything can
-                 * be served from that cache: offline copies are keyed by URL
-                 * alone, so a page cached under one person or team would
-                 * otherwise be handed to whoever signs in next on a shared
-                 * device.
-                 *
-                 * The push re-registration exists because the sign-out hook
-                 * deletes every subscription a person holds — deliberately,
-                 * so a handed-back phone stops buzzing — and nothing put them
-                 * back. It only ever reads an existing subscription, so it
-                 * cannot prompt: `subscribe()` stays behind S55's button,
-                 * where a refusal is permanent.
-                 *
-                 * Read off `usePage()` rather than threaded through `setup()`:
-                 * the identity wanted is the one on the page as it stands, and
-                 * this runs after the app has mounted.
-                 */
-                const props = usePage().props as unknown as {
-                    auth?: { user?: { id?: string } | null };
-                    team?: { id?: string } | null;
-                };
-
-                await reconcileOfflineCache(
-                    props.auth?.user?.id ?? null,
-                    props.team?.id ?? null,
-                );
-
-                await reRegisterPush();
-            })
             .catch(() => {
                 // Nothing to do, and nothing worth saying: the app works without
                 // it, minus the offline half.
             });
     });
 }
+
+/**
+ * Session bookkeeping the service worker cannot do for itself (#102, #103).
+ *
+ * ## On `navigate`, not on `load`
+ *
+ * Round 2 of review found both of these hung off `window.addEventListener(
+ * 'load')`, where neither could do its job. This is a single-page app:
+ * **signing out, signing in and switching team are Inertia visits, and none
+ * of them fires a document `load`.** So on a shared device A could sign out
+ * and B sign in without one — the offline cache was never reconciled, and B
+ * offline was served A's work queue.
+ *
+ * `router.on('navigate')` fires on the first page as well as on every visit
+ * after it, so this covers the cold load too. Both calls are idempotent: the
+ * cache is only emptied when the identity actually changed, and the push
+ * re-post is an upsert on an endpoint that has not moved.
+ *
+ * Outside the `serviceWorker` guard above deliberately — `caches` and
+ * `PushManager` are separate capabilities, and each function tests for what
+ * it needs rather than inheriting somebody else's test.
+ */
+router.on('navigate', () => {
+    const props = usePage().props as
+        | {
+              auth?: { user?: { id?: string } | null };
+              team?: { id?: string } | null;
+          }
+        | undefined;
+
+    /*
+     * Sequenced rather than raced, and each awaited on its own: an exception
+     * in one must not skip the other. The first version chained them inside a
+     * single `.catch()` that swallowed everything, so a lost race on
+     * `usePage()` would have silently killed both — the failure mode being
+     * fixed here, one layer along.
+     */
+    void reconcileOfflineCache(
+        props?.auth?.user?.id ?? null,
+        props?.team?.id ?? null,
+    ).catch(() => {
+        // The next navigation tries again; the identity is only recorded on
+        // success, so nothing is marked done that was not.
+    });
+
+    void reRegisterPush().catch(() => {
+        // Offline, or no VAPID keys in this environment. The notification is
+        // in the panel regardless.
+    });
+});

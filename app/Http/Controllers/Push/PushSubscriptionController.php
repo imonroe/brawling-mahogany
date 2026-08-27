@@ -11,6 +11,7 @@ use App\Support\Push\SendPush;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * S55 — registering and forgetting a device (#103 · F12.2).
@@ -32,7 +33,7 @@ use Illuminate\Validation\Rule;
  */
 class PushSubscriptionController extends Controller
 {
-    public function store(Request $request, PushSubscriptionRegistry $registry): RedirectResponse
+    public function store(Request $request, PushSubscriptionRegistry $registry): Response
     {
         $person = $request->user();
 
@@ -70,15 +71,42 @@ class PushSubscriptionController extends Controller
             userAgent: $request->userAgent(),
         );
 
+        /*
+         * **204 for the background re-post, a redirect for the form.**
+         *
+         * `resources/js/lib/pwa.ts` re-posts the browser's subscription on
+         * every navigation with a plain `fetch`, and `fetch` follows a 302 —
+         * so `back()` alone meant every navigation quietly fetched and
+         * discarded a whole rendered page. Round 2 of review measured it.
+         *
+         * `wantsJson()` rather than sniffing for Inertia: the S55 button goes
+         * through `router.post` and needs the redirect that re-renders the
+         * device list, and the background call asks for nothing back.
+         */
+        if ($request->wantsJson()) {
+            return response()->noContent();
+        }
+
         return back();
     }
 
     /**
      * Forget one device, or all of them.
      *
-     * One endpoint when the browser has just unsubscribed and knows which;
-     * none when somebody presses *"turn this off everywhere"* on S55, which is
-     * the only thing they can do about a device they no longer have.
+     * One endpoint when the browser has just unsubscribed and knows which,
+     * which is what S55's control does — it calls `unsubscribe()` first, so
+     * the browser stops holding one and `reRegisterPush()` has nothing to
+     * hand back.
+     *
+     * The no-endpoint branch forgets every row for the person, and it is
+     * reached by the sign-out hook rather than by anything on a screen. Worth
+     * being exact about what it can promise, because round 2 of review asked:
+     * it removes the **server's** ability to push, and it cannot reach into a
+     * browser somewhere else that still holds a subscription. A device that
+     * still holds one, whose owner signs in on it again, re-registers — which
+     * is correct, because that browser never stopped being subscribed. What
+     * the sign-out wipe actually buys is the case it was written for: a phone
+     * handed back and never signed into again stops buzzing.
      */
     public function destroy(Request $request, PushSubscriptionRegistry $registry): RedirectResponse
     {

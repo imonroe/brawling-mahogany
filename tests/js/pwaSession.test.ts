@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const postMessage = vi.fn();
+const cachesDelete = vi.fn();
 const fetchMock = vi.fn();
 
 let subscription: unknown = null;
@@ -16,12 +16,18 @@ let permission = 'granted';
 vi.stubGlobal('navigator', {
     serviceWorker: {
         getRegistration: async () => ({
-            active: { postMessage },
             pushManager: { getSubscription: async () => subscription },
         }),
-        controller: { postMessage },
     },
 });
+
+/*
+ * The page empties the cache itself. It used to ask the worker by
+ * `postMessage`, which is fire-and-forget — and on a first load, before a
+ * worker has claimed the page, there is nobody to receive it. `caches` is
+ * available in a window too, so there is no reason to go through anybody.
+ */
+vi.stubGlobal('caches', { delete: cachesDelete });
 
 vi.stubGlobal('PushManager', class {});
 vi.stubGlobal('Notification', {
@@ -34,7 +40,7 @@ vi.stubGlobal('fetch', fetchMock);
 const { reconcileOfflineCache, reRegisterPush } = await import('@/lib/pwa');
 
 beforeEach(() => {
-    postMessage.mockReset();
+    cachesDelete.mockReset().mockResolvedValue(true);
     fetchMock.mockReset().mockResolvedValue({ ok: true });
     window.localStorage.clear();
     document.cookie = 'XSRF-TOKEN=tok%3Den';
@@ -48,18 +54,16 @@ describe('the offline cache and who it belongs to', () => {
         // are — and "unknown" has to mean "not theirs".
         await reconcileOfflineCache('person-1', 'team-1');
 
-        expect(postMessage).toHaveBeenCalledWith({
-            type: 'CLEAR_OFFLINE_CACHE',
-        });
+        expect(cachesDelete).toHaveBeenCalledWith('goldieflow-offline-v1');
     });
 
     it('leaves it alone when the same person is still in the same team', async () => {
         await reconcileOfflineCache('person-1', 'team-1');
-        postMessage.mockReset();
+        cachesDelete.mockReset().mockResolvedValue(true);
 
         await reconcileOfflineCache('person-1', 'team-1');
 
-        expect(postMessage).not.toHaveBeenCalled();
+        expect(cachesDelete).not.toHaveBeenCalled();
     });
 
     it('clears it when somebody else signs in on this device', async () => {
@@ -70,37 +74,31 @@ describe('the offline cache and who it belongs to', () => {
          * path to refuse it.
          */
         await reconcileOfflineCache('person-1', 'team-1');
-        postMessage.mockReset();
+        cachesDelete.mockReset().mockResolvedValue(true);
 
         await reconcileOfflineCache('person-2', 'team-1');
 
-        expect(postMessage).toHaveBeenCalledWith({
-            type: 'CLEAR_OFFLINE_CACHE',
-        });
+        expect(cachesDelete).toHaveBeenCalledWith('goldieflow-offline-v1');
     });
 
     it('clears it when the same person switches team', async () => {
         // `/work` is one URL for every team somebody is in, so the team is
         // half the identity even though the person has not changed.
         await reconcileOfflineCache('person-1', 'team-1');
-        postMessage.mockReset();
+        cachesDelete.mockReset().mockResolvedValue(true);
 
         await reconcileOfflineCache('person-1', 'team-2');
 
-        expect(postMessage).toHaveBeenCalledWith({
-            type: 'CLEAR_OFFLINE_CACHE',
-        });
+        expect(cachesDelete).toHaveBeenCalledWith('goldieflow-offline-v1');
     });
 
     it('clears it on sign-out, when there is no identity at all', async () => {
         await reconcileOfflineCache('person-1', 'team-1');
-        postMessage.mockReset();
+        cachesDelete.mockReset().mockResolvedValue(true);
 
         await reconcileOfflineCache(null, null);
 
-        expect(postMessage).toHaveBeenCalledWith({
-            type: 'CLEAR_OFFLINE_CACHE',
-        });
+        expect(cachesDelete).toHaveBeenCalledWith('goldieflow-offline-v1');
     });
 });
 
@@ -158,5 +156,25 @@ describe('handing the push subscription back', () => {
         await reRegisterPush();
 
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('when the cache cannot be emptied', () => {
+    it('does not record the new identity, so the next navigation retries', async () => {
+        /*
+         * The other way round costs somebody else their work queue: an
+         * identity recorded against a cache that was never cleared is a page
+         * this browser will go on serving to the wrong person, and nothing
+         * will ever look again.
+         */
+        cachesDelete.mockRejectedValue(new Error('no'));
+
+        await reconcileOfflineCache('person-1', 'team-1');
+
+        cachesDelete.mockReset().mockResolvedValue(true);
+
+        await reconcileOfflineCache('person-1', 'team-1');
+
+        expect(cachesDelete).toHaveBeenCalledWith('goldieflow-offline-v1');
     });
 });

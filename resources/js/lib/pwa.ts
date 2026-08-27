@@ -7,6 +7,8 @@
  * the wrong lifetime for both.
  */
 
+import { OFFLINE_CACHE } from '@/lib/pwaCache';
+
 /**
  * Who the offline cache was written for, as far as this browser knows.
  *
@@ -31,12 +33,27 @@ function xsrfToken(): string | null {
     return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
-async function tell(message: Record<string, unknown>): Promise<void> {
-    const registration = await navigator.serviceWorker?.getRegistration();
+/**
+ * Empty the offline cache, from the page.
+ *
+ * `caches` is available in a window as well as in a worker, so this deletes
+ * the store directly rather than asking the worker to. Round 2 of review made
+ * the case: a `postMessage` is fire-and-forget, so the previous version
+ * recorded the new identity whether or not anything received the request —
+ * and on a first load, before a worker has claimed the page, there is nobody
+ * to receive it at all. A cache the page believes it cleared and did not is
+ * the same defect as never clearing it, minus any chance of noticing.
+ */
+async function emptyOfflineCache(): Promise<boolean> {
+    try {
+        // `true` when there was one to delete, `false` when there was not —
+        // both are success. Only a throw means it did not happen.
+        await caches.delete(OFFLINE_CACHE);
 
-    (registration?.active ?? navigator.serviceWorker?.controller)?.postMessage(
-        message,
-    );
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -52,10 +69,22 @@ async function tell(message: Record<string, unknown>): Promise<void> {
  *
  * Clearing on the sign-out click would close the tidy case and miss the ones
  * that matter: a session that expired, a sign-out from another device, a tab
- * closed mid-flow, a browser that never ran the handler. Comparing identity
- * on load is a **statement about what is in the cache** rather than a hook on
- * one of the ways it can go stale, so it holds however the transition
- * happened — including the first load after somebody else has signed in.
+ * closed mid-flow, a browser that never ran the handler. Comparing identity is
+ * a **statement about what is in the cache** rather than a hook on one of the
+ * ways it can go stale, so it holds however the transition happened.
+ *
+ * ## And it runs on every Inertia navigation, not on `load`
+ *
+ * Round 2 of review found the first version wired to
+ * `window.addEventListener('load')`, which closed none of the cases it was
+ * written for. This is a single-page app: **signing out, signing in and
+ * switching team are all Inertia visits, and none of them fires a document
+ * `load`.** So on a shared iPad, A could sign out and B sign in without one —
+ * `localStorage` still held A's identity, nothing was ever cleared, and B
+ * offline got A's `/work` back.
+ *
+ * `router.on('navigate')` is the event that actually happens, and the pattern
+ * `useAdvanceDialog` already uses for the same reason.
  *
  * The identity is a person and a team, because both change what `/work` and
  * `/dashboard` render.
@@ -79,8 +108,18 @@ export async function reconcileOfflineCache(
         previous = null;
     }
 
-    if (previous !== identity) {
-        await tell({ type: 'CLEAR_OFFLINE_CACHE' });
+    if (previous === identity) {
+        return;
+    }
+
+    /*
+     * **Record the new identity only once the cache is actually gone.** If
+     * the delete failed, a stale stored identity means the next navigation
+     * tries again — which costs a refetch, where the other way round costs
+     * somebody else their work queue.
+     */
+    if (!(await emptyOfflineCache())) {
+        return;
     }
 
     try {
