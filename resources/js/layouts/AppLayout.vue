@@ -14,6 +14,7 @@ import AppSidebar from '@/components/app/AppSidebar.vue';
 import ImpersonationBanner from '@/components/app/ImpersonationBanner.vue';
 import LogContactDialog from '@/components/app/LogContactDialog.vue';
 import MobileTabBar from '@/components/app/MobileTabBar.vue';
+import OfflineNotice from '@/components/app/OfflineNotice.vue';
 import PendingInvitationBanner from '@/components/app/PendingInvitationBanner.vue';
 import ReportBugDialog from '@/components/app/ReportBugDialog.vue';
 import SearchOverlay from '@/components/app/SearchOverlay.vue';
@@ -113,6 +114,18 @@ watch(collapsed, (value) => {
             v-if="invitations.length > 0"
             :invitations="invitations"
         />
+
+        <!--
+            S56 (#102). In the shell rather than on a page, because losing the
+            network is a property of the session and not of whatever screen
+            happens to be open — and because the layout is persistent, so the
+            banner survives a navigation instead of flickering once per visit.
+
+            Below the impersonation banner deliberately: that one is a
+            safety-critical statement about *who you are acting as*, and
+            nothing should ever push it off the top.
+        -->
+        <OfflineNotice />
 
         <div class="flex min-h-0 flex-1">
             <div class="hidden md:flex">

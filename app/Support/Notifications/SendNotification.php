@@ -10,6 +10,7 @@ use App\Mail\InternalAlertMail;
 use App\Models\Notification;
 use App\Models\Team;
 use App\Models\TeamMembership;
+use App\Support\Push\SendPush;
 use Illuminate\Mail\Mailables\Address;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -33,6 +34,8 @@ use Throwable;
  */
 class SendNotification
 {
+    public function __construct(private readonly SendPush $push) {}
+
     /**
      * Deliver what this notification owes, once.
      *
@@ -76,10 +79,11 @@ class SendNotification
                 NotificationChannel::Email => $this->email($notification),
                 /*
                  * #103. Named rather than left to a catch-all, so adding the
-                 * sender is adding a method here instead of discovering that
-                 * a channel somebody could already choose reached nobody.
+                 * sender was adding a method here instead of discovering that
+                 * a channel somebody could already choose reached nobody —
+                 * which is what this arm returning `null` meant for one slice.
                  */
-                NotificationChannel::Push => null,
+                NotificationChannel::Push => $this->push->send($notification),
                 NotificationChannel::InApp => null,
             };
         }

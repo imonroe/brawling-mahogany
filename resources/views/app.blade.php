@@ -34,6 +34,31 @@
         <link rel="icon" href="/favicon.svg" type="image/svg+xml">
         <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
+        {{-- The PWA (#102).
+
+             The manifest is emitted by vite-plugin-pwa into the build
+             directory, so it is linked from there rather than from a copy —
+             one file, one place, and the icons it names are ordinary public
+             assets that survive a rebuild.
+
+             `theme-color` is Design System §2.4's `--primary`, as the sRGB a
+             browser chrome can hold: it colours the address bar on Android
+             and the status bar of an installed app, neither of which can read
+             a CSS custom property. The dark variant is deliberately the same
+             — this is a brand colour on a system surface, not a page
+             background, and the one thing worse than the wrong shade is the
+             bar changing colour when the phone flips to dark at sunset. --}}
+        <link rel="manifest" href="/build/manifest.webmanifest">
+        <meta name="theme-color" content="#1A588F">
+
+        {{-- iOS ignores the manifest's `display` and reads these instead. It
+             is the platform that makes S54 mandatory rather than optional
+             (Screen Inventory §J), so the tags it actually honours are worth
+             writing out even though Android needs none of them. --}}
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="default">
+        <meta name="apple-mobile-web-app-title" content="{{ config('app.product_name') }}">
+
         @vite(['resources/css/app.css', 'resources/js/app.ts', "resources/js/pages/{$page['component']}.vue"])
         <x-inertia::head>
             <title>{{ config('app.product_name') }}</title>

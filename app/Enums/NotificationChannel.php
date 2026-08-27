@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Enums;
 
 use App\Enums\Concerns\ProvidesOptions;
+use App\Support\Push\SendPush;
 
 /**
  * How a notification reaches somebody **inside** the team (F12.4 · issue #101).
@@ -81,11 +82,28 @@ enum NotificationChannel: string implements HasLabel
      * Offering a channel nothing can deliver on lets somebody set a preference
      * that silently does nothing — `CLAUDE.md`'s *"a row nothing can reach is
      * a rule nobody is following"* pointed the other way round.
+     *
+     * ## Push was gated on this string until #103, and now is gated on config
+     *
+     * The gate did not disappear when the sender arrived, it moved. Push needs
+     * a VAPID key pair, and an environment without one can register no
+     * subscriptions and deliver nothing — so *"is this build able to push"*
+     * became *"is this **environment** configured to"*, which is a question
+     * only the configuration can answer.
+     *
+     * That is why the answer is `SendPush::configured()` rather than a
+     * constant: staging may have keys and a developer's laptop may not, and
+     * offering the switch on the laptop would set a preference that silently
+     * does nothing — the exact failure this method was written for.
      */
     public function availableFrom(): ?string
     {
-        return $this === self::Push
-            ? 'Push notifications arrive with the mobile app (#103).'
-            : null;
+        if ($this !== self::Push) {
+            return null;
+        }
+
+        return SendPush::configured()
+            ? null
+            : 'Push notifications need VAPID keys configured for this environment.';
     }
 }

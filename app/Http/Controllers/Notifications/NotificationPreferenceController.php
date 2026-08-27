@@ -9,6 +9,8 @@ use App\Enums\NotificationType;
 use App\Http\Controllers\Controller;
 use App\Models\NotificationPreference;
 use App\Models\Person;
+use App\Models\PushSubscription;
+use App\Support\Push\SendPush;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -82,6 +84,35 @@ class NotificationPreferenceController extends Controller
             'quietHours' => [
                 'start' => $this->asTime($preference->quiet_hours_start),
                 'end' => $this->asTime($preference->quiet_hours_end),
+            ],
+            /*
+             * S55 (#103). The permission flow needs three things the page
+             * cannot work out for itself: whether this **environment** can
+             * push at all, the VAPID public key to subscribe with, and which
+             * devices are already registered.
+             */
+            'push' => [
+                'configured' => SendPush::configured(),
+                'publicKey' => config('push.vapid.public_key'),
+                'devices' => PushSubscription::query()
+                    ->forPerson($person)
+                    ->orderByDesc('last_seen_at')
+                    ->get()
+                    ->map(fn (PushSubscription $subscription): array => [
+                        'name' => $subscription->deviceName(),
+                        'lastSeenAt' => $subscription->last_seen_at?->toIso8601String(),
+                        /*
+                         * **A hash, not the endpoint.** The page only needs to
+                         * answer *"is one of these me?"*, which it can do by
+                         * hashing its own — and an endpoint is the entire
+                         * authorisation to push to somebody's phone, so it has
+                         * no business sitting in rendered HTML, in a browser
+                         * history entry, or in whatever captures a screenshot
+                         * of this page.
+                         */
+                        'fingerprint' => hash('sha256', $subscription->endpoint),
+                    ])
+                    ->all(),
             ],
         ]);
     }

@@ -51,6 +51,30 @@ const TEAM_AGNOSTIC_MODELS = [
     // for two teams signs in once. Scoped like `people`, which is to say not.
     App\Models\Passkey::class,
 
+    /*
+     * The same argument, one credential along (#103).
+     *
+     * A push subscription is an opaque endpoint URL plus the two keys that
+     * authorise encrypting to it — a credential for a *browser*, held by a
+     * human who has one phone however many agencies they work for. A
+     * `team_id` would mean a row per team per device, and every send would
+     * then have to de-duplicate by endpoint or push the same sentence to the
+     * same lock screen twice.
+     *
+     * What makes this safe where `people` was not (ADR 0002, "the hole the
+     * layers do not cover"): **every row describes a colleague's own
+     * browser.** There is no client name, address or figure in this table and
+     * nothing one team could learn about another by reading it. The day a
+     * column here describes somebody a team works *with* rather than somebody
+     * working *for* them, it belongs on a team-scoped table instead.
+     *
+     * Retention rides the cascade from `people`, which `records:purge`
+     * already hard-deletes thirty days after an account goes — so this is not
+     * a table outside the purge, which is the failure mode that argument
+     * usually hides.
+     */
+    App\Models\PushSubscription::class,
+
     // The security record outlives the team it describes — issue #57 requires
     // the audit trail of a purge to survive the purge — and some entries have
     // no team at all. Reading it is gated by policy instead.

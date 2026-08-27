@@ -121,3 +121,32 @@ initializeTheme();
 
 // This will listen for flash toast data from the server...
 initializeFlashToast();
+
+/**
+ * The service worker (#102).
+ *
+ * Registered here rather than by the plugin: `vite-plugin-pwa`'s injected
+ * registration wants an `index.html` to inject into, and Laravel serves the
+ * document.
+ *
+ * **`/sw.js`, not the built path.** A worker controls only URLs at or below
+ * its own, so one registered from `/build/sw.js` installs cleanly and
+ * intercepts nothing anybody visits — a failure whose symptom is silence.
+ * `ServiceWorkerController` serves the built file from the root for exactly
+ * that reason.
+ *
+ * Failure is swallowed on purpose. A worker is a progressive enhancement:
+ * unsupported browsers, private windows and insecure origins all reject the
+ * registration, and none of them is a reason to put an error in front of
+ * somebody trying to look at a deal.
+ */
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+        void navigator.serviceWorker
+            .register('/sw.js', { scope: '/' })
+            .catch(() => {
+                // Nothing to do, and nothing worth saying: the app works without
+                // it, minus the offline half.
+            });
+    });
+}

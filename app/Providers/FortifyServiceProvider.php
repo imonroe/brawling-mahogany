@@ -9,6 +9,7 @@ use App\Actions\Fortify\ResetUserPassword;
 use App\Http\Responses\PasswordResetLinkRequested;
 use App\Models\Person;
 use App\Support\Audit\AuditLogger;
+use App\Support\Push\PushSubscriptionRegistry;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
@@ -106,6 +107,24 @@ class FortifyServiceProvider extends ServiceProvider
                 auditableId: $person->getKey(),
                 actorPersonId: $person->getKey(),
             );
+
+            /*
+             * **Every push subscription this person holds, on the way out**
+             * (#103).
+             *
+             * Not only this browser's, and that is the point. A subscription
+             * survives a sign-out on its own — it belongs to the browser, not
+             * to the session — so without this a phone somebody handed back,
+             * sold, or signed out of at an open house goes on receiving *"a
+             * task was assigned to you"* on its lock screen indefinitely, with
+             * no session anywhere to notice.
+             *
+             * The cost is that signing out on a laptop also stops the phone,
+             * and it is the right way round: re-subscribing is one press on
+             * S55, and the failure it prevents is a device nobody controls
+             * showing a stranger which properties are in play.
+             */
+            app(PushSubscriptionRegistry::class)->forgetFor($person);
         });
 
         Event::listen(Failed::class, function (Failed $event): void {

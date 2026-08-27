@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Notifications\NotificationPreferenceController;
+use App\Http\Controllers\Push\PushSubscriptionController;
 use App\Http\Controllers\Settings\DataExportController;
 use App\Http\Controllers\Settings\DealTypeController;
 use App\Http\Controllers\Settings\MemberController;
@@ -114,6 +115,20 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         ->name('notification-preferences.edit');
     Route::patch('settings/notifications', [NotificationPreferenceController::class, 'update'])
         ->name('notification-preferences.update');
+
+    /*
+     * S55 (#103), beside S78 because it is the same screen.
+     *
+     * A subscription belongs to a **browser**, and a browser belongs to a
+     * person who may be in two teams — so these deliberately do not care
+     * which team is resolved, and switching teams neither registers nor
+     * forgets a device. They sit in this group only because that is where the
+     * screen lives.
+     */
+    Route::post('settings/notifications/push', [PushSubscriptionController::class, 'store'])
+        ->name('push-subscriptions.store');
+    Route::delete('settings/notifications/push', [PushSubscriptionController::class, 'destroy'])
+        ->name('push-subscriptions.destroy');
 
     Route::get('settings/export', [DataExportController::class, 'index'])->name('export.index');
     Route::post('settings/export', [DataExportController::class, 'store'])->name('export.store');

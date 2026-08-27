@@ -76,6 +76,24 @@ const UNGATED_ROUTES = [
     'notification-preferences.update',
 
     /*
+     * S55 (#103), and the same argument one table along.
+     *
+     * Both actions are keyed on `$request->user()`, so a subscription can
+     * only ever be attached to — or removed from — the person asking; the
+     * `destroy` rule scopes its `exists` check to their own rows, so another
+     * person's endpoint is a validation error rather than a deletion. There
+     * is no permission that could gate them either: everybody decides whether
+     * their own phone buzzes, and a `push.manage` would be a permission an
+     * owner could take away.
+     *
+     * A policy would also be the wrong **shape**: a push subscription carries
+     * no `team_id` (it belongs to a browser, not a tenancy — see the
+     * migration), and every policy in this product resolves a team.
+     */
+    'push-subscriptions.store',
+    'push-subscriptions.destroy',
+
+    /*
      * The manual (S92, #170), which asks only that somebody is signed in —
      * and is outside `verified`, `two-factor` and `team` as well, so an owner
      * held at 2FA enrolment can read the article about 2FA enrolment.
