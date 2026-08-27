@@ -27,9 +27,17 @@
  * closing is, which is the whole point of the rule.
  */
 import { Head, router } from '@inertiajs/vue3';
-import { CalendarDays, ChevronLeft, ChevronRight, Plus } from '@lucide/vue';
+import {
+    CalendarDays,
+    ChevronLeft,
+    ChevronRight,
+    Plus,
+    Rss,
+} from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
+import CalendarFeedDialog from '@/components/app/CalendarFeedDialog.vue';
+import type { CalendarFeedRow } from '@/components/app/CalendarFeedDialog.vue';
 import CalendarItem from '@/components/app/CalendarItem.vue';
 import type { CalendarItemRow } from '@/components/app/CalendarItem.vue';
 import CalendarMonth from '@/components/app/CalendarMonth.vue';
@@ -60,6 +68,8 @@ const props = defineProps<{
      */
     editableEvents: EventFormValues[];
     eventTypes: Record<string, string>;
+    /** S60's list (#108) — this person's own feeds, never a colleague's. */
+    feeds: CalendarFeedRow[];
     dealOptions: { id: string; label: string }[];
     attendeeOptions: { id: string; name: string }[];
 }>();
@@ -70,6 +80,7 @@ const { can } = usePermissions();
 const canManage = computed(() => can('deals.manage'));
 
 const dialogOpen = ref(false);
+const feedsOpen = ref(false);
 const editing = ref<EventFormValues | null>(null);
 const addingOn = ref<string | null>(null);
 
@@ -218,6 +229,15 @@ function remove(id: string): void {
                     label="Next"
                     @click="shift(1)"
                 />
+                <!--
+                    S60 (#108). A read, not a write, so it is offered to
+                    anybody who can see the calendar — PRD §4.2 F2.2's Read
+                    Only role has as much reason to subscribe as anybody.
+                -->
+                <AppButton variant="ghost" @click="feedsOpen = true">
+                    <Rss class="size-4" />
+                    Subscribe
+                </AppButton>
                 <AppButton v-if="canManage" @click="openAdd()">
                     <Plus class="size-4" />
                     Add event
@@ -282,6 +302,12 @@ function remove(id: string): void {
                 </div>
             </div>
         </Card>
+
+        <CalendarFeedDialog
+            v-model:open="feedsOpen"
+            :feeds="feeds"
+            :deal-options="dealOptions"
+        />
 
         <EventFormDialog
             v-if="canManage"

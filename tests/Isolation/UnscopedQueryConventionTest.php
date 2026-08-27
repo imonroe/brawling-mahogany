@@ -306,6 +306,16 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'session for one deal must not be able to name a document id from another.',
     ],
 
+    'Support/Calendar/ManageCalendarFeeds.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant: the reader is a calendar client — Google\'s '.
+            'fetcher or Apple\'s — with no cookie and no idea what a team is, so the token '.
+            'is what establishes one (F8.3, ADR 0002\'s stated exception, the same one the '.
+            'status page makes). An equality match on a unique sha256 column can find only '.
+            'the row it names, and the controller then renders the feed inside runFor() on '.
+            'that row\'s own team, so the board query is scoped exactly as any screen\'s is.',
+    ],
+
     'Console/Commands/IssueStatusPageLinkCommand.php' => [
         'count' => 2,
         'reason' => 'ADR 0003\'s console door, and the sweep shape every scheduled command '.

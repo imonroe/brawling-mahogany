@@ -144,6 +144,24 @@ const UNGATED_ROUTES = [
     'status.expired',
     'status.request',
 
+    /*
+     * The `.ics` feed (#108), and the same situation one surface along: the
+     * reader is a calendar client, not a person. There is no session to
+     * authorise and no policy that could be asked — F8.3 chose read-only iCal
+     * over two-way sync precisely because it *"works everywhere, no OAuth"*.
+     *
+     * The token is the authorisation and it establishes the tenant.
+     * `CalendarFeedsTest` asserts what stands in for a policy: a revoked token
+     * is a 404 rather than a 403 (a calendar client cannot read a refusal, and
+     * the difference is what would confirm a token had once been real), an
+     * unknown one is the same 404, and the document a live token produces is
+     * scoped to that feed's own team and — for a per-deal feed — to that deal.
+     *
+     * Its two writing siblings, `calendar.feeds.store` and `.destroy`, are
+     * **not** on this list: they are the team app and they authorise.
+     */
+    'calendar.feeds.show',
+
     // Somebody's own account, gated by `auth` rather than by a team policy —
     // they must reach it with no membership at all, which is exactly the case
     // the 2FA mandate strands them in.

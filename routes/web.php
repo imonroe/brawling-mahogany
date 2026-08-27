@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Activity\ActivityController;
 use App\Http\Controllers\Calendar\CalendarController;
+use App\Http\Controllers\Calendar\CalendarFeedController;
 use App\Http\Controllers\Calendar\EventController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Dates\DateListController;
@@ -81,6 +82,28 @@ Route::get('sw.js', ServiceWorkerController::class)->name('pwa.service-worker');
  * in, and it is the same bytes for everybody.
  */
 Route::get('manifest.webmanifest', WebManifestController::class)->name('pwa.manifest');
+
+/*
+ * The `.ics` feed itself (PRD §4.8 F8.3 · S60 · #108).
+ *
+ * **Outside `auth` and `team`.** The reader is Google's fetcher or Apple's,
+ * with no cookie and no idea what a tenant is — the token establishes the
+ * team, ADR 0002's stated exception and the same one the status page makes.
+ *
+ * Throttled, because #108 asks for it: a feed URL is pasted into services that
+ * poll on their own schedule, and one that has been shared four times is four
+ * pollers. The limit is generous — a calendar client fetches every few hours,
+ * not every few seconds — so it bounds abuse without breaking a subscription
+ * somebody legitimately has on a laptop, a phone and a shared team calendar.
+ *
+ * The `.ics` suffix is part of the path rather than a query parameter: several
+ * clients decide how to treat a URL by its extension before they have read a
+ * single header.
+ */
+Route::get('calendar/feeds/{token}.ics', [CalendarFeedController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->where('token', '[A-Za-z0-9]+')
+    ->name('calendar.feeds.show');
 
 /*
  * The client status page (PRD §4.7 · IA §6 · #110, #111).
@@ -626,6 +649,16 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * nesting and this is what it is for.
      */
     Route::get('calendar', [CalendarController::class, 'index'])->name('calendar.index');
+    /*
+     * S60's generate and revoke (#108). The modal opens over S57, so its list
+     * rides in that screen's props and there is no `index` route here.
+     */
+    Route::post('calendar/feeds', [CalendarFeedController::class, 'store'])
+        ->middleware('throttle:20,1')
+        ->name('calendar.feeds.store');
+    Route::delete('calendar/feeds/{feed}', [CalendarFeedController::class, 'destroy'])
+        ->name('calendar.feeds.destroy');
+
     Route::post('calendar/events', [EventController::class, 'store'])
         ->middleware('throttle:60,1')
         ->name('calendar.events.store');

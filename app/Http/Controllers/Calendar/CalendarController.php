@@ -8,6 +8,7 @@ use App\Enums\EventType;
 use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\Event;
+use App\Models\Person;
 use App\Models\TeamMembership;
 use App\Queries\CalendarBoard;
 use Carbon\CarbonImmutable;
@@ -91,6 +92,13 @@ class CalendarController extends Controller
              */
             'dealOptions' => $this->dealOptions(),
             'attendeeOptions' => $this->attendeeOptions(),
+            /*
+             * S60's modal opens over this screen (#108), so its list is part
+             * of this payload rather than a second route. A person's own feeds
+             * only — a feed URL is a bearer token, and a colleague's is not
+             * something to render even to somebody who could revoke it.
+             */
+            'feeds' => CalendarFeedController::feedsFor($request->user()),
         ]);
     }
 
