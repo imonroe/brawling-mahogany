@@ -100,7 +100,41 @@ final class Suppression
              */
             $liftedAt = $existing->deleted_at;
 
-            if ($liftedAt instanceof CarbonInterface && ! $occurredAt->greaterThan($liftedAt)) {
+            /*
+             * **Unless the event outranks what is recorded**, which round 4 of
+             * review found the gate refusing.
+             *
+             * The gate above is right about the case it was written for — a
+             * *replay* of the notification the operator lifted in response to
+             * — and wrong about an event of a different **kind**. A complaint
+             * the operator has never seen is not "the event they already
+             * considered": it is the one fact this feature treats as
+             * non-negotiable, and `DeliveryEvent::complaint()` says so in as
+             * many words.
+             *
+             * And it arrives late by nature. While an address is suppressed
+             * nothing goes out, so any complaint in flight is necessarily
+             * *about a message sent before the suppression* — and feedback
+             * loops run minutes to hours behind the ISP timestamp they carry.
+             * So the complaint's own clock predates the lift essentially
+             * always, and the gate refused essentially always: measured, the
+             * address stayed writable, the `message.complained` entry lost its
+             * "nothing further will be sent" clause, and the next automated
+             * message went out to the person who had reported the team.
+             *
+             * PRD §12.2 measures complaints **per account** at 0.1%, so that
+             * is every tenant's deliverability, which is the whole argument
+             * for this table having no `team_id`.
+             *
+             * The same escalation clause the live branch uses, so the two
+             * agree: a hard bounce replayed against a hard-bounce row does not
+             * outrank it, and neither does a complaint against a complaint.
+             * Only the categorically-new fact gets through.
+             */
+            $escalates = $reason->threatensTheAccount()
+                && ! $existing->reason->threatensTheAccount();
+
+            if (! $escalates && $liftedAt instanceof CarbonInterface && ! $occurredAt->greaterThan($liftedAt)) {
                 return false;
             }
 
@@ -120,18 +154,33 @@ final class Suppression
              * docblock states it as an invariant and it has to hold on both
              * paths.
              */
-            $keep = $existing->reason->threatensTheAccount() && ! $reason->threatensTheAccount()
-                ? $existing->reason
-                : $reason;
+            $keepExisting = $existing->reason->threatensTheAccount()
+                && ! $reason->threatensTheAccount();
 
             $existing->restore();
 
-            $existing->forceFill([
-                'reason' => $keep->value,
+            /*
+             * **The reason and the words beside it move together**, which
+             * round 4 of review caught as a half-fix one column along: round 3
+             * kept the stronger `reason` and overwrote `detail` and
+             * `discovered_by_team_id` unconditionally, so an operator's row
+             * read *"Marked as spam"* over *"smtp; 550 5.1.1 user unknown"*.
+             * The team-facing sentence was right — `explanation()` reads the
+             * reason — and the row contradicted itself.
+             *
+             * `CLAUDE.md`'s own rule about tones, one domain over: a thing
+             * made of several fields moves as a whole or not at all.
+             */
+            $existing->forceFill($keepExisting ? [
+                'suppressed_at' => Carbon::now(),
+            ] : [
+                'reason' => $reason->value,
                 'detail' => $detail,
                 'discovered_by_team_id' => $discoveredByTeamId,
                 'suppressed_at' => Carbon::now(),
             ])->save();
+
+            $keep = $keepExisting ? $existing->reason : $reason;
 
             $this->announce($keep, 'restored');
 

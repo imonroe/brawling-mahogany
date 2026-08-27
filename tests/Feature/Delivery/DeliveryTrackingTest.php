@@ -405,8 +405,14 @@ it('still rehearses when every address is suppressed, rather than failing', func
         fn () => ActivityEvent::query()->where('event_type', 'message.redirected')->sole(),
     );
 
-    // Nobody left to name, and both skips rehearsed.
-    expect($event->summary)->toContain('rather than nobody.')
+    /*
+     * **No "rather than nobody"** — round 4 of review pointed out that this
+     * test had pinned round 2's *"Emailed nobody"* sentence in the branch
+     * round 2's fix did not reach. With every address suppressed there is
+     * nobody to name, so the clause naming them goes.
+     */
+    expect($event->summary)->toContain('went to the team.')
+        ->and($event->summary)->not->toContain('nobody')
         ->and($event->summary)->toContain('Dana Okafor (dana@example.test) would have been skipped')
         ->and($event->summary)->toContain('Sam Reilly (sam@example.test) would have been skipped');
 });
@@ -1080,4 +1086,116 @@ it('writes a delivery confirmation past a bounce, even from a stale worker', fun
     expect($final->status)->toBe(DeliveryStatus::Bounced)
         ->and($final->delivered_at)->not->toBeNull()
         ->and($final->detail)->toBe('smtp; 550');
+});
+
+it('lets a complaint through the lift gate even when its clock predates the lift', function (): void {
+    /*
+     * Round 4 of review, and the fourth round running in which a fix opened
+     * the next defect. Round 3's gate — *"did this happen after somebody
+     * decided the address was fine"* — is right about a **replay** of the
+     * notification the operator lifted in response to, and wrong about an
+     * event of a different **kind**.
+     *
+     * And it is wrong essentially always, not rarely: while an address is
+     * suppressed nothing goes out, so any complaint in flight is necessarily
+     * about a message sent *before* the suppression, and feedback loops run
+     * minutes to hours behind the timestamp they carry. The reviewer measured
+     * the consequence end to end — the address stayed writable, the
+     * `message.complained` entry lost its "nothing further will be sent"
+     * clause, and the next automated message went out to the person who had
+     * reported the team.
+     *
+     * PRD §12.2 measures complaints per **account** at 0.1%, so that is every
+     * tenant's deliverability.
+     */
+    $suppression = app(App\Support\Delivery\Suppression::class);
+
+    $suppression->record('dana@example.test', SuppressionReason::HardBounce, occurredAt: now()->subHours(5));
+    $suppression->lift('dana@example.test');
+
+    // The ISP's own clock, well before the operator's decision.
+    expect($suppression->record('dana@example.test', SuppressionReason::Complaint, occurredAt: now()->subHours(4)))
+        ->toBeTrue()
+        ->and(SuppressedAddress::suppresses('dana@example.test'))
+        ->toBe(SuppressionReason::Complaint);
+});
+
+it('still refuses a replayed event of the same kind after a lift', function (): void {
+    /*
+     * The other side of the escalation clause: it must let the categorically
+     * new fact through without reopening round 3's blocker. A hard bounce
+     * replayed against a hard-bounce row does not outrank it, and neither does
+     * a complaint against a complaint.
+     */
+    $suppression = app(App\Support\Delivery\Suppression::class);
+
+    foreach ([SuppressionReason::HardBounce, SuppressionReason::Complaint] as $reason) {
+        $email = $reason->value.'@example.test';
+
+        $suppression->record($email, $reason, occurredAt: now()->subHours(5));
+        $suppression->lift($email);
+
+        expect($suppression->record($email, $reason, occurredAt: now()->subHours(5)))->toBeFalse()
+            ->and(SuppressedAddress::suppresses($email))->toBeNull();
+    }
+});
+
+it('keeps the reason and the words beside it together across a lift', function (): void {
+    /*
+     * Round 4 of review, a half-fix one column along from round 3's. Round 3
+     * kept the stronger `reason` on restore and overwrote `detail` and
+     * `discovered_by_team_id` unconditionally, so an operator's row read
+     * *"Marked as spam"* over *"smtp; 550 5.1.1 user unknown"* — the
+     * team-facing sentence right, the row contradicting itself.
+     */
+    $suppression = app(App\Support\Delivery\Suppression::class);
+
+    $suppression->record(
+        'dana@example.test',
+        SuppressionReason::Complaint,
+        detail: 'abuse report from the receiving provider',
+        occurredAt: now()->subDay(),
+    );
+
+    $suppression->lift('dana@example.test');
+
+    $suppression->record(
+        'dana@example.test',
+        SuppressionReason::HardBounce,
+        detail: 'smtp; 550 5.1.1 user unknown',
+        occurredAt: now(),
+    );
+
+    $row = SuppressedAddress::query()->where('email', 'dana@example.test')->sole();
+
+    expect($row->reason)->toBe(SuppressionReason::Complaint)
+        ->and($row->detail)->toBe('abuse report from the receiving provider');
+});
+
+it('does not leave a stale worker claiming a status the row disagrees with', function (): void {
+    /*
+     * Round 4 of review. The fallback added in round 3 returns `true` from a
+     * model that is stale by construction — that is what put it on that branch
+     * — and `forceFill(...)->syncOriginal()` then stamped the status this
+     * worker *read* as the original. A caller reading `$delivery->status`
+     * after a `true` got a value the database disagrees with, with
+     * `isDirty()` saying everything was fine.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $id = MessageDelivery::query()->sole()->getKey();
+
+    $stale = MessageDelivery::query()->findOrFail($id);
+
+    MessageDelivery::query()->findOrFail($id)->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550');
+
+    expect($stale->advanceTo(DeliveryStatus::Delivered, now()))->toBeTrue()
+        // Re-read, so what it reports is what the row says.
+        ->and($stale->status)->toBe(DeliveryStatus::Bounced)
+        ->and($stale->delivered_at)->not->toBeNull()
+        ->and($stale->isDirty())->toBeFalse();
 });

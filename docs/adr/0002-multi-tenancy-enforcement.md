@@ -376,8 +376,15 @@ the lift has something to resolve to — an entry whose `auditable_id` points at
 nothing cannot answer *"who decided this address was fine"*, which is the only
 reason it is written. `records:purge` discovers its tables by `team_id`, so it
 never reaches this one, and that is the intended behaviour rather than an
-oversight. The rows are an address, a reason and two timestamps; there is no
-customer data in them to age out.
+oversight.
+
+The reason is **not** that the rows are empty of customer data: the address is
+the customer datum, which is why `AuditRedactor` strips it from audit entries
+and why nothing team-facing reads the row. The reason is that the record has to
+outlive the lift it documents, and that a suppression aged out on a schedule
+would resurrect a dead address on that same schedule. If a deletion request
+ever has to be answered for this table, it is that trade being weighed, not an
+absence of anything to delete.
 
 The same soft delete is why `Suppression::record()` looks `withTrashed()` and
 **restores** rather than inserting: the unique index covers trashed rows, so a

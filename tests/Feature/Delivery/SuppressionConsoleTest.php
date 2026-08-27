@@ -152,6 +152,22 @@ it('is reachable from an audit entry, which records no address', function (): vo
         ->expectsOutputToContain('Was suppressed for')
         ->assertSuccessful();
 
+    /*
+     * **And the flags are honoured**, which round 4 of review found silently
+     * swallowed: the id path returned into the report before reading them, so
+     * `mail:suppression <id> --lift` printed a page, exited **0**, and lifted
+     * nothing. That is the command an operator holding an audit entry types,
+     * and a runbook step or a `&&` chain reads the exit code as success.
+     */
+    $suppressed = SuppressedAddress::factory()->create(['email' => 'sam@example.test']);
+
+    $this->artisan('mail:suppression', ['email' => (string) $suppressed->getKey(), '--lift' => true])
+        ->expectsOutputToContain('no longer suppressed')
+        ->assertSuccessful();
+
+    expect(SuppressedAddress::suppresses('sam@example.test'))->toBeNull()
+        ->and(AuditEntry::query()->where('action', 'mail.suppression_lifted')->count())->toBe(1);
+
     $this->artisan('mail:suppression', ['email' => '01hzzzzzzzzzzzzzzzzzzzzzzz'])
         ->expectsOutputToContain('No suppression record has the id')
         ->assertFailed();

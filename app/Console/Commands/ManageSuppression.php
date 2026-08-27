@@ -69,7 +69,28 @@ class ManageSuppression extends Command
          * `@` and a ULID never does.
          */
         if (! str_contains($subject, '@')) {
-            return $this->showById($subject);
+            $row = SuppressedAddress::withTrashed()->find($subject);
+
+            if (! $row instanceof SuppressedAddress) {
+                $this->components->error("No suppression record has the id [{$subject}].");
+
+                return self::FAILURE;
+            }
+
+            /*
+             * **Resolved, then carried on through the flags** — round 4 of
+             * review. The first version returned straight into the report, so
+             * `mail:suppression <id> --lift` printed a page, exited **0**, and
+             * lifted nothing. That is the command an operator holding an audit
+             * entry actually types (the entry records an id and, correctly, no
+             * address), and a runbook step or a `&&` chain reads the exit code
+             * as success.
+             *
+             * A door that leads somewhere read-only while silently swallowing
+             * the verb is worse than not accepting an id at all — which is the
+             * same class of finding the id path was added to close.
+             */
+            $subject = $row->email;
         }
 
         $email = $subject;
@@ -115,22 +136,6 @@ class ManageSuppression extends Command
         }
 
         return $this->show($email);
-    }
-
-    /**
-     * The same report, reached from an audit entry's `auditable_id`.
-     */
-    private function showById(string $id): int
-    {
-        $row = SuppressedAddress::withTrashed()->find($id);
-
-        if (! $row instanceof SuppressedAddress) {
-            $this->components->error("No suppression record has the id [{$id}].");
-
-            return self::FAILURE;
-        }
-
-        return $this->show($row->email);
     }
 
     private function show(string $email): int
@@ -226,7 +231,18 @@ class ManageSuppression extends Command
         );
 
         if (! $added) {
-            $this->components->warn("[{$email}] was already suppressed. Left as it was.");
+            /*
+             * Two ways to be refused, and they are opposite facts. Round 4 of
+             * review: this said *"was already suppressed"* for both, including
+             * the case where the row is **lifted** and the refusal left the
+             * address perfectly writable — the message asserting the reverse
+             * of what had happened.
+             */
+            $current = SuppressedAddress::withTrashed()->where('email', $email)->first();
+
+            $this->components->warn($current?->trashed() === false
+                ? "[{$email}] was already suppressed. Left as it was."
+                : "[{$email}] was not suppressed, and this did not suppress it.");
 
             return self::SUCCESS;
         }

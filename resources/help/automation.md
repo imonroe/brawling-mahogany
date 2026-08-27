@@ -284,6 +284,14 @@ mattered, write to them yourself.
 who was not written to, and the message's own page lists that person under
 **Delivery** as _Not sent_, with the reason. Nothing goes quiet.
 
+**Test mode is the exception, and deliberately.** While sending is in test mode
+every message goes to you rather than to anybody it was addressed to — so
+nothing is held back from a client, because nothing reaches one. The deal's
+activity still says which addresses a real send _would_ have skipped, so the
+rehearsal tells you the truth, but there is no **Delivery** line for them and
+no alert: there is nothing to report about a message that went nowhere near
+them.
+
 If an address is wrong and you have corrected it, the corrected address is a
 different address and works straight away. If the same address genuinely comes
 back to life, ask support — lifting one is deliberately not something a team

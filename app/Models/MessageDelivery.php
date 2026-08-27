@@ -239,6 +239,21 @@ class MessageDelivery extends Model
                 ->whereKey($this->getKey())
                 ->whereNull($column)
                 ->update([...$changes, 'updated_at' => Carbon::now()]);
+
+            if ($claimed > 0) {
+                /*
+                 * **Re-read, because this worker's model is stale by
+                 * construction** — that is what put it on this branch. Round 4
+                 * of review: `forceFill(...)->syncOriginal()` below would
+                 * otherwise stamp the status this worker *read* as the
+                 * original, so a caller reading `$delivery->status` after a
+                 * `true` got a value the database disagrees with, with
+                 * `isDirty()` saying everything was fine.
+                 */
+                $this->refresh();
+
+                return true;
+            }
         }
 
         if ($claimed === 0) {

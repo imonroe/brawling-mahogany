@@ -484,7 +484,15 @@ final class ExecuteAction
                  * branch was fine by luck — it ends on `: “{subject}”`.
                  */
                 summary: $decision->redirected
-                    ? "Sandbox: “{$subject}” went to the team rather than {$reached}.".$missed
+                    /*
+                     * *"rather than nobody"* is round 2's *"Emailed nobody"*
+                     * in the branch round 2's fix did not reach — true, and
+                     * the wrong sentence. With every address suppressed there
+                     * is nobody to name, so the clause naming them goes.
+                     */
+                    ? ($reached === 'nobody'
+                        ? "Sandbox: “{$subject}” went to the team.".$missed
+                        : "Sandbox: “{$subject}” went to the team rather than {$reached}.".$missed)
                     : "Emailed {$reached}: “{$subject}”".$missed,
             );
         }
@@ -512,8 +520,16 @@ final class ExecuteAction
                  * Counted separately, because it is the number an auditor
                  * would ask about: a send recorded as reaching one person out
                  * of two is only honest if the other one is somewhere.
+                 *
+                 * **Zero under sandbox**, and the rehearsal counted apart —
+                 * round 4 of review. `RecordDeliveries` writes no withheld row
+                 * when the send was redirected, deliberately, so a
+                 * `withheld_count` of two with one delivery row was a number
+                 * with nothing behind it on the one surface that cannot be
+                 * re-read for context later.
                  */
-                'withheld_count' => count($decision->withheld),
+                'withheld_count' => $decision->redirected ? 0 : count($decision->withheld),
+                'would_skip_count' => $decision->redirected ? count($decision->withheld) : 0,
                 'redirected' => $decision->redirected,
                 'message_key' => $instance->message_key,
             ],
