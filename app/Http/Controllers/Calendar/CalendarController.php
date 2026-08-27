@@ -221,7 +221,17 @@ class CalendarController extends Controller
             ->orderBy('first_name')
             ->get()
             ->map(fn (TeamMembership $membership): array => [
-                'id' => (string) $membership->person_id,
+                /*
+                 * The **membership** id, which is what the column holds and
+                 * what four docblocks around it say. It shipped as
+                 * `person_id`, which worked — `(team_id, person_id)` is unique
+                 * — and was the wrong pointer: a person is shared across teams
+                 * and a membership is the team-scoped half (IA §2), so a name
+                 * for an attendee had to be looked up by a second column, and
+                 * whoever next wrote a lookup would have reached for
+                 * `whereKey()` and got nothing.
+                 */
+                'id' => (string) $membership->getKey(),
                 'name' => $membership->fullName(),
             ])
             ->all());

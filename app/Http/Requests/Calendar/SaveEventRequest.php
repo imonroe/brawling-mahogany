@@ -70,7 +70,7 @@ class SaveEventRequest extends FormRequest
             'propertyId' => ['nullable', 'string', $this->belongsToTeam(Property::class)],
 
             'attendees' => ['array', 'max:50'],
-            'attendees.*' => ['string', $this->belongsToTeam(TeamMembership::class, 'person_id')],
+            'attendees.*' => ['string', $this->belongsToTeam(TeamMembership::class)],
 
             'recurrence' => ['nullable', 'array'],
             'recurrence.frequency' => [

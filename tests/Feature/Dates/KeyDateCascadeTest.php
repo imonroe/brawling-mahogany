@@ -10,6 +10,7 @@ use App\Models\KeyDate;
 use App\Support\Dates\AnchorWouldLoop;
 use App\Support\Dates\KeyDateGraph;
 use App\Support\Dates\SaveKeyDate;
+use App\Support\Dates\UnknownAnchor;
 
 /**
  * The contingency calendar's hard half (PRD §4.8 F8.2 · issue #106).
@@ -243,6 +244,53 @@ it('does not count an extracted date nobody has confirmed', function (): void {
     $counted = KeyDate::query()->confirmed()->pluck('id')->sort()->values()->all();
 
     expect($counted)->toBe(collect([$confirmed->getKey(), $manual->getKey()])->sort()->values()->all());
+});
+
+it('refuses an anchor this deal does not have, rather than saving a plain date', function (): void {
+    /*
+     * An anchor id that resolves to nothing used to fall through to the
+     * typed-date branch: a *derived* payload saved as a plain date, with no
+     * anchor, no offset, and nothing to say the request had not been honoured.
+     *
+     * `SaveKeyDateRequest` refuses it first for every HTTP caller, so the
+     * callers who can reach this are the ones not written yet — F5.3's
+     * automation, an importer, Slice 5's extraction — which is exactly when a
+     * silent fall-through costs the most, because nobody is watching a screen.
+     */
+    $anchor = KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Mutual acceptance',
+        'date' => '2026-09-01',
+    ]);
+
+    $elsewhere = KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => Deal::factory()->create(['team_id' => $this->team->getKey()])->getKey(),
+        'name' => 'Someone else’s closing',
+        'date' => '2026-10-01',
+    ]);
+
+    expect(fn () => app(SaveKeyDate::class)->add($this->deal, [
+        'name' => 'Inspection objection',
+        'anchor_key_date_id' => $elsewhere->getKey(),
+        'offset_days' => 10,
+        'offset_basis' => 'calendar',
+        'date' => '2026-09-11',
+    ]))->toThrow(UnknownAnchor::class);
+
+    expect(KeyDate::query()->where('deal_id', $this->deal->getKey())->count())->toBe(1);
+
+    // The control: the same payload against an anchor that is on this deal.
+    $derived = app(SaveKeyDate::class)->add($this->deal, [
+        'name' => 'Inspection objection',
+        'anchor_key_date_id' => $anchor->getKey(),
+        'offset_days' => 10,
+        'offset_basis' => 'calendar',
+    ]);
+
+    expect($derived->follows())->toBeTrue()
+        ->and($derived->date->toDateString())->toBe('2026-09-11');
 });
 
 it('uses the critical reminder schedule for a critical date and the default otherwise', function (): void {

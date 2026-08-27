@@ -163,6 +163,21 @@ class StatusPageController extends Controller
             return $this->expired('expired');
         }
 
+        /*
+         * Counted here too. S19 answers *"has the client looked?"* from
+         * `view_count` and `last_seen_at`, and only the timeline was touching
+         * them — so a client who came back a week later to re-read a
+         * disclosure read as not having come back at all, and `last_seen_at`
+         * said the wrong week.
+         *
+         * `touch()` counts a **page view**, not a session, and a document list
+         * is a page. The number is a rough signal an agent reads as *"they are
+         * following along"*, not an audit figure — the audit figure for a
+         * document is the entry `StatusDocumentController` writes when the
+         * bytes are handed over.
+         */
+        $this->links->touch($link);
+
         $composed = $status->for($link);
 
         return $this->client('Status/Documents', [

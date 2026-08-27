@@ -122,10 +122,19 @@ Route::get('calendar/feeds/{token}.ics', [CalendarFeedController::class, 'show']
  * would be read as a token — a 404 dressed as the very screen it should be.
  *
  * `ClientSurfaceHeaders` puts `no-referrer`, `noindex` and a private
- * `Cache-Control` on every one of these, which is a rule these four routes
- * need and nothing else does.
+ * `Cache-Control` on every one of these, which is a rule these routes need
+ * and nothing else does.
+ *
+ * The **throttle is on the group**, not on the page route. It sat on
+ * `s/{token}` alone, and `s/{token}/documents` resolves a session token by
+ * exactly the same mechanism and answers an unknown one exactly the same way
+ * — so the limit was bypassable by appending a path segment. A 256-bit token
+ * makes that impractical rather than harmless, and a stated control that does
+ * not cover what its comment claims is worse than a missing one. `s/request`
+ * keeps its own tighter limit on top: it sends mail, and ten an hour is not
+ * sixty.
  */
-Route::middleware(ClientSurfaceHeaders::class)->group(function (): void {
+Route::middleware([ClientSurfaceHeaders::class, 'throttle:60,1'])->group(function (): void {
     Route::get('s/expired', [StatusPageController::class, 'expiredPage'])->name('status.expired');
 
     /*
@@ -149,7 +158,6 @@ Route::middleware(ClientSurfaceHeaders::class)->group(function (): void {
         ->name('status.documents');
 
     Route::get('s/{token}', [StatusPageController::class, 'show'])
-        ->middleware('throttle:60,1')
         ->name('status.show');
 });
 

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\DealState;
 use App\Enums\OffsetBasis;
 use App\Models\Deal;
 use App\Models\KeyDate;
@@ -245,6 +246,98 @@ it('leaves an unconfirmed extracted date out of every count', function (): void 
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->where('dates', [])
             ->where('counts.upcoming', 0));
+});
+
+it('lets a date carry its own reminder schedule, and tells the screen it is stored', function (): void {
+    /*
+     * `reminder_offsets` had a request rule, a writer and a reader, and no
+     * screen sent it — `CLAUDE.md`'s *"a row nothing can reach"*, with the help
+     * article telling people they could change and disable reminders. This is
+     * the path, end to end.
+     *
+     * The `remindersAreSet` flag is the load-bearing half: `reminderDays()`
+     * resolves the default, so a form reading only that would write today's
+     * default onto every row somebody opened and saved — and the date would
+     * stop following the rule the moment it was marked critical.
+     */
+    $this->post("/deals/{$this->deal->getKey()}/dates", [
+        'name' => 'Financing contingency',
+        'mode' => 'typed',
+        'date' => now()->addDays(30)->toDateString(),
+    ])->assertRedirect();
+
+    $date = KeyDate::query()->sole();
+
+    expect($date->reminder_offsets)->toBeNull()
+        ->and($date->reminderDays())->toBe([7, 1]);
+
+    $this->patch("/deals/{$this->deal->getKey()}/dates/{$date->getKey()}", [
+        'name' => 'Financing contingency',
+        'mode' => 'typed',
+        'date' => $date->date->toDateString(),
+        'reminderOffsets' => [14, 7, 1],
+    ])->assertRedirect();
+
+    expect($date->fresh()->reminderDays())->toBe([14, 7, 1]);
+
+    $this->get("/deals/{$this->deal->getKey()}/dates")
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $row = collect($page->toArray()['props']['dates'])->first();
+
+            expect($row['reminderDays'])->toBe([14, 7, 1])
+                ->and($row['remindersAreSet'])->toBeTrue();
+        });
+
+    // And off is a real answer, distinct from "use the default".
+    $this->patch("/deals/{$this->deal->getKey()}/dates/{$date->getKey()}", [
+        'name' => 'Financing contingency',
+        'mode' => 'typed',
+        'date' => $date->date->toDateString(),
+        'reminderOffsets' => [],
+    ])->assertRedirect();
+
+    expect($date->fresh()->reminder_offsets)->toBe([])
+        ->and($date->fresh()->reminderDays())->toBe([]);
+});
+
+it('drops a closed deal from the cross-deal list and its counts, and keeps it on the deal', function (): void {
+    /*
+     * The reminder sweep has always read `Deal::open()`; S59, its count badge
+     * and the calendar grid did not. So the Overdue tab accumulated every past
+     * deadline of every deal the team had ever closed, growing without bound,
+     * on the screen Screen Inventory calls the one an agent checks to see the
+     * week's exposure — while the emails about those same dates had stopped
+     * months before. Three readers of one table, two rules.
+     *
+     * The second half is the part worth keeping: a closed deal's **own** tab
+     * still lists its dates. That is the record of what happened, and somebody
+     * looking at a closed deal is looking at it on purpose.
+     */
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Closing',
+        'date' => now()->subDays(40)->toDateString(),
+    ]);
+
+    $this->get('/dates?window=overdue')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('dates', 1)
+            ->where('counts.overdue', 1));
+
+    $this->deal->forceFill(['state' => DealState::Closed, 'closed_at' => now()])->save();
+
+    $this->get('/dates?window=overdue')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('dates', [])
+            ->where('counts.overdue', 0));
+
+    $this->get("/deals/{$this->deal->getKey()}/dates")
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->has('dates', 1));
 });
 
 it('calls it Dates & Deadlines, never Key dates', function (): void {

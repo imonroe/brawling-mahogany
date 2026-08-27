@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
@@ -229,6 +230,36 @@ class Deal extends Model
         return $this->hasMany(DealParticipant::class)
             ->orderByDesc('is_primary')
             ->orderBy('created_at');
+    }
+
+    /**
+     * The people on this deal, as team memberships (#110).
+     *
+     * The relation `scopeBindings()` walks for
+     * `deals/{deal}/people/{membership}/status-page`. Without it Laravel calls
+     * `$deal->memberships()` to resolve the child and throws
+     * `BadMethodCallException` — so all three of S19's status-page controls
+     * (Send, Copy link, Revoke) were a 500 on every press, and nothing caught
+     * it because no test posted to those routes. The same shape S17 and S23
+     * are recorded for: a path that exists in a file and is not reachable.
+     *
+     * Nesting is also what answers *"is this person on **this** deal"*. The
+     * tenancy layers answer *"is this our team's"* and say nothing about the
+     * pairing, so binding both halves independently let a hand-crafted request
+     * grant a 14-day session for one deal to any membership in the team.
+     * `StatusPageAccessController::clientOn()` narrows it further to a client
+     * role; this is what makes the pair exist at all.
+     *
+     * @return BelongsToMany<TeamMembership, $this>
+     */
+    public function memberships(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            TeamMembership::class,
+            'deal_participants',
+            'deal_id',
+            'team_membership_id',
+        );
     }
 
     /**

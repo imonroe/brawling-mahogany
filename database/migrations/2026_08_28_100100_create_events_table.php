@@ -88,9 +88,9 @@ return new class extends Migration
              * One row plus a rule, not one row per occurrence. A weekly open
              * house with no end date would be an unbounded INSERT, and editing
              * the series would mean finding every row it produced. The grid
-             * expands the rule for the window it is drawing, and #108 hands
-             * the rule to the client's calendar as an `RRULE` and lets it do
-             * the same.
+             * expands the rule for the window it is drawing, and #108's feed
+             * expands it too — `Recurrence` says why it sends occurrences
+             * rather than an `RRULE`.
              *
              * `App\Support\Calendar\Recurrence` is the typed reading of it.
              */

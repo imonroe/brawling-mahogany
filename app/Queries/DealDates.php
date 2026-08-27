@@ -85,6 +85,14 @@ final class DealDates
             'isPending' => $date->isPending(),
 
             'reminderDays' => $date->reminderDays(),
+            /*
+             * Whether that schedule is stored or resolved from the default.
+             * S18's dialog needs the distinction: a form that saw only the
+             * resolved list would write today's default onto every date
+             * somebody opened, and the row would stop following the rule the
+             * moment it was marked critical.
+             */
+            'remindersAreSet' => $date->reminder_offsets !== null,
             'isPastDue' => $date->isPastDue() && ! $date->isPending(),
         ];
     }

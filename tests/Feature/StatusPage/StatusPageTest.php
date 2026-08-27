@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\ParticipantRole;
+use App\Mail\StatusPageLinkMail;
 use App\Models\ActivityEvent;
 use App\Models\AuditEntry;
 use App\Models\Deal;
@@ -11,6 +12,7 @@ use App\Models\StatusPageLink;
 use App\Models\TeamMembership;
 use App\Support\StatusPage\IssueStatusPageLink;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\Mail;
 use Inertia\Testing\AssertableInertia;
 
 /**
@@ -74,6 +76,38 @@ it('opens the page from a link, first try, with no password', function (): void 
     $this->get("/s/{$session}")
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page->component('Status/Show'));
+});
+
+it('sends, hands over and revokes from the deal’s People tab', function (): void {
+    /*
+     * S19's three controls, and until now **no test pressed any of them**.
+     * All three sit inside `scopeBindings()`, which resolves `{membership}`
+     * through `$deal->memberships()` — a relation that did not exist, so every
+     * press was a 500 and the whole agent-side half of #110 was unreachable.
+     * The same shape S17 and S23 are recorded for, found by a test that made
+     * the request rather than by one that called the service underneath it.
+     */
+    Mail::fake();
+
+    $this->post("/deals/{$this->deal->getKey()}/people/{$this->client->getKey()}/status-page")
+        ->assertRedirect();
+
+    Mail::assertSent(StatusPageLinkMail::class);
+
+    expect(StatusPageLink::query()->live()->count())->toBe(1);
+
+    // ADR 0003's second door: the URL handed back, for the phone call.
+    $this->post("/deals/{$this->deal->getKey()}/people/{$this->client->getKey()}/status-page/link")
+        ->assertRedirect()
+        ->assertSessionHas('statusPageLink');
+
+    // Issuing again revokes what came before, so there is still exactly one.
+    expect(StatusPageLink::query()->live()->count())->toBe(1);
+
+    $this->delete("/deals/{$this->deal->getKey()}/people/{$this->client->getKey()}/status-page")
+        ->assertRedirect();
+
+    expect(StatusPageLink::query()->live()->count())->toBe(0);
 });
 
 it('spends a link once, and the second attempt lands on S64', function (): void {

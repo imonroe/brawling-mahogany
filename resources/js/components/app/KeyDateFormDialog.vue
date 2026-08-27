@@ -26,6 +26,7 @@ import { computed, ref, watch } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import AppTextarea from '@/components/app/AppTextarea.vue';
+import InputError from '@/components/forms/InputError.vue';
 import {
     Dialog,
     DialogContent,
@@ -53,6 +54,13 @@ export type KeyDateRow = {
     source: string;
     isPending: boolean;
     reminderDays: number[];
+    /*
+     * Whether the schedule above is **stored** or is the default for this kind
+     * of date. `reminderDays` cannot say: it resolves the default, so a form
+     * that read only that would write today's default onto every row somebody
+     * opened and saved, and the date would stop following the rule.
+     */
+    remindersAreSet: boolean;
     isPastDue: boolean;
     deal?: { label: string; url: string } | null;
 };
@@ -97,7 +105,53 @@ const form = useForm({
     offsetBasis: 'calendar',
     isCritical: false,
     notes: '',
+    /*
+     * Null and an empty array are different answers, all the way down to the
+     * column: absent means *"use the default for this kind of date"* — seven
+     * days and one, or five reminders on a critical date — and `[]` means
+     * somebody turned them off deliberately. So this is `number[] | null`
+     * rather than a list that happens to be empty, and the server reads the
+     * distinction the same way.
+     */
+    reminderOffsets: null as number[] | null,
 });
+
+/**
+ * The reminder schedule as a person edits it: a comma-separated list of days
+ * before the date.
+ *
+ * A text field rather than five checkboxes, because the useful answers are not
+ * a fixed set — a financing contingency wants 14, 7 and 1, and a walkthrough
+ * wants 1. Parsed leniently and validated on the server, which already refuses
+ * anything outside 0–90 and more than six of them.
+ */
+/**
+ * What the server uses when nothing is stored — `KeyDate::DEFAULT_REMINDERS`
+ * and `::CRITICAL_REMINDERS`. Shown rather than left blank, because an empty
+ * field reads as *"no reminders"* and that is the one thing it does not mean.
+ */
+const defaultReminders = computed((): number[] =>
+    form.isCritical ? [14, 7, 3, 1, 0] : [7, 1],
+);
+
+const reminderText = computed({
+    get: (): string =>
+        form.reminderOffsets === null
+            ? defaultReminders.value.join(', ')
+            : form.reminderOffsets.join(', '),
+    set: (value: string): void => {
+        const days = value
+            .split(',')
+            .map((part) => Number(part.trim()))
+            .filter((day) => Number.isInteger(day) && day >= 0);
+
+        form.reminderOffsets = days;
+    },
+});
+
+const remindersAreDefault = computed(
+    (): boolean => form.reminderOffsets === null,
+);
 
 const moves = ref<Move[]>([]);
 const previewing = ref(false);
@@ -122,6 +176,15 @@ watch(
         form.offsetBasis = row?.offsetBasis ?? 'calendar';
         form.isCritical = row?.isCritical ?? false;
         form.notes = row?.notes ?? '';
+        /*
+         * `reminderDays` is what the row *uses*, defaults included, so it
+         * cannot tell a stored schedule from an unset one. `remindersAreSet`
+         * is the column's own answer, and without it opening a date and
+         * saving it would silently freeze today's default onto the row.
+         */
+        form.reminderOffsets = row?.remindersAreSet
+            ? [...(row?.reminderDays ?? [])]
+            : null;
 
         moves.value = [];
         previewed.value = false;
@@ -382,6 +445,34 @@ function submit(): void {
                     <input v-model="form.isCritical" type="checkbox" />
                     Critical — remind more often, and earlier
                 </label>
+
+                <div class="flex flex-col gap-1.5">
+                    <Label for="key_date_reminders"
+                        >Remind this many days before</Label
+                    >
+                    <AppInput
+                        id="key_date_reminders"
+                        v-model="reminderText"
+                        placeholder="7, 1"
+                    />
+                    <InputError :message="form.errors.reminderOffsets" />
+                    <p class="text-[11px] text-muted-foreground">
+                        <template v-if="remindersAreDefault">
+                            Using the default for this kind of date. Type your
+                            own, or clear the field to turn reminders off.
+                        </template>
+                        <template
+                            v-else-if="form.reminderOffsets?.length === 0"
+                        >
+                            Reminders are off for this date. It still appears on
+                            the calendar and in the lists.
+                        </template>
+                        <template v-else>
+                            0 means the morning it falls. Clear the field to
+                            turn reminders off.
+                        </template>
+                    </p>
+                </div>
 
                 <div class="flex flex-col gap-1.5">
                     <Label for="key_date_notes">Notes</Label>

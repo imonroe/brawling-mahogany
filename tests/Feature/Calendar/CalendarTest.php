@@ -6,7 +6,9 @@ use App\Enums\EventType;
 use App\Models\Deal;
 use App\Models\Event;
 use App\Models\KeyDate;
+use App\Models\TeamMembership;
 use App\Support\Calendar\Recurrence;
+use Carbon\CarbonImmutable;
 use Inertia\Testing\AssertableInertia;
 
 /**
@@ -20,6 +22,53 @@ beforeEach(function (): void {
     $this->actingAsPerson($this->member, $this->team);
 
     $this->deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+});
+
+it('puts membership ids on an event, not person ids, and offers contacts too', function (): void {
+    /*
+     * The column holds **membership** ids — what four docblocks around it say,
+     * and what IA §2 makes right: a person is shared across teams and a
+     * membership is the team-scoped half. It shipped holding `person_id`,
+     * which worked because `(team_id, person_id)` is unique, and the next
+     * lookup written against the column would have used `whereKey()` and
+     * matched nothing.
+     *
+     * The second half is the point of the list: a contact the team recorded —
+     * an inspector, a client — can be on an event. Filtering to people with
+     * logins would make the attendee list unable to name the people who
+     * actually attend.
+     */
+    $inspector = TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'first_name' => 'Wes',
+        'last_name' => 'Adeyemi',
+    ]);
+
+    $this->get('/calendar')
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page) use ($inspector): void {
+            $ids = collect($page->toArray()['props']['attendeeOptions'])->pluck('id');
+
+            expect($ids)->toContain((string) $inspector->getKey())
+                ->and($ids)->not->toContain((string) $inspector->person_id);
+        });
+
+    $this->post('/calendar/events', [
+        'title' => 'Inspection',
+        'type' => EventType::Inspection->value,
+        'startsAt' => CarbonImmutable::now()->addDays(2)->setTime(9, 0)->toIso8601String(),
+        'attendees' => [(string) $inspector->getKey()],
+    ])->assertRedirect();
+
+    expect(Event::query()->sole()->attendeeIds())->toBe([(string) $inspector->getKey()]);
+
+    // And a person id is refused, so the two cannot quietly drift back.
+    $this->post('/calendar/events', [
+        'title' => 'Walkthrough',
+        'type' => EventType::Other->value,
+        'startsAt' => CarbonImmutable::now()->addDays(3)->setTime(9, 0)->toIso8601String(),
+        'attendees' => [(string) $inspector->person_id],
+    ])->assertSessionHasErrors('attendees.0');
 });
 
 it('renders the month grid over the weeks it actually draws', function (): void {

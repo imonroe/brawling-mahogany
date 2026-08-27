@@ -27,7 +27,7 @@
  * here would have made the component decide, and the two destinations are not
  * the same kind of thing — one is a dialog over this page and one is a visit.
  */
-import { Flag } from '@lucide/vue';
+import { Flag, Repeat } from '@lucide/vue';
 import { computed } from 'vue';
 import { formatTime } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
@@ -43,6 +43,8 @@ export type CalendarItemRow = {
     endsAt?: string;
     isAllDay?: boolean;
     isRepeat?: boolean;
+    /** S58's sentence, composed by the rule — never by this file. */
+    repeatSentence?: string | null;
     location?: string | null;
     typeLabel?: string;
     /** Deadlines only. */
@@ -122,6 +124,21 @@ const time = computed(() => {
                 time
             }}</span>
             <span class="truncate">{{ item.title }}</span>
+            <!--
+                A repeating occurrence looks exactly like a one-off without
+                this, and the difference decides what editing it does: an edit
+                changes the whole series. Labelled rather than left as a glyph,
+                because colour and shape alone are not a channel (§11).
+            -->
+            <Repeat
+                v-if="item.isRepeat"
+                class="size-3 shrink-0 opacity-60"
+                :stroke-width="2"
+                aria-hidden="true"
+            />
+            <span v-if="item.isRepeat" class="sr-only">{{
+                item.repeatSentence ?? 'Repeats'
+            }}</span>
         </span>
         <span
             v-if="showDeal && item.deal"

@@ -68,9 +68,14 @@ The day-of notice for a critical date is the one thing in this product that
 ignores quiet hours. A missed inspection objection deadline is a legal problem,
 and there is nothing to be done about today's deadline tomorrow morning.
 
-You can change the reminder days per date, and you can turn them off — but the
-notification always appears in your panel, whatever you switch off. That is
-deliberate.
+**Remind this many days before** on the date itself sets its own schedule —
+`14, 7, 1` on a financing contingency, `1` on a walkthrough. Leave it as it
+comes and the date uses the default for its kind; clear the field and the
+reminders stop.
+
+The notification still appears in your panel whatever you switch off. That is
+deliberate: switching off is about not being _woken_, and a line in a panel
+wakes nobody.
 
 ## Reminders
 

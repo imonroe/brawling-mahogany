@@ -23,10 +23,11 @@ else is optional.
   than an appointment.
 - **Deal** attaches the event to a deal, which is what puts it on that deal's
   record and lets you find it later from the deal rather than from the month.
-- **Who's coming** lists colleagues. This is a shared calendar, not an
-  invitation — nobody is asked to accept, and nothing is sent. It is there so
-  that the person looking at the month can see whose morning is already spoken
-  for.
+- **Who's coming** lists everybody in your directory, not just your
+  colleagues: an inspection has an inspector on it and a showing has a client.
+  This is a shared calendar, not an invitation — nobody is asked to accept, and
+  nothing is sent, so putting somebody on an event tells your team who will be
+  there and tells them nothing at all.
 - **Repeats** turns one event into a series. Daily, weekly, every two weeks,
   monthly.
 
@@ -65,9 +66,15 @@ You can have one feed for everything, or a feed for a single deal — useful if
 you want to share one deal's dates with somebody without giving them the rest
 of your week.
 
-The feed carries titles, days and times, and nothing else. No attendee lists,
-no notes, no client details: it ends up stored on somebody else's server, and
-the less of your business that lives there, the better.
+The feed carries titles, days, times and locations — and deliberately nothing
+else. No attendee lists, no notes, and no client names: it ends up stored on
+somebody else's server, and the less of your business that lives there, the
+better.
+
+A location is usually a property address, and it is there on purpose: an entry
+you have to open this app to act on defeats the point of subscribing. If an
+event's location is something you would rather not have on Google's servers,
+leave it off the event and it will not be in the feed.
 
 ## What the feed covers
 

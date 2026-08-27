@@ -16,8 +16,10 @@ use Carbon\CarbonImmutable;
  * ## By hand rather than by a library, and the reason is the payload
  *
  * What this emits is a fixed, small subset: `VEVENT` with a summary, a start,
- * an end and sometimes a location, plus an `RRULE` copied from a rule this
- * product already owns. Every iCal library in PHP is built to express the rest
+ * an end and sometimes a location. A repeating event is **expanded** into one
+ * `VEVENT` per occurrence in the window, each with its own `UID`, rather than
+ * sent as an `RRULE` — see `Recurrence`, which argues it. Every iCal library
+ * in PHP is built to express the rest
  * of RFC 5545 — attendees, organisers, alarms, attachments, free/busy — and
  * every one of those is something #108 explicitly does **not** want in a
  * document that syncs to a third party.

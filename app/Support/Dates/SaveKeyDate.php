@@ -177,11 +177,19 @@ final class SaveKeyDate
      *
      * ## What happens to the dates derived from it
      *
-     * They **stay where they are**, detached. The composite foreign key nulls
-     * the anchor (`ON DELETE SET NULL`, naming the column so the row's own
-     * `team_id` survives), and this nulls the rest of the derivation so no row
-     * is left claiming to be derived from nothing — which the migration's own
-     * CHECK would refuse anyway.
+     * They **stay where they are**, detached, and the loop below is what does
+     * it. That is worth stating plainly, because the obvious reading is that
+     * the composite foreign key's `ON DELETE SET NULL` handles it: a delete
+     * here is a **soft** delete, so the FK never fires. It fires later, when
+     * `records:purge` force-deletes the row thirty days on, and it is written
+     * naming the column explicitly so the child's own `team_id` is not nulled
+     * along with the anchor — a composite `SET NULL` blanks every referencing
+     * column unless told otherwise.
+     *
+     * So the two are a belt and braces with different timing, and only one of
+     * them is reachable from a screen. This also nulls the rest of the
+     * derivation, so no row is left claiming to be derived from nothing —
+     * which the migration's own CHECK would refuse anyway.
      *
      * Deleting the objection deadline's anchor must not delete the objection
      * deadline: the obligation in the contract did not go away because
@@ -319,6 +327,21 @@ final class SaveKeyDate
 
                 return;
             }
+
+            /*
+             * An anchor id that resolves to nothing in this deal's graph is a
+             * caller error, and falling through to the typed-date branch is
+             * the wrong way to report it: a *derived* payload would save as a
+             * plain date, with no anchor, no offset and nothing on the screen
+             * to say the request was not honoured.
+             *
+             * `SaveKeyDateRequest::onThisDeal()` refuses it first for every
+             * HTTP caller, so this is reachable only from a caller that has
+             * not been written yet — F5.3's automation, an importer, Slice
+             * 5's extraction. Which is exactly when a silent fall-through is
+             * most expensive: nobody is watching a screen.
+             */
+            throw UnknownAnchor::id($anchorId);
         }
 
         if (array_key_exists('date', $attributes) && $attributes['date'] !== null) {

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Deals;
 
+use App\Enums\ParticipantRole;
 use App\Http\Controllers\Controller;
 use App\Mail\StatusPageLinkMail;
 use App\Models\Deal;
+use App\Models\DealParticipant;
 use App\Models\Person;
 use App\Models\StatusPageLink;
 use App\Models\Team;
@@ -42,6 +44,17 @@ use Inertia\Inertia;
  * somebody access to a deal is deal work, so it asks `deals.manage`. Inventing
  * a `status_page.manage` would put a key in the catalogue that no shipped role
  * holds, which is the argument `TaskPolicy` makes at length.
+ *
+ * ## And the membership has to be a client **on this deal**
+ *
+ * The route is `deals/{deal}/people/{membership}/status-page` and the two bind
+ * independently: the team scope proves both belong to the team and says
+ * nothing about whether they belong to *each other*. Without `clientOn()`
+ * below, a request naming any membership in the team — a colleague, or another
+ * deal's seller — granted a full 14-day session to a deal that person has no
+ * place on. The screen only draws the control on roster rows in a client role,
+ * so this is reachable by a hand-crafted request only, which is exactly the
+ * class of hole an authorization check exists for.
  */
 class StatusPageAccessController extends Controller
 {
@@ -54,6 +67,8 @@ class StatusPageAccessController extends Controller
         TeamContext $teams,
     ): RedirectResponse {
         $this->authorize('update', $deal);
+
+        $this->clientOn($deal, $membership);
 
         $address = $membership->email;
 
@@ -102,6 +117,8 @@ class StatusPageAccessController extends Controller
     {
         $this->authorize('update', $deal);
 
+        $this->clientOn($deal, $membership);
+
         $issued = $this->links->issue($deal, $membership, $this->actor($request));
 
         return back()->with('statusPageLink', [
@@ -116,6 +133,13 @@ class StatusPageAccessController extends Controller
     {
         $this->authorize('update', $deal);
 
+        /*
+         * Revoke is deliberately **not** narrowed the way the two grants are.
+         * Taking access away must never be blocked by the participant's role
+         * having been edited since it was granted — the failure mode of a
+         * guard on a revoke path is somebody keeping access they should not
+         * have.
+         */
         $links = StatusPageLink::query()
             ->where('deal_id', $deal->getKey())
             ->where('team_membership_id', $membership->getKey())
@@ -129,6 +153,32 @@ class StatusPageAccessController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Status page access revoked.')]);
 
         return back();
+    }
+
+    /**
+     * Refuse unless this membership is a client participant on this deal.
+     *
+     * The client roles, matching what S57's People tab actually offers the
+     * control on: a seller or a buyer. A lender or an inspector is on the deal
+     * and is not the person the status page was written for — IA §9's whole
+     * surface is addressed to *the client whose transaction this is*, and the
+     * reassurance paragraph reads as nonsense to anybody else.
+     *
+     * A 404 rather than a 403: the pairing is what does not exist.
+     */
+    private function clientOn(Deal $deal, TeamMembership $membership): void
+    {
+        abort_unless(
+            DealParticipant::query()
+                ->where('deal_id', $deal->getKey())
+                ->where('team_membership_id', $membership->getKey())
+                ->whereIn('participant_role', [
+                    ParticipantRole::Seller->value,
+                    ParticipantRole::Buyer->value,
+                ])
+                ->exists(),
+            404,
+        );
     }
 
     private function actor(Request $request): ?Person

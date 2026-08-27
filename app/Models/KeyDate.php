@@ -166,6 +166,30 @@ class KeyDate extends Model
     }
 
     /**
+     * Only dates on deals that are still running.
+     *
+     * The companion to `confirmed()`, and it belongs beside it for the same
+     * reason: *"is this a deadline"* has two halves, and three readers were
+     * answering with one. The reminder sweep filtered on `Deal::open()`, while
+     * S59's Overdue tab, its count badge and the calendar grid did not — so
+     * the screen an agent checks on Monday morning to see the week's exposure
+     * accumulated every past deadline of every deal the team had ever closed,
+     * growing without bound, while the emails about them had stopped months
+     * before. A closed deal is not exposure.
+     *
+     * **Cross-deal readers only.** A closed deal's own Dates tab still lists
+     * its dates — that is the record of what happened, and hiding it would
+     * make the tab lie about a deal somebody is looking at deliberately.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeOnOpenDeals(Builder $query): Builder
+    {
+        return $query->whereIn('deal_id', Deal::query()->open()->select('id'));
+    }
+
+    /**
      * The opposite, as a query.
      *
      * Every reader that counts deadlines starts here, so the rule is written

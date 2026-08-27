@@ -13,8 +13,25 @@ use Carbon\CarbonInterface;
  * One row plus a rule. A weekly open house with no end date expanded into rows
  * would be an unbounded INSERT, and editing the series would mean finding
  * every row it had produced — so the grid expands the rule for the window it
- * is drawing, and #108 hands the same rule to the client's own calendar as an
- * `RRULE` and lets it do the expansion there.
+ * is drawing.
+ *
+ * ## The `.ics` feed expands too, rather than sending an `RRULE`
+ *
+ * The obvious alternative, and the one three docblocks in this codebase used
+ * to claim was happening. Handing a client the rule is fewer bytes and it
+ * makes the *client* responsible for a computation this file has already got
+ * right — including the parts `occurrence()` below argues about, where a
+ * monthly series that began on the 31st must come back to the 31st, and where
+ * a floating `UNTIL` against a zoned `DTSTART` is the one thing Apple and
+ * Google are known to read differently. A series that runs a week too long in
+ * one client and not the other is a bug nobody can reproduce.
+ *
+ * The feed serves a bounded window (90 days back, a year forward), so
+ * expanding costs a known number of `VEVENT`s and every subscriber sees the
+ * days this product would show them. `toRrule()` existed for the other
+ * approach, was never called by anything, and is gone: a method with a
+ * careful docblock and no caller is the *"reader with no writer"* shape
+ * `teams.logo_path` is recorded for.
  *
  * ## Deliberately a small subset of RFC 5545
  *
@@ -121,9 +138,9 @@ final readonly class Recurrence
      * Jumping straight to a date works for a daily rule and is wrong for a
      * monthly one: *"the 31st"* has no February, and any closed-form skip has
      * to decide what that means before it can count. Every occurrence is
-     * therefore an offset from the **origin**, computed the same way a client
-     * calendar computes it from the `RRULE` — which is what makes the two
-     * agree.
+     * therefore an offset from the **origin**, which is also the rule RFC 5545
+     * gives a client computing from an `RRULE` — so a subscriber who ever gets
+     * one sees the same days this does.
      *
      * @return list<CarbonImmutable>
      */
@@ -178,25 +195,6 @@ final readonly class Recurrence
         return $this->until instanceof CarbonImmutable
             ? $every.' until '.$this->until->format('M j, Y')
             : $every;
-    }
-
-    /**
-     * The RFC 5545 line an `.ics` feed carries (#108).
-     *
-     * `UNTIL` is stamped in UTC with the trailing `Z`, because a floating
-     * `UNTIL` against a zoned `DTSTART` is the one part of the standard
-     * calendar clients disagree about — and a series that runs one week too
-     * long in Apple Calendar and not in Google is a bug nobody can reproduce.
-     */
-    public function toRrule(): string
-    {
-        $rule = 'FREQ='.mb_strtoupper($this->frequency).';INTERVAL='.$this->interval;
-
-        if ($this->until instanceof CarbonImmutable) {
-            $rule .= ';UNTIL='.$this->until->utc()->format('Ymd\THis\Z');
-        }
-
-        return $rule;
     }
 
     /**

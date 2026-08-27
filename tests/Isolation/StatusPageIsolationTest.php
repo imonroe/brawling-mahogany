@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 use App\Enums\DocumentVisibility;
+use App\Enums\ParticipantRole;
 use App\Models\Deal;
 use App\Models\Document;
 use App\Models\StatusPageLink;
 use App\Models\TeamMembership;
+use App\Support\Deals\DealRoster;
 use App\Support\StatusPage\DispatchStatusPageLink;
 use App\Support\StatusPage\IssueStatusPageLink;
 use App\Support\Tenancy\TeamContext;
@@ -36,6 +38,13 @@ beforeEach(function (): void {
         'team_id' => $this->team->getKey(),
         'email' => 'dana@example.test',
     ]);
+
+    /*
+     * On the roster, because that is what makes her a client of this deal
+     * rather than a name in the directory — and the grant routes now bind
+     * `{membership}` *through* `{deal}`, so the pairing has to exist.
+     */
+    app(DealRoster::class)->add($this->deal, $this->client, ParticipantRole::Seller, isPrimary: true);
 });
 
 /** A live session on this team's deal, and the token that opens it. */
@@ -152,6 +161,38 @@ it('does not hand back access an agent has revoked', function (): void {
     expect(app(DispatchStatusPageLink::class)->forAddress('dana@example.test'))->toBe(0);
 
     Mail::assertNothingSent();
+});
+
+it('refuses to grant a client access to a deal they are not on', function (): void {
+    /*
+     * `deals/{deal}/people/{membership}/status-page` binds both halves
+     * independently, and the team scope proves each belongs to the team while
+     * saying nothing about whether they belong to **each other**. Named by
+     * hand, any membership in the team — a colleague, or another deal's seller
+     * — got a full 14-day session to a deal they have no place on.
+     *
+     * The screen only draws the control on client roster rows, which is why
+     * this needed a request rather than a click to find.
+     */
+    $otherDeal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $colleague = TeamMembership::factory()->create(['team_id' => $this->team->getKey()]);
+
+    foreach (['', '/link'] as $suffix) {
+        $this->post("/deals/{$otherDeal->getKey()}/people/{$this->client->getKey()}/status-page".$suffix)
+            ->assertNotFound();
+
+        $this->post("/deals/{$this->deal->getKey()}/people/{$colleague->getKey()}/status-page".$suffix)
+            ->assertNotFound();
+    }
+
+    expect(StatusPageLink::withoutTeamScope()->count())->toBe(0);
+
+    // The control: the pairing the screen offers does work.
+    $this->post("/deals/{$this->deal->getKey()}/people/{$this->client->getKey()}/status-page/link")
+        ->assertRedirect();
+
+    expect(StatusPageLink::withoutTeamScope()->count())->toBe(1);
 });
 
 it('scopes one grant to one deal', function (): void {

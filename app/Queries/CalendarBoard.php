@@ -157,6 +157,15 @@ final class CalendarBoard
             'isAllDay' => $event->is_all_day,
             'location' => $event->location,
             'isRepeat' => $event->repeats() instanceof Recurrence,
+            /*
+             * S58's *"Repeats every 2 weeks until Sep 30"*, composed by the
+             * rule itself rather than by a screen. `Recurrence::sentence()`
+             * shipped with a careful docblock and no caller, which is the same
+             * dead-end `teams.logo_path` is recorded for — and `isRepeat`
+             * beside it was a prop nothing rendered, so a repeating occurrence
+             * looked exactly like a one-off on the grid.
+             */
+            'repeatSentence' => $event->repeats()?->sentence(),
             'deal' => $deal instanceof Deal
                 ? ['label' => $deal->displayName(), 'url' => route('deals.show', $deal)]
                 : null,
@@ -189,6 +198,14 @@ final class CalendarBoard
     {
         $dates = KeyDate::query()
             ->confirmed()
+            /*
+             * A cross-deal read filters to running deals; a single deal's own
+             * view does not. S18 and a per-deal feed are somebody looking at
+             * *that* deal on purpose, and a closed deal's dates are the record
+             * of what happened — the month grid and the whole-team feed are
+             * asking what is coming, which a closed deal has none of.
+             */
+            ->when(! $deal instanceof Deal, fn ($query) => $query->onOpenDeals())
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->when($deal instanceof Deal, fn ($query) => $query->where('deal_id', $deal?->getKey()))
             ->with('deal')

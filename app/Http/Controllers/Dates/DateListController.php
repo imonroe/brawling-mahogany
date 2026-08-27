@@ -66,6 +66,15 @@ class DateListController extends Controller
              * is a date somebody plans their week around.
              */
             ->confirmed()
+            /*
+             * And on a deal that is still running. Without it the Overdue tab
+             * grows for ever: every past deadline of every deal the team has
+             * ever closed, on the screen Screen Inventory calls the one an
+             * agent checks to see the week's exposure. The reminder sweep has
+             * always filtered this way — three readers, one rule, and it lives
+             * on the model now rather than in whichever of them remembered.
+             */
+            ->onOpenDeals()
             ->when($window === 'upcoming', fn ($query) => $query
                 ->whereBetween('date', [$today, CarbonImmutable::parse($today)
                     ->addDays(self::HORIZON_DAYS)
@@ -116,7 +125,9 @@ class DateListController extends Controller
         $horizon = CarbonImmutable::parse($today)->addDays(self::HORIZON_DAYS)->toDateString();
 
         $count = static fn (Closure $narrow): \Illuminate\Database\Query\Builder => $narrow(
-            KeyDate::query()->confirmed(),
+            // The same two narrowings the list above applies, or the badge
+            // counts rows the tab beneath it does not show.
+            KeyDate::query()->confirmed()->onOpenDeals(),
         )->toBase()->selectRaw('count(*)');
 
         $row = DB::query()

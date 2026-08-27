@@ -158,6 +158,38 @@ it('reminds again when the date moves, with nothing to reschedule', function ():
     expect(($this->minesCount)())->toBe(2);
 });
 
+it('still reminds when a moved date lands on a day another date in the same digest already claimed', function (): void {
+    /*
+     * The once-only guard is per person, per date, per **day**, and a digest
+     * carries several dates at once. Storing their ids and their days as two
+     * parallel arrays made the guard match *"this id is somewhere in the row"*
+     * AND *"this day is somewhere in the row"* independently — true of a row
+     * where the id and the day belong to different dates.
+     *
+     * Which is exactly the case this feature exists for. One digest names both
+     * dates below; *Appraisal* then slips onto the day *Inspection* already
+     * claimed, and the sweep decided it had already said so. The moved
+     * deadline — the one thing a reminder sweep is for — went out to nobody.
+     */
+    keyDate(['name' => 'Inspection objection', 'date' => '2026-09-08']);
+    $appraisal = keyDate(['name' => 'Appraisal', 'date' => '2026-09-02']);
+
+    // One digest: Inspection at seven days out, Appraisal at one.
+    atTeamMorning('2026-09-01');
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+    expect(($this->minesCount)())->toBe(1);
+
+    app(App\Support\Dates\SaveKeyDate::class)->edit($appraisal, ['date' => '2026-09-08']);
+
+    // The morning before the new day. Appraisal has never been announced for
+    // the 8th; Inspection has.
+    atTeamMorning('2026-09-07');
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+    expect(($this->minesCount)())->toBe(2);
+});
+
 it('says nothing about a deal that has closed', function (): void {
     keyDate(['name' => 'Closing', 'date' => '2026-09-09']);
 

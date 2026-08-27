@@ -125,7 +125,9 @@ class NotifyAboutKeyDates extends Command
              */
             ->confirmed()
             ->whereBetween('date', [$today->toDateString(), $horizon->toDateString()])
-            ->whereIn('deal_id', Deal::query()->open()->select('id'))
+            // `KeyDate::scopeOnOpenDeals()`, which S59 and the calendar now
+            // read too. This restated it, and they had no rule at all.
+            ->onOpenDeals()
             ->with('deal')
             ->orderBy('date')
             ->get();
@@ -217,11 +219,7 @@ class NotifyAboutKeyDates extends Command
              */
             deal: count($unsent) === 1 ? $unsent[0]->deal : null,
             data: [
-                'keyDateIds' => array_map(static fn (KeyDate $date): string => (string) $date->getKey(), $unsent),
-                'remindedFor' => array_map(
-                    static fn (KeyDate $date): string => $date->date->toDateString(),
-                    $unsent,
-                ),
+                'announced' => array_map(self::announcement(...), $unsent),
                 /*
                  * S88's *"several dates"* state. Composed here rather than in
                  * the mailable because this is where the dates are, and
@@ -249,8 +247,7 @@ class NotifyAboutKeyDates extends Command
             summary: $date->name.' is today',
             deal: $date->deal,
             data: [
-                'keyDateIds' => [(string) $date->getKey()],
-                'remindedFor' => [$date->date->toDateString()],
+                'announced' => [self::announcement($date)],
                 'lines' => [$this->summarise($date)],
                 'emphasis' => true,
             ],
@@ -268,15 +265,43 @@ class NotifyAboutKeyDates extends Command
      *
      * The row is the record, so a queue flush or a missed day cannot make it
      * repeat. Same argument as `NotifyAboutDeadlines`, one column wider.
+     *
+     * ## One key per date, not two arrays that get compared independently
+     *
+     * A digest carries several dates, and the first version of this stored
+     * their ids and their days as **parallel arrays**. Two `whereJsonContains`
+     * over those match *"this id is somewhere in the row"* AND *"this day is
+     * somewhere in the row"* — which is true of a row where the id and the day
+     * belong to **different dates**.
+     *
+     * That is not theoretical, and it fails in the direction the feature
+     * exists to prevent. One digest names *Inspection* on the 8th and
+     * *Appraisal* on the 2nd. *Appraisal* then slips to the 8th. It has never
+     * been announced for the 8th, but its id is in the row and so is that day,
+     * so the sweep decides it has and says nothing — the moved deadline, which
+     * is the one case the docblock above promises to catch.
+     *
+     * `id@day` in one array makes the pair the thing matched.
      */
     private function alreadyTold(Person $person, KeyDate $date, NotificationType $type): bool
     {
         return Notification::query()
             ->where('person_id', $person->getKey())
             ->where('type', $type->value)
-            ->whereJsonContains('data->keyDateIds', (string) $date->getKey())
-            ->whereJsonContains('data->remindedFor', $date->date->toDateString())
+            ->whereJsonContains('data->announced', self::announcement($date))
             ->exists();
+    }
+
+    /**
+     * What a row records about one date: which date, and for which day.
+     *
+     * A ULID contains no `@`, and a `Y-m-d` contains no `@`, so the pair
+     * round-trips unambiguously and Postgres can match it with one
+     * containment check.
+     */
+    private static function announcement(KeyDate $date): string
+    {
+        return $date->getKey().'@'.$date->date->toDateString();
     }
 
     /**
