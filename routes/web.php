@@ -31,6 +31,7 @@ use App\Http\Controllers\Properties\PhotoController;
 use App\Http\Controllers\Properties\PropertyController;
 use App\Http\Controllers\Properties\PropertyDealController;
 use App\Http\Controllers\Pwa\ServiceWorkerController;
+use App\Http\Controllers\Pwa\WebManifestController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Settings\RoleController;
 use App\Http\Controllers\Teams\InvitationController;
@@ -60,6 +61,18 @@ Route::inertia('/', 'Welcome')->name('home');
  * in or not.
  */
 Route::get('sw.js', ServiceWorkerController::class)->name('pwa.service-worker');
+
+/*
+ * The web app manifest, served rather than built (#102). See
+ * `WebManifestController`: the plugin's own copy lands in `public/build` and
+ * enters the worker's precache list as a relative URL that resolves to a path
+ * nothing serves — and unlike the asset entries, no build hook can reach it.
+ *
+ * Outside `auth` for the reason the worker is: a browser fetches this to
+ * decide whether the site is installable, sometimes before anybody has signed
+ * in, and it is the same bytes for everybody.
+ */
+Route::get('manifest.webmanifest', WebManifestController::class)->name('pwa.manifest');
 
 /*
  * Accepting an invitation happens before there is a membership to resolve, so

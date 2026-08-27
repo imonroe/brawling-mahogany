@@ -57,18 +57,23 @@ final class PushPayload
 
         /*
          * The type's own words, which are a constant in an enum rather than
-         * anything a tenant can influence. `NotificationType::label()` is the
-         * heading S78 shows for the same kind of event, so what arrives on a
-         * phone matches what the person switched on.
+         * anything a tenant can influence.
+         *
+         * **`pushBody()`, not `description()`.** Round 1 of review printed
+         * what the first version actually said: `label()` and `description()`
+         * are S78's *preference-row* copy, each completing *"tell me when…"*
+         * — so a lock screen read *"A task is assigned to me / When somebody
+         * assigns you a task, or reassigns one to you."* The allowlist was
+         * right and the constants were the wrong ones.
          */
-        $body = $notification->type->description();
+        $body = $notification->type->pushBody();
 
         if ($street !== null) {
             $body = $street.' — '.$body;
         }
 
         return [
-            'title' => $notification->type->label(),
+            'title' => $notification->type->pushTitle(),
             'body' => $body,
             /*
              * A path with ULIDs in it. Opaque, and the same URL the panel

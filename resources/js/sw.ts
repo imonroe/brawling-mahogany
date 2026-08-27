@@ -160,6 +160,26 @@ self.addEventListener('fetch', (event: FetchEvent) => {
  * this is from 08:12".
  */
 self.addEventListener('message', (event: ExtendableMessageEvent) => {
+    /*
+     * **Throw the offline copies away.**
+     *
+     * Round 1 of review's second blocking finding: nothing ever cleared this
+     * cache. A page cached under one signed-in person is keyed by URL and
+     * nothing else, so on a shared iPad — sign out, go offline, open `/work` —
+     * the previous account's rendered work queue was served straight back,
+     * with no session anywhere in the path to refuse it. The same mechanism
+     * served team A's queue under team B, because `/work` is one URL for
+     * every team a person is in.
+     *
+     * The page decides when: it knows who is signed in and which team is
+     * resolved, and the worker cannot. See `app.ts`.
+     */
+    if (event.data?.type === 'CLEAR_OFFLINE_CACHE') {
+        event.waitUntil(caches.delete(OFFLINE_CACHE));
+
+        return;
+    }
+
     if (event.data?.type !== 'CACHE_STATUS') {
         return;
     }

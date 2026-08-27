@@ -36,10 +36,11 @@
 
         {{-- The PWA (#102).
 
-             The manifest is emitted by vite-plugin-pwa into the build
-             directory, so it is linked from there rather than from a copy —
-             one file, one place, and the icons it names are ordinary public
-             assets that survive a rebuild.
+             The manifest is **served**, not built — see
+             `WebManifestController`. The plugin's copy lands in `public/build`
+             and enters the worker's precache list as a relative URL that
+             resolves to a path nothing serves, and no build hook can reach
+             that entry.
 
              `theme-color` is Design System §2.4's `--primary`, as the sRGB a
              browser chrome can hold: it colours the address bar on Android
@@ -48,7 +49,7 @@
              — this is a brand colour on a system surface, not a page
              background, and the one thing worse than the wrong shade is the
              bar changing colour when the phone flips to dark at sunset. --}}
-        <link rel="manifest" href="/build/manifest.webmanifest">
+        <link rel="manifest" href="/manifest.webmanifest">
         <meta name="theme-color" content="#1A588F">
 
         {{-- iOS ignores the manifest's `display` and reads these instead. It

@@ -96,7 +96,7 @@ it('never puts a client’s surname on a lock screen', function (): void {
     expect(json_encode($payload))->not->toContain('Okafor')
         // Still says what happened — a push with no content is one somebody
         // has to open the app to triage, which defeats sending it.
-        ->and($payload['title'])->toBe(NotificationType::DeadlineApproaching->label())
+        ->and($payload['title'])->toBe('Due tomorrow')
         ->and($payload['body'])->not->toBe('');
 });
 
@@ -119,10 +119,61 @@ it('is built only from the type and the street', function (): void {
 
     $payload = PushPayload::for($notification);
 
+    /*
+     * **Literals, not `->pushTitle()` and `->pushBody()`.**
+     *
+     * Round 1 of review caught the first version asserting
+     * `toBe($type->description())`, which is true of *whatever
+     * `description()` returns* — including the S78 preference copy it was
+     * actually returning, so the test passed while a lock screen read *"A
+     * task is assigned to me / When somebody assigns you a task, or reassigns
+     * one to you."* `CLAUDE.md` names the shape: a test that asserts
+     * `config(X)` cannot see a wrong value in `X`, and the same is true of an
+     * enum method.
+     *
+     * Spelling the strings out means somebody changing this copy has to look
+     * at it on the surface it lands on.
+     */
     expect($payload)->toBe([
-        'title' => NotificationType::AutomationFailed->label(),
-        'body' => NotificationType::AutomationFailed->description(),
+        'title' => 'A message did not go out',
+        'body' => 'An automated message failed to send.',
         'url' => '/notifications',
-        'tag' => NotificationType::AutomationFailed->value.':none',
+        'tag' => 'automation_failed:none',
     ]);
+});
+
+it('never reuses S78’s preference copy on a lock screen', function (): void {
+    /*
+     * The finding behind `pushTitle()`/`pushBody()` existing at all.
+     *
+     * `label()` and `description()` are written for **S78's preference
+     * rows**, where each completes *"tell me when…"* — so `label()` reads *"A
+     * task is assigned to me"* and `description()` explains a **setting**
+     * rather than an event. Rendered onto a phone announcing something that
+     * has just happened, the pair is nonsense.
+     *
+     * A guard rather than a memory, because the two pairs of methods sit in
+     * one enum and the wrong one is always in reach.
+     */
+    foreach (NotificationType::cases() as $type) {
+        expect($type->pushTitle())->not->toBe($type->label())
+            ->and($type->pushBody())->not->toBe($type->description())
+            // The tell-tale of preference copy: it starts by naming the
+            // condition rather than the event.
+            ->and($type->pushBody())->not->toStartWith('When ')
+            /*
+             * S78's titles complete *"tell me when…"* and so end in the
+             * first person — *"A task is assigned to me"*, *"Something of
+             * mine is due soon"*. A push announces an event to somebody, so
+             * it never does.
+             *
+             * `toEndWith`, not `toContain`: the first version used
+             * `not->toContain(' me')`, which flagged *"A message did not go
+             * out"* — the substring is inside "message". A heuristic that
+             * fires on correct copy is one somebody edits the copy to
+             * satisfy.
+             */
+            ->and($type->pushTitle())->not->toEndWith(' me')
+            ->and($type->pushTitle())->not->toEndWith(' mine');
+    }
 });

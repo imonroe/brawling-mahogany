@@ -25,10 +25,18 @@ class PushSubscriptionRegistry
      *
      * ## Keyed on the endpoint, which is the device's identity
      *
-     * A browser hands back the *same* endpoint when it re-subscribes, and the
-     * page re-subscribes on every load that finds permission already granted
-     * — that is how it notices a subscription the browser rotated. Inserting
-     * blindly would give somebody one row per visit and one push per row.
+     * A browser hands back the *same* endpoint when it re-subscribes, and
+     * `resources/js/lib/pwa.ts` re-posts whatever subscription the browser
+     * holds on every load. Inserting blindly would give somebody one row per
+     * visit and one push per row.
+     *
+     * That re-post exists because of this method's own sign-out counterpart:
+     * `forgetFor()` runs on every sign-out, so without something handing the
+     * subscription back, push switched itself off permanently for every
+     * device the first time anybody signed out. Round 1 of review found the
+     * claim in this paragraph asserted and unimplemented — the page did not
+     * re-post anything, and the only POST in the codebase was a click on
+     * S55.
      *
      * `updateOrCreate` on `endpoint` rather than on `(person_id, endpoint)`:
      * an endpoint belongs to a browser profile, so if it turns up under a

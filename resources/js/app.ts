@@ -1,4 +1,4 @@
-import { createInertiaApp } from '@inertiajs/vue3';
+import { createInertiaApp, usePage } from '@inertiajs/vue3';
 import * as Sentry from '@sentry/vue';
 import { createApp, h } from 'vue';
 import { initializeTheme } from '@/composables/useAppearance';
@@ -8,6 +8,7 @@ import AuthLayout from '@/layouts/AuthLayout.vue';
 import DealLayout from '@/layouts/DealLayout.vue';
 import SettingsLayout from '@/layouts/SettingsLayout.vue';
 import { initializeFlashToast } from '@/lib/flashToast';
+import { reconcileOfflineCache, reRegisterPush } from '@/lib/pwa';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Goldieflow';
 
@@ -144,6 +145,40 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
     window.addEventListener('load', () => {
         void navigator.serviceWorker
             .register('/sw.js', { scope: '/' })
+            .then(async () => {
+                /*
+                 * Two pieces of session bookkeeping, both on every load, and
+                 * both found missing by round 1 of review.
+                 *
+                 * The cache reconciliation has to happen before anything can
+                 * be served from that cache: offline copies are keyed by URL
+                 * alone, so a page cached under one person or team would
+                 * otherwise be handed to whoever signs in next on a shared
+                 * device.
+                 *
+                 * The push re-registration exists because the sign-out hook
+                 * deletes every subscription a person holds — deliberately,
+                 * so a handed-back phone stops buzzing — and nothing put them
+                 * back. It only ever reads an existing subscription, so it
+                 * cannot prompt: `subscribe()` stays behind S55's button,
+                 * where a refusal is permanent.
+                 *
+                 * Read off `usePage()` rather than threaded through `setup()`:
+                 * the identity wanted is the one on the page as it stands, and
+                 * this runs after the app has mounted.
+                 */
+                const props = usePage().props as unknown as {
+                    auth?: { user?: { id?: string } | null };
+                    team?: { id?: string } | null;
+                };
+
+                await reconcileOfflineCache(
+                    props.auth?.user?.id ?? null,
+                    props.team?.id ?? null,
+                );
+
+                await reRegisterPush();
+            })
             .catch(() => {
                 // Nothing to do, and nothing worth saying: the app works without
                 // it, minus the offline half.

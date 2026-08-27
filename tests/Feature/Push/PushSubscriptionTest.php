@@ -44,9 +44,10 @@ it('registers a device', function (): void {
 
 it('does not add a row every time the same browser re-registers', function (): void {
     /*
-     * The page re-subscribes on every load that finds permission already
-     * granted — that is how it notices a subscription the browser rotated. A
-     * blind insert would give somebody one row per visit and one push per row.
+     * `resources/js/lib/pwa.ts` re-posts whatever subscription the browser
+     * holds on every load — which is both how a rotated endpoint is noticed
+     * and how push survives the sign-out hook that deletes every row. A blind
+     * insert would give somebody one row per visit and one push per row.
      */
     $payload = subscriptionPayload();
 

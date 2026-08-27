@@ -66,53 +66,15 @@ export default defineConfig(({ mode }) => {
                 // Laravel serves the HTML, so there is no index.html for the
                 // plugin to inject a registration into; `app.ts` registers.
                 injectRegister: null,
-                manifest: {
-                    name: env.APP_PRODUCT_NAME || 'Goldieflow',
-                    short_name: env.APP_PRODUCT_NAME || 'Goldieflow',
-                    description:
-                        'The workflow, tasks and client updates for a real estate transaction.',
-                    /*
-                     * `start_url` is the dashboard rather than `/`, which
-                     * redirects for a signed-in person and lands on marketing
-                     * for everybody else. An installed app opening on a
-                     * redirect is a blank flash every launch.
-                     */
-                    start_url: '/dashboard',
-                    scope: '/',
-                    display: 'standalone',
-                    // Design System §2.4's `--primary`, as the sRGB a manifest
-                    // can hold: a manifest is outside the token layer for the
-                    // same reason a PNG is.
-                    theme_color: '#1A588F',
-                    background_color: '#FFFFFF',
-                    icons: [
-                        {
-                            src: '/icons/icon-192.png',
-                            sizes: '192x192',
-                            type: 'image/png',
-                            purpose: 'any',
-                        },
-                        {
-                            src: '/icons/icon-512.png',
-                            sizes: '512x512',
-                            type: 'image/png',
-                            purpose: 'any',
-                        },
-                        /*
-                         * A separate picture, not the same one relabelled. A
-                         * launcher crops a `maskable` icon to its own shape
-                         * and only the inner 80% survives, so declaring an
-                         * `any`-shaped icon maskable gets its edges shaved.
-                         * `scripts/generate-pwa-icons.php` draws both.
-                         */
-                        {
-                            src: '/icons/icon-maskable-512.png',
-                            sizes: '512x512',
-                            type: 'image/png',
-                            purpose: 'maskable',
-                        },
-                    ],
-                },
+                /*
+                 * **No manifest from the plugin.** `WebManifestController`
+                 * serves it, because the plugin's copy lands in `public/build`
+                 * and is appended to the precache list as a relative URL —
+                 * `additionalManifestEntries`, which workbox concatenates
+                 * after every transform, so nothing here can correct it. One
+                 * 404 inside `install` stops the worker activating at all.
+                 */
+                manifest: false,
                 injectManifest: {
                     // The hashed bundle, and only that. Everything else this
                     // app serves is an authenticated, per-request response —
@@ -134,6 +96,43 @@ export default defineConfig(({ mode }) => {
                      * there.
                      */
                     rollupFormat: 'iife',
+                    /*
+                     * **And every precache URL needs the same prefix**, for
+                     * the reason `buildBase` exists: workbox resolves a
+                     * relative entry against the worker's own location, which
+                     * is `/sw.js`, so `assets/app-abc.js` becomes
+                     * `/assets/app-abc.js` and 404s.
+                     *
+                     * `manifestTransforms` rather than the more obvious
+                     * `modifyURLPrefix`, and the difference is not cosmetic:
+                     * `modifyURLPrefix` is applied to the **globbed** entries
+                     * only, and the plugin appends the web manifest to
+                     * `additionalManifestEntries` afterwards — so the assets
+                     * were fixed and `manifest.webmanifest` was left bare,
+                     * one 404 instead of 140. `manifestTransforms` runs over
+                     * the finished list, which is the only place that sees
+                     * both.
+                     *
+                     * Idempotent by design: an entry that is already absolute
+                     * is left alone, so this cannot double-prefix if the
+                     * plugin's own handling changes.
+                     *
+                     * `PwaTest`'s *"precaches URLs that resolve to files that
+                     * exist"* is what found the manifest case, by reading the
+                     * **built** worker — this bug lives in build output rather
+                     * than in any source file anybody would think to check.
+                     */
+                    manifestTransforms: [
+                        async (entries) => ({
+                            manifest: entries.map((entry) => ({
+                                ...entry,
+                                url: entry.url.startsWith('/')
+                                    ? entry.url
+                                    : `/build/${entry.url}`,
+                            })),
+                            warnings: [],
+                        }),
+                    ],
                 },
                 devOptions: {
                     // A stale worker is the single most confusing thing to

@@ -64,6 +64,54 @@ enum NotificationType: string implements HasLabel
     }
 
     /**
+     * The heading on a lock screen (#103).
+     *
+     * ## Why this is not {@see self::label()}
+     *
+     * Round 1 of review printed all six and the answer was obvious:
+     * `label()` is written for **S78's preference rows**, where each line
+     * completes the sentence *"tell me when…"* — so it reads *"A task is
+     * assigned to me"*, and `description()` explains the setting rather than
+     * the event (*"When somebody assigns you a task, or reassigns one to
+     * you."*). Rendered onto a phone that is announcing something that has
+     * just happened, the pair reads as nonsense.
+     *
+     * The allowlist principle was right and the constants were wrong: a push
+     * is still composed only from a value chosen here, never from anything a
+     * tenant typed. These are simply the values written for the surface they
+     * land on — present tense, short enough for the truncation a lock screen
+     * applies, and none of them a sentence about a *setting*.
+     */
+    public function pushTitle(): string
+    {
+        return match ($this) {
+            self::TaskAssigned => 'New task for you',
+            self::DeadlineApproaching => 'Due tomorrow',
+            self::GateCleared => 'Requirement cleared',
+            self::GateOverridden => 'Requirement overridden',
+            self::AutomationFailed => 'A message did not go out',
+            self::Announcement => 'Note for the team',
+        };
+    }
+
+    /**
+     * The line under it — what happened, in the fewest words that still say
+     * something. The property, when there is one, is prepended by
+     * {@see \App\Support\Push\PushPayload}; this half never names anybody.
+     */
+    public function pushBody(): string
+    {
+        return match ($this) {
+            self::TaskAssigned => 'A task has been assigned to you.',
+            self::DeadlineApproaching => 'A task assigned to you is due tomorrow.',
+            self::GateCleared => 'A requirement has cleared.',
+            self::GateOverridden => 'A stage advanced over a requirement that was not met.',
+            self::AutomationFailed => 'An automated message failed to send.',
+            self::Announcement => 'An automation posted a note to the team.',
+        };
+    }
+
+    /**
      * Which channels somebody gets before they have said anything (F12.4).
      *
      * **Only the ones people would ask for.** A product that emails everybody
