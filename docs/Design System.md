@@ -1364,7 +1364,7 @@ Baseline for the internal app, and a hard requirement on the client status page 
 | Touch targets | 44px minimum on mobile, without exception |
 | Labels | Every input bound to a label. Placeholder is not a label. |
 | Motion | Honour `prefers-reduced-motion` |
-| Client page | **WCAG 2.1 AA, verified.** Older audience, unfamiliar interface, one chance to be understood. |
+| Client page | **WCAG 2.1 AA, verified.** Older audience, unfamiliar interface, one chance to be understood. Automated pass and contrast pass are held by tests (#112); the manual screen-reader pass on a real device is outstanding and named below. |
 
 > [!success] Contrast measured, 2026-08-21
 > Every state pair was measured from the oklch tokens in `resources/css/app.css`, converted to sRGB and checked against WCAG 2.1. All pass 4.5:1 — the threshold for normal text — which covers the 11px and 12px badge labels.
@@ -1380,6 +1380,19 @@ Baseline for the internal app, and a hard requirement on the client status page 
 > Dark mode measures higher on every pair (5.62 to 7.01 on the badge). The margins are thin by design — the badges are deliberately subtle — so the measurement is a **test**, not a note: `tests/js/tokens.test.ts` recomputes it from the stylesheet on every run and fails the build if a token edit drops a pair below 4.5:1.
 >
 > One caveat, stated because the margins are thin. Four token values sit just outside the sRGB gamut (`--state-info-bg`, `--state-warning`, `--state-warning-bg`, `--state-danger-bg`). The measurement clips each channel; a browser gamut-maps by reducing chroma instead, so what renders differs slightly from what is measured. The direction of that difference is toward *less* saturation and therefore, for these pairs, marginally more contrast — but if a pair is ever tightened further, bring the token into gamut rather than trusting the measurement to the second decimal.
+
+> [!success] The client surface audited, 2026-08-28 (#112)
+> PRD §9's *"WCAG 2.1 AA for the client status page, best effort internally"* is now held by tests rather than by intention. Two files, because the requirement splits in two and each half fails in a way the other cannot see.
+>
+> **The automated pass** is `tests/js/clientSurfaceAccessibility.test.ts`: axe-core over S62, S63 and S64, at `wcag2a`/`wcag2aa`/`wcag21a`/`wcag21aa`, plus the rules axe cannot express — the timeline as a real `<ol>`, each step's state carried in words as well as by its marker, real landmarks, 52px and 44px targets, and no internal density class (`text-13`, `text-sm` and `text-xs` are all below this surface's 16px floor). It carries a **positive control**: a deliberately broken fragment must produce a violation, because an automated accessibility check is unusually good at looking clean for the wrong reason.
+>
+> **The contrast pass** is `tests/Feature/StatusPage/ClientContrastTest.php`, and it is on the server because that is where the decision lives. jsdom computes no layout, so axe's `color-contrast` rule cannot run at all there — it is disabled rather than left to return `incomplete`, which reads as a clean run.
+>
+> §15.6's answer holds, and the audit bounds it honestly. **Any accent S72 did not warn about reaches AA on the client page**, because S72's threshold is white against the accent, so passing it means white passes. There is a narrow band — mid greys around `#777777` — where *neither* white nor near-black reaches 4.5:1, and every colour in it fails S72's check, so the owner was told before they kept it. In that band the page takes the better of the two and never drops below AA's 3:1 UI line.
+>
+> **Deferred, and named rather than implied.** #112 also asks for a manual screen-reader pass on a real iOS and Android device. That is device work a commit cannot close — the same category as #19's web push confirmation — and it is the half that catches *"a timeline that reads as gibberish"*, which no automated tool can. It is recorded on the epic rather than counted as done.
+>
+> Motion: the client surface animates nothing at all, which is how `prefers-reduced-motion` is honoured there. The test asserts the absence, so the next edit that adds a transition without a media query beside it fails rather than ships.
 
 ---
 
