@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\ParticipantRole;
 use App\Models\Deal;
 use App\Models\ExternalLink;
+use App\Models\KeyDate;
 use App\Models\MessageTemplate;
 use App\Models\Property;
 use App\Models\Stage;
@@ -12,12 +13,14 @@ use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\Workflow;
 use App\Support\Deals\DealRoster;
+use App\Support\Formatting\Format;
 use App\Support\Messages\MergeContext;
 use App\Support\Messages\MergeField;
 use App\Support\Messages\MergeFields;
 use App\Support\Messages\RenderMessage;
 use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
+use Carbon\CarbonImmutable;
 
 /**
  * F5.6 — what a merge field resolves to, and how it is escaped (issue #90).
@@ -168,6 +171,82 @@ it('renders the MLS link and never anything from the other end of it', function 
     // would live in does not exist, which is the actual guarantee.
     expect($values['mls_link'])->toBe('https://example.test/listing/1')
         ->and($values['property_address'])->toBe('123 Main St, Indianapolis, IN 46220');
+});
+
+it('resolves the next deadline to the day, and never to the date’s own name', function (): void {
+    /*
+     * IA §9, one table over from `{{ stage }}`. A key date's name is free text
+     * a team typed for their own screens — *"Inspection objection deadline"* —
+     * and this field lands in a client's inbox, so the field is the **day** and
+     * the author writes the sentence around it.
+     */
+    $deal = mergeDeal($this->team);
+
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+        'name' => 'Inspection objection deadline',
+        'date' => CarbonImmutable::now()->addDays(9)->toDateString(),
+    ]);
+
+    $values = MergeFields::resolve(MergeContext::for($deal, $this->team));
+
+    expect($values['next_deadline'])
+        ->toBe(Format::clientDate(CarbonImmutable::now()->addDays(9)))
+        ->and($values['next_deadline'])->not->toContain('Inspection');
+});
+
+it('skips a deadline that has passed and one nobody has confirmed', function (): void {
+    /*
+     * The same predicate `ClientStatus::dates()` reads, and it has to be: a
+     * client told one date in an email and shown a different one on the page
+     * that email links to has been told two things. An extracted date nobody
+     * has confirmed is a proposal (#116) — and this is the surface where a
+     * wrong one does the most damage, because an email cannot be recalled.
+     */
+    $deal = mergeDeal($this->team);
+
+    $common = ['team_id' => $this->team->getKey(), 'deal_id' => $deal->getKey()];
+
+    KeyDate::factory()->create($common + [
+        'name' => 'Mutual acceptance',
+        'date' => CarbonImmutable::now()->subDays(3)->toDateString(),
+    ]);
+
+    KeyDate::factory()->pending()->create($common + [
+        'name' => 'Closing',
+        'date' => CarbonImmutable::now()->addDays(2)->toDateString(),
+    ]);
+
+    $soonest = KeyDate::factory()->create($common + [
+        'name' => 'Appraisal',
+        'date' => CarbonImmutable::now()->addDays(20)->toDateString(),
+    ]);
+
+    $values = MergeFields::resolve(MergeContext::for($deal, $this->team));
+
+    expect($values['next_deadline'])->toBe(Format::clientDate($soonest->date));
+});
+
+it('leaves the next deadline empty on a deal with no dates, and reports the gap', function (): void {
+    // The `mls_link` shape: an empty value the preview can point at, rather
+    // than `{{ next_deadline }}` reaching somebody's inbox as braces.
+    $deal = mergeDeal($this->team);
+
+    $template = MessageTemplate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'subject' => 'An update',
+        'body_html' => '<p>Your next date is {{ next_deadline }}.</p>',
+        'body_text' => 'Your next date is {{ next_deadline }}.',
+    ]);
+
+    $rendered = app(RenderMessage::class)->render(
+        $template,
+        MergeContext::for($deal, $this->team),
+    );
+
+    expect($rendered->unresolved)->toContain('next_deadline')
+        ->and($rendered->bodyText)->not->toContain('{{');
 });
 
 it('gives the client the milestone label and never the internal stage name', function (): void {

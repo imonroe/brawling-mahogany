@@ -38,6 +38,8 @@ Re-checking every requirement on every deal on every page load would cost more
 than the number is worth. Open a deal and you get the live answer.
 
 **Due in 14 days** counts deals with a task due in that window, not deals
-closing. Dates and deadlines arrive in a later release, and until they do a
-heading claiming a closing date would be claiming something the app does not
-know.
+closing. Deals now hold real closing dates — see
+[Dates and deadlines](/help/dates-and-deadlines) — and this tile still counts
+tasks, so it is answering _"what needs doing"_ rather than _"what is landing"_.
+The date chain has its own screen, which is where to look for the second
+question.

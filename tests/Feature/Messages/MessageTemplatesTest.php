@@ -230,7 +230,14 @@ it('refuses a subject carrying a line break', function (): void {
     ])->assertSessionHasErrors('subject');
 });
 
-it('refuses a field that exists and cannot resolve yet, naming its slice', function (): void {
+it('refuses a field that exists and cannot resolve yet, saying why', function (): void {
+    /*
+     * The refusal carries the field's own `availableFrom`, so what an author
+     * reads is what the registry says rather than a second sentence written
+     * beside it. That note used to name a slice; it names the open question
+     * now, because the status page shipped and this field did not — see
+     * `MergeFields` for which question.
+     */
     $this->post('/templates/messages', [
         'name' => 'Too early',
         'channel' => MessageChannel::Email->value,
@@ -239,7 +246,21 @@ it('refuses a field that exists and cannot resolve yet, naming its slice', funct
         'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
     ])->assertSessionHasErrors('body_text');
 
-    expect(session('errors')->first('body_text'))->toContain('Slice 4');
+    expect(session('errors')->first('body_text'))
+        ->toContain('status_page_link')
+        ->toContain('#110');
+});
+
+it('accepts the next deadline, which Slice 4 wired', function (): void {
+    // The other half of the pair above: a field that *was* refused by name and
+    // now saves, so the guard cannot quietly go on refusing what it should not.
+    $this->post('/templates/messages', [
+        'name' => 'Reminder',
+        'channel' => MessageChannel::Email->value,
+        'subject' => 'ok',
+        'body_text' => 'The next date on your file is {{ next_deadline }}.',
+        'recipient_rule' => ['type' => RecipientRuleType::PrimaryContact->value],
+    ])->assertSessionHasNoErrors();
 });
 
 it('prohibits a subject on a channel that has none', function (): void {

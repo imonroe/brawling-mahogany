@@ -408,6 +408,15 @@ The client is a homeowner, not a user of software. Three rules, all traceable to
 
 **No alarming words.** Blocked, failed, overdue, and error never reach the client. If something is late, the agent handles it by phone.
 
+> [!note] How the three rules are held, now that the surface exists (#111)
+> Every string on the client status page is composed by `App\Support\StatusPage\ClientStatus` on the server, not assembled in the Vue template. That is the difference between a rule and a habit: a template holding the rows could reach for `stage.name` in one place and forget, and nothing fails — a seller just reads *"Chase lender"* on their own page.
+>
+> Three consequences worth knowing before changing anything here.
+>
+> - **A stage with no `milestone_label` is omitted from the timeline, not renamed.** The only alternative to omitting it is inventing a label, and an invented label puts words in the team's mouth on the team's own branded page. A workflow whose stages carry no labels renders a status card and no timeline, which is a legible page saying little.
+> - **A blocked stage is *"Happening now"*.** The third rule read literally: the client surface has no vocabulary for *blocked* and does not need one, because a stage nobody can move is still the stage the deal is at.
+> - **Only confirmed dates in the future are shown.** A pending extracted date is a proposal, and a client reading a proposal as a commitment is the failure mode PRD §4.10 exists to prevent.
+
 ---
 
 ## 10. Content and formatting conventions
