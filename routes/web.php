@@ -130,11 +130,14 @@ Route::get('calendar/feeds/{token}.ics', [CalendarFeedController::class, 'show']
  * exactly the same mechanism and answers an unknown one exactly the same way
  * — so the limit was bypassable by appending a path segment. A 256-bit token
  * makes that impractical rather than harmless, and a stated control that does
- * not cover what its comment claims is worse than a missing one. `s/request`
- * keeps its own tighter limit on top: it sends mail, and ten an hour is not
- * sixty.
+ * not cover what its comment claims is worse than a missing one.
+ *
+ * Both are **named** limiters (`AppServiceProvider::configureClientSurfaceLimits()`)
+ * and not `throttle:n,m`. Two inline throttles on one request share a bucket:
+ * the guest key is `sha1(domain|ip)` with no route in it, so `s/request` spent
+ * two hits of one budget and every page view ate the mail allowance.
  */
-Route::middleware([ClientSurfaceHeaders::class, 'throttle:60,1'])->group(function (): void {
+Route::middleware([ClientSurfaceHeaders::class, 'throttle:client-surface'])->group(function (): void {
     Route::get('s/expired', [StatusPageController::class, 'expiredPage'])->name('status.expired');
 
     /*
@@ -145,7 +148,7 @@ Route::middleware([ClientSurfaceHeaders::class, 'throttle:60,1'])->group(functio
      * script walk a list.
      */
     Route::post('s/request', [StatusPageController::class, 'request'])
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:client-link-request')
         ->name('status.request');
 
     /*

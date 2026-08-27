@@ -66,15 +66,19 @@ You can have one feed for everything, or a feed for a single deal — useful if
 you want to share one deal's dates with somebody without giving them the rest
 of your week.
 
-The feed carries titles, days, times and locations — and deliberately nothing
-else. No attendee lists, no notes, and no client names: it ends up stored on
-somebody else's server, and the less of your business that lives there, the
-better.
+The feed carries titles, days, times and locations, and — on a feed that covers
+everything — the street of the property each entry belongs to, so that
+"Deadline: Closing" says which house. That is the whole list. No attendee
+lists, no notes, and **no client names**: it ends up stored on somebody else's
+server, and the less of your business that lives there, the better.
 
-A location is usually a property address, and it is there on purpose: an entry
-you have to open this app to act on defeats the point of subscribing. If an
-event's location is something you would rather not have on Google's servers,
-leave it off the event and it will not be in the feed.
+Addresses are the deliberate exception. An entry you have to open this app to
+act on defeats the point of subscribing, so the property is named. If a
+particular event's location is something you would rather not have on Google's
+servers, leave the location field empty — but note that the property street
+still identifies the deal on a whole-calendar feed. A **single-deal** feed
+carries no street at all, because every entry on it is the same property
+anyway; that is the one to share with somebody outside your team.
 
 ## What the feed covers
 

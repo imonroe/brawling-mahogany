@@ -138,19 +138,33 @@ class NotifyAboutKeyDates extends Command
         foreach ($dates as $date) {
             $daysOut = Format::calendarDaysBetween($today, $date->date);
 
-            if (! in_array($daysOut, $date->reminderDays(), true)) {
-                continue;
-            }
-
             /*
              * A critical date **today** is the one type that bypasses quiet
              * hours, so it cannot ride in the digest — folding it in would
              * either wake somebody for a date a week out or hold the one that
              * is today until morning.
              */
-            $bucket = $daysOut === 0 && $date->is_critical ? 'criticalToday' : 'ordinary';
+            $isCriticalToday = $daysOut === 0 && $date->is_critical;
 
-            $due[$bucket][] = $date;
+            /*
+             * And it is the one thing the per-date schedule cannot switch off.
+             * `reminder_offsets` answers *"how much warning do I want"*, which
+             * is a sensible thing to turn down to nothing on a routine date —
+             * and an empty list silenced the day-of notice on a **critical**
+             * one too, which is the notification PRD §12.3 exists for: *"a
+             * missed inspection deadline is a legal problem."* Marking a date
+             * critical and clearing its reminders is a contradiction, and of
+             * the two the flag is the one somebody set deliberately about
+             * consequences.
+             *
+             * So: the schedule governs the warnings, and the alarm is not on
+             * it.
+             */
+            if (! $isCriticalToday && ! in_array($daysOut, $date->reminderDays(), true)) {
+                continue;
+            }
+
+            $due[$isCriticalToday ? 'criticalToday' : 'ordinary'][] = $date;
         }
 
         if ($due['ordinary'] === [] && $due['criticalToday'] === []) {

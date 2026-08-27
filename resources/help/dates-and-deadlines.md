@@ -73,9 +73,11 @@ and there is nothing to be done about today's deadline tomorrow morning.
 comes and the date uses the default for its kind; clear the field and the
 reminders stop.
 
-The notification still appears in your panel whatever you switch off. That is
-deliberate: switching off is about not being _woken_, and a line in a panel
-wakes nobody.
+Two things it does not switch off. A **critical** date still gets its notice on
+the morning it falls — that is what the flag is for, and turning the warnings
+down says how much notice you want, not that you would rather not know the day
+has arrived. And nothing here changes the screens: the date is still on the
+calendar, in the fourteen-day list, and on the deal.
 
 ## Reminders
 

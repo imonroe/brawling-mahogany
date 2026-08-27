@@ -89,6 +89,52 @@ it('stops serving the moment the person is no longer on the team', function (): 
     $this->get("/calendar/feeds/{$token}.ics")->assertNotFound();
 });
 
+it('leaves the street off a single-deal feed, where it says nothing', function (): void {
+    /*
+     * The suffix exists so *"Deadline: Closing"* says which house on a feed
+     * that mixes deals. On a feed scoped to one deal every entry is that
+     * house, so the street is repeated on every line and identifies nothing
+     * the subscriber does not already know — while still being an address
+     * published to whatever server they subscribed from.
+     *
+     * Which makes the single-deal feed the one to hand to somebody outside the
+     * team, and `resources/help/calendar.md` says so.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $link = app(PropertyDeals::class)->link(
+            Property::factory()->create([
+                'team_id' => $this->team->getKey(),
+                'street' => '88 Marberry Rd',
+            ]),
+            $this->deal,
+        );
+
+        app(PropertyDeals::class)->promote($link);
+    });
+
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Closing',
+        'date' => CarbonImmutable::now()->addDays(15)->toDateString(),
+    ]);
+
+    $everything = feedToken();
+    $justThis = feedToken($this->deal);
+
+    $this->asStranger();
+
+    expect($this->get("/calendar/feeds/{$everything}.ics")->getContent())
+        ->toContain('88 Marberry Rd');
+
+    $this->asStranger();
+
+    $body = $this->get("/calendar/feeds/{$justThis}.ics")->getContent();
+
+    expect($body)->toContain('Deadline: Closing')
+        ->and($body)->not->toContain('88 Marberry Rd');
+});
+
 it('never puts a client’s surname in a document Google keeps', function (): void {
     /*
      * `PushPayload`'s rule (#103), one surface along. `Deal::displayName()`
@@ -135,7 +181,12 @@ it('never puts a client’s surname in a document Google keeps', function (): vo
         'date' => CarbonImmutable::now()->addDays(20)->toDateString(),
     ]);
 
-    $token = feedToken($deal);
+    /*
+     * The **everything** feed, because that is the one that carries a suffix
+     * at all: a single-deal feed drops it, every entry on it being the same
+     * property. So this is the feed where a surname could have got out.
+     */
+    $token = feedToken();
 
     $this->asStranger();
 

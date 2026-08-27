@@ -190,6 +190,60 @@ it('still reminds when a moved date lands on a day another date in the same dige
     expect(($this->minesCount)())->toBe(2);
 });
 
+it('lets a date turn its own reminders off, but not a critical date’s day-of notice', function (): void {
+    /*
+     * `reminder_offsets` answers *"how much warning do I want"*, and an empty
+     * list is a real answer — a routine date somebody would rather not hear
+     * about in advance.
+     *
+     * It silenced the **critical** day-of notice too, which is the one PRD
+     * §12.3 exists for: *"a missed inspection deadline is a legal problem."*
+     * Marking a date critical and clearing its reminders is a contradiction,
+     * and of the two the flag is what somebody set deliberately about
+     * consequences. So the schedule governs the warnings and the alarm is not
+     * on it.
+     */
+    $ordinary = keyDate(['name' => 'Walkthrough', 'date' => '2026-09-09', 'reminder_offsets' => []]);
+
+    atTeamMorning('2026-09-08');
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+    expect(($this->minesCount)())->toBe(0);
+
+    // The control: the same date on the default schedule is announced.
+    $ordinary->forceFill(['reminder_offsets' => null])->save();
+
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+    expect(($this->minesCount)())->toBe(1);
+
+    $critical = keyDate([
+        'name' => 'Financing contingency',
+        'date' => '2026-09-10',
+        'is_critical' => true,
+        'reminder_offsets' => [],
+    ]);
+
+    // Nothing in advance, which is what turning them off asked for…
+    atTeamMorning('2026-09-09');
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+    expect(Notification::query()
+        ->where('person_id', $this->member->getKey())
+        ->where('type', NotificationType::CriticalDateToday->value)
+        ->count())->toBe(0);
+
+    // …and the notice on the morning it falls, which it did not.
+    atTeamMorning('2026-09-10');
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+    expect(Notification::query()
+        ->where('person_id', $this->member->getKey())
+        ->where('type', NotificationType::CriticalDateToday->value)
+        ->count())->toBe(1)
+        ->and($critical->fresh()->reminder_offsets)->toBe([]);
+});
+
 it('says nothing about a deal that has closed', function (): void {
     keyDate(['name' => 'Closing', 'date' => '2026-09-09']);
 

@@ -131,6 +131,21 @@ class ParticipantController extends Controller
                     ])->values()->all(),
                 ])->values()->all(),
             /*
+             * The link `StatusPageAccessController::handOver()` flashed, read
+             * off the session into a prop — the shape S74 uses for an
+             * invitation (`'issuedLink' => session('invitationLink')`), and
+             * the step that was missing: the controller flashed it, the page
+             * read `props.statusPageLink`, and nothing joined the two, so
+             * **Copy link** pressed a button that revoked the client's live
+             * session and handed the agent nothing.
+             *
+             * Off the session rather than out of a prop that survives a
+             * partial reload: a status page link is a credential, and one
+             * living in a prop is a credential in every subsequent reload of
+             * the screen.
+             */
+            'statusPageLink' => session('statusPageLink'),
+            /*
              * Named, not counted. "This deal has no Seller" is actionable;
              * "1 role missing" sends somebody looking for which.
              */

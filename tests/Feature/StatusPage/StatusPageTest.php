@@ -110,6 +110,54 @@ it('sends, hands over and revokes from the deal’s People tab', function (): vo
     expect(StatusPageLink::query()->live()->count())->toBe(0);
 });
 
+it('hands the agent a URL they can actually read off the screen', function (): void {
+    /*
+     * ADR 0003's second door, and it was a button that revoked the client's
+     * live session and handed the agent nothing: `handOver()` flashed
+     * `statusPageLink` to the session, `People.vue` read
+     * `props.statusPageLink`, and nothing joined the two. A test asserting
+     * `assertSessionHas` is true and is not the question — the question is
+     * what the screen receives, so this follows the redirect.
+     */
+    $this->post("/deals/{$this->deal->getKey()}/people/{$this->client->getKey()}/status-page/link")
+        ->assertRedirect();
+
+    $this->get("/deals/{$this->deal->getKey()}/people")
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $handed = $page->toArray()['props']['statusPageLink'];
+
+            expect($handed)->not->toBeNull()
+                ->and($handed['url'])->toStartWith(config('app.url').'/s/')
+                ->and($handed['membershipId'])->toBe((string) $this->client->getKey());
+        });
+
+    // Flashed, so it is gone on the next load rather than living in a prop
+    // that every partial reload of the screen would carry.
+    $this->get("/deals/{$this->deal->getKey()}/people")
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('statusPageLink', null));
+});
+
+it('keeps the two client-surface limits in separate buckets', function (): void {
+    /*
+     * Two inline `throttle:n,m` on one request share a cache key — the guest
+     * signature is `sha1(domain|ip)` with no route in it — so the group's
+     * sixty and `s/request`'s ten were one budget of ten. Every page view ate
+     * the mail allowance, and the ordinary *"my link expired, send me
+     * another"* round trip was refused with a bare 429 on the third press.
+     */
+    $this->asStranger();
+
+    foreach (range(1, 12) as $ignored) {
+        $this->get('/s/expired')->assertOk();
+    }
+
+    // Twelve page views have not spent the mail budget.
+    $this->post('/s/request', ['email' => 'nobody@example.test'])
+        ->assertRedirect('/s/expired?sent=1');
+});
+
 it('spends a link once, and the second attempt lands on S64', function (): void {
     [, $token] = issuedFor();
 

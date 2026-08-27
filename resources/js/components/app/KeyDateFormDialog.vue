@@ -140,9 +140,18 @@ const reminderText = computed({
             ? defaultReminders.value.join(', ')
             : form.reminderOffsets.join(', '),
     set: (value: string): void => {
+        /*
+         * The empty parts are dropped **before** `Number`, not after. `Number('')`
+         * is `0`, not `NaN`, so `''.split(',')` → `['']` → `[0]` — clearing
+         * the field to turn reminders off *added* a same-day reminder instead,
+         * and a trailing comma mid-typing (`'7,'`) silently added one too. The
+         * hint under the field promises the opposite of both.
+         */
         const days = value
             .split(',')
-            .map((part) => Number(part.trim()))
+            .map((part) => part.trim())
+            .filter((part) => part !== '')
+            .map(Number)
             .filter((day) => Number.isInteger(day) && day >= 0);
 
         form.reminderOffsets = days;

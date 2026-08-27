@@ -107,7 +107,13 @@ final class IcsDocument
             'X-PUBLISHED-TTL:PT4H',
         ];
 
-        $streets = self::streetsFor($items);
+        /*
+         * A **per-deal** feed needs no suffix at all: every row on it is that
+         * deal, so the street would be repeated on every line and say nothing.
+         * It is only useful on a feed that mixes deals, which is the one place
+         * it is worth publishing at all.
+         */
+        $streets = $feed->deal_id === null ? self::streetsFor($items) : [];
 
         foreach ($items as $item) {
             $lines = [...$lines, ...self::event($item, $feed, $timezone, $streets)];
