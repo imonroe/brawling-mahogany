@@ -347,6 +347,50 @@ it('counts critical dates inside the window the tab is showing', function (): vo
             ->where('counts.critical', 0));
 });
 
+it('carries the critical toggle into the tab badges as well as its own', function (): void {
+    /*
+     * `Dates/Index.vue` keeps *Critical only* on across a tab press, so with it
+     * ticked the tab badges counted every date in each window while the list
+     * beneath showed only the critical ones — *"Past due (3)"* over one row,
+     * and pressing it produced one.
+     */
+    $add = function (int $offset, bool $critical): void {
+        KeyDate::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $this->deal->getKey(),
+            'name' => 'Date '.$offset,
+            'date' => now()->addDays($offset)->toDateString(),
+            'is_critical' => $critical,
+        ]);
+    };
+
+    $add(-9, true);
+    $add(-4, false);
+    $add(-1, false);
+    $add(3, true);
+    $add(6, false);
+
+    // Untoggled, the badges describe everything in each window.
+    $this->get('/dates')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('dates', 2)
+            ->where('counts.upcoming', 2)
+            ->where('counts.overdue', 3));
+
+    // Toggled, they describe what pressing each tab would produce.
+    $this->get('/dates?critical=1')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('dates', 1)
+            ->where('counts.upcoming', 1)
+            ->where('counts.overdue', 1));
+
+    $this->get('/dates?window=overdue&critical=1')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->has('dates', 1));
+});
+
 it('does not spend another route’s rate limit', function (): void {
     /*
      * For a signed-in person `ThrottleRequests` keys on the **person's id

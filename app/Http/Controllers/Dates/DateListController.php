@@ -97,7 +97,7 @@ class DateListController extends Controller
                     ]
                     : null,
             ])->values()->all(),
-            'counts' => $this->counts($window, $today),
+            'counts' => $this->counts($window, $criticalOnly, $today),
         ]);
     }
 
@@ -138,7 +138,7 @@ class DateListController extends Controller
      *
      * @return array{upcoming: int, overdue: int, critical: int}
      */
-    private function counts(string $window, string $today): array
+    private function counts(string $window, bool $criticalOnly, string $today): array
     {
         $count = static fn (Closure $narrow): \Illuminate\Database\Query\Builder => $narrow(
             // The same two narrowings the list above applies, or the badge
@@ -146,9 +146,25 @@ class DateListController extends Controller
             KeyDate::query()->confirmed()->onOpenDeals(),
         )->toBase()->selectRaw('count(*)');
 
+        /*
+         * **The tab numbers carry the toggle too.** `Dates/Index.vue` keeps
+         * *Critical only* on across a tab press, so with it ticked the badges
+         * counted every date in each window while the list beneath showed only
+         * the critical ones: *"Past due (3)"* over one row, and pressing it
+         * produced one. The toggle's own count was fixed a round earlier and
+         * these two were the half left behind — which is the same lesson
+         * again, that a badge disagreeing with its list comes from a second
+         * place stating the rule.
+         */
+        $narrow = static fn (string $window): Closure => static fn (Builder $q): Builder => self::within(
+            $q,
+            $window,
+            $today,
+        )->when($criticalOnly, fn (Builder $inner): Builder => $inner->where('is_critical', true));
+
         $row = DB::query()
-            ->selectSub($count(fn (Builder $q) => self::within($q, 'upcoming', $today)), 'upcoming')
-            ->selectSub($count(fn (Builder $q) => self::within($q, 'overdue', $today)), 'overdue')
+            ->selectSub($count($narrow('upcoming')), 'upcoming')
+            ->selectSub($count($narrow('overdue')), 'overdue')
             /*
              * **Critical counts what the toggle would leave**, which means it
              * has to sit inside the window the tab is showing. It counted

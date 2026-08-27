@@ -99,6 +99,16 @@ class CalendarController extends Controller
              * something to render even to somebody who could revoke it.
              */
             'feeds' => CalendarFeedController::feedsFor($request->user()),
+            /*
+             * The feed `CalendarFeedController::store()` just generated, read
+             * off the session into a prop. `back()->with()` puts it in the
+             * flash bag and nothing shares that bag as a prop, so S60's
+             * *"which one did I just make"* highlight never drew — the same
+             * step that was missing from the status page link one screen over,
+             * in the slice that wrote both. A rule in one caller is a rule the
+             * next caller lacks.
+             */
+            'calendarFeed' => session('calendarFeed'),
         ]);
     }
 

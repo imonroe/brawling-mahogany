@@ -49,6 +49,7 @@ import IconButton from '@/components/app/IconButton.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import SegmentedControl from '@/components/app/SegmentedControl.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { shiftFocus } from '@/lib/calendarNavigation';
 import { formatDate, formatDateShort, isoDateIn } from '@/lib/formatters';
 
 const props = defineProps<{
@@ -127,34 +128,15 @@ const windowLabel = computed(() => {
     return `${formatDateShort(props.range.from)} – ${formatDateShort(props.range.to)}`;
 });
 
-/** How far one press of the arrows moves, per view. */
+/**
+ * One press of an arrow.
+ *
+ * The arithmetic is `lib/calendarNavigation.ts` rather than a closure here,
+ * so the test that holds it imports the function this calls instead of a copy
+ * of it — the first version of that test passed with the fix deleted.
+ */
 function shift(direction: -1 | 1): void {
-    const days =
-        props.view === 'agenda' ? 14 : props.view === 'week' ? 7 : null;
-
-    const focus = new Date(`${props.focus}T12:00:00Z`);
-
-    if (days === null) {
-        /*
-         * To the **first** before adding, because `setUTCMonth` overflows: the
-         * 31st of August plus one month is the 31st of September, which is the
-         * 1st of October. The focus really is the exact day — the controller
-         * echoes it back unnormalised — so on the seven months with a 31st,
-         * pressing › skipped a month entirely, and from March, May and October
-         * pressing ‹ landed inside the month already on screen, which reads as
-         * a dead button.
-         *
-         * The grid a month draws is decided by the server from whichever day
-         * this sends, so the 1st is as good a day as any and the only one that
-         * cannot overflow.
-         */
-        focus.setUTCDate(1);
-        focus.setUTCMonth(focus.getUTCMonth() + direction);
-    } else {
-        focus.setUTCDate(focus.getUTCDate() + direction * days);
-    }
-
-    go(props.view, focus.toISOString().slice(0, 10));
+    go(props.view, shiftFocus(props.focus, direction, props.view));
 }
 
 function go(view: string, date: string): void {

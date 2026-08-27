@@ -20,6 +20,7 @@ use App\Support\Deals\NameDeal;
 use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
+use Inertia\Testing\AssertableInertia;
 
 /**
  * S60 — tokenised read-only iCal feeds (PRD §4.8 F8.3 · issue #108).
@@ -55,6 +56,33 @@ function feedToken(?Deal $deal = null): string
         $deal instanceof Deal ? 'That deal' : 'Everything',
     )->token;
 }
+
+it('hands the newly generated feed to the screen that highlights it', function (): void {
+    /*
+     * `back()->with()` puts it in the flash bag, and nothing shares that bag as
+     * an Inertia prop — so S60's *"which one did I just make"* highlight read a
+     * prop nothing supplied and never drew. The identical step was missing from
+     * the status page link one screen over, in the slice that wrote both: a
+     * rule in one caller is a rule the next caller lacks.
+     */
+    $this->post('/calendar/feeds', ['name' => 'Everything'])->assertRedirect();
+
+    $this->get('/calendar')
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $flashed = $page->toArray()['props']['calendarFeed'];
+
+            expect($flashed)->not->toBeNull()
+                ->and($flashed['name'])->toBe('Everything')
+                ->and($flashed['url'])->toContain('/calendar/feeds/');
+        });
+
+    // Flashed, so the highlight is gone on the next visit rather than
+    // following somebody around the screen.
+    $this->get('/calendar')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('calendarFeed', null));
+});
 
 it('lets somebody who works for two agencies subscribe to both', function (): void {
     /*

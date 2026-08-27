@@ -10,17 +10,22 @@
  * Here rather than in a feature test because the arithmetic is the browser's:
  * the server sees only whichever day it is sent, and would answer correctly
  * for the wrong one.
+ *
+ * ## It imports the function the screen calls, and the first version did not
+ *
+ * That version held a **copy** of `shift()`'s body, so what it asserted was
+ * that the copy was right: deleting the fix from `Calendar/Index.vue` left this
+ * file green. `CLAUDE.md` names the shape — *"a test that cannot fail is worse
+ * than no check"* — and a guard that reports green over the bug it was written
+ * for is the reason nobody looks again. The arithmetic moved to
+ * `lib/calendarNavigation.ts` so there is one definition for both.
  */
 import { describe, expect, it } from 'vitest';
+import { shiftFocus, stepFor } from '@/lib/calendarNavigation';
 
-/** What `shift()` computes, extracted so the arithmetic can be asserted. */
+/** The month arrow, which is the case that overflowed. */
 function shiftMonth(focus: string, direction: -1 | 1): string {
-    const date = new Date(`${focus}T12:00:00Z`);
-
-    date.setUTCDate(1);
-    date.setUTCMonth(date.getUTCMonth() + direction);
-
-    return date.toISOString().slice(0, 10);
+    return shiftFocus(focus, direction, 'month');
 }
 
 /** The month a day belongs to, which is what the arrows have to step by one. */
@@ -71,6 +76,17 @@ describe('the month arrows', () => {
             ['2026-10', '2026-09'],
             ['2026-12', '2026-11'],
         ]);
+    });
+
+    it('shifts week and agenda by exact days, month end included', () => {
+        // The month branch is the one that normalises; these must not, or
+        // stepping a week from the 31st would land on the 1st.
+        expect(stepFor('week')).toBe(7);
+        expect(stepFor('agenda')).toBe(14);
+
+        expect(shiftFocus('2026-08-31', 1, 'week')).toBe('2026-09-07');
+        expect(shiftFocus('2026-08-31', -1, 'week')).toBe('2026-08-24');
+        expect(shiftFocus('2026-08-31', 1, 'agenda')).toBe('2026-09-14');
     });
 
     it('is reversible from every day of a month, which is the property that failed', () => {

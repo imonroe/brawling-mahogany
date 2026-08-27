@@ -187,15 +187,19 @@ final class SaveKeyDate
      * column unless told otherwise.
      *
      * So the two are a belt and braces with different timing, and only one of
-     * them is reachable from a screen. This also nulls the rest of the
-     * derivation, so no row is left claiming to be derived from nothing —
-     * which the migration's own CHECK would refuse anyway.
+     * them is reachable from a screen — and the loop is what **makes** the
+     * brace reachable, by clearing `is_derived`. The CHECK is evaluated on the
+     * UPDATE that `SET NULL` performs, so a row still flagged derived is one
+     * the database cannot detach at all.
      *
      * Deleting the objection deadline's anchor must not delete the objection
      * deadline: the obligation in the contract did not go away because
      * somebody tidied up the calendar. So the value it last had is what it
-     * keeps, and S18 shows it as a date somebody typed, because from here on
-     * that is what it is.
+     * keeps — and it **keeps its anchor id and its offset too**, which is how
+     * S18 can say *"was ten calendar days after another date, which has since
+     * been removed"* rather than presenting a day the team never typed. The
+     * removed anchor is deliberately not named: it does not exist any more,
+     * and naming it would only send somebody looking for it.
      */
     public function remove(KeyDate $keyDate, ?Person $actor = null): void
     {
