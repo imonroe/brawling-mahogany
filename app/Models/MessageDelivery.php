@@ -186,21 +186,35 @@ class MessageDelivery extends Model
          * deal got **two** `message.bounced` entries. The unique index
          * protected the suppression; nothing protected the timeline.
          *
-         * `WHERE status = <what we read>` makes the database decide which of
-         * them owns the transition, in one statement, with no window between
-         * the check and the write — the same shape `ExecuteAction` uses to
-         * claim `message_key`. The loser sees `false` and stands down, which
-         * is the answer a replay gets too.
+         * Letting the database decide, in one statement with no window between
+         * the check and the write, is the same shape `ExecuteAction` uses to
+         * claim `message_key`. What the predicate *is* took two rounds:
          *
-         * Guarded on `status` alone rather than on every column: it is the one
-         * that gates the timeline entry and the suppression, and widening the
-         * predicate to include the timestamps would make a pure timestamp
-         * backfill lose a race it has no reason to be in.
+         *  - `WHERE status = <what I read>` was round 1's, and round 2
+         *    measured it dropping a genuine escalation. Two workers holding a
+         *    bounce and a complaint both read `sent`; the bounce won and the
+         *    complaint — the more serious fact, and the one PRD §12.2 is about
+         *    — returned `false` and was lost.
+         *  - `WHERE status IN <everything this outranks>` is the fix. A replay
+         *    still loses (a status does not outrank itself) and an escalation
+         *    still wins, whatever it raced.
+         *
+         * A change that is **only** a timestamp has no rank to compare, so it
+         * is claimed by its own column being null instead. That keeps a late
+         * "delivered to the server" notification writing `delivered_at` on the
+         * way past a row that has since bounced — the fact is recorded, the
+         * status is not moved backwards, and both halves stay true. Round 1's
+         * comment here claimed that already and the code did the opposite.
          */
-        $claimed = static::query()
-            ->whereKey($this->getKey())
-            ->where('status', $this->status->value)
-            ->update([...$changes, 'updated_at' => Carbon::now()]);
+        $claimed = $advancing
+            ? static::query()
+                ->whereKey($this->getKey())
+                ->whereIn('status', $status->outranked())
+                ->update([...$changes, 'updated_at' => Carbon::now()])
+            : static::query()
+                ->whereKey($this->getKey())
+                ->whereNull($column)
+                ->update([...$changes, 'updated_at' => Carbon::now()]);
 
         if ($claimed === 0) {
             return false;

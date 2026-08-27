@@ -250,7 +250,20 @@ final class SendRails
                 );
             }
 
-            return SendDecision::send([$owner], redirected: true, withheld: $withheld);
+            /*
+             * **No withheld list under sandbox**, and round 2 of review is
+             * why. Sandbox replaces *every* recipient, so nobody was written
+             * to and nothing was withheld from anybody — carrying the list
+             * produced a client row marked "Not sent" beside another client
+             * omitted entirely, for a message that went nowhere near either of
+             * them, and an S91 alert about a delivery failure during the one
+             * mode that exists so a team can exercise automations without
+             * touching a client.
+             *
+             * The redirected row plus *"went to the team rather than X and
+             * Y"* is the whole truth of a sandbox send.
+             */
+            return SendDecision::send([$owner], redirected: true);
         }
 
         return SendDecision::send($recipients, withheld: $withheld);

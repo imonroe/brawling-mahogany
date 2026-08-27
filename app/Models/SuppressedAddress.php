@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -45,6 +46,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $detail
  * @property string|null $discovered_by_team_id
  * @property Carbon $suppressed_at
+ * @property Carbon|null $deleted_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -52,7 +54,7 @@ use Illuminate\Support\Carbon;
 class SuppressedAddress extends Model
 {
     /** @use HasFactory<SuppressedAddressFactory> */
-    use HasFactory, HasUlids;
+    use HasFactory, HasUlids, SoftDeletes;
 
     /**
      * @return array<string, string>

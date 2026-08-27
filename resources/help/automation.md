@@ -275,8 +275,10 @@ discovered it.
 A full mailbox or a temporary rejection does **not** do this — the address is
 fine and cutting somebody off because their inbox was full on Tuesday would be
 worse than the bounce. Those are shown as bounces so you know what happened,
-and the address stays usable; the message itself is not sent again on its own,
-so if it mattered, send it again from the deal.
+and the address stays usable. **The message itself is not sent again**, by the
+app or by you: there is no resend, deliberately, because a message that may
+have arrived and a message that did not look identical from here. If it
+mattered, write to them yourself.
 
 **When somebody's message is held back**, you see it. The deal's activity says
 who was not written to, and the message's own page lists that person under

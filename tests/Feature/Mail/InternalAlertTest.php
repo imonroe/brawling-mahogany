@@ -747,3 +747,45 @@ it('does not report the same bounce twice', function (): void {
 
     Mail::assertSentCount(1);
 });
+
+it('does not call a withheld copy a bounce, if one ever reaches the sweep', function (): void {
+    /*
+     * A `suppressed` row is a copy that was never handed to a provider, so
+     * *"could not be delivered — the address was rejected"* is false of it:
+     * nothing was delivered to and no mail server was involved. Round 2 of
+     * review measured exactly that sentence, which is `CLAUDE.md`'s own
+     * finding — *"a headline that asserts is wrong for one caller; derive the
+     * words from the action type"* — arriving on the alert this feature added.
+     *
+     * `RecordDeliveries` deliberately leaves `noticed_at` null on a withheld
+     * row, so the sweep does not carry one today and the fix has no natural
+     * fixture. **That is why the column is set by hand here.** The claim being
+     * tested is precisely the defensive one: if a later change ever stamps it,
+     * the alert must still say something true. A `match` arm with no test is
+     * how the previous version's else-branch went unnoticed.
+     */
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    App\Models\MessageDelivery::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'action_instance_id' => $instance->getKey(),
+        'recipient_email' => 'dana@example.test',
+        'provider_message_id' => null,
+        'status' => App\Enums\DeliveryStatus::Suppressed,
+        'withheld_reason' => App\Enums\SuppressionReason::HardBounce,
+        'noticed_at' => now(),
+    ]);
+
+    expect(settleAndSweep())->toBeTrue();
+
+    Mail::assertSent(InternalAlertMail::class, function (InternalAlertMail $mail): bool {
+        return str_contains($mail->detail, 'was not sent, because that address can no longer be written to')
+            && ! str_contains($mail->detail, 'could not be delivered')
+            && ! str_contains($mail->detail, 'rejected')
+            // Still no address in an alert that gets forwarded and quoted.
+            && ! str_contains($mail->detail, 'dana@example.test');
+    });
+});

@@ -196,7 +196,10 @@ it('drops the dead address, writes to the live one, and says so everywhere', fun
     $sent = ActivityEvent::query()->where('event_type', 'message.sent')->sole();
 
     expect($sent->summary)->toContain('Emailed Sam Reilly')
-        ->and($sent->summary)->toContain('Dana Okafor was not written to')
+        // Named **with the address**, which is the thing to go and correct —
+        // and the only field that stays unambiguous when two people on a deal
+        // share a display name. See the Sr./Jr. case below.
+        ->and($sent->summary)->toContain('Dana Okafor (dana@example.test) was not written to')
         ->and($sent->summary)->not->toContain('Emailed Dana Okafor');
 
     // And the audit records both halves rather than only the survivors.
@@ -206,29 +209,197 @@ it('drops the dead address, writes to the live one, and says so everywhere', fun
         ->and($entry->after['withheld_count'])->toBe(1);
 });
 
-it('tells the team about a withheld copy, because the bounce may be old news', function (): void {
+it('does not alert every time a message is addressed to a dead address', function (): void {
     /*
-     * A withheld row is stamped `noticed_at`, so S91's sweep carries it. The
-     * bounce that created the suppression may have been weeks ago, on another
-     * deal, seen by somebody who has since left the team — *this* message not
-     * reaching *this* client is new information.
+     * Round 2 of review reversing round 1's reasoning, and worth keeping as a
+     * trade rather than a correction.
+     *
+     * Round 1 stamped `noticed_at` on a withheld row so S91's sweep would
+     * carry it, arguing that the bounce may be old news. True — and a withheld
+     * row is written on **every** send to that address, while the watermark
+     * only stops the same *row* being reported twice. Round 2 measured three
+     * sends producing three alerts; for a Keep in Touch schedule against a
+     * past client whose mailbox died, that is an alert every cycle forever,
+     * about a fact the product already recorded and is deliberately acting on.
+     *
+     * It is not silent. The deal's timeline names who was not written to in
+     * the same breath as the send, and S49 lists the row with its reason —
+     * both pull surfaces, true whenever somebody looks, which is what a
+     * standing condition wants.
      */
     SuppressedAddress::factory()->create(['email' => 'dana@example.test']);
 
+    $withheld = null;
+
+    foreach (range(1, 3) as $round) {
+        $instance = sendable([
+            ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+            ['name' => 'Sam Reilly', 'email' => 'sam@example.test', 'membershipId' => null],
+        ]);
+
+        app(ExecuteAction::class)->handle($instance, $this->team);
+
+        $withheld = MessageDelivery::query()
+            ->where('recipient_email', 'dana@example.test')
+            ->orderByDesc('id')
+            ->firstOrFail();
+    }
+
+    expect(MessageDelivery::query()->where('recipient_email', 'dana@example.test')->count())->toBe(3)
+        // Recorded three times, and reportable none of them.
+        ->and($withheld->noticed_at)->toBeNull()
+        ->and(
+            MessageDelivery::query()
+                ->failed()
+                ->whereNotNull('noticed_at')
+                ->count(),
+        )->toBe(0)
+        // The scope still sees them — `failed()` is derived from the enum, and
+        // S49 and any later screen read it. The sweep's own window is what
+        // excludes them.
+        ->and(MessageDelivery::query()->failed()->count())->toBe(3);
+});
+
+it('does not collapse two recipients who share a name', function (): void {
+    /*
+     * Round 2 of review, and round 1's blocker arriving a third time.
+     *
+     * The summary was composed with `array_diff` over **names**, which removes
+     * every element equal to a withheld name — so Sr. and Jr. on one deal,
+     * one of them suppressed, produced *"Emailed nobody"* over a message that
+     * reached Jr. The audit was right and the sentence a person reads was
+     * wrong, which is worse than silence.
+     */
+    SuppressedAddress::factory()->create(['email' => 'john.sr@example.test']);
+
     $instance = sendable([
-        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
-        ['name' => 'Sam Reilly', 'email' => 'sam@example.test', 'membershipId' => null],
+        ['name' => 'John Smith', 'email' => 'john.sr@example.test', 'membershipId' => null],
+        ['name' => 'John Smith', 'email' => 'john.jr@example.test', 'membershipId' => null],
     ]);
 
     app(ExecuteAction::class)->handle($instance, $this->team);
 
-    $withheld = MessageDelivery::query()->where('recipient_email', 'dana@example.test')->sole();
+    $sent = ActivityEvent::query()->where('event_type', 'message.sent')->sole();
 
-    expect($withheld->noticed_at)->not->toBeNull()
-        // And the sweep's own scope sees it, which is the thing that matters:
-        // the failure list is derived from the enum rather than listed twice.
-        ->and(MessageDelivery::query()->failed()->pluck('recipient_email')->all())
-        ->toBe(['dana@example.test']);
+    expect($instance->fresh()->state)->toBe(AutomationState::Sent)
+        ->and($sent->summary)->toContain('Emailed John Smith:')
+        ->and($sent->summary)->not->toContain('Emailed nobody')
+        // And the address is what tells the two apart.
+        ->and($sent->summary)->toContain('(john.sr@example.test) was not written to');
+});
+
+it('says nothing about a withheld recipient under sandbox, because nobody was written to', function (): void {
+    /*
+     * Round 2 of review. Sandbox replaces *every* recipient, so nothing was
+     * withheld from anybody — and carrying the list produced one client marked
+     * "Not sent" beside another omitted entirely, plus an S91 alert about a
+     * delivery failure during the one mode that exists so a team can exercise
+     * automations without touching a client.
+     *
+     * It also produced a run-on sentence: the redirected branch ends on a
+     * name, so *"rather than Sam Reilly Dana Okafor was not written to"* read
+     * as one four-word name.
+     */
+    [$team, $owner] = $this->teamWithOwner();
+
+    $team->forceFill([
+        'sandbox_mode' => true,
+        'approval_required_until' => now()->subDay(),
+        'hourly_send_limit' => 60,
+        'daily_send_limit' => 200,
+    ])->save();
+
+    SuppressedAddress::factory()->create(['email' => 'dana@example.test']);
+
+    $instance = app(App\Support\Tenancy\TeamContext::class)->runFor($team, function () use ($team): ActionInstance {
+        $deal = Deal::factory()->create(['team_id' => $team->getKey()]);
+
+        $instance = ActionInstance::factory()->create([
+            'team_id' => $team->getKey(),
+            'deal_id' => $deal->getKey(),
+        ]);
+
+        $payload = $instance->payload;
+        $payload['recipients'] = [
+            ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+            ['name' => 'Sam Reilly', 'email' => 'sam@example.test', 'membershipId' => null],
+        ];
+        $instance->forceFill(['payload' => $payload])->save();
+
+        app(ExecuteAction::class)->handle($instance, $team);
+
+        return $instance;
+    });
+
+    /*
+     * Read inside that team's context: `beforeEach` resolved a different one,
+     * and `MessageDelivery` is team-scoped — so an unscoped-looking `get()`
+     * here would quietly return nothing and pass against anything.
+     */
+    [$rows, $event] = app(App\Support\Tenancy\TeamContext::class)->runFor($team, fn (): array => [
+        MessageDelivery::query()->get(),
+        ActivityEvent::query()->where('event_type', 'message.redirected')->sole(),
+    ]);
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows->first()->redirected)->toBeTrue()
+        ->and($rows->first()->status)->toBe(DeliveryStatus::Sent);
+
+    expect($event->summary)->toContain('went to the team rather than Dana Okafor, Sam Reilly')
+        ->and($event->summary)->not->toContain('was not written to');
+});
+
+it('lets an escalation win a race it used to lose', function (): void {
+    /*
+     * Round 2 of review. Round 1's conditional UPDATE guarded on *"the status
+     * I read"*, which is too narrow by exactly one case: two workers holding a
+     * bounce and a complaint both read `sent`, the bounce won, and the
+     * complaint — the more serious fact, and the one PRD §12.2 is about — was
+     * dropped.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $id = MessageDelivery::query()->sole()->getKey();
+
+    $bounceWorker = MessageDelivery::query()->findOrFail($id);
+    $complaintWorker = MessageDelivery::query()->findOrFail($id);
+
+    expect($bounceWorker->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550'))->toBeTrue()
+        // Read `sent`, arrives second, and still lands: it outranks what is
+        // there now.
+        ->and($complaintWorker->advanceTo(DeliveryStatus::Complained, now()))->toBeTrue()
+        ->and(MessageDelivery::query()->findOrFail($id)->status)->toBe(DeliveryStatus::Complained);
+});
+
+it('records a late delivery confirmation without moving the status back', function (): void {
+    /*
+     * The other half of the same predicate. A timestamp-only change has no
+     * rank to compare, so it is claimed by its own column being null — which
+     * keeps a late "delivered to the server" notification writing
+     * `delivered_at` on the way past a row that has since bounced. Round 1's
+     * comment claimed this and the code did the opposite.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $delivery = MessageDelivery::query()->sole();
+
+    $delivery->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550');
+
+    expect($delivery->fresh()->advanceTo(DeliveryStatus::Delivered, now()->subMinute()))->toBeTrue();
+
+    $final = $delivery->fresh();
+
+    expect($final->status)->toBe(DeliveryStatus::Bounced)
+        ->and($final->delivered_at)->not->toBeNull()
+        ->and($final->detail)->toBe('smtp; 550');
 });
 
 it('will not redirect a sandbox message to a suppressed team owner', function (): void {
@@ -647,6 +818,33 @@ it('lets only one of two concurrent notifications write the timeline entry', fun
     expect($first->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550'))->toBeTrue()
         // The loser stands down, exactly as a replay does.
         ->and($second->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550'))->toBeFalse();
+
+    /*
+     * And **the entry itself**, which round 2 of review pointed out this test
+     * did not look at: asserting `true`/`false` from `advanceTo()` would pass
+     * unchanged against an implementation that wrote two timeline rows, which
+     * is the thing the test's name claims to hold.
+     */
+    $event = fn (): int => ActivityEvent::query()->where('event_type', 'message.bounced')->count();
+
+    $apply = fn (MessageDelivery $row): int => app(App\Support\Delivery\ApplyDeliveryEvent::class)->apply(
+        App\Support\Delivery\DeliveryEvent::tryFrom([
+            'notificationType' => 'Bounce',
+            'mail' => ['messageId' => $row->provider_message_id],
+            'bounce' => [
+                'bounceType' => 'Permanent',
+                'timestamp' => now()->toIso8601String(),
+                'bouncedRecipients' => [['emailAddress' => 'dana@example.test']],
+            ],
+        ]),
+    );
+
+    $fresh = MessageDelivery::query()->findOrFail($id);
+
+    $apply($fresh);
+    $apply($fresh);
+
+    expect($event())->toBe(1);
 });
 
 it('speaks about the address rather than about the reader', function (): void {

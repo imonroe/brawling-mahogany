@@ -51,7 +51,36 @@ final class Suppression
             return false;
         }
 
-        $existing = SuppressedAddress::query()->where('email', $email)->first();
+        /*
+         * **`withTrashed()`**, because a lift is a soft delete (round 2 of
+         * review) and the unique index below covers trashed rows too. Looking
+         * only at live rows would find nothing, fall through to the insert,
+         * collide silently, and leave an address that has just hard-bounced
+         * unsuppressed — the exact failure this class exists to prevent,
+         * reached through the door that was opened to make lifting auditable.
+         */
+        $existing = SuppressedAddress::withTrashed()->where('email', $email)->first();
+
+        if ($existing instanceof SuppressedAddress && $existing->trashed()) {
+            /*
+             * Lifted, and now bouncing again. Restored rather than inserted
+             * afresh so the id an audit entry already points at stays the id
+             * of this address's record — the history of a lift and a
+             * re-suppression is one row's story, not two.
+             */
+            $existing->restore();
+
+            $existing->forceFill([
+                'reason' => $reason->value,
+                'detail' => $detail,
+                'discovered_by_team_id' => $discoveredByTeamId,
+                'suppressed_at' => Carbon::now(),
+            ])->save();
+
+            $this->announce($reason, upgraded: false);
+
+            return true;
+        }
 
         if ($existing instanceof SuppressedAddress) {
             /*
@@ -95,6 +124,12 @@ final class Suppression
         ]);
 
         if ($inserted === 0) {
+            /*
+             * Lost the race, or collided with a soft-deleted row this call
+             * read before another one restored it. Either way the answer is
+             * the same: somebody else owns the row now, and *"already
+             * suppressed"* is the correct outcome of the second attempt.
+             */
             return false;
         }
 
@@ -113,9 +148,21 @@ final class Suppression
      */
     public function lift(string $email): bool
     {
-        return SuppressedAddress::query()
+        $row = SuppressedAddress::query()
             ->where('email', SuppressedAddress::normalise($email))
-            ->delete() > 0;
+            ->first();
+
+        if (! $row instanceof SuppressedAddress) {
+            return false;
+        }
+
+        /*
+         * A **soft** delete, so the row survives the audit entry written about
+         * it. The migration argues it; the short version is that an entry
+         * whose `auditable_id` resolves to nothing cannot answer the question
+         * it exists to answer.
+         */
+        return (bool) $row->delete();
     }
 
     /**

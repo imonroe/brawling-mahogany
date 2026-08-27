@@ -97,6 +97,29 @@ return new class extends Migration
 
             $table->timestamps();
 
+            /*
+             * **A lift is a soft delete**, and round 2 of review is why.
+             *
+             * `Suppression::lift()` used to hard-delete, and the audit entry
+             * written in the same breath then pointed at a row that no longer
+             * existed — no address, no team, no actor, nothing an
+             * append-only record could resolve. The command's own reason for
+             * auditing is that *"who decided this address was fine"* is the
+             * first question asked when a lifted address starts bouncing
+             * again, and nothing in the entry could answer it. (Putting the
+             * address in the entry is not the fix: `AuditRedactor` redacts it,
+             * correctly.)
+             *
+             * So the row survives its own audit entry. It also gives the
+             * console a history to show instead of *"not suppressed"* with no
+             * trace that it ever was.
+             *
+             * The unique index below covers trashed rows too, which is why
+             * `Suppression::record()` looks `withTrashed()` before inserting
+             * and restores rather than colliding.
+             */
+            $table->softDeletes();
+
             // "Is this address suppressed" is asked once per recipient per
             // send; the unique index above already answers it. This one is for
             // the console's "what happened this week".

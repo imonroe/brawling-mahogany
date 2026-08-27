@@ -413,23 +413,69 @@ final class ExecuteAction
          * questions: sandbox changes **where** a message went, suppression
          * changes **whether** it went at all.
          */
-        $withheldNames = array_column($decision->withheld, 'name');
-        $reached = $this->joinNames(array_values(array_diff(
-            array_column($instance->recipients(), 'name'),
-            $withheldNames,
+        /*
+         * **Diffed on the address, never on the name**, which is round 2 of
+         * review and round 1's blocker arriving a third time.
+         *
+         * `array_diff` removes every element equal to a withheld value, so
+         * diffing on names collapsed two recipients who share a display name
+         * and differ only by address — Sr. and Jr. on one deal, which is not
+         * exotic in residential real estate. Measured: a message that reached
+         * `john.jr@example.test` produced *"Emailed nobody"* on the deal's
+         * activity feed. The audit was right and the sentence a person reads
+         * was wrong, which is worse than silence.
+         *
+         * The address is the only field that is actually unique here — the
+         * same reason `message_deliveries` keys its history on it.
+         */
+        $withheldEmails = array_map(
+            static fn (string $email): string => mb_strtolower($email),
+            array_column($decision->withheld, 'email'),
+        );
+
+        $reached = $this->joinNames(array_values(array_map(
+            static fn (array $recipient): string => $recipient['name'],
+            array_filter(
+                $instance->recipients(),
+                static fn (array $recipient): bool => ! in_array(
+                    mb_strtolower($recipient['email']),
+                    $withheldEmails,
+                    true,
+                ),
+            ),
         )));
 
-        $missed = $withheldNames === []
+        /*
+         * And the withheld half names the **address** beside the person, for
+         * the same collision: *"John Smith was not written to"* names somebody
+         * who was, when two of them share a name. It is also the thing to go
+         * and correct, so it is the more useful sentence either way. The
+         * activity feed is a team-scoped deal screen, not a log — S49 shows
+         * the same address one click away.
+         */
+        $missed = $decision->withheld === []
             ? ''
-            : ' '.$this->joinNames($withheldNames).' was not written to — that address can no longer be reached.';
+            : ' '.implode(' ', array_map(
+                static fn (array $recipient): string => $recipient['name']
+                    .' ('.$recipient['email'].') was not written to — that address can no longer be reached.',
+                $decision->withheld,
+            ));
 
         if ($deal instanceof Deal) {
             $this->activity->record(
                 subject: $deal,
                 eventType: $decision->redirected ? 'message.redirected' : 'message.sent',
-                summary: ($decision->redirected
+                /*
+                 * The sandbox branch carries no `$missed`: `SendRails` sends
+                 * no withheld list under sandbox, because sandbox replaced
+                 * every recipient and nothing was withheld from anybody. That
+                 * also keeps the sentence from running on — it ends on a name,
+                 * and round 2 measured *"rather than Sam Reilly Dana Okafor
+                 * was not written to"* reading as one four-word name.
+                 */
+                summary: $decision->redirected
                     ? "Sandbox: “{$subject}” went to the team rather than {$reached}"
-                    : "Emailed {$reached}: “{$subject}”").$missed,
+                    : "Emailed {$reached}: “{$subject}”".$missed,
             );
         }
 

@@ -522,9 +522,32 @@ final class AlertOnFailures
     {
         $deal = $delivery->actionInstance?->deal;
 
-        $what = $delivery->status === DeliveryStatus::Complained
-            ? 'was marked as spam by the person it was sent to'
-            : 'could not be delivered — the address was rejected';
+        /*
+         * **An exhaustive match, not "complained or else"**, which is
+         * `CLAUDE.md`'s own finding two bullets up from the ones this feature
+         * added: *"a headline that asserts is wrong for one caller — derive
+         * the words from the action type."* Round 2 of review measured the
+         * else-branch describing a `suppressed` row — a copy never handed to a
+         * provider — as *"could not be delivered, the address was rejected"*.
+         * Nothing was delivered to and no mail server was involved.
+         *
+         * The actions differ too, which is why one sentence cannot serve both:
+         * a bounce means *check the address with them*; a withheld copy means
+         * the address has been known dead for some time and the fix is to
+         * correct it on the deal.
+         *
+         * `suppressed` cannot reach here today — the sweep windows on
+         * `noticed_at`, which `RecordDeliveries` deliberately leaves null on a
+         * withheld row — and it is written out all the same. A `match` arm for
+         * a case the enum really has is exhaustiveness, and the alternative is
+         * a default branch that lies the moment somebody stamps that column.
+         */
+        $what = match ($delivery->status) {
+            DeliveryStatus::Complained => 'was marked as spam by the person it was sent to',
+            DeliveryStatus::Bounced => 'could not be delivered — the address was rejected',
+            DeliveryStatus::Suppressed => 'was not sent, because that address can no longer be written to',
+            DeliveryStatus::Sent, DeliveryStatus::Delivered, DeliveryStatus::Opened => 'needs looking at',
+        };
 
         $sentence = $deal instanceof Deal
             ? 'On '.$deal->displayName().': a message '.$what.'.'

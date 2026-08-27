@@ -9,7 +9,6 @@ use App\Enums\MessageChannel;
 use App\Models\ActionInstance;
 use App\Models\MessageDelivery;
 use App\Support\Automation\SendDecision;
-use Illuminate\Support\Carbon;
 
 /**
  * The row that lets somebody ask *"did it arrive"* (#95 · PRD §4.5 F5.8).
@@ -61,10 +60,26 @@ final class RecordDeliveries
          * of one. A withheld copy is an **outcome**, and the row is where an
          * outcome lives.
          *
-         * `noticed_at` is stamped, so S91's sweep tells the team. The bounce
-         * that created the suppression may have been weeks ago, on another
-         * deal, seen by somebody who has since left; *this* message not
-         * reaching *this* client is new information.
+         * **`noticed_at` is deliberately not stamped**, so S91's sweep does
+         * not carry it — which is round 2 of review reversing round 1's
+         * reasoning, and worth recording as a trade rather than a correction.
+         *
+         * Round 1's argument was that the bounce may be old news: weeks ago,
+         * on another deal, seen by somebody who has since left. True. But a
+         * withheld copy is written **on every send to that address**, and the
+         * watermark only stops the same *row* being reported twice — so a Keep
+         * in Touch schedule against a past client whose mailbox died produced
+         * an alert every cycle, permanently, about a fact the product had
+         * already recorded and was deliberately acting on. Measured at three
+         * sends: three alerts. `CLAUDE.md`'s rule decides it — *"an alert
+         * people filter is an alert that does not work when it matters"* — and
+         * the team was already told when the bounce itself arrived.
+         *
+         * It is not silent: ADR 0003's second door is the deal's own timeline,
+         * which names who was not written to in the same breath as the send,
+         * and S49 lists the row with its reason. Both are pull surfaces that
+         * are true whenever somebody looks, which is what a standing condition
+         * wants.
          */
         foreach ($decision->withheld as $recipient) {
             $rows[] = $this->write($instance, $recipient, $channel, [
@@ -73,7 +88,6 @@ final class RecordDeliveries
                 'provider_message_id' => null,
                 'status' => DeliveryStatus::Suppressed->value,
                 'withheld_reason' => $recipient['reason']->value,
-                'noticed_at' => Carbon::now(),
             ]);
         }
 

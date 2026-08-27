@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Enums\SuppressionReason;
 use App\Models\SuppressedAddress;
+use App\Rules\SendableEmailAddress;
 use App\Support\Audit\AuditLogger;
 use App\Support\Delivery\Suppression;
 use Illuminate\Console\Command;
@@ -60,7 +61,19 @@ class ManageSuppression extends Command
          * otherwise leave a row nothing can ever match — permanent, invisible,
          * and account-wide.
          */
-        if (Validator::make(['email' => $email], ['email' => ['required', 'email']])->fails()) {
+        /*
+         * `SendableEmailAddress`, not Laravel's `email` rule — round 2 of
+         * review, and `CLAUDE.md`'s own finding: *"validate with the parser
+         * that will consume it."* `emily(work)@bosart.test` is a legal RFC
+         * 5322 address with a comment in it, passes `email` and `email:rfc`,
+         * and throws inside `Symfony\Component\Mime\Address` — so it would
+         * have stored a permanent, account-wide row matching an address this
+         * product can never send to. Which is exactly what the comment below
+         * says this check exists to prevent.
+         */
+        $rules = ['email' => ['required', 'email', new SendableEmailAddress]];
+
+        if (Validator::make(['email' => $email], $rules)->fails()) {
             $this->components->error("[{$email}] is not an email address.");
 
             return self::FAILURE;
@@ -87,10 +100,25 @@ class ManageSuppression extends Command
 
     private function show(string $email): int
     {
-        $row = SuppressedAddress::query()->where('email', $email)->first();
+        /*
+         * `withTrashed()`, because a lift is a soft delete and the history is
+         * the point: *"it is not suppressed"* with no trace that it ever was
+         * is the answer that sends somebody back to the database.
+         */
+        $row = SuppressedAddress::withTrashed()->where('email', $email)->first();
 
         if (! $row instanceof SuppressedAddress) {
+            $this->components->info("[{$email}] is not suppressed, and never has been.");
+
+            return self::SUCCESS;
+        }
+
+        if ($row->trashed()) {
             $this->components->info("[{$email}] is not suppressed.");
+            $this->components->twoColumnDetail('Was suppressed for', $row->reason->label());
+            $this->components->twoColumnDetail('Lifted', $row->deleted_at?->toDayDateTimeString() ?? '—');
+            $this->newLine();
+            $this->comment('  Mail to it goes out normally. Suppress it again with --suppress.');
 
             return self::SUCCESS;
         }

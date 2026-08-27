@@ -113,6 +113,31 @@ enum DeliveryStatus: string implements HasLabel
     }
 
     /**
+     * Every status this one outranks.
+     *
+     * The predicate for {@see \App\Models\MessageDelivery::advanceTo()}'s
+     * conditional UPDATE. Round 2 of review found the first version guarding
+     * on *"the status I read"*, which is too narrow by exactly one case: two
+     * workers holding a bounce and a complaint for the same row both read
+     * `sent`, the bounce won, and the **complaint was dropped** — the more
+     * serious of the two facts, lost to a race the guard existed to make
+     * safe.
+     *
+     * Asking for anything strictly below this rank keeps the replay case out
+     * (a status does not outrank itself) and lets a genuine escalation in
+     * whatever it raced.
+     *
+     * @return list<string>
+     */
+    public function outranked(): array
+    {
+        return array_values(array_map(
+            static fn (self $status): string => $status->value,
+            array_filter(self::cases(), fn (self $status): bool => $status->rank() < $this->rank()),
+        ));
+    }
+
+    /**
      * Every status that {@see self::isFailure()} answers true for.
      *
      * Derived rather than listed a second time in a query scope. Round 1 of
