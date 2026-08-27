@@ -14,7 +14,9 @@ use App\Models\Task;
 use App\Models\Team;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
+use App\Support\Delivery\RecordDeliveries;
 use Illuminate\Mail\Mailables\Address;
+use Illuminate\Mail\SentMessage;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Throwable;
@@ -52,6 +54,7 @@ final class ExecuteAction
         private readonly SendRails $rails,
         private readonly RecordActivity $activity,
         private readonly AuditLogger $audit,
+        private readonly RecordDeliveries $deliveries,
     ) {}
 
     /**
@@ -193,7 +196,7 @@ final class ExecuteAction
         try {
             $pending = Mail::to($this->addresses($decision->recipients));
 
-            $pending->send(new AutomatedMessageMail(
+            $sent = $pending->send(new AutomatedMessageMail(
                 instance: $instance,
                 rendered: $rendered,
                 team: $team,
@@ -227,12 +230,39 @@ final class ExecuteAction
             throw $exception;
         }
 
+        /*
+         * What the provider called it, which is the only thing a bounce
+         * notification will name (#95).
+         *
+         * Read from the transport's answer rather than generated, and null
+         * where the transport did not give one — the array transport used in
+         * tests, a local Mailpit, an SMTP server that answered without an id.
+         * A null here is honest: nothing will ever come back about this
+         * message, and `message_deliveries` records it as `sent` forever,
+         * which is exactly what is known.
+         *
+         * Never confused with `message_key`. That one is **ours**, written
+         * before the mailer was called, and it is what stops a second send;
+         * this one is theirs, arrives afterwards, and is only a join key.
+         * `action_instances`' migration argues the distinction at length.
+         */
+        $providerMessageId = $this->providerMessageId($sent);
+
         $instance->forceFill([
             'state' => AutomationState::Sent->value,
             'executed_at' => now(),
             'attempts' => $instance->attempts + 1,
             'error' => null,
+            'provider_message_id' => $providerMessageId,
         ])->save();
+
+        /*
+         * One row per address, after the instance is saved rather than before.
+         * A delivery row pointing at an instance still marked `pending` is a
+         * row S49 would render under the wrong heading if anything read it in
+         * between.
+         */
+        $this->deliveries->forSend($instance, $decision, $providerMessageId);
 
         $this->recordSent($instance, $decision);
     }
@@ -421,7 +451,24 @@ final class ExecuteAction
     }
 
     /**
-     * @param  list<array{name: string, email: string}>  $recipients
+     * The id the provider assigned, if it gave one.
+     *
+     * `SentMessage::getMessageId()` is the transport's answer, which for SES
+     * over SMTP is the id in its `250 Ok` line — the same id SNS will name in
+     * a bounce. Symfony falls back to the `Message-ID` header when a transport
+     * offers nothing, which is what the array transport does, so a test cannot
+     * tell the two apart and this class does not try to: either way it is what
+     * the send is known by.
+     */
+    private function providerMessageId(?SentMessage $sent): ?string
+    {
+        $id = $sent?->getMessageId();
+
+        return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    /**
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
      * @return list<Address>
      */
     private function addresses(array $recipients): array

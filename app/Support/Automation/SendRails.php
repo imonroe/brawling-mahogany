@@ -6,7 +6,9 @@ namespace App\Support\Automation;
 
 use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
+use App\Enums\SuppressionReason;
 use App\Models\ActionInstance;
+use App\Models\SuppressedAddress;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Messages\ResolveRecipients;
@@ -174,6 +176,31 @@ final class SendRails
             return SendDecision::refuse('This message resolved to nobody on this deal.');
         }
 
+        /*
+         * **Rail 0b — the suppression list** (#95 · F5.8).
+         *
+         * Above the ceiling and the sandbox, because a suppressed address is
+         * not a message this team may send later when the window rolls: it is
+         * a message that must not go, ever, and counting it against a limit
+         * or redirecting it to the team owner would both be wrong.
+         *
+         * Below the message's own soundness, because a broken template is
+         * worth telling somebody about whichever address it was pointed at.
+         *
+         * Partial suppression **drops the address and sends the rest**. A deal
+         * with two sellers, one of whose mailbox has died, must still reach
+         * the other — refusing the whole message would let one dead address
+         * silence a client who is perfectly reachable, which is the failure
+         * this product cares about most.
+         */
+        $sendable = $this->withoutSuppressed($recipients);
+
+        if ($sendable === []) {
+            return SendDecision::refuse($this->suppressionRefusal($recipients));
+        }
+
+        $recipients = $sendable;
+
         // Rail 1 — the ceiling.
         $ceiling = $this->ceilingReached($live);
 
@@ -195,6 +222,68 @@ final class SendRails
         }
 
         return SendDecision::send($recipients);
+    }
+
+    /**
+     * The recipients this product is still allowed to write to.
+     *
+     * One query for the whole list rather than one per address — this runs
+     * inside a queue worker on every send, and the table it reads is the one
+     * shared by every team on the platform.
+     *
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
+     * @return list<array{name: string, email: string, membershipId: string|null}>
+     */
+    private function withoutSuppressed(array $recipients): array
+    {
+        $suppressed = SuppressedAddress::among(array_column($recipients, 'email'));
+
+        if ($suppressed === []) {
+            return $recipients;
+        }
+
+        return array_values(array_filter(
+            $recipients,
+            static fn (array $recipient): bool => ! array_key_exists(
+                SuppressedAddress::normalise($recipient['email']),
+                $suppressed,
+            ),
+        ));
+    }
+
+    /**
+     * Why nothing went out, in words about the address.
+     *
+     * Never *"another team's client reported you"*, and never the row. The
+     * suppression list is account-wide (`SuppressedAddress` argues why), and
+     * two teams sharing a client must not learn about each other's
+     * correspondence from a refusal message. What a team is entitled to know
+     * is that **this** address is not reachable and what to do about it, which
+     * is what `SuppressionReason::explanation()` says.
+     *
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
+     */
+    private function suppressionRefusal(array $recipients): string
+    {
+        $suppressed = SuppressedAddress::among(array_column($recipients, 'email'));
+
+        /*
+         * The most serious reason among them leads. On a message to one
+         * person that is simply their reason; on a message to two it is the
+         * one that needs acting on first, and the count below says there was
+         * more than one.
+         */
+        $reason = collect($suppressed)
+            ->sortByDesc(fn (SuppressionReason $reason): bool => $reason->threatensTheAccount())
+            ->first();
+
+        $explanation = $reason instanceof SuppressionReason
+            ? ' '.$reason->explanation()
+            : '';
+
+        return count($suppressed) > 1
+            ? 'None of the addresses on this message can be written to any more.'.$explanation
+            : 'This message was not sent because the address it was going to can no longer be written to.'.$explanation;
     }
 
     /**
@@ -272,7 +361,7 @@ final class SendRails
     }
 
     /**
-     * @return array{name: string, email: string}|null
+     * @return array{name: string, email: string, membershipId: string|null}|null
      */
     private function teamOwnerAddress(Team $team): ?array
     {
@@ -280,7 +369,11 @@ final class SendRails
             ->first(fn (TeamMembership $membership): bool => ($membership->email ?? '') !== '');
 
         return $owner instanceof TeamMembership
-            ? ['name' => $owner->fullName(), 'email' => (string) $owner->email]
+            ? [
+                'name' => $owner->fullName(),
+                'email' => (string) $owner->email,
+                'membershipId' => (string) $owner->getKey(),
+            ]
             : null;
     }
 }

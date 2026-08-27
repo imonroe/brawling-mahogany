@@ -39,7 +39,7 @@ namespace App\Support\Automation;
 final readonly class SendDecision
 {
     /**
-     * @param  list<array{name: string, email: string}>  $recipients
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
      */
     private function __construct(
         public bool $allowed,
@@ -51,7 +51,7 @@ final readonly class SendDecision
     ) {}
 
     /**
-     * @param  list<array{name: string, email: string}>  $recipients
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
      */
     public static function send(array $recipients, bool $redirected = false): self
     {

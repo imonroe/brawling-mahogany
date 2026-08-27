@@ -335,7 +335,7 @@ final class RaiseAutomations
 
     /**
      * @param  Collection<int, TeamMembership>  $memberships
-     * @return list<array{name: string, email: string}>
+     * @return list<array{name: string, email: string, membershipId: string}>
      */
     private function addresses(Collection $memberships): array
     {
@@ -352,6 +352,15 @@ final class RaiseAutomations
             ->map(fn (TeamMembership $membership): array => [
                 'name' => $membership->fullName(),
                 'email' => (string) $membership->email,
+                /*
+                 * Carried so #95's delivery rows can point at somebody a
+                 * reader can open, rather than at a string. The **address**
+                 * beside it stays the fact of record: a bounce names the
+                 * address that bounced, and correcting the membership
+                 * afterwards must not rewrite the history of the message that
+                 * went to the wrong one.
+                 */
+                'membershipId' => (string) $membership->getKey(),
             ])
             ->values()
             /*

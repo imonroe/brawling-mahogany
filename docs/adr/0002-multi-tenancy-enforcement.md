@@ -321,13 +321,59 @@ Two things fell out of the move that are worth noticing:
 keys on one** — the scope, the composite keys, the middleware, the policies,
 the isolation suite, *and* the retention purge.
 
-Six models still carry no `team_id`, and the test that enumerates them
-(`ModelTenancyConventionTest`) records a reason for each. Five are reference
-data or the tenant boundary itself. `people` is now the sixth in a stronger
-sense than before: it holds credentials, which are genuinely one-per-human, and
-nothing else. If a future table wants to be shared, the question to answer is
-not "can we guard it" but "what does sharing buy, and is that still true once
-the team-visible fields are somewhere else".
+`ModelTenancyConventionTest` enumerates the models that carry none and records
+a reason for each; **that list is the authority, and any count written here
+will go stale**. Most are reference data or the tenant boundary itself.
+`people` is a stronger case than it used to be: it holds credentials, which are
+genuinely one-per-human, and nothing else. If a future table wants to be
+shared, the question to answer is not "can we guard it" but "what does sharing
+buy, and is that still true once the team-visible fields are somewhere else".
+
+### The deliberately cross-tenant table
+
+`suppressed_addresses` (Slice 3, issue #95) is a different case again, and the
+only one so far. The others are *shared* — a row every team may read, like a
+seeded deal type. This one is **cross-tenant**: what one team learns, every
+other team is bound by.
+
+The fact recorded is a fact about an address rather than about a team. A
+mailbox that does not exist does not exist for anybody, and SES measures
+bounce and complaint rates **per account** (PRD §12.2 — bounce under 2%,
+complaint under 0.1%), so one team writing repeatedly to a dead address is
+spending every other team's deliverability. A per-team list would have each new
+team rediscover the same bad address at the account's expense.
+
+Issue #95 asks for it to be *"built explicitly rather than falling out of a
+scope gap"*, and the distinction is the whole of it: a scope gap is something
+nobody decided. What makes this defensible rather than merely convenient is
+three things, and dropping any one of them turns it into the `people`
+disclosure again:
+
+- **Nothing team-facing reads the row.** `SuppressedAddress::suppresses()`
+  returns a reason and nothing else. `discovered_by_team_id` is for the
+  platform console, which is already cross-tenant by design.
+- **A team is told about the address, never about another team.** A refused
+  send says *"this address can no longer be written to"* and why —
+  `SuppressionReason::explanation()` — and two teams sharing a client learn
+  nothing about each other's correspondence from it.
+- **It holds no customer data beyond the address itself**, which is the fact
+  being recorded. There is no name, no deal, no message.
+
+It also outlives a team purge on purpose (issue #57): the address is still dead
+after the team that discovered it has gone, and a purge that resurrected it
+would hand the account's reputation straight back to the same bounce. Having no
+`team_id` is what makes that true **by construction** rather than by an
+exception in `PurgeSoftDeletedRecords` — which is the shape to prefer, because
+an exception in a sweep is a rule the next person to edit the sweep has to know
+about.
+
+The one place the tenancy is lifted to reach it is
+`ApplyDeliveryEvent`: an SNS notification arrives carrying a message id and no
+team, so the **find** is unscoped and the **write** is not. The rows come back
+already keyed to one team, and everything after runs inside
+`TeamContext::runFor()`. `UnscopedQueryConventionTest` records it as kind 2 — a
+context with no tenant — and it is the clearest example of that kind in the
+product.
 
 ### Writing a screen for a shared table
 

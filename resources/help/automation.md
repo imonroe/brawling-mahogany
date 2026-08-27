@@ -232,10 +232,55 @@ waiting. Your logo
 and colour are the exception: those are read when the message actually goes, so
 changing them updates everything still queued.
 
-## What is still to come
+## Whether it arrived
 
-**Delivery tracking**, so a bounced message is something you find out about
-rather than something a client mentions three weeks later.
+Sending a message and it arriving are two different things, and the app now
+tells you both. Open any message from **Messages** and there is a **Delivery**
+section under the details: one line per person it was sent to.
+
+- **Sent** — handed over, and nothing has come back yet. Usually the mail
+  service reports within a minute or two.
+- **Delivered** — their mail server accepted it. That is as far as anything can
+  be known; whether they read it is not something email reports.
+- **Opened** — measured with a small tracking image that many mail apps block,
+  so **a message with no open here may well have been read**. Treat it as good
+  news when it appears and as nothing at all when it does not.
+- **Bounced** — their mail server refused it. If it keeps happening the address
+  is probably wrong: check it with them and correct it on the deal.
+- **Marked as spam** — the person reported the message. This is the serious
+  one, for a reason below.
+
+A bounce or a spam report also lands on the deal's activity, so it is
+findable later without remembering which message it was, and the team gets one
+alert about it alongside anything else that needs looking at.
+
+### When an address stops working
+
+After a bounce that says the mailbox does not exist — or after somebody reports
+a message as spam — **the app stops writing to that address**, and will not
+start again. A message addressed to it fails with the reason on it rather than
+going out.
+
+Two things about that are worth knowing:
+
+**Only that address.** A message to two sellers, one of whose mailbox has died,
+still reaches the other. The dead address is dropped and the rest goes.
+
+**It is not per team.** A mail server that says an address does not exist is
+saying it about the address, not about you — and mail providers judge the whole
+app on how much undeliverable mail it sends, not each team separately. So the
+app remembers it once, everywhere. Nobody can see which team's message
+discovered it.
+
+A full mailbox or a temporary rejection does **not** do this. Those are shown
+as bounces so you know what happened, and the app keeps trying.
+
+If an address is wrong and you have corrected it, the corrected address is a
+different address and works straight away. If the same address genuinely comes
+back to life, ask support — lifting one is deliberately not something a team
+can do to itself, because it affects everybody's mail.
+
+## What is still to come
 
 **Your own sending address.** Your clients see your team's name in their inbox,
 and a reply reaches you — but the address underneath it is the app's, not

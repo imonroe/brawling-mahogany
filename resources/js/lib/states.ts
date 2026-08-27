@@ -21,6 +21,7 @@ export type StateDomain =
     | 'gate'
     | 'person'
     | 'automation'
+    | 'delivery'
     | 'extractedField'
     | 'document';
 
@@ -149,6 +150,39 @@ const automation: StateTable = {
     cancelled: { label: 'Cancelled', tone: 'neutral', clientLabel: null },
 };
 
+/**
+ * What became of one copy of one message (#95 · F5.8).
+ *
+ * A separate domain from `automation`, and the separation is the point: they
+ * answer different questions about the same row. `automation.sent` means *this
+ * product handed the message over and the provider accepted it*; a delivery
+ * says whether it arrived, per recipient — so a message whose automation state
+ * is a green **Sent** can carry a red **Bounced** beside every address it was
+ * written to, and both badges are correct.
+ *
+ * `sent` is therefore `neutral` here where it is `success` there. It is the
+ * *absence* of news rather than good news, and on this table it sits below
+ * `delivered`; tinting it green would tell somebody the message arrived when
+ * all that is known is that it left.
+ */
+const delivery: StateTable = {
+    sent: { label: 'Sent', tone: 'neutral', clientLabel: null },
+    delivered: { label: 'Delivered', tone: 'success', clientLabel: null },
+    /*
+     * Success rather than info, because an open is the strongest evidence
+     * this product ever gets that a client actually read something — and
+     * `info` is spoken for by §7.3's *"message sent"*, which this table
+     * deliberately does not reuse.
+     */
+    opened: { label: 'Opened', tone: 'success', clientLabel: null },
+    bounced: { label: 'Bounced', tone: 'danger', clientLabel: null },
+    complained: {
+        label: 'Marked as spam',
+        tone: 'danger',
+        clientLabel: null,
+    },
+};
+
 const extractedField: StateTable = {
     pending: { label: 'Needs Review', tone: 'warning', clientLabel: null },
     confirmed: { label: 'Confirmed', tone: 'success', clientLabel: null },
@@ -172,6 +206,7 @@ export const STATES: Record<StateDomain, StateTable> = {
     gate,
     person,
     automation,
+    delivery,
     extractedField,
     document,
 };

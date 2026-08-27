@@ -83,10 +83,52 @@ type Message = {
     } | null;
 };
 
+/**
+ * What the provider said afterwards, per recipient (#95 · F5.8).
+ *
+ * A separate list from `message.recipients`, which is who it was *addressed
+ * to* at raise time. The two can differ — a suppressed address is dropped
+ * before the send, and a sandbox redirect goes to the team owner — and a
+ * screen that showed one list would have to pick which of those two facts to
+ * lose.
+ */
+type Delivery = {
+    id: string;
+    status: string;
+    isFailure: boolean;
+    email: string;
+    name: string | null;
+    deliveredAt: string | null;
+    openedAt: string | null;
+    bouncedAt: string | null;
+    complainedAt: string | null;
+    explanation: string | null;
+    /** The provider's own words. Shown beneath, never as the headline. */
+    detail: string | null;
+};
+
 const props = defineProps<{
     message: Message;
+    deliveries: Delivery[];
     can: { approve: boolean; cancel: boolean };
 }>();
+
+/**
+ * When this delivery last did something, whichever thing that was.
+ *
+ * The four timestamps are not exclusive — a message can be delivered at 09:00
+ * and bounce off the mailbox at 09:02 — so the row shows the furthest one
+ * reached rather than trying to render a history nobody asked for on a screen
+ * that is already long.
+ */
+function deliveryAt(delivery: Delivery): string | null {
+    return (
+        delivery.complainedAt ??
+        delivery.bouncedAt ??
+        delivery.openedAt ??
+        delivery.deliveredAt
+    );
+}
 
 const editing = ref(false);
 
@@ -369,6 +411,77 @@ function cancel(): void {
             >
                 {{ message.error }}
             </p>
+        </Card>
+
+        <!--
+            S49's delivery half (#95). Rendered only when there is something to
+            say: a message raised before this shipped, and every `create_task`,
+            has no deliveries — and an empty table headed "Delivery" over a
+            task automation answers a question nobody asked.
+        -->
+        <Card v-if="deliveries.length > 0" title="Delivery">
+            <ul class="divide-y divide-border">
+                <li
+                    v-for="delivery in deliveries"
+                    :key="delivery.id"
+                    class="flex flex-col gap-2 px-4 py-3"
+                >
+                    <div class="flex flex-wrap items-center gap-2">
+                        <!--
+                            The `domain` form, not a tone chosen here.
+                            Component governance rule 7: a new state goes into
+                            `lib/states.ts` first, and the badge reads it — so
+                            the delivery vocabulary has exactly one home and
+                            an unknown status throws instead of rendering grey.
+                        -->
+                        <StatusBadge
+                            domain="delivery"
+                            :state="delivery.status"
+                        />
+                        <span class="text-13">
+                            <template v-if="delivery.name">
+                                {{ delivery.name }} ({{ delivery.email }})
+                            </template>
+                            <template v-else>{{ delivery.email }}</template>
+                        </span>
+                        <span
+                            v-if="deliveryAt(delivery)"
+                            :class="['text-13', 'text-muted-foreground']"
+                        >
+                            {{ formatDateTime(deliveryAt(delivery)!) }}
+                        </span>
+                    </div>
+
+                    <p
+                        v-if="delivery.explanation"
+                        :class="[
+                            'text-13',
+                            delivery.isFailure
+                                ? 'text-state-danger'
+                                : 'text-muted-foreground',
+                        ]"
+                    >
+                        {{ delivery.explanation }}
+                    </p>
+
+                    <!--
+                        The provider's own words, under the sentence rather
+                        than instead of it. #95 asks for plain language, and
+                        this is for whoever is actually debugging
+                        deliverability.
+                    -->
+                    <p
+                        v-if="delivery.detail"
+                        :class="[
+                            'font-mono',
+                            'text-[11px]',
+                            'text-muted-foreground',
+                        ]"
+                    >
+                        {{ delivery.detail }}
+                    </p>
+                </li>
+            </ul>
         </Card>
 
         <div

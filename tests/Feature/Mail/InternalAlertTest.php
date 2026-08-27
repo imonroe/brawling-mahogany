@@ -641,3 +641,109 @@ it('gives its own newest-failure pick a tiebreaker too', function (): void {
         expect($sort)->toContain('"id"');
     }
 });
+
+it('tells the team about a bounce, which is not a failure of the send', function (): void {
+    /*
+     * S91's second state (#95 · F5.8: *"bounces suppress and alert"*).
+     *
+     * The row this reports is `sent` and correctly so — the message was
+     * written and handed over, and the mailbox rejected it afterwards. So it
+     * is invisible to a sweep reading `action_instances.state`, which is the
+     * whole reason `message_deliveries` gets its own half of the window rather
+     * than a flag on the instance.
+     */
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $delivery = App\Models\MessageDelivery::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'action_instance_id' => $instance->getKey(),
+        'recipient_email' => 'dana@example.test',
+    ]);
+
+    $delivery->advanceTo(App\Enums\DeliveryStatus::Bounced, now(), 'smtp; 550 5.1.1 user unknown');
+
+    expect(settleAndSweep())->toBeTrue();
+
+    Mail::assertSent(InternalAlertMail::class, function (InternalAlertMail $mail) use ($instance): bool {
+        return $mail->headline === 'An automated message needs looking at'
+            && str_contains($mail->detail, 'could not be delivered')
+            // Plain language, never the protocol — #95 names `SMTP 550` as the
+            // thing an agent must not be handed.
+            && ! str_contains($mail->detail, '550')
+            /*
+             * And **no address**. An internal alert is forwarded, quoted and
+             * left sitting in inboxes; a client's email address belongs on
+             * S49, behind the link, in front of somebody looking at one deal
+             * (PRD §9).
+             */
+            && ! str_contains($mail->detail, 'dana@example.test')
+            && str_contains($mail->actionUrl, '/messages/'.$instance->getKey());
+    });
+});
+
+it('counts a bounce and a failure in one alert rather than two', function (): void {
+    /*
+     * One mark, one email. A team that gets one alert about their credentials
+     * and a second about a bounce two minutes later is a team that starts
+     * filtering both — which is the *"an alert people filter is an alert that
+     * does not work when it matters"* argument, arriving through the number of
+     * emails instead of their frequency.
+     */
+    carryOutFailing(failingMessage());
+
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    App\Models\MessageDelivery::factory()
+        ->create([
+            'team_id' => $this->team->getKey(),
+            'action_instance_id' => $instance->getKey(),
+        ])
+        ->advanceTo(App\Enums\DeliveryStatus::Complained, now());
+
+    expect(settleAndSweep())->toBeTrue();
+
+    Mail::assertSent(InternalAlertMail::class, function (InternalAlertMail $mail): bool {
+        return $mail->headline === '2 automated messages need looking at'
+            // Several, so the link is the queue: picking one of two to open is
+            // not a choice anybody can make from an inbox.
+            && str_ends_with($mail->actionUrl, '/messages');
+    });
+
+    Mail::assertSentCount(1);
+});
+
+it('does not report the same bounce twice', function (): void {
+    /*
+     * The watermark covers both halves of the window, and this is the half a
+     * second table makes easy to forget. `noticed_at` is written once, on the
+     * transition into a failure, so a replayed SNS notification cannot drag
+     * the row back in front of the mark — the `COALESCE(executed_at,
+     * updated_at)` finding, one table over.
+     */
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $delivery = App\Models\MessageDelivery::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'action_instance_id' => $instance->getKey(),
+    ]);
+
+    $delivery->advanceTo(App\Enums\DeliveryStatus::Bounced, now());
+
+    expect(settleAndSweep())->toBeTrue();
+
+    // The provider sends it again, as SNS does.
+    $delivery->fresh()->advanceTo(App\Enums\DeliveryStatus::Bounced, now());
+
+    expect(settleAndSweep())->toBeFalse();
+
+    Mail::assertSentCount(1);
+});

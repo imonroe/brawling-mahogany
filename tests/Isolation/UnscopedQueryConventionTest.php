@@ -71,6 +71,18 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'the bug, not the fix.',
     ],
 
+    'Support/Delivery/ApplyDeliveryEvent.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2, and the clearest example of it in the product: a bounce '.
+            'notification arrives from Amazon carrying a message id and nothing else — no '.
+            'session, no team, no way to know whose message it is until the row is found. '.
+            'The *find* is unscoped and the *write* is not: the rows come back already '.
+            'keyed to one team, and everything downstream runs inside '.
+            'TeamContext::runFor() for that team. So no tenant data is read across a '.
+            'boundary — one indexed column is matched, and the answer establishes the '.
+            'tenant the rest of the work happens under.',
+    ],
+
     'Models/ActionDefinition.php' => [
         'count' => 1,
         'reason' => 'Reading the message template this automation points at, to refuse an '.
