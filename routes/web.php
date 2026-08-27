@@ -3,7 +3,11 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Activity\ActivityController;
+use App\Http\Controllers\Calendar\CalendarController;
+use App\Http\Controllers\Calendar\EventController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Dates\DateListController;
+use App\Http\Controllers\Dates\DealDateController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
 use App\Http\Controllers\Deals\ConfirmGateController;
 use App\Http\Controllers\Deals\DealDocumentController;
@@ -447,6 +451,30 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          * flag makes "I fixed a typo" and "it is done" the same request, which
          * is the shape IA §7 objects to when Override and Skip share a label.
          */
+        /*
+         * S18 — a deal's Dates & Deadlines (F8.2 · #106, #107).
+         *
+         * The cascade preview is its own `POST` rather than a query parameter
+         * on the tab, because it is a *computation over a proposed change*
+         * that writes nothing — and a GET carrying a proposed date would be a
+         * URL somebody could bookmark and re-run against a deal that has since
+         * moved. `SaveKeyDate::preview()` and `::edit()` are the same
+         * computation, which is what makes the preview honest.
+         */
+        Route::get('deals/{deal}/dates', [DealDateController::class, 'index'])
+            ->name('deals.dates.index');
+        Route::post('deals/{deal}/dates', [DealDateController::class, 'store'])
+            ->middleware('throttle:60,1')
+            ->name('deals.dates.store');
+        Route::post('deals/{deal}/dates/preview', [DealDateController::class, 'preview'])
+            ->middleware('throttle:120,1')
+            ->name('deals.dates.preview');
+        Route::patch('deals/{deal}/dates/{keyDate}', [DealDateController::class, 'update'])
+            ->middleware('throttle:60,1')
+            ->name('deals.dates.update');
+        Route::delete('deals/{deal}/dates/{keyDate}', [DealDateController::class, 'destroy'])
+            ->name('deals.dates.destroy');
+
         Route::get('deals/{deal}/tasks', [TaskController::class, 'index'])
             ->name('deals.tasks.index');
         Route::post('deals/{deal}/tasks', [TaskController::class, 'store'])
@@ -518,6 +546,35 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         ->name('documents.show');
     Route::patch('documents/{document}/visibility', [DocumentController::class, 'updateVisibility'])
         ->name('documents.visibility.update');
+
+    /*
+     * S57 and S58 — the calendar (F8.1 · #105).
+     *
+     * `/calendar` is IA §5.1's sidebar destination and has been since Slice 0;
+     * this replaces the placeholder that stood there. The event modal posts to
+     * `/calendar/events` rather than to a top-level `/events`, because an event
+     * has no life outside the grid it is drawn on — IA §6 allows one level of
+     * nesting and this is what it is for.
+     */
+    Route::get('calendar', [CalendarController::class, 'index'])->name('calendar.index');
+    Route::post('calendar/events', [EventController::class, 'store'])
+        ->middleware('throttle:60,1')
+        ->name('calendar.events.store');
+    Route::patch('calendar/events/{event}', [EventController::class, 'update'])
+        ->middleware('throttle:60,1')
+        ->name('calendar.events.update');
+    Route::delete('calendar/events/{event}', [EventController::class, 'destroy'])
+        ->name('calendar.events.destroy');
+
+    /*
+     * S59 — every deadline across every deal (F8.2 · #107).
+     *
+     * `/dates` at the top level, beside `/work`: it answers *"what is this
+     * week's exposure"* from a standing start, which is a question with no
+     * deal in mind. The UI calls it **Dates & Deadlines** (IA §2, Emily's
+     * phrase); the route keeps the code name.
+     */
+    Route::get('dates', [DateListController::class, 'index'])->name('dates.index');
 
     Route::get('properties', [PropertyController::class, 'index'])->name('properties.index');
     Route::post('properties', [PropertyController::class, 'store'])->name('properties.store');
@@ -764,7 +821,6 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     Route::post('settings/roles/{role}/restore', [RoleController::class, 'restore'])->name('roles.restore');
 
     $placeholders = [
-        'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
     ];
 

@@ -237,16 +237,54 @@ it('refuses a requirement that is not on this stage', function (): void {
 });
 
 it('refuses a trigger nothing can raise yet', function (): void {
-    // "N days before a key date" needs `key_dates`, which is Slice 4. A picker
-    // offering it would let somebody believe they had set a deadline reminder.
+    /*
+     * `key_date_offset` left this list with Slice 4 (#106) — `key_dates`
+     * exists and `KeyDateAutomations` schedules off it — so the case is
+     * asserted against the one trigger still unavailable: `post_closing_offset`
+     * needs Keep in Touch, which is Slice 6.
+     *
+     * A picker offering a trigger nothing can raise lets somebody believe they
+     * have set a deadline reminder that will never fire, which is the failure
+     * this guard exists for and is not specific to which trigger it is.
+     */
+    [$template, $stage] = automationStage();
+
+    $this->post(automationUrl($template, $stage), [
+        'trigger' => AutomationTrigger::PostClosingOffset->value,
+        'action_type' => AutomationActionType::CreateTask->value,
+        'executionMode' => 'automatic',
+        'config' => ['taskTitle' => 'x'],
+    ])->assertSessionHasErrors('trigger');
+});
+
+it('accepts a key-date offset, and insists it names a date', function (): void {
+    /*
+     * F5.3's *a number of days from a key date* (#106). The name is free text
+     * because an automation lives on a **template**, which has never met the
+     * deal it will run on — so the two sides meet on the word the team uses.
+     *
+     * What is enforced is that there **is** one: an automation naming nothing
+     * fires on nothing, which is an automation somebody believes is running.
+     */
     [$template, $stage] = automationStage();
 
     $this->post(automationUrl($template, $stage), [
         'trigger' => AutomationTrigger::KeyDateOffset->value,
         'action_type' => AutomationActionType::CreateTask->value,
         'executionMode' => 'automatic',
-        'config' => ['taskTitle' => 'x'],
-    ])->assertSessionHasErrors('trigger');
+        'config' => ['taskTitle' => 'Chase the inspector'],
+    ])->assertSessionHasErrors('config.keyDateName');
+
+    $this->post(automationUrl($template, $stage), [
+        'trigger' => AutomationTrigger::KeyDateOffset->value,
+        'action_type' => AutomationActionType::CreateTask->value,
+        'executionMode' => 'automatic',
+        'config' => [
+            'taskTitle' => 'Chase the inspector',
+            'keyDateName' => 'Inspection objection',
+            'offsetDays' => -3,
+        ],
+    ])->assertSessionHasNoErrors();
 });
 
 it('refuses approval on an action that does not send', function (): void {
@@ -462,7 +500,12 @@ it('shows a stage’s automations on the template editor', function (): void {
             // the assertion — `where(…, null)` fails on an absent key with a
             // message about the key rather than about the rule.
             ->has('automationTriggers.stage_completion')
-            ->missing('automationTriggers.key_date_offset')
+            // `key_date_offset` became selectable with Slice 4 (#106), which
+            // is what "selectable rather than complete" is *for* — the list
+            // grows as each trigger acquires something that can raise it.
+            // `post_closing_offset` is the one still waiting, on Slice 6.
+            ->has('automationTriggers.key_date_offset')
+            ->missing('automationTriggers.post_closing_offset')
             ->missing('automationActions.create_calendar_event'));
 });
 

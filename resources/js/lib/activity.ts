@@ -24,10 +24,13 @@
 import {
     Activity,
     ArrowRight,
+    CalendarClock,
+    CalendarPlus,
     CircleCheck,
     CircleSlash,
     FileSignature,
     Flag,
+    GitBranch,
     House,
     Import,
     Link2,
@@ -202,6 +205,34 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
     'offer.added': { icon: FileSignature, tone: 'neutral' },
     'offer.status_changed': { icon: Scale, tone: 'neutral' },
     'offer.removed': { icon: Trash2, tone: 'neutral' },
+
+    /*
+     * Dates & Deadlines (S18 · #106, #107). All four **neutral**, including
+     * the cascade — §7.3 tints a *completion*, a message the product sent, and
+     * an override, and a date moving is none of them. It is a fact about the
+     * contract, and the row that matters most (`key_date.cascaded`) is
+     * findable by its glyph rather than by its colour.
+     *
+     * `GitBranch` for the cascade rather than a second flag: it is the one row
+     * on the feed that describes *several* dates moving because one did, and
+     * the shape says so without the summary.
+     */
+    'key_date.added': { icon: Flag, tone: 'neutral' },
+    'key_date.moved': { icon: CalendarClock, tone: 'neutral' },
+    'key_date.cascaded': { icon: GitBranch, tone: 'neutral' },
+    'key_date.removed': { icon: Trash2, tone: 'neutral' },
+
+    /*
+     * The calendar (S57, S58 · #105). Neutral for the same reason, and
+     * `CalendarPlus` / `CalendarClock` keep *added* and *moved* apart: the
+     * question somebody chases six weeks later is *"when did the inspection
+     * get pushed?"*, and burying that under a generic "edited" is how the
+     * answer stops being findable.
+     */
+    'event.added': { icon: CalendarPlus, tone: 'neutral' },
+    'event.moved': { icon: CalendarClock, tone: 'neutral' },
+    'event.edited': { icon: PenLine, tone: 'neutral' },
+    'event.removed': { icon: Trash2, tone: 'neutral' },
 
     'stage.skipped': { icon: CircleSlash, tone: 'neutral' },
     'stage.reopened': { icon: RotateCcw, tone: 'neutral' },

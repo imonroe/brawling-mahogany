@@ -263,6 +263,22 @@ class Deal extends Model
     }
 
     /**
+     * This deal's Dates & Deadlines (#106).
+     *
+     * Named for the table, as every relation here is — IA §2 keeps `key_dates`
+     * as the code name and *Dates & Deadlines* as the label a person reads.
+     * The route binding needs it as much as any caller does: `deals/{deal}/
+     * dates/{keyDate}` is a `scopeBindings()` group, and Laravel resolves the
+     * child through this method.
+     *
+     * @return HasMany<KeyDate, $this>
+     */
+    public function keyDates(): HasMany
+    {
+        return $this->hasMany(KeyDate::class);
+    }
+
+    /**
      * The team's working record of terms and dates (S22 · #73). **Not the
      * contract** — PRD §10 leaves the executed document in CTM.
      *

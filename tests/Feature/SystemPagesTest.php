@@ -88,10 +88,11 @@ it('renders a placeholder for every sidebar destination', function (): void {
 
     $this->actingAsPerson($member, $team);
 
-    // `work` left this list with S11 (#80) — it is a real screen now, and
+    // `work` left this list with S11 (#80) — it is a real screen now,
     // `templates` left it with S39–S43 (#84–#86), asserted below against an
-    // owner because `templates.manage` is a Team Owner permission.
-    foreach (['calendar', 'keep-in-touch'] as $path) {
+    // owner because `templates.manage` is a Team Owner permission, and
+    // `calendar` left it with S57 (#105).
+    foreach (['keep-in-touch'] as $path) {
         $this->get("/{$path}")
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Placeholder'));
@@ -108,6 +109,10 @@ it('renders a placeholder for every sidebar destination', function (): void {
         '/people' => 'People/Index',
         '/properties' => 'Properties/Index',
         '/deals' => 'Deals/Index',
+        '/calendar' => 'Calendar/Index',
+        // S59 (#107). Its own sidebar row beside Calendar, because *"what is
+        // this week's exposure"* is asked from a standing start.
+        '/dates' => 'Dates/Index',
     ];
 
     foreach ($built as $path => $component) {

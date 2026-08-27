@@ -88,7 +88,7 @@ enum ActivityCategory: string implements HasLabel
             // them at once — so it sits with the workflow rather than getting
             // a category of its own: a filter with a tab holding one prefix is
             // a tab nobody presses.
-            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note', 'offer', 'message', 'key_date'],
+            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note', 'offer', 'message', 'key_date', 'event'],
             self::People => ['person'],
             self::Properties => ['property'],
         };

@@ -980,7 +980,7 @@ Beyond shadcn and its own dependencies. Keep this list short and justify every a
 | ~~A sortable library~~ | S38, S41, S42 | **Decided in S38 (#63): none.** Explicit move controls instead — see §13.2's note below |
 | TipTap | S46 merge-field editor | Only if a simpler token-insert textarea proves insufficient |
 | A PDF renderer | S52, S66 | pdf.js based |
-| A calendar library | S57 | Evaluate against building the month grid by hand |
+| ~~A calendar library~~ | S57 | **Decided in S57 (#105): none.** The month grid is built by hand — see §15.3 |
 
 > [!tip] Try the simple version of S46 first
 > A textarea with a merge-field insert button and a live preview may be entirely adequate, and it avoids adding a rich text editor along with its serialization, sanitization, and paste-handling problems. Reach for TipTap only after the simple version demonstrably fails.
@@ -1542,7 +1542,13 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 
 1. **Product name.** Blocks the logo, the favicon, the email header, and the sending subdomain, which is painful to change once reputation is established.
 2. **Empty states, beyond the first two.** The component is built and the dashboard and deals-index states are designed (§9.7). Every remaining screen still owes its own, and the rule is now that a screen is not finished without one.
-3. **Calendar library for S57.** Evaluate building the month grid by hand against adopting one, since most calendar libraries bring heavy styling opinions that will fight this system.
+3. **Calendar library for S57. Settled, and the answer is none** (#105). The month grid is `CalendarMonth.vue`: six rows of seven cells over a range the controller already computes.
+
+    The styling argument stood — most calendar libraries bring opinions that would fight §2's tokens — but it is not what decided it. **No library models two kinds of thing on one square.** Every one of them has a single event type with a start and an end, and Screen Inventory calls S57 hard for precisely the case that is not: *"events and deadlines are different things sharing a grid."* A deadline is a moment with legal consequences that nobody attends, it has to be visually distinct from a 4pm showing **and sorted above it**, and the distinction has to survive a dense day where five of each land together.
+
+    Adopting one would have meant fighting its cell renderer to express the single thing this screen exists to express, on top of fighting its CSS. A month grid is a smaller thing to own than an adapter.
+
+    `CalendarItem.vue` carries the distinction in **three** channels rather than in colour alone (§11 does not let colour be the only one): shape — a deadline is a flag on a flat row with a left border, an event is a filled chip with a time; order — decided on the server, because it is a statement about which matters; and words — a deadline shows its name and nothing else. A dense cell shows three and counts the rest into a *"+4 more"* that opens the day, because a cell that grows to fit eleven pushes the rest of the month off the screen and silently dropping them is the version that looks fine and loses a closing.
 4. **Rich text for S46.** Try the simple token-insert textarea first.
 5. **Does anything need charts?** Only S85 and the optional F9.6 reporting. If it stays that small, shadcn's Chart component may be more than is needed.
 6. **Team accent contrast validation. Settled, and the answer is *both*, split by surface** (#97). Warning is more honest and generates support questions; auto-adjusting is invisible and occasionally produces a colour they did not pick — and which of those costs more depends entirely on whether anybody is standing there.
