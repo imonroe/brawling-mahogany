@@ -7,6 +7,7 @@ namespace App\Support\Push;
 use App\Logging\Redactor;
 use App\Models\Notification;
 use App\Models\PushSubscription;
+use App\Models\TeamMembership;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
 use Minishlink\WebPush\Subscription;
@@ -88,6 +89,46 @@ class SendPush
     public function send(Notification $notification): void
     {
         if (! self::configured()) {
+            return;
+        }
+
+        /*
+         * **Still in the team, or nothing goes.**
+         *
+         * Round 4 of review found push as the only one of the three channels
+         * without this. The panel filters revoked members in
+         * `Notification::scopeForPerson()`; the email refuses them in
+         * `SendNotification::email()`, under a comment naming this exact
+         * case. Push had nothing — and it is the channel that lands on a
+         * device the team can no longer see, carrying a customer's property
+         * street.
+         *
+         * It needs no race to reach. `NotifyAboutDeadlines::sweep()` raises
+         * `deadline_approaching` straight off `tasks.assignee_id` with no
+         * membership filter at all, so a task still assigned to somebody who
+         * has left produces a notification for them every day it stays open —
+         * invisible in their panel, refused by email, and pushed to their
+         * phone. Until this slice the push arm was `=> null`, so this PR is
+         * what turns a hidden row into an outbound message.
+         *
+         * Checked here rather than at the raiser deliberately: `Notify` has
+         * five callers and this is the last gate before a third party's
+         * servers, which is the same argument `SendRails` makes about sitting
+         * immediately before the mailer.
+         *
+         * Scoped, not `withoutTeamScope()`: `DeliverNotification` is
+         * dispatched `->forTeam($notification->team_id)` and works inside
+         * `withinTeam()`, so the resolved team is already this notification's
+         * and the explicit `where` says so out loud rather than reaching for
+         * the escape hatch to ask a question that is not cross-tenant.
+         */
+        $stillAMember = TeamMembership::query()
+            ->where('team_id', $notification->team_id)
+            ->where('person_id', $notification->person_id)
+            ->active()
+            ->exists();
+
+        if (! $stillAMember) {
             return;
         }
 

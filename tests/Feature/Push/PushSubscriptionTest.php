@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Person;
 use App\Models\PushSubscription;
+use App\Support\Push\PushSubscriptionRegistry;
 
 /**
  * S55 — registering and forgetting a device (#103).
@@ -252,4 +253,70 @@ it('forgets every device when somebody signs out', function (): void {
     $this->post('/logout')->assertRedirect();
 
     expect(PushSubscription::query()->count())->toBe(0);
+});
+
+it('refuses a plaintext endpoint', function (): void {
+    /*
+     * The server POSTs to whatever is stored here, so admitting `http` would
+     * let somebody register an internal plaintext address and have the
+     * application make requests to it — blind SSRF, where the status still
+     * leaks through which subscriptions survive. Every real push service is
+     * TLS, so this costs nothing.
+     */
+    $this->post('/settings/notifications/push', subscriptionPayload([
+        'endpoint' => 'http://169.254.169.254/latest/meta-data/',
+    ]))->assertSessionHasErrors('endpoint');
+
+    expect(PushSubscription::query()->count())->toBe(0);
+});
+
+it('keeps a person’s device list bounded', function (): void {
+    /*
+     * Every row is an endpoint the server POSTs to on every notification, so
+     * an unbounded list is both a growing send cost and what would make the
+     * scheme restriction above worth little.
+     *
+     * **Evicts rather than refuses**: turning away the newest device would
+     * mean somebody's current phone silently never buzzes while one they sold
+     * holds its place. The oldest `last_seen_at` goes.
+     */
+    $oldest = PushSubscription::factory()->create([
+        'person_id' => $this->member->getKey(),
+        'last_seen_at' => now()->subYear(),
+    ]);
+
+    PushSubscription::factory()
+        ->count(PushSubscriptionRegistry::MAX_DEVICES - 1)
+        ->create(['person_id' => $this->member->getKey()]);
+
+    $this->post('/settings/notifications/push', subscriptionPayload())
+        ->assertRedirect();
+
+    expect(PushSubscription::query()->count())->toBe(PushSubscriptionRegistry::MAX_DEVICES)
+        ->and(PushSubscription::query()->find($oldest->getKey()))->toBeNull();
+});
+
+it('does not wipe a customer’s devices when an operator signs out of a support session', function (): void {
+    /*
+     * The sign-out hook deletes every device the person signing out holds —
+     * deliberately, so a handed-back phone stops buzzing. During an S84
+     * support session that person is the **customer**, so an operator ending
+     * the session by signing out would destroy customer state with no way to
+     * restore it except each of their people re-enabling push on each phone.
+     */
+    $operator = Person::factory()->create(['is_super_admin' => true]);
+
+    PushSubscription::factory()->count(2)->create(['person_id' => $this->member->getKey()]);
+
+    $this->withSession(['impersonation' => [
+        'admin_person_id' => $operator->getKey(),
+        'person_id' => $this->member->getKey(),
+        'person_name' => 'Emily',
+        'team_id' => $this->team->getKey(),
+        'team_name' => $this->team->name,
+        'reason' => 'Support call',
+        'expires_at' => now()->addMinutes(30)->toIso8601String(),
+    ]])->post('/logout')->assertRedirect();
+
+    expect(PushSubscription::query()->count())->toBe(2);
 });

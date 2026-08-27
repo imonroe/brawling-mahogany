@@ -49,7 +49,22 @@ class PushSubscriptionController extends Controller
          * forever, for a device that does not exist.
          */
         $validated = $request->validate([
-            'endpoint' => ['required', 'string', 'url:http,https', 'max:2000'],
+            /*
+             * **`https` only.** Every real push service is TLS — FCM,
+             * Mozilla, WNS — and the server POSTs to whatever is stored here,
+             * so admitting `http` would let somebody register an internal
+             * plaintext address and have the application make requests to it.
+             * That is blind SSRF: the response never reaches them, but the
+             * status does, through which subscriptions survive. Narrowing the
+             * scheme costs nothing real and removes the plaintext half of it.
+             *
+             * A host allowlist would be the complete answer and is not
+             * attempted here: the set of push services is open-ended and
+             * self-hosted ones exist, so a list would break somebody's phone
+             * for a threat this scheme restriction plus the cap below already
+             * makes small.
+             */
+            'endpoint' => ['required', 'string', 'url:https', 'max:2000'],
             'public_key' => ['required', 'string', 'max:255'],
             'auth_token' => ['required', 'string', 'max:255'],
             'user_agent' => ['nullable', 'string'],

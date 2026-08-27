@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Notification;
 use App\Models\PushSubscription;
+use App\Models\TeamMembership;
 use App\Support\Push\PushSubscriptionRegistry;
 use App\Support\Push\SendPush;
 use GuzzleHttp\Client;
@@ -165,4 +166,53 @@ it('sweeps a device nothing has reached in half a year', function (): void {
     expect(app(PushSubscriptionRegistry::class)->pruneStale())->toBe(1)
         ->and(PushSubscription::query()->find($stale->getKey()))->toBeNull()
         ->and(PushSubscription::query()->find($live->getKey()))->not->toBeNull();
+});
+
+it('does not push to somebody who has left the team', function (): void {
+    /*
+     * Round 4 of review's blocking finding, and it needs no race to reach.
+     *
+     * `NotifyAboutDeadlines::sweep()` raises `deadline_approaching` straight
+     * off `tasks.assignee_id` with **no membership filter**, so a task still
+     * assigned to somebody who has left produces a notification for them
+     * every day it stays open. Their panel hides it
+     * (`Notification::scopeForPerson()`), the email refuses it
+     * (`SendNotification::email()`'s `active()`) — and until this gate,
+     * push sent it: a customer's property street onto the lock screen of a
+     * phone the team can no longer see.
+     *
+     * Until this slice the push arm was `=> null`, so this PR is what turned
+     * a hidden row into an outbound message.
+     */
+    PushSubscription::factory()->create(['person_id' => $this->member->getKey()]);
+
+    TeamMembership::query()
+        ->where('team_id', $this->team->getKey())
+        ->where('person_id', $this->member->getKey())
+        ->update(['revoked_at' => now()]);
+
+    // No mock responses queued: if this tried to send, the handler throws.
+    $push = new SendPush(app(PushSubscriptionRegistry::class), new Client([
+        'handler' => HandlerStack::create(new MockHandler([])),
+    ]));
+
+    $push->send($this->notification);
+
+    // The device is untouched — this is a send predicate, not a purge.
+    expect(PushSubscription::query()->count())->toBe(1);
+});
+
+it('still pushes to somebody who is in the team', function (): void {
+    /*
+     * The control. Without it, "never push to anybody" passes the test above
+     * — which is the failure mode a guard like this invites.
+     */
+    $subscription = PushSubscription::factory()->create([
+        'person_id' => $this->member->getKey(),
+        'last_seen_at' => now()->subMonth(),
+    ]);
+
+    pushSaying(201)->send($this->notification);
+
+    expect($subscription->fresh()->last_seen_at->isToday())->toBeTrue();
 });

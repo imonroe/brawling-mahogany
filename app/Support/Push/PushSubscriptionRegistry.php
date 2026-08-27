@@ -81,7 +81,45 @@ class PushSubscriptionRegistry
             'last_seen_at' => now(),
         ])->save();
 
+        $this->capDevices($person);
+
         return $subscription;
+    }
+
+    /**
+     * How many browsers one person may have registered at once.
+     *
+     * Generous — a phone, a tablet, a laptop, a desktop, and a spare of each
+     * — but not unbounded. Every row here is an endpoint the server will POST
+     * to on every notification, so an unbounded list is both a growing send
+     * cost and the thing that makes the scheme restriction on `endpoint` worth
+     * having: a cap turns "register a thousand addresses" into "register
+     * twenty".
+     */
+    public const MAX_DEVICES = 20;
+
+    /**
+     * Keep the newest, drop the rest.
+     *
+     * **Evicts rather than refuses**, and that is the whole design: refusing
+     * the twenty-first would mean somebody's *new* phone silently never buzzes
+     * while a laptop they sold two years ago holds its place. The oldest
+     * `last_seen_at` is the best available guess at which device is gone,
+     * and the person can always re-enable on any device that is still real.
+     */
+    private function capDevices(Person $person): void
+    {
+        $surplus = PushSubscription::query()
+            ->where('person_id', $person->getKey())
+            ->orderByDesc('last_seen_at')
+            ->orderByDesc('id')
+            ->skip(self::MAX_DEVICES)
+            ->take(PHP_INT_MAX)
+            ->pluck('id');
+
+        if ($surplus->isNotEmpty()) {
+            PushSubscription::query()->whereIn('id', $surplus)->delete();
+        }
     }
 
     /**
