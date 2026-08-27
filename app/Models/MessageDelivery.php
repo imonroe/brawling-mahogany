@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\DeliveryStatus;
 use App\Enums\MessageChannel;
+use App\Enums\SuppressionReason;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use Carbon\CarbonInterface;
@@ -37,6 +38,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $bounced_at
  * @property Carbon|null $complained_at
  * @property Carbon|null $noticed_at
+ * @property SuppressionReason|null $withheld_reason
+ * @property bool $redirected
  * @property string|null $detail
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -61,6 +64,8 @@ class MessageDelivery extends Model
             'bounced_at' => 'datetime',
             'complained_at' => 'datetime',
             'noticed_at' => 'datetime',
+            'withheld_reason' => SuppressionReason::class,
+            'redirected' => 'boolean',
         ];
     }
 
@@ -86,10 +91,13 @@ class MessageDelivery extends Model
      */
     public function scopeFailed(Builder $query): Builder
     {
-        return $query->whereIn('status', [
-            DeliveryStatus::Bounced->value,
-            DeliveryStatus::Complained->value,
-        ]);
+        /*
+         * Derived from the enum, never listed again here. Round 1 of review
+         * arrived with a third failure case (`suppressed`) and this scope
+         * would have gone on counting two — which is how a delivery stops
+         * being seen by the sweep that exists to see it.
+         */
+        return $query->whereIn('status', DeliveryStatus::failureValues());
     }
 
     /**
@@ -114,7 +122,13 @@ class MessageDelivery extends Model
             DeliveryStatus::Opened => 'opened_at',
             DeliveryStatus::Bounced => 'bounced_at',
             DeliveryStatus::Complained => 'complained_at',
-            DeliveryStatus::Sent => null,
+            /*
+             * Neither has a timestamp of its own. `sent` is the row's starting
+             * state, and `suppressed` is written whole by
+             * `RecordDeliveries` — nothing can advance *into* it, because
+             * nothing was handed to a provider for a notification to name.
+             */
+            DeliveryStatus::Sent, DeliveryStatus::Suppressed => null,
         };
 
         $changes = [];
@@ -123,7 +137,9 @@ class MessageDelivery extends Model
             $changes[$column] = $at;
         }
 
-        if ($status->rank() > $this->status->rank()) {
+        $advancing = $status->rank() > $this->status->rank();
+
+        if ($advancing) {
             $changes['status'] = $status->value;
 
             /*
@@ -138,13 +154,21 @@ class MessageDelivery extends Model
             }
 
             /*
-             * Stamped **once**, on the way into a failure, with this
-             * product's own clock rather than Amazon's. The migration argues
-             * why: the alert sweep windows on this column, and a notification
-             * that took twenty minutes to arrive would otherwise land behind
-             * the mark and be reported to nobody.
+             * Stamped on **each escalation** into a failure, with this
+             * product's own clock rather than Amazon's.
+             *
+             * The migration argues the clock: the alert sweep windows on this
+             * column, and a notification that took twenty minutes to arrive
+             * would otherwise land behind the mark and be reported to nobody.
+             *
+             * Round 1 of review found the *once* half wrong. Written only when
+             * null, a bounce already reported and marked would swallow a
+             * later complaint on the same row — the escalation the team most
+             * needs to hear about, silenced by the record of the smaller
+             * problem. It is safe to re-stamp precisely because it is inside
+             * `$advancing`: a replay does not advance, so it does not stamp.
              */
-            if ($status->isFailure() && $this->noticed_at === null) {
+            if ($status->isFailure()) {
                 $changes['noticed_at'] = Carbon::now();
             }
         }
@@ -153,7 +177,36 @@ class MessageDelivery extends Model
             return false;
         }
 
-        $this->forceFill($changes)->save();
+        /*
+         * **A conditional UPDATE, not a read-then-write.**
+         *
+         * Round 1 of review: SNS delivers at least once, so two copies of one
+         * bounce can land on two web workers at the same moment. Both read a
+         * row still marked `sent`, both decided they had changed it, and the
+         * deal got **two** `message.bounced` entries. The unique index
+         * protected the suppression; nothing protected the timeline.
+         *
+         * `WHERE status = <what we read>` makes the database decide which of
+         * them owns the transition, in one statement, with no window between
+         * the check and the write — the same shape `ExecuteAction` uses to
+         * claim `message_key`. The loser sees `false` and stands down, which
+         * is the answer a replay gets too.
+         *
+         * Guarded on `status` alone rather than on every column: it is the one
+         * that gates the timeline entry and the suppression, and widening the
+         * predicate to include the timestamps would make a pure timestamp
+         * backfill lose a race it has no reason to be in.
+         */
+        $claimed = static::query()
+            ->whereKey($this->getKey())
+            ->where('status', $this->status->value)
+            ->update([...$changes, 'updated_at' => Carbon::now()]);
+
+        if ($claimed === 0) {
+            return false;
+        }
+
+        $this->forceFill($changes)->syncOriginal();
 
         return true;
     }

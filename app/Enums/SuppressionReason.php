@@ -49,8 +49,24 @@ enum SuppressionReason: string implements HasLabel
     {
         return match ($this) {
             self::HardBounce => 'Their mail server said this address does not exist, so nothing more will be sent to it. Check the address with them and correct it on the deal.',
-            self::Complaint => 'Somebody at this address marked a message from you as spam. Nothing more will be sent to it, and that is deliberate: continuing to write to somebody who has reported you puts every other message your team sends at risk.',
-            self::Manual => 'A platform operator suppressed this address.',
+            /*
+             * **About the address, never about the reader**, and round 1 of
+             * review is why. The first version said *"somebody at this address
+             * marked a message **from you** as spam … continuing to write to
+             * somebody who has reported **you**"* — and this list is
+             * account-wide, so that sentence is rendered verbatim to a team
+             * that had nothing to do with the complaint. It is false for them,
+             * and it discloses that a shared contact filed a complaint arising
+             * from another team's mail: the second half is worse than the
+             * first.
+             *
+             * It contradicted the invariant this PR added to ADR 0002 in the
+             * same breath — *"a team is told about the address, never about
+             * another team"* — which is the shape worth noticing: a rule
+             * written in a document and broken by a string four files away.
+             */
+            self::Complaint => 'This address has been reported as receiving unwanted mail, so nothing further will be sent to it. If you need to reach them, use a phone number or ask them to write to you first.',
+            self::Manual => 'A platform operator suppressed this address, so nothing further will be sent to it.',
         };
     }
 

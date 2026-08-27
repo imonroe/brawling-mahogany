@@ -154,12 +154,24 @@ it('will not write to a suppressed address, whichever team is asking', function 
         ->and(MessageDelivery::query()->count())->toBe(0);
 });
 
-it('drops the dead address and still writes to the live one', function (): void {
+it('drops the dead address, writes to the live one, and says so everywhere', function (): void {
     /*
      * The half that matters more than the refusal. A deal with two sellers,
      * one of whose mailbox has died, must still reach the other — letting one
      * dead address silence a perfectly reachable client is the failure this
      * product cares about most.
+     *
+     * **And the drop has to be visible.** Round 1 of review: the first version
+     * narrowed the list in silence, so the timeline read *"Emailed Dana
+     * Okafor, Sam Reilly"* over a send Dana never received, the audit counted
+     * one recipient with no note of the other, and S49 listed one delivery
+     * under a "Goes to" naming two. PRD §1.1's second question is *"has the
+     * client been told?"* and the answer for Dana was nowhere at all.
+     *
+     * The old version of this test asserted the row count and the surviving
+     * address, which is exactly what that implementation produced — so it
+     * passed against the defect. Everything below the count is the part that
+     * would have caught it.
      */
     SuppressedAddress::factory()->create(['email' => 'dana@example.test']);
 
@@ -170,11 +182,105 @@ it('drops the dead address and still writes to the live one', function (): void 
 
     app(ExecuteAction::class)->handle($instance, $this->team);
 
-    $deliveries = MessageDelivery::query()->get();
+    $byEmail = MessageDelivery::query()->get()->keyBy('recipient_email');
 
     expect($instance->fresh()->state)->toBe(AutomationState::Sent)
-        ->and($deliveries)->toHaveCount(1)
-        ->and($deliveries->first()->recipient_email)->toBe('sam@example.test');
+        // A row each: one sent, one recording that it never was.
+        ->and($byEmail)->toHaveCount(2)
+        ->and($byEmail['sam@example.test']->status)->toBe(DeliveryStatus::Sent)
+        ->and($byEmail['dana@example.test']->status)->toBe(DeliveryStatus::Suppressed)
+        ->and($byEmail['dana@example.test']->withheld_reason)->toBe(SuppressionReason::HardBounce)
+        ->and($byEmail['dana@example.test']->provider_message_id)->toBeNull();
+
+    // Only Sam was written to, and Sam is who the timeline names.
+    $sent = ActivityEvent::query()->where('event_type', 'message.sent')->sole();
+
+    expect($sent->summary)->toContain('Emailed Sam Reilly')
+        ->and($sent->summary)->toContain('Dana Okafor was not written to')
+        ->and($sent->summary)->not->toContain('Emailed Dana Okafor');
+
+    // And the audit records both halves rather than only the survivors.
+    $entry = App\Models\AuditEntry::query()->where('action', 'message.sent')->sole();
+
+    expect($entry->after['recipient_count'])->toBe(1)
+        ->and($entry->after['withheld_count'])->toBe(1);
+});
+
+it('tells the team about a withheld copy, because the bounce may be old news', function (): void {
+    /*
+     * A withheld row is stamped `noticed_at`, so S91's sweep carries it. The
+     * bounce that created the suppression may have been weeks ago, on another
+     * deal, seen by somebody who has since left the team — *this* message not
+     * reaching *this* client is new information.
+     */
+    SuppressedAddress::factory()->create(['email' => 'dana@example.test']);
+
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+        ['name' => 'Sam Reilly', 'email' => 'sam@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $withheld = MessageDelivery::query()->where('recipient_email', 'dana@example.test')->sole();
+
+    expect($withheld->noticed_at)->not->toBeNull()
+        // And the sweep's own scope sees it, which is the thing that matters:
+        // the failure list is derived from the enum rather than listed twice.
+        ->and(MessageDelivery::query()->failed()->pluck('recipient_email')->all())
+        ->toBe(['dana@example.test']);
+});
+
+it('will not redirect a sandbox message to a suppressed team owner', function (): void {
+    /*
+     * Round 1 of review. Rail 0b filters the recipients and Rail 3 then
+     * **replaces** them with the team owner — so the first version put back an
+     * address the filter had just removed. Sandbox is the one mode where a
+     * team's whole outbound volume converges on a single address, so a
+     * suppressed owner would be re-mailed on every send: the account-wide rate
+     * PRD §12.2 is about, damaged by the rail written to protect it.
+     *
+     * A **halt**, not a refusal: turning sandbox off releases the message.
+     */
+    [$team, $owner] = $this->teamWithOwner();
+
+    $team->forceFill([
+        'sandbox_mode' => true,
+        'approval_required_until' => now()->subDay(),
+        'hourly_send_limit' => 60,
+        'daily_send_limit' => 200,
+    ])->save();
+
+    SuppressedAddress::factory()->create(['email' => (string) $owner->email]);
+
+    /*
+     * Inside that team's context, because `beforeEach` resolved a different
+     * one — `BelongsToTeam`'s cross-tenant guard is doing its job, and a
+     * worker really does run under `RunsForTeam` rather than under a request.
+     */
+    $instance = app(App\Support\Tenancy\TeamContext::class)->runFor(
+        $team,
+        function () use ($team): ActionInstance {
+            $deal = Deal::factory()->create(['team_id' => $team->getKey()]);
+
+            $instance = ActionInstance::factory()->create([
+                'team_id' => $team->getKey(),
+                'deal_id' => $deal->getKey(),
+            ]);
+
+            app(ExecuteAction::class)->handle($instance, $team);
+
+            return $instance;
+        },
+    );
+
+    $held = $instance->fresh();
+
+    expect(Mail::mailer()->getSymfonyTransport()->messages())->toHaveCount(0)
+        // Held, not failed — F5.9's rule that a blocked send waits.
+        ->and($held->state)->toBe(AutomationState::Pending)
+        ->and($held->error)->toContain('Sandbox mode is on')
+        ->and(MessageDelivery::query()->count())->toBe(0);
 });
 
 it('moves a delivery forward and refuses to move it back', function (): void {
@@ -435,4 +541,148 @@ it('reads an event-publishing payload as well as a notification one', function (
 
     expect($delivery->fresh()->status)->toBe(DeliveryStatus::Opened)
         ->and($delivery->fresh()->opened_at)->not->toBeNull();
+});
+
+it('suppresses on an escalating bounce even though the row does not move', function (): void {
+    /*
+     * Round 1 of review. Suppression used to be gated on `advanceTo()`
+     * returning true, so a `Transient` bounce followed by a `Permanent` one
+     * for the same message and recipient left the address writable: the row
+     * was already `bounced`, so nothing advanced, `apply()` returned 0, and
+     * the webhook answered 200.
+     *
+     * The two questions are different. *"Has this row changed?"* is about one
+     * message; *"is this mailbox dead?"* is about an address every team on the
+     * platform writes to.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $delivery = MessageDelivery::query()->sole();
+
+    $bounce = fn (string $type): int => app(App\Support\Delivery\ApplyDeliveryEvent::class)->apply(
+        App\Support\Delivery\DeliveryEvent::tryFrom([
+            'notificationType' => 'Bounce',
+            'mail' => ['messageId' => $delivery->provider_message_id],
+            'bounce' => [
+                'bounceType' => $type,
+                'timestamp' => now()->toIso8601String(),
+                'bouncedRecipients' => [['emailAddress' => 'dana@example.test']],
+            ],
+        ]),
+    );
+
+    $bounce('Transient');
+
+    expect(SuppressedAddress::suppresses('dana@example.test'))->toBeNull();
+
+    // The row is already `bounced`, so this changes nothing about the message
+    // — and everything about the address.
+    expect($bounce('Permanent'))->toBe(1)
+        ->and(SuppressedAddress::suppresses('dana@example.test'))
+        ->toBe(SuppressionReason::HardBounce);
+});
+
+it('records a bounce for a team inside its purge window', function (): void {
+    /*
+     * Round 1 of review. `Team` soft-deletes, so a team in its 30-day window
+     * came back null and the whole notification was dropped: no suppression,
+     * no timeline, a 200 back to Amazon — and the address stayed writable for
+     * every other team on the platform, which is the one thing this table
+     * exists to prevent. A tenant's lifecycle must not decide a fact that is
+     * not the tenant's.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $delivery = MessageDelivery::query()->sole();
+
+    $this->team->delete();
+
+    app(App\Support\Delivery\ApplyDeliveryEvent::class)->apply(
+        App\Support\Delivery\DeliveryEvent::tryFrom([
+            'notificationType' => 'Bounce',
+            'mail' => ['messageId' => $delivery->provider_message_id],
+            'bounce' => [
+                'bounceType' => 'Permanent',
+                'timestamp' => now()->toIso8601String(),
+                'bouncedRecipients' => [['emailAddress' => 'dana@example.test']],
+            ],
+        ]),
+    );
+
+    expect(SuppressedAddress::suppresses('dana@example.test'))
+        ->toBe(SuppressionReason::HardBounce);
+});
+
+it('lets only one of two concurrent notifications write the timeline entry', function (): void {
+    /*
+     * Round 1 of review. SNS delivers at least once, so two copies of one
+     * bounce can land on two web workers at the same moment. Both read a row
+     * still marked `sent`, both decided they had changed it, and the deal got
+     * **two** `message.bounced` entries — the unique index protected the
+     * suppression, and nothing protected the timeline.
+     *
+     * Two separately-loaded models is what a second worker actually holds: it
+     * deserialised its own copy before the first one wrote. `->fresh()` would
+     * re-read after the write and prove nothing.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $id = MessageDelivery::query()->sole()->getKey();
+
+    $first = MessageDelivery::query()->findOrFail($id);
+    $second = MessageDelivery::query()->findOrFail($id);
+
+    expect($first->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550'))->toBeTrue()
+        // The loser stands down, exactly as a replay does.
+        ->and($second->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550'))->toBeFalse();
+});
+
+it('speaks about the address rather than about the reader', function (): void {
+    /*
+     * Round 1 of review, and the one that contradicted a rule this PR added to
+     * ADR 0002 in the same breath. The complaint explanation said *"somebody
+     * at this address marked a message **from you** as spam … continuing to
+     * write to somebody who has reported **you**"* — rendered verbatim to a
+     * team that had nothing to do with the complaint. False for them, and a
+     * disclosure that a shared contact filed a complaint over another team's
+     * mail.
+     *
+     * The old test asserted only that the other team's *name* was absent,
+     * which cannot see a sentence that discloses the fact without naming
+     * anybody — and its fixture took the factory default (`hard_bounce`),
+     * whose wording was already address-only, so the complaint string was
+     * rendered by no test at all.
+     */
+    [$otherTeam] = $this->teamWithMember();
+
+    SuppressedAddress::factory()->complaint()->create([
+        'email' => 'dana@example.test',
+        'discovered_by_team_id' => $otherTeam->getKey(),
+    ]);
+
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $error = (string) $instance->fresh()->error;
+
+    expect($error)->toContain('reported as receiving unwanted mail')
+        ->and($error)->not->toContain('from you')
+        ->and($error)->not->toContain('reported you')
+        ->and($error)->not->toContain('your team')
+        ->and($error)->not->toContain($otherTeam->name);
 });

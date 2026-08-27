@@ -113,8 +113,12 @@ const TEAM_AGNOSTIC_MODELS = [
     App\Models\ActionDefinition::class,
 
     /*
-     * The eighth, and the only one that is team-agnostic because it is
-     * **deliberately cross-tenant** rather than merely shared (Slice 3, #95).
+     * The only one that is team-agnostic because it is **deliberately
+     * cross-tenant** rather than merely shared (Slice 3, #95).
+     *
+     * (No ordinal: an earlier draft said "the eighth", and a count written
+     * into a comment beside a list is a claim nothing checks — which is the
+     * reason CLAUDE.md points at this array rather than quoting a number.)
      *
      * A hard bounce is a fact about the address, not about the team that
      * happened to send to it: the mailbox does not exist for anybody. And SES

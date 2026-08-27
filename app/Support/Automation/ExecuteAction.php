@@ -401,13 +401,35 @@ final class ExecuteAction
         $subject = $instance->rendered()->subject
             ?? (is_string($payload['templateName'] ?? null) ? $payload['templateName'] : 'a message');
 
+        /*
+         * **Who was actually written to, and who was not.**
+         *
+         * Round 1 of review's first blocker: this sentence was composed from
+         * the *intended* list, so a message whose suppressed recipient had
+         * been dropped read *"Emailed Dana Okafor, Sam Reilly"* over a send
+         * Dana never received. `names()`'s own docblock argues for the
+         * intended list — and it is right about the case it was written for
+         * (sandbox), and wrong about this one. The two are different
+         * questions: sandbox changes **where** a message went, suppression
+         * changes **whether** it went at all.
+         */
+        $withheldNames = array_column($decision->withheld, 'name');
+        $reached = $this->joinNames(array_values(array_diff(
+            array_column($instance->recipients(), 'name'),
+            $withheldNames,
+        )));
+
+        $missed = $withheldNames === []
+            ? ''
+            : ' '.$this->joinNames($withheldNames).' was not written to — that address can no longer be reached.';
+
         if ($deal instanceof Deal) {
             $this->activity->record(
                 subject: $deal,
                 eventType: $decision->redirected ? 'message.redirected' : 'message.sent',
-                summary: $decision->redirected
-                    ? "Sandbox: “{$subject}” went to the team rather than ".$this->names($instance)
-                    : "Emailed {$this->names($instance)}: “{$subject}”",
+                summary: ($decision->redirected
+                    ? "Sandbox: “{$subject}” went to the team rather than {$reached}"
+                    : "Emailed {$reached}: “{$subject}”").$missed,
             );
         }
 
@@ -430,6 +452,12 @@ final class ExecuteAction
                  * which row and when, which is what makes them findable.
                  */
                 'recipient_count' => count($decision->recipients),
+                /*
+                 * Counted separately, because it is the number an auditor
+                 * would ask about: a send recorded as reaching one person out
+                 * of two is only honest if the other one is somewhere.
+                 */
+                'withheld_count' => count($decision->withheld),
                 'redirected' => $decision->redirected,
                 'message_key' => $instance->message_key,
             ],
@@ -437,16 +465,17 @@ final class ExecuteAction
     }
 
     /**
-     * The instance's own intended recipients, for a sentence a person reads.
+     * Names for a sentence a person reads.
      *
-     * Never `$decision->recipients` — under sandbox those are the team owner,
+     * The list handed in is the **intended** one minus anything withheld —
+     * never `$decision->recipients`, which under sandbox is the team owner,
      * and *"Emailed Ian Monroe"* about a message meant for the seller is the
      * sentence that makes somebody think the client was told.
+     *
+     * @param  list<string>  $names
      */
-    private function names(ActionInstance $instance): string
+    private function joinNames(array $names): string
     {
-        $names = array_column($instance->recipients(), 'name');
-
         return $names === [] ? 'nobody' : implode(', ', $names);
     }
 

@@ -124,6 +124,34 @@ return new class extends Migration
             $table->timestamp('noticed_at')->nullable();
 
             /*
+             * Why this copy was never sent, when it was not (#95, round 1 of
+             * review). Null for every row that actually reached a transport.
+             *
+             * This is the `suppression_reason` issue #95's sketch asks for,
+             * and an earlier draft of this migration argued it out on the
+             * grounds that a stored reason could disagree with a suppression
+             * later lifted. That argument was right about the wrong column: a
+             * row here is not a claim about the address **now**, it is a
+             * record of why *this send* was withheld at the moment it was
+             * withheld — a historical fact, which is exactly what a delivery
+             * row is for.
+             */
+            $table->string('withheld_reason')->nullable();
+
+            /*
+             * Whether F5.9's sandbox sent this to the team owner instead of
+             * the person it was addressed to.
+             *
+             * On the row rather than inferred, because S49 renders the
+             * recipient and a redirected row otherwise shows the owner's name
+             * beside a message addressed to a client with nothing explaining
+             * the difference — which is the same *"'Emailed Ian Monroe' about
+             * a message meant for the seller"* sentence `ExecuteAction` already
+             * carries a warning about.
+             */
+            $table->boolean('redirected')->default(false);
+
+            /*
              * The provider's own words about this attempt. Never the
              * explanation a person reads — #95 asks for plain language, and
              * `smtp; 550 5.1.1` is not it.

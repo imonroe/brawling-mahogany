@@ -167,7 +167,7 @@ class SesNotificationController extends Controller
      */
     private function certificate(string $url): ?string
     {
-        if (! $this->isAmazonUrl($url)) {
+        if (! $this->isCertificateUrl($url)) {
             return null;
         }
 
@@ -194,6 +194,23 @@ class SesNotificationController extends Controller
 
         return is_string($host)
             && preg_match('/^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/D', mb_strtolower($host)) === 1;
+    }
+
+    /**
+     * The certificate URL, which is the host rule plus a `.pem` path.
+     *
+     * `SnsMessage` has already applied both by the time this is called — it is
+     * what decides whether to call at all — and it is applied again here
+     * because a helper that is only safe when called correctly is a helper
+     * somebody will one day call incorrectly.
+     */
+    private function isCertificateUrl(string $url): bool
+    {
+        $path = parse_url($url, PHP_URL_PATH);
+
+        return $this->isAmazonUrl($url)
+            && is_string($path)
+            && preg_match('/\.pem$/D', mb_strtolower($path)) === 1;
     }
 
     private function refuse(string $code): Response

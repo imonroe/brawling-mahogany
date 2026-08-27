@@ -272,8 +272,15 @@ app on how much undeliverable mail it sends, not each team separately. So the
 app remembers it once, everywhere. Nobody can see which team's message
 discovered it.
 
-A full mailbox or a temporary rejection does **not** do this. Those are shown
-as bounces so you know what happened, and the app keeps trying.
+A full mailbox or a temporary rejection does **not** do this — the address is
+fine and cutting somebody off because their inbox was full on Tuesday would be
+worse than the bounce. Those are shown as bounces so you know what happened,
+and the address stays usable; the message itself is not sent again on its own,
+so if it mattered, send it again from the deal.
+
+**When somebody's message is held back**, you see it. The deal's activity says
+who was not written to, and the message's own page lists that person under
+**Delivery** as _Not sent_, with the reason. Nothing goes quiet.
 
 If an address is wrong and you have corrected it, the corrected address is a
 different address and works straight away. If the same address genuinely comes

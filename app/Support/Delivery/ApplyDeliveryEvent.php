@@ -76,7 +76,19 @@ final class ApplyDeliveryEvent
         $changed = 0;
 
         foreach ($deliveries->groupBy('team_id') as $teamId => $rows) {
-            $team = Team::query()->find($teamId);
+            /*
+             * **`withTrashed()`**, and round 1 of review is why. `Team` soft-
+             * deletes, so a team inside its 30-day purge window came back null
+             * and the whole notification was dropped: no suppression, no
+             * timeline, a 200 back to Amazon. The address then stayed writable
+             * for every other team on the platform, which is the one thing
+             * this table exists to prevent — a tenant's lifecycle deciding a
+             * fact that is not the tenant's.
+             *
+             * Writing to a soft-deleted team's own rows is harmless: they go
+             * with it when `records:purge` finishes the job.
+             */
+            $team = Team::withTrashed()->find($teamId);
 
             if (! $team instanceof Team) {
                 continue;
@@ -117,12 +129,22 @@ final class ApplyDeliveryEvent
                 continue;
             }
 
-            if (! $delivery->advanceTo($event->status, $event->at, $addresses[$key])) {
-                continue;
-            }
+            $advanced = $delivery->advanceTo($event->status, $event->at, $addresses[$key]);
 
-            $changed++;
-
+            /*
+             * **Suppression is not gated on the row moving**, which round 1 of
+             * review measured as a lost hard bounce: a `Transient` bounce puts
+             * the row at `bounced`, and the `Permanent` bounce that follows
+             * for the same recipient does not advance it — so under the first
+             * version the address was never suppressed, `apply()` returned 0,
+             * and the webhook answered 200.
+             *
+             * The two questions are different. *"Has this row changed?"* is
+             * about one message; *"is this mailbox dead?"* is about an address
+             * every team on the platform writes to. `Suppression::record()`
+             * is idempotent in its own right — a unique index — so asking it
+             * every time costs a lookup and closes the gap.
+             */
             $suppressed = $event->suppresses !== null
                 && $this->suppression->record(
                     email: $delivery->recipient_email,
@@ -130,6 +152,13 @@ final class ApplyDeliveryEvent
                     detail: $addresses[$key],
                     discoveredByTeamId: $team->getKey(),
                 );
+
+            if (! $advanced && ! $suppressed) {
+                // A replay: nothing about the message or the address is new.
+                continue;
+            }
+
+            $changed++;
 
             $this->announce($delivery, $event, $suppressed);
         }

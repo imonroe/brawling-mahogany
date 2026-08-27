@@ -311,6 +311,14 @@ class MessageQueueController extends Controller
     private static function deliveries(ActionInstance $message): array
     {
         return array_values($message->deliveries()
+            /*
+             * Eager-loaded because the row below reads it. Bounded by the
+             * recipient count and therefore small, but a `with()` whose cell
+             * is named is the rule this project keeps — and the alternative is
+             * a query per addressee on a screen somebody opens when a message
+             * has gone wrong.
+             */
+            ->with('membership')
             ->orderBy('created_at')
             ->orderBy('id')
             ->get()
@@ -347,6 +355,13 @@ class MessageQueueController extends Controller
                  */
                 'explanation' => self::explain($delivery),
                 'detail' => $delivery->detail,
+                /*
+                 * Whether F5.9's sandbox sent this to the team owner instead
+                 * of the person it was addressed to. On the row rather than
+                 * inferred: without it the screen renders the owner's name
+                 * beside a message addressed to a client and explains nothing.
+                 */
+                'redirected' => $delivery->redirected,
             ])
             ->all());
     }
@@ -376,6 +391,16 @@ class MessageQueueController extends Controller
             DeliveryStatus::Sent => $delivery->provider_message_id === null
                 ? 'This was handed over for sending. No delivery confirmation will arrive for it — the send was accepted without an identifier to track it by.'
                 : 'This was handed over for sending. Nothing has come back about it yet.',
+            /*
+             * Never handed over at all. The reason is read from the row rather
+             * than from the address's current state: this says why *this* send
+             * was withheld at the moment it was withheld, and a suppression
+             * lifted afterwards does not make the message retrospectively
+             * sent.
+             */
+            DeliveryStatus::Suppressed => 'This was not sent. '
+                .($delivery->withheld_reason?->explanation()
+                    ?? 'That address can no longer be written to.'),
         };
     }
 

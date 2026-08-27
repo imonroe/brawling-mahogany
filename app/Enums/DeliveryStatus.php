@@ -41,6 +41,20 @@ enum DeliveryStatus: string implements HasLabel
     /** Somebody pressed "this is spam". Worse than a bounce, for the reason below. */
     case Complained = 'complained';
 
+    /**
+     * Never handed over at all: the address is on the suppression list.
+     *
+     * A row rather than an absence, and round 1 of review is why. Dropping a
+     * suppressed address and sending to the rest is the right behaviour — one
+     * dead mailbox must not silence a reachable client — but the first version
+     * recorded the drop **nowhere**: the timeline said *"Emailed Dana Okafor,
+     * Sam Reilly"*, the audit counted one recipient, and S49 listed Sam beside
+     * a "Goes to" naming both. PRD §1.1's second question is *"has the client
+     * been told?"*, and the answer for Dana was silence — the one answer the
+     * rest of the send path refuses to give.
+     */
+    case Suppressed = 'suppressed';
+
     public function label(): string
     {
         return match ($this) {
@@ -49,6 +63,7 @@ enum DeliveryStatus: string implements HasLabel
             self::Opened => 'Opened',
             self::Bounced => 'Bounced',
             self::Complained => 'Marked as spam',
+            self::Suppressed => 'Not sent',
         };
     }
 
@@ -73,6 +88,12 @@ enum DeliveryStatus: string implements HasLabel
             self::Opened => 2,
             self::Bounced => 3,
             self::Complained => 4,
+            /*
+             * Top, and unreachable from below: a suppressed row was never
+             * handed to a provider, so no notification can name it and nothing
+             * may move it. It is written at that rank and stays there.
+             */
+            self::Suppressed => 5,
         };
     }
 
@@ -86,7 +107,27 @@ enum DeliveryStatus: string implements HasLabel
      */
     public function isFailure(): bool
     {
-        return $this === self::Bounced || $this === self::Complained;
+        return $this === self::Bounced
+            || $this === self::Complained
+            || $this === self::Suppressed;
+    }
+
+    /**
+     * Every status that {@see self::isFailure()} answers true for.
+     *
+     * Derived rather than listed a second time in a query scope. Round 1 of
+     * review found the enum and `MessageDelivery::scopeFailed()` already one
+     * case apart from each other the moment a third failure existed, which is
+     * how a delivery stops being counted by the sweep that exists to count it.
+     *
+     * @return list<string>
+     */
+    public static function failureValues(): array
+    {
+        return array_values(array_map(
+            static fn (self $status): string => $status->value,
+            array_filter(self::cases(), static fn (self $status): bool => $status->isFailure()),
+        ));
     }
 
     /**

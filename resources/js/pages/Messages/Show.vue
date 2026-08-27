@@ -105,6 +105,8 @@ type Delivery = {
     explanation: string | null;
     /** The provider's own words. Shown beneath, never as the headline. */
     detail: string | null;
+    /** Sandbox sent this to the team owner rather than to the addressee. */
+    redirected: boolean;
 };
 
 const props = defineProps<{
@@ -450,6 +452,17 @@ function cancel(): void {
                         >
                             {{ formatDateTime(deliveryAt(delivery)!) }}
                         </span>
+                        <!--
+                            Marked, not inferred. Under sandbox this row shows
+                            the team owner beside a message addressed to a
+                            client, and without this the mismatch reads as a
+                            bug rather than as the safety rail it is.
+                        -->
+                        <StatusBadge
+                            v-if="delivery.redirected"
+                            tone="warning"
+                            label="Sandbox"
+                        />
                     </div>
 
                     <p

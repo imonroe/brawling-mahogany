@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Log;
  *    raw body.
  * 3. **The topic.** A valid Amazon signature only proves *some* SNS topic sent
  *    this. Anybody with an AWS account can create a topic and point it here,
- *    and its notifications are as genuinely signed as ours. `SNS_TOPIC_ARN` is
+ *    and its notifications are as genuinely signed as ours. `SES_SNS_TOPIC_ARN` is
  *    what makes the check mean *our* topic.
  *
  * Dropping any one of the three leaves a hole that looks closed.
@@ -48,6 +48,16 @@ final readonly class SnsMessage
      * point — an unanchored match is a bypass, not a laxity.
      */
     private const CERTIFICATE_HOST = '/^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/D';
+
+    /**
+     * And the path, which AWS's own `MessageValidator` also constrains.
+     *
+     * The host check is what stops somebody serving us their own certificate;
+     * this is smaller — it stops an arbitrary path on Amazon's own host being
+     * fetched, so the endpoint cannot be turned into a general-purpose
+     * outbound request even for one hop. Cheap, so there is no reason not to.
+     */
+    private const CERTIFICATE_PATH = '/\.pem$/D';
 
     /**
      * The fields SNS signs, per type and **in this order**.
@@ -227,8 +237,12 @@ final readonly class SnsMessage
         }
 
         $host = $parts['host'] ?? null;
+        $path = $parts['path'] ?? null;
 
-        return is_string($host) && preg_match(self::CERTIFICATE_HOST, mb_strtolower($host)) === 1;
+        return is_string($host)
+            && preg_match(self::CERTIFICATE_HOST, mb_strtolower($host)) === 1
+            && is_string($path)
+            && preg_match(self::CERTIFICATE_PATH, mb_strtolower($path)) === 1;
     }
 
     /**

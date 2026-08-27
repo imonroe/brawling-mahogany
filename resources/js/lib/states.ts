@@ -181,6 +181,15 @@ const delivery: StateTable = {
         tone: 'danger',
         clientLabel: null,
     },
+    /*
+     * Never handed over: the address is on the suppression list.
+     *
+     * `danger`, like the two above, because the question this table answers is
+     * whether the client was told — and for this row the answer is no. That it
+     * failed *before* the provider rather than at it is a distinction the
+     * explanation carries; it is not a reason for a quieter colour.
+     */
+    suppressed: { label: 'Not sent', tone: 'danger', clientLabel: null },
 };
 
 const extractedField: StateTable = {

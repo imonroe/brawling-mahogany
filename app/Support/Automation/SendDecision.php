@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Support\Automation;
 
+use App\Enums\SuppressionReason;
+
 /**
  * What the rails decided about one message (PRD §4.5 F5.9 · issue #96).
  *
@@ -40,6 +42,7 @@ final readonly class SendDecision
 {
     /**
      * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
+     * @param  list<array{name: string, email: string, membershipId: string|null, reason: SuppressionReason}>  $withheld
      */
     private function __construct(
         public bool $allowed,
@@ -48,14 +51,16 @@ final readonly class SendDecision
         public bool $retryable = false,
         public bool $redirected = false,
         public bool $ownedByAnother = false,
+        public array $withheld = [],
     ) {}
 
     /**
      * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
+     * @param  list<array{name: string, email: string, membershipId: string|null, reason: SuppressionReason}>  $withheld
      */
-    public static function send(array $recipients, bool $redirected = false): self
+    public static function send(array $recipients, bool $redirected = false, array $withheld = []): self
     {
-        return new self(true, $recipients, redirected: $redirected);
+        return new self(true, $recipients, redirected: $redirected, withheld: $withheld);
     }
 
     /** Try again later: the wall is the team's, not the message's. */
