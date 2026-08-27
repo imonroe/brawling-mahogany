@@ -174,6 +174,29 @@ describe('the reminder schedule field', () => {
         expect((await submit()).reminderOffsets).toEqual([14, 7]);
     });
 
+    it('drops what is not a whole number of days rather than guessing', async () => {
+        /*
+         * The field is free text, so every one of these is reachable by
+         * typing. What must not happen is a value quietly becoming a
+         * *different* schedule — `-1` and `1.5` are not days before a date,
+         * and `abc` is not a number at all. The server refuses 0–90 and a
+         * maximum of six; this is about what the field sends it.
+         */
+        await openDialog();
+
+        await type('7, abc, 1');
+        expect((await submit()).reminderOffsets).toEqual([7, 1]);
+
+        await type('7, -1, 1');
+        expect((await submit()).reminderOffsets).toEqual([7, 1]);
+
+        await type('7, 1.5, 1');
+        expect((await submit()).reminderOffsets).toEqual([7, 1]);
+
+        await type('7,,1');
+        expect((await submit()).reminderOffsets).toEqual([7, 1]);
+    });
+
     it('reads a stored schedule back as stored, and a default as default', async () => {
         await openDialog(
             row({ reminderDays: [14, 7, 1], remindersAreSet: true }),

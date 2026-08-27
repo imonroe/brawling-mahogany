@@ -139,6 +139,24 @@ it('hands the agent a URL they can actually read off the screen', function (): v
         ->assertInertia(fn (AssertableInertia $page) => $page->where('statusPageLink', null));
 });
 
+it('never draws a handed link on a deal it was not handed for', function (): void {
+    /*
+     * A flash survives one request, and that request is ordinarily the
+     * redirect back to the same screen — *ordinarily* being the word doing the
+     * work. `HandedLinkPanel` says *"any link this person already had for
+     * **this** deal"*, which on another deal's roster is a false sentence
+     * about a credential.
+     */
+    $other = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+    $this->post("/deals/{$this->deal->getKey()}/people/{$this->client->getKey()}/status-page/link")
+        ->assertRedirect();
+
+    $this->get("/deals/{$other->getKey()}/people")
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('statusPageLink', null));
+});
+
 it('keeps the two client-surface limits in separate buckets', function (): void {
     /*
      * Two inline `throttle:n,m` on one request share a cache key — the guest

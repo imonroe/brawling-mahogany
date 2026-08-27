@@ -301,6 +301,48 @@ it('lets a date carry its own reminder schedule, and tells the screen it is stor
         ->and($date->fresh()->reminderDays())->toBe([]);
 });
 
+it('refuses an impossible reminder schedule in words, under the field’s own key', function (): void {
+    /*
+     * Laravel keys a `reminderOffsets.*` failure as `reminderOffsets.0`, and
+     * S18 renders `errors.reminderOffsets` — so a refused schedule showed
+     * **nothing**: the field kept the typed value, the save did not happen,
+     * and the dialog gave no reason. The message it could not show was the raw
+     * *"The reminderOffsets.0 field must be between 0 and 90."*
+     *
+     * Fixed at both ends: sentences here, and a dialog that renders whichever
+     * key the failure arrived under.
+     */
+    $date = KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Closing',
+        'date' => now()->addDays(30)->toDateString(),
+    ]);
+
+    $edit = fn (array $offsets) => $this->patch(
+        "/deals/{$this->deal->getKey()}/dates/{$date->getKey()}",
+        [
+            'name' => 'Closing',
+            'mode' => 'typed',
+            'date' => $date->date->toDateString(),
+            'reminderOffsets' => $offsets,
+        ],
+    );
+
+    $edit([120])->assertSessionHasErrors();
+
+    expect(collect(session('errors')->getBag('default')->all())->implode(' '))
+        ->toContain('90 days')
+        ->not->toContain('reminderOffsets');
+
+    $edit([1, 2, 3, 4, 5, 6, 7])->assertSessionHasErrors('reminderOffsets');
+
+    expect(session('errors')->first('reminderOffsets'))->toContain('Six');
+
+    // And the row is untouched by either refusal.
+    expect($date->fresh()->reminder_offsets)->toBeNull();
+});
+
 it('drops a closed deal from the cross-deal list and its counts, and keeps it on the deal', function (): void {
     /*
      * The reminder sweep has always read `Deal::open()`; S59, its count badge

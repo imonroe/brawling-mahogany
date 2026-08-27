@@ -66,6 +66,16 @@ function keyDate(array $attributes = []): KeyDate
 }
 
 it('reminds a week out and the day before, and not in between', function (): void {
+    /*
+     * The test was named for both halves and asserted only the first, and the
+     * second did not work: the once-only guard was keyed on *"this date, for
+     * this day"*, which is constant across the whole schedule — so the seven-
+     * day notice recorded the key and the day-before read as already sent.
+     *
+     * A schedule with more than one offset needs the **offset** in the key. A
+     * test that stops at the first one cannot see that, which is why this one
+     * runs the whole schedule and the days in between it.
+     */
     keyDate(['name' => 'Inspection objection', 'date' => '2026-09-15']);
 
     // Nine days out: not one of the default offsets.
@@ -77,6 +87,52 @@ it('reminds a week out and the day before, and not in between', function (): voi
     atTeamMorning('2026-09-08');
     $this->artisan('notifications:key-dates')->assertExitCode(0);
     expect(($this->minesCount)())->toBe(1);
+
+    // Six, five, four, three, two: none of them an offset, and none of them a
+    // repeat of the one already sent.
+    foreach (['09-09', '09-10', '09-11', '09-12', '09-13'] as $quiet) {
+        atTeamMorning('2026-'.$quiet);
+        $this->artisan('notifications:key-dates')->assertExitCode(0);
+    }
+
+    expect(($this->minesCount)())->toBe(1);
+
+    // The day before, which is the half the name promised.
+    atTeamMorning('2026-09-14');
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+    expect(($this->minesCount)())->toBe(2);
+
+    // And twice on the same morning is still once.
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+    expect(($this->minesCount)())->toBe(2);
+});
+
+it('runs a critical date’s whole schedule, not just its first step', function (): void {
+    /*
+     * Five offsets, and the same guard: fourteen, seven, three, one, and the
+     * morning it falls. The day-of survived the defect only because it is its
+     * own `NotificationType` — it routed around the guard rather than passing
+     * it — so a test that checked the ends would have seen two of five and
+     * called it working.
+     */
+    keyDate(['name' => 'Financing contingency', 'date' => '2026-09-20', 'is_critical' => true]);
+
+    foreach (['09-06', '09-13', '09-17', '09-19'] as $index => $morning) {
+        atTeamMorning('2026-'.$morning);
+        $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+        expect(($this->minesCount)())->toBe($index + 1);
+    }
+
+    // And the morning itself, which is its own type and bypasses quiet hours.
+    atTeamMorning('2026-09-20');
+    $this->artisan('notifications:key-dates')->assertExitCode(0);
+
+    expect(($this->minesCount)())->toBe(5)
+        ->and(Notification::query()
+            ->where('person_id', $this->member->getKey())
+            ->where('type', NotificationType::CriticalDateToday->value)
+            ->count())->toBe(1);
 });
 
 it('only runs in the hour that is 8am where the team is', function (): void {

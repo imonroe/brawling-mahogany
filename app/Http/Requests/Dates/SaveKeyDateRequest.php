@@ -101,6 +101,23 @@ class SaveKeyDateRequest extends FormRequest
             'anchorKeyDateId.required' => 'Choose the date this one is counted from.',
             'offsetDays.required' => 'Say how many days from it.',
             'offsetBasis.required' => 'Say whether those are calendar days or business days.',
+
+            /*
+             * Written in a person's words, and — the part that matters —
+             * **keyed on the array rather than on its members**. Laravel keys
+             * a `reminderOffsets.*` failure as `reminderOffsets.0`, and S18
+             * renders `errors.reminderOffsets`, so a refused schedule showed
+             * nothing at all: the field kept the typed value, the save did
+             * not happen, and the dialog gave no reason. The message it could
+             * not show was the raw *"The reminderOffsets.0 field must be
+             * between 0 and 90."*
+             *
+             * Both keys are set, because a screen that renders the member key
+             * later should find a sentence there too.
+             */
+            'reminderOffsets.max' => 'Six reminders is the most a date can carry.',
+            'reminderOffsets.*.integer' => 'Reminders are whole days before the date — 14, 7, 1.',
+            'reminderOffsets.*.between' => 'A reminder can be up to 90 days before the date.',
         ];
     }
 

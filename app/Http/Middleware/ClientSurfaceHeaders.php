@@ -35,8 +35,25 @@ class ClientSurfaceHeaders
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $response = $next($request);
+        return self::apply($next($request));
+    }
 
+    /**
+     * The headers, in one place, because two things need them.
+     *
+     * An exception is converted into a response **outside** the route
+     * middleware — Laravel catches in the kernel, above every pipeline — so
+     * this middleware never sees a 404, a 429 or a 500 on its own group. Every
+     * error on the client surface went out bare, which is the case the
+     * referrer header exists for most: a client who has just been refused is
+     * the one most likely to click away to something else.
+     *
+     * So `bootstrap/app.php`'s `respond()` calls this too. A static rather
+     * than three header names copied into a second file, because a rule with
+     * two writers is a rule that is about to have two versions.
+     */
+    public static function apply(Response $response): Response
+    {
         $response->headers->set('Referrer-Policy', 'no-referrer');
         $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
 

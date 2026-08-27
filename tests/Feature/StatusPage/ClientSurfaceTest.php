@@ -80,6 +80,54 @@ function clientProps(): array
     return [$props, $session];
 }
 
+it('refuses a throttled client with a page, and with the surface’s headers', function (): void {
+    /*
+     * Two halves, both of which failed for the same reason: an exception is
+     * converted into a response **outside** the route middleware, so nothing
+     * on this group ever saw it.
+     *
+     * A client has no session to retry with and cannot read a status code —
+     * IA §9's *"a refusal is a page"*, and the refusal they are most likely to
+     * meet, because pressing a link twice is what people do. What they got was
+     * Symfony's own 429: a white page with a number on it, indistinguishable
+     * from the product being broken.
+     *
+     * And the headers went with it. A client who has just been refused is the
+     * one most likely to click away to something else, which is precisely the
+     * case `Referrer-Policy: no-referrer` exists for.
+     */
+    // The system pages replace the debug page, so they render with debug off
+    // — the same setup `SystemPagesTest` uses, and for the same reason.
+    config()->set('app.debug', false);
+
+    $this->asStranger();
+
+    $refused = null;
+
+    foreach (range(1, 70) as $ignored) {
+        $response = $this->get('/s/expired');
+
+        if ($response->getStatusCode() === 429) {
+            $refused = $response;
+            break;
+        }
+    }
+
+    expect($refused)->not->toBeNull();
+
+    $refused
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('System/TooManyRequests')
+            ->where('variant', 'client'))
+        ->assertHeader('Referrer-Policy', 'no-referrer');
+
+    // Read rather than matched: Symfony normalises Cache-Control's ordering,
+    // and asserting the literal string would be asserting its sort order.
+    expect($refused->headers->get('X-Robots-Tag'))->toContain('noindex')
+        ->and($refused->headers->get('Cache-Control'))->toContain('no-store')
+        ->and($refused->headers->get('Cache-Control'))->toContain('private');
+});
+
 it('shows the milestone label and never the internal stage name', function (): void {
     stageOn([
         'name' => 'Chase lender',

@@ -144,7 +144,7 @@ class ParticipantController extends Controller
              * living in a prop is a credential in every subsequent reload of
              * the screen.
              */
-            'statusPageLink' => session('statusPageLink'),
+            'statusPageLink' => $this->handedLinkFor($deal),
             /*
              * Named, not counted. "This deal has no Seller" is actionable;
              * "1 role missing" sends somebody looking for which.
@@ -296,6 +296,29 @@ class ParticipantController extends Controller
      * link itself is handed over by its own route, which mints a fresh one:
      * a credential that lived in a page's props would be a credential in every
      * subsequent partial reload of that page.
+     *
+     * And it is read back **only on the deal it was handed for**. A flash
+     * survives exactly one request, and that request is ordinarily the
+     * redirect straight back here — but *ordinarily* is not a guarantee, and
+     * `HandedLinkPanel`'s copy says *"any link this person already had for
+     * **this** deal"*, which is a false sentence anywhere else. Checking the
+     * id costs a comparison and makes the sentence true.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function handedLinkFor(Deal $deal): ?array
+    {
+        $flashed = session('statusPageLink');
+
+        if (! is_array($flashed)) {
+            return null;
+        }
+
+        return ($flashed['dealId'] ?? null) === (string) $deal->getKey() ? $flashed : null;
+    }
+
+    /**
+     * The status page access a participant holds, for S19's control.
      *
      * @return array<string, mixed>|null
      */

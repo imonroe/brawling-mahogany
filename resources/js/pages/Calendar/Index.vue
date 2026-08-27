@@ -49,7 +49,7 @@ import IconButton from '@/components/app/IconButton.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import SegmentedControl from '@/components/app/SegmentedControl.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { formatDate, formatDateShort } from '@/lib/formatters';
+import { formatDate, formatDateShort, isoDateIn } from '@/lib/formatters';
 
 const props = defineProps<{
     view: 'month' | 'week' | 'agenda';
@@ -84,7 +84,19 @@ const feedsOpen = ref(false);
 const editing = ref<EventFormValues | null>(null);
 const addingOn = ref<string | null>(null);
 
-const today = computed(() => new Date().toISOString().slice(0, 10));
+/*
+ * The **team's** today, not the browser's UTC one. `toISOString()` is UTC by
+ * definition, so from 18:00 Denver onwards it returns tomorrow — the today
+ * ring landed on the wrong square, the agenda emphasised the wrong day and the
+ * Today button navigated to it, for the last third of every working day west
+ * of UTC. The controller has been shipping `timezone` for exactly this and
+ * nothing read it.
+ *
+ * `isoDateIn` is the same function `calendarDaysBetween` uses, which is what
+ * keeps this screen and every date-distance question in the product answering
+ * in one calendar.
+ */
+const today = computed(() => isoDateIn(new Date(), props.timezone));
 
 const events = computed(
     () => new Map(props.editableEvents.map((event) => [event.id, event])),
@@ -314,6 +326,7 @@ function remove(id: string): void {
             v-model:open="dialogOpen"
             :event="editing"
             :default-day="addingOn"
+            :timezone="timezone"
             :event-types="eventTypes"
             :deal-options="dealOptions"
             :attendee-options="attendeeOptions"

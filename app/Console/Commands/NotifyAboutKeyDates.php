@@ -132,7 +132,14 @@ class NotifyAboutKeyDates extends Command
             ->orderBy('date')
             ->get();
 
-        /** @var array<string, list<KeyDate>> $due */
+        /**
+         * Each entry is the date **and how many days out it is** — the offset
+         * that made it due. Both halves are needed downstream: the offset is
+         * what distinguishes one reminder about a date from the next one, and
+         * without it the once-only guard cannot tell them apart.
+         *
+         * @var array<string, list<array{date: KeyDate, daysOut: int}>> $due
+         */
         $due = ['ordinary' => [], 'criticalToday' => []];
 
         foreach ($dates as $date) {
@@ -164,7 +171,10 @@ class NotifyAboutKeyDates extends Command
                 continue;
             }
 
-            $due[$isCriticalToday ? 'criticalToday' : 'ordinary'][] = $date;
+            $due[$isCriticalToday ? 'criticalToday' : 'ordinary'][] = [
+                'date' => $date,
+                'daysOut' => $daysOut,
+            ];
         }
 
         if ($due['ordinary'] === [] && $due['criticalToday'] === []) {
@@ -184,8 +194,8 @@ class NotifyAboutKeyDates extends Command
         foreach ($people as $person) {
             $told += $this->tellOrdinary($person, $team, $due['ordinary'], $today, $notify);
 
-            foreach ($due['criticalToday'] as $date) {
-                $told += $this->tellCritical($person, $team, $date, $notify);
+            foreach ($due['criticalToday'] as $owed) {
+                $told += $this->tellCritical($person, $team, $owed['date'], $notify);
             }
         }
 
@@ -195,45 +205,55 @@ class NotifyAboutKeyDates extends Command
     /**
      * One digest per person, however many dates are in it (#109's aggregation).
      *
-     * @param  list<KeyDate>  $dates
+     * @param  list<array{date: KeyDate, daysOut: int}>  $owed
      */
     private function tellOrdinary(
         Person $person,
         Team $team,
-        array $dates,
+        array $owed,
         CarbonImmutable $today,
         Notify $notify,
     ): int {
         $unsent = array_values(array_filter(
-            $dates,
-            fn (KeyDate $date): bool => ! $this->alreadyTold($person, $date, NotificationType::DeadlineApproaching),
+            $owed,
+            fn (array $one): bool => ! $this->alreadyTold(
+                $person,
+                $one['date'],
+                $one['daysOut'],
+                NotificationType::DeadlineApproaching,
+            ),
         ));
 
         if ($unsent === []) {
             return 0;
         }
 
+        $dates = array_map(static fn (array $one): KeyDate => $one['date'], $unsent);
+
         $lines = array_map(
             fn (KeyDate $date): string => $this->summarise($date),
-            $unsent,
+            $dates,
         );
 
         $written = $notify->send(
             type: NotificationType::DeadlineApproaching,
             people: [$person],
             team: $team,
-            summary: count($unsent) === 1
-                ? $unsent[0]->name.' is '.Format::relativeDate($unsent[0]->date, $today)
-                : Format::count(count($unsent), 'deadline').' coming up',
+            summary: count($dates) === 1
+                ? $dates[0]->name.' is '.Format::relativeDate($dates[0]->date, $today)
+                : Format::count(count($dates), 'deadline').' coming up',
             /*
              * A digest spans deals, so it belongs to none of them. Attaching it
              * to the first would make the panel line link somewhere arbitrary
              * — and `Notification::url()` falls back to the notifications
              * screen, which is where a list of several belongs.
              */
-            deal: count($unsent) === 1 ? $unsent[0]->deal : null,
+            deal: count($dates) === 1 ? $dates[0]->deal : null,
             data: [
-                'announced' => array_map(self::announcement(...), $unsent),
+                'announced' => array_map(
+                    static fn (array $one): string => self::announcement($one['date'], $one['daysOut']),
+                    $unsent,
+                ),
                 /*
                  * S88's *"several dates"* state. Composed here rather than in
                  * the mailable because this is where the dates are, and
@@ -241,7 +261,7 @@ class NotifyAboutKeyDates extends Command
                  * mailable would be the *"second front door"* #97 records.
                  */
                 'lines' => $lines,
-                'emphasis' => $this->anyCritical($unsent),
+                'emphasis' => $this->anyCritical($dates),
             ],
         );
 
@@ -250,7 +270,7 @@ class NotifyAboutKeyDates extends Command
 
     private function tellCritical(Person $person, Team $team, KeyDate $date, Notify $notify): int
     {
-        if ($this->alreadyTold($person, $date, NotificationType::CriticalDateToday)) {
+        if ($this->alreadyTold($person, $date, 0, NotificationType::CriticalDateToday)) {
             return 0;
         }
 
@@ -261,7 +281,7 @@ class NotifyAboutKeyDates extends Command
             summary: $date->name.' is today',
             deal: $date->deal,
             data: [
-                'announced' => [self::announcement($date)],
+                'announced' => [self::announcement($date, 0)],
                 'lines' => [$this->summarise($date)],
                 'emphasis' => true,
             ],
@@ -297,25 +317,46 @@ class NotifyAboutKeyDates extends Command
      *
      * `id@day` in one array makes the pair the thing matched.
      */
-    private function alreadyTold(Person $person, KeyDate $date, NotificationType $type): bool
-    {
+    private function alreadyTold(
+        Person $person,
+        KeyDate $date,
+        int $daysOut,
+        NotificationType $type,
+    ): bool {
         return Notification::query()
             ->where('person_id', $person->getKey())
             ->where('type', $type->value)
-            ->whereJsonContains('data->announced', self::announcement($date))
+            ->whereJsonContains('data->announced', self::announcement($date, $daysOut))
             ->exists();
     }
 
     /**
-     * What a row records about one date: which date, and for which day.
+     * What a row records about one date: which date, for which day, **and at
+     * which offset**.
      *
-     * A ULID contains no `@`, and a `Y-m-d` contains no `@`, so the pair
-     * round-trips unambiguously and Postgres can match it with one
-     * containment check.
+     * The third part is the one that was missing, and its absence made the
+     * feature half-work in a way no test caught. A key of *"this date, for
+     * this day"* is constant across the whole schedule, so the first offset
+     * that fired recorded it and every later one read as already told: an
+     * ordinary date got its week's notice and never the day-before, and a
+     * critical one got the fourteen-day notice and then nothing until the
+     * morning it fell — the day-of surviving only because it is a different
+     * `NotificationType`, which is to say it routed *around* the guard rather
+     * than passing it. Two notices out of five.
+     *
+     * The docblock this copied cites `NotifyAboutDeadlines`, which has exactly
+     * **one** offset — so one key per row is complete there and incomplete the
+     * moment a second offset exists. A granularity borrowed from a simpler
+     * caller is the shape worth naming: it looks right, and it is right for
+     * the thing it came from.
+     *
+     * A ULID contains no `@`, a `Y-m-d` contains no `@`, and the offset is an
+     * integer, so the triple round-trips unambiguously and Postgres matches it
+     * with one containment check.
      */
-    private static function announcement(KeyDate $date): string
+    private static function announcement(KeyDate $date, int $daysOut): string
     {
-        return $date->getKey().'@'.$date->date->toDateString();
+        return $date->getKey().'@'.$date->date->toDateString().'@'.$daysOut;
     }
 
     /**

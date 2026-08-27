@@ -29,6 +29,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { isoDateIn } from '@/lib/formatters';
 
 export type EventFormValues = {
     id: string;
@@ -60,6 +61,8 @@ const props = defineProps<{
     /** Where to send them back to — the view and day they were looking at. */
     returnView: string;
     returnDate: string;
+    /** The team's zone, for the day "today" means when nothing was pressed. */
+    timezone: string;
 }>();
 
 const emit = defineEmits<{
@@ -127,9 +130,16 @@ watch(
     { immediate: true },
 );
 
-/** 9am on the day they pressed Add, or on today. */
+/**
+ * 9am on the day they pressed Add, or on today.
+ *
+ * The **team's** today. `toISOString()` is UTC, so from six in the evening in
+ * Denver onwards "Add event" opened on tomorrow — the same defect the calendar
+ * grid's today-ring had, one component along, and the same fix: `isoDateIn`,
+ * which is what every date-distance question in this product reads.
+ */
 function defaultStart(): string {
-    const day = props.defaultDay ?? new Date().toISOString().slice(0, 10);
+    const day = props.defaultDay ?? isoDateIn(new Date(), props.timezone);
 
     return `${day}T09:00`;
 }

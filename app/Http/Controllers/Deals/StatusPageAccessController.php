@@ -122,6 +122,15 @@ class StatusPageAccessController extends Controller
         $issued = $this->links->issue($deal, $membership, $this->actor($request));
 
         return back()->with('statusPageLink', [
+            /*
+             * Which deal it is for, so the People tab can refuse to draw it on
+             * a different one. A flash survives one request and that request
+             * is ordinarily the redirect back here — but *ordinarily* is not a
+             * guarantee, and the panel's own copy says *"any link this person
+             * already had for **this** deal"*, which would be a false sentence
+             * on somebody else's roster.
+             */
+            'dealId' => (string) $deal->getKey(),
             'membershipId' => $membership->getKey(),
             'name' => $membership->fullName(),
             'url' => $issued->url(),

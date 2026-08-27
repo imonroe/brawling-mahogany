@@ -162,6 +162,26 @@ const remindersAreDefault = computed(
     (): boolean => form.reminderOffsets === null,
 );
 
+/**
+ * The reminder error, whichever key it arrived under.
+ *
+ * A `reminderOffsets.*` rule fails as `reminderOffsets.0`, not as
+ * `reminderOffsets` — so rendering only the array key showed **nothing** for a
+ * refused schedule: the field kept the typed value, the save did not happen,
+ * and the dialog gave no reason at all. One field, one message, whichever
+ * member of the array was the one Laravel objected to.
+ */
+const reminderError = computed((): string | undefined => {
+    const errors = form.errors as Record<string, string | undefined>;
+
+    const key = Object.keys(errors).find(
+        (name) =>
+            name === 'reminderOffsets' || name.startsWith('reminderOffsets.'),
+    );
+
+    return key === undefined ? undefined : errors[key];
+});
+
 const moves = ref<Move[]>([]);
 const previewing = ref(false);
 const previewed = ref(false);
@@ -464,7 +484,7 @@ function submit(): void {
                         v-model="reminderText"
                         placeholder="7, 1"
                     />
-                    <InputError :message="form.errors.reminderOffsets" />
+                    <InputError :message="reminderError" />
                     <p class="text-[11px] text-muted-foreground">
                         <template v-if="remindersAreDefault">
                             Using the default for this kind of date. Type your
