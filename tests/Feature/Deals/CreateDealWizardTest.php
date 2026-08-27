@@ -403,10 +403,19 @@ it('carries the role through the inline-create client endpoint too', function ()
 
     $this->patch('/deals/create', ['step' => 'type', 'deal_type_id' => $type->getKey()])->assertRedirect();
 
+    /*
+     * Asked of the **surname**, not the first name. `teamWithMember()` names
+     * the acting member from Faker, whose first-name pool contains *Dana* —
+     * so `where('first_name', 'Dana')->exists()` was occasionally true before
+     * this request ever ran, and the test failed on a run that had proved
+     * nothing about the endpoint. A fixture-name assertion has to name
+     * something no factory can produce: *Okafor* is not in Faker's surname
+     * pool, which is the same reason *Bosart* is used above.
+     */
     $this->post('/deals/create/clients', ['first_name' => 'Dana', 'last_name' => 'Okafor'])
         ->assertSessionHasErrors('participant_role');
 
-    expect(TeamMembership::query()->where('first_name', 'Dana')->exists())
+    expect(TeamMembership::query()->where('last_name', 'Okafor')->exists())
         // Authorization and validation both happen before anything is written,
         // so a refused request leaves no directory entry behind.
         ->toBeFalse();
