@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Messages;
 
 use App\Enums\AutomationState;
+use App\Enums\DeliveryStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Messages\ApproveMessageRequest;
 use App\Http\Requests\Messages\CancelMessageRequest;
 use App\Models\ActionInstance;
+use App\Models\MessageDelivery;
 use App\Support\Automation\ApproveMessage;
 use App\Support\Mail\MilestoneAnnouncement;
 use Illuminate\Database\Eloquent\Builder;
@@ -232,6 +234,22 @@ class MessageQueueController extends Controller
                 'attempts' => $message->attempts,
             ],
             /*
+             * S49's other half (#95): what the provider said afterwards.
+             *
+             * Kept apart from `message` rather than folded into it, because
+             * they answer different questions and a screen that merged them
+             * would have to pick one word for both. `message.state` is *did
+             * this product manage to send it*; a delivery is *did it arrive*,
+             * per recipient — and a message whose `state` is `sent` can have
+             * bounced off every address it was written to.
+             *
+             * Empty for every message raised before this shipped, and for
+             * every `create_task`. The screen renders nothing rather than an
+             * empty table, because *"no delivery information"* over a task
+             * automation would be answering a question nobody asked.
+             */
+            'deliveries' => self::deliveries($message),
+            /*
              * Carried through so S49 does not contradict the screen that sent
              * the reader here. The queue's Held section says *"open it and
              * decide"*; without this the detail page badged the row
@@ -283,6 +301,107 @@ class MessageQueueController extends Controller
         return $result->applied
             ? back()->with('success', 'The message was stopped and will not go out.')
             : back()->with('error', $result->refusal);
+    }
+
+    /**
+     * What became of each copy of this message (#95 · F5.8).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function deliveries(ActionInstance $message): array
+    {
+        return array_values($message->deliveries()
+            /*
+             * Eager-loaded because the row below reads it. Bounded by the
+             * recipient count and therefore small, but a `with()` whose cell
+             * is named is the rule this project keeps — and the alternative is
+             * a query per addressee on a screen somebody opens when a message
+             * has gone wrong.
+             */
+            ->with('membership')
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->map(static fn (MessageDelivery $delivery): array => [
+                'id' => $delivery->getKey(),
+                /*
+                 * The code, and **not** a label beside it. `lib/states.ts` is
+                 * the one place a state gets a word (governance rule 7), and
+                 * shipping the enum's label alongside would be a second
+                 * spelling of the same thing that could drift — the badge
+                 * would show one and a heading the other.
+                 */
+                'status' => $delivery->status->value,
+                'isFailure' => $delivery->status->isFailure(),
+                /*
+                 * The address, on this screen and nowhere else. It is a
+                 * client's email and this is one deal, opened by somebody with
+                 * permission on it — which is not true of the alert email, and
+                 * is why that one says *"a message could not be delivered"*
+                 * with no address in it (PRD §9).
+                 */
+                'email' => $delivery->recipient_email,
+                'name' => $delivery->membership?->fullName(),
+                'deliveredAt' => $delivery->delivered_at?->toIso8601String(),
+                'openedAt' => $delivery->opened_at?->toIso8601String(),
+                'bouncedAt' => $delivery->bounced_at?->toIso8601String(),
+                'complainedAt' => $delivery->complained_at?->toIso8601String(),
+                /*
+                 * The plain-language sentence, which is the one #95 asks for,
+                 * and the provider's own words separately for whoever is
+                 * actually debugging deliverability. Never the other way
+                 * round: `smtp; 550 5.1.1` as the headline is the thing the
+                 * issue names as the failure.
+                 */
+                'explanation' => self::explain($delivery),
+                'detail' => $delivery->detail,
+                /*
+                 * Whether F5.9's sandbox sent this to the team owner instead
+                 * of the person it was addressed to. On the row rather than
+                 * inferred: without it the screen renders the owner's name
+                 * beside a message addressed to a client and explains nothing.
+                 */
+                'redirected' => $delivery->redirected,
+            ])
+            ->all());
+    }
+
+    /**
+     * What happened, in words, and what to do about it.
+     *
+     * Composed here rather than stored, because it is presentation: the row
+     * holds the facts (a status, a timestamp, the provider's diagnostic) and
+     * a stored sentence would be a copy of this method that could not be
+     * corrected for messages already sent.
+     */
+    private static function explain(MessageDelivery $delivery): string
+    {
+        return match ($delivery->status) {
+            DeliveryStatus::Bounced => 'Their mail server refused this message. If it keeps happening, the address is probably wrong — check it with them and correct it on the deal.',
+            DeliveryStatus::Complained => 'The person this was sent to marked it as spam. Nothing further will be sent to that address, and that is deliberate: continuing to write to somebody who has reported you puts every other message your team sends at risk.',
+            DeliveryStatus::Delivered => 'Their mail server accepted this message. That is as far as anything can be known — whether they read it is not something email reports.',
+            DeliveryStatus::Opened => 'This message was opened. Opens are measured with a tracking image that many mail apps block, so a message with no open here may still have been read.',
+            /*
+             * `sent` says the least and must not be dressed up. It covers two
+             * genuinely different situations — a provider that has not
+             * reported yet, and a send whose id never came back so nothing
+             * ever will — and inventing a reassuring sentence over the second
+             * is the overclaim this product keeps refusing to make.
+             */
+            DeliveryStatus::Sent => $delivery->provider_message_id === null
+                ? 'This was handed over for sending. No delivery confirmation will arrive for it — the send was accepted without an identifier to track it by.'
+                : 'This was handed over for sending. Nothing has come back about it yet.',
+            /*
+             * Never handed over at all. The reason is read from the row rather
+             * than from the address's current state: this says why *this* send
+             * was withheld at the moment it was withheld, and a suppression
+             * lifted afterwards does not make the message retrospectively
+             * sent.
+             */
+            DeliveryStatus::Suppressed => 'This was not sent. '
+                .($delivery->withheld_reason?->explanation()
+                    ?? 'That address can no longer be written to.'),
+        };
     }
 
     /**

@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -95,6 +96,16 @@ class ActionInstance extends Model
     }
 
     /**
+     * What became of each copy of this message (#95).
+     *
+     * @return HasMany<MessageDelivery, $this>
+     */
+    public function deliveries(): HasMany
+    {
+        return $this->hasMany(MessageDelivery::class);
+    }
+
+    /**
      * @return BelongsTo<Person, $this>
      */
     public function approver(): BelongsTo
@@ -126,7 +137,14 @@ class ActionInstance extends Model
     /**
      * Where this would go, as addresses recorded at raise time.
      *
-     * @return list<array{name: string, email: string}>
+     * `membershipId` is **optional and often null**, and both halves are load-
+     * bearing. It is null for every instance raised before #95 added it, and
+     * it is null by design for F5.9's sandbox redirect, which sends to the
+     * team owner whoever the message was addressed to. So a caller may use it
+     * to link a delivery row to somebody openable, and may never depend on it
+     * to know who was written to — the address is the fact of record.
+     *
+     * @return list<array{name: string, email: string, membershipId: string|null}>
      */
     public function recipients(): array
     {
@@ -140,7 +158,13 @@ class ActionInstance extends Model
             static fn (mixed $row): ?array => is_array($row)
                 && is_string($row['email'] ?? null)
                 && is_string($row['name'] ?? null)
-                    ? ['name' => $row['name'], 'email' => $row['email']]
+                    ? [
+                        'name' => $row['name'],
+                        'email' => $row['email'],
+                        'membershipId' => is_string($row['membershipId'] ?? null)
+                            ? $row['membershipId']
+                            : null,
+                    ]
                     : null,
             $recipients,
         )));

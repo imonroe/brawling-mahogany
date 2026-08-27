@@ -131,6 +131,26 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
     'message.redirected': { icon: MailWarning, tone: 'warning' },
     'message.failed': { icon: MailX, tone: 'danger' },
     /*
+     * What the provider said afterwards (#95 · F5.8), and both are `danger`
+     * for the same reason `message.failed` is: the row records a client who
+     * was **not** told, and the product's second question is whether they
+     * were.
+     *
+     * Their own event types rather than more `message.failed` rows, because
+     * they are a different kind of not-arriving and a team acts on them
+     * differently. A `message.failed` is ours — a merge field, a credential,
+     * a rail — and is fixed here. A bounce is theirs: the address is wrong and
+     * somebody has to ring the client and ask for the right one. Collapsing
+     * the two would put "check your SES key" and "check your seller's email"
+     * behind the same word.
+     *
+     * `message.complained` uses the same icon deliberately. §7.3 has no tone
+     * above `danger` and inventing one for a row a team may see twice a year
+     * would cost the scale its meaning; the summary carries the difference.
+     */
+    'message.bounced': { icon: MailX, tone: 'danger' },
+    'message.complained': { icon: MailX, tone: 'danger' },
+    /*
      * Neutral, both of them, and deliberately quieter than the send.
      *
      * Approving is a person doing their job on a queue, and #93 is precise

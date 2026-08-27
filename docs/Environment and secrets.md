@@ -47,6 +47,7 @@ the container which uses them transparently."*
 | `APP_PRODUCT_NAME` | `Goldieflow` | same | same | same |
 | `MAIL_FROM_ADDRESS` | anything | `.env.example`'s value — **used**, not unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
 | `MAIL_REDIRECT_TO` | optional | unset | **set — every message redirected** | **must be empty** |
+| `SES_SNS_TOPIC_ARN` | empty | empty | the staging topic | the production topic — **required**, see below |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
 | `AI_API_KEY` | unset | unset | **separate key, own budget cap** | real, production cap |
@@ -119,6 +120,38 @@ onto the verified address, so a client sees the agency they know beside an
 address that would otherwise look forged — and the same class puts their
 `sending_identity_email` in `Reply-To`, so hitting Reply reaches them and not
 the product's mailbox.
+
+### The bounce webhook, and why its ARN is a security control
+
+SES publishes bounce and complaint notifications to an SNS topic, which posts
+them to `POST /webhooks/ses` (#95). `SES_SNS_TOPIC_ARN` names that topic and is
+**not optional in production** — the endpoint refuses everything while it is
+empty, deliberately, because the other way round is the default that ships:
+works in staging, unset in production, and nobody notices.
+
+It is not merely configuration. The endpoint has no session, no CSRF token and
+no authenticated person, so Amazon's signature over the canonical SNS string is
+the whole of its authentication — and a valid signature only proves that *some*
+SNS topic sent the message. Anybody with an AWS account can create a topic,
+point it at this URL, and have its notifications signed exactly as genuinely as
+ours. The ARN is what makes the check mean *our* topic.
+
+The reason that matters more here than on an ordinary webhook is what the
+endpoint writes to: `suppressed_addresses` is this product's one **account-wide**
+table, so without the ARN check a stranger could stop this product writing to
+any address they chose, for every team on the platform, permanently. See
+[`adr/0002`](adr/0002-multi-tenancy-enforcement.md), "The deliberately
+cross-tenant table".
+
+Three checks, none of them optional: the signing certificate's host is matched
+against an **anchored** `sns.<region>.amazonaws.com` pattern (an unanchored one
+passes `https://evil.test/?x=amazonaws.com`), the signature is verified over
+the canonical field-by-field string rather than over the raw body, and the ARN
+is compared. Setting the topic up is console work like the rest of §2 — the
+application half is done and the subscription confirms itself on the first
+handshake.
+
+Locally the value stays empty: nothing sends through SES, so nothing bounces.
 
 ### The two staging guardrails that are not optional
 

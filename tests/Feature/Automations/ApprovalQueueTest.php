@@ -271,6 +271,42 @@ it('shows one message and everything that happened to it', function (): void {
             ->has('message.rendered'));
 });
 
+it('explains a withheld copy on S49, in words about the address', function (): void {
+    /*
+     * Round 2 of review: `withheld_reason` was asserted as a column value and
+     * rendered by no test — so the complaint sentence round 1 blocked on
+     * (*"a message from **you** … somebody who has reported **you**"*, shown
+     * to a team with nothing to do with the complaint) had a second surface
+     * where it could come back.
+     */
+    $instance = ActionInstance::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    App\Models\MessageDelivery::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'action_instance_id' => $instance->getKey(),
+        'recipient_email' => 'dana@example.test',
+        'provider_message_id' => null,
+        'status' => App\Enums\DeliveryStatus::Suppressed,
+        'withheld_reason' => App\Enums\SuppressionReason::Complaint,
+    ]);
+
+    $this->get("/messages/{$instance->getKey()}")
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Messages/Show')
+            ->where('deliveries.0.status', 'suppressed')
+            ->where('deliveries.0.isFailure', true)
+            ->where(
+                'deliveries.0.explanation',
+                'This was not sent. This address has been reported as receiving unwanted mail, '
+                .'so nothing further will be sent to it. If you need to reach them, use a phone '
+                .'number or ask them to write to you first.',
+            ));
+});
+
 it('shows an approver the frame the client will see, not only the words', function (): void {
     /*
      * F5.7's promise is that what an approver reads is what the client gets,

@@ -14,7 +14,9 @@ use App\Models\Task;
 use App\Models\Team;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
+use App\Support\Delivery\RecordDeliveries;
 use Illuminate\Mail\Mailables\Address;
+use Illuminate\Mail\SentMessage;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Throwable;
@@ -52,6 +54,7 @@ final class ExecuteAction
         private readonly SendRails $rails,
         private readonly RecordActivity $activity,
         private readonly AuditLogger $audit,
+        private readonly RecordDeliveries $deliveries,
     ) {}
 
     /**
@@ -193,7 +196,7 @@ final class ExecuteAction
         try {
             $pending = Mail::to($this->addresses($decision->recipients));
 
-            $pending->send(new AutomatedMessageMail(
+            $sent = $pending->send(new AutomatedMessageMail(
                 instance: $instance,
                 rendered: $rendered,
                 team: $team,
@@ -227,12 +230,39 @@ final class ExecuteAction
             throw $exception;
         }
 
+        /*
+         * What the provider called it, which is the only thing a bounce
+         * notification will name (#95).
+         *
+         * Read from the transport's answer rather than generated, and null
+         * where the transport did not give one — the array transport used in
+         * tests, a local Mailpit, an SMTP server that answered without an id.
+         * A null here is honest: nothing will ever come back about this
+         * message, and `message_deliveries` records it as `sent` forever,
+         * which is exactly what is known.
+         *
+         * Never confused with `message_key`. That one is **ours**, written
+         * before the mailer was called, and it is what stops a second send;
+         * this one is theirs, arrives afterwards, and is only a join key.
+         * `action_instances`' migration argues the distinction at length.
+         */
+        $providerMessageId = $this->providerMessageId($sent);
+
         $instance->forceFill([
             'state' => AutomationState::Sent->value,
             'executed_at' => now(),
             'attempts' => $instance->attempts + 1,
             'error' => null,
+            'provider_message_id' => $providerMessageId,
         ])->save();
+
+        /*
+         * One row per address, after the instance is saved rather than before.
+         * A delivery row pointing at an instance still marked `pending` is a
+         * row S49 would render under the wrong heading if anything read it in
+         * between.
+         */
+        $this->deliveries->forSend($instance, $decision, $providerMessageId);
 
         $this->recordSent($instance, $decision);
     }
@@ -371,13 +401,99 @@ final class ExecuteAction
         $subject = $instance->rendered()->subject
             ?? (is_string($payload['templateName'] ?? null) ? $payload['templateName'] : 'a message');
 
+        /*
+         * **Who was actually written to, and who was not.**
+         *
+         * Round 1 of review's first blocker: this sentence was composed from
+         * the *intended* list, so a message whose suppressed recipient had
+         * been dropped read *"Emailed Dana Okafor, Sam Reilly"* over a send
+         * Dana never received. `names()`'s own docblock argues for the
+         * intended list — and it is right about the case it was written for
+         * (sandbox), and wrong about this one. The two are different
+         * questions: sandbox changes **where** a message went, suppression
+         * changes **whether** it went at all.
+         */
+        /*
+         * **Diffed on the address, never on the name**, which is round 2 of
+         * review and round 1's blocker arriving a third time.
+         *
+         * `array_diff` removes every element equal to a withheld value, so
+         * diffing on names collapsed two recipients who share a display name
+         * and differ only by address — Sr. and Jr. on one deal, which is not
+         * exotic in residential real estate. Measured: a message that reached
+         * `john.jr@example.test` produced *"Emailed nobody"* on the deal's
+         * activity feed. The audit was right and the sentence a person reads
+         * was wrong, which is worse than silence.
+         *
+         * The address is the only field that is actually unique here — the
+         * same reason `message_deliveries` keys its history on it.
+         */
+        $withheldEmails = array_map(
+            static fn (string $email): string => mb_strtolower($email),
+            array_column($decision->withheld, 'email'),
+        );
+
+        $reached = $this->joinNames(array_values(array_map(
+            static fn (array $recipient): string => $recipient['name'],
+            array_filter(
+                $instance->recipients(),
+                static fn (array $recipient): bool => ! in_array(
+                    mb_strtolower($recipient['email']),
+                    $withheldEmails,
+                    true,
+                ),
+            ),
+        )));
+
+        /*
+         * And the withheld half names the **address** beside the person, for
+         * the same collision: *"John Smith was not written to"* names somebody
+         * who was, when two of them share a name. It is also the thing to go
+         * and correct, so it is the more useful sentence either way. The
+         * activity feed is a team-scoped deal screen, not a log — S49 shows
+         * the same address one click away.
+         */
+        /*
+         * Two tenses, because sandbox is a rehearsal. *"Was not written to"*
+         * is false of a redirected send — nobody was — and *"would have been
+         * skipped"* is the sentence a team came to sandbox for. Round 3 of
+         * review measured the redirected summary naming a dead address among
+         * the people a live send would have reached.
+         */
+        $missed = $decision->withheld === []
+            ? ''
+            : ' '.implode(' ', array_map(
+                static fn (array $recipient): string => $recipient['name']
+                    .' ('.$recipient['email'].') '
+                    .($decision->redirected
+                        ? 'would have been skipped — that address can no longer be reached.'
+                        : 'was not written to — that address can no longer be reached.'),
+                $decision->withheld,
+            ));
+
         if ($deal instanceof Deal) {
             $this->activity->record(
                 subject: $deal,
                 eventType: $decision->redirected ? 'message.redirected' : 'message.sent',
+                /*
+                 * The redirected branch ends on a **full stop** before
+                 * `$missed` is appended. Round 2 measured *"rather than Sam
+                 * Reilly Dana Okafor was not written to"* reading as one
+                 * four-word name, because the branch ended on a name and the
+                 * clause was appended with only a space. The `message.sent`
+                 * branch was fine by luck — it ends on `: “{subject}”`.
+                 */
                 summary: $decision->redirected
-                    ? "Sandbox: “{$subject}” went to the team rather than ".$this->names($instance)
-                    : "Emailed {$this->names($instance)}: “{$subject}”",
+                    /*
+                     * *"rather than nobody"* is round 2's *"Emailed nobody"*
+                     * in the branch round 2's fix did not reach — true, and
+                     * the wrong sentence. With every address suppressed there
+                     * is nobody to name, so the clause naming them goes.
+                     */
+                    ? ($reached === 'nobody'
+                        ? "Sandbox: “{$subject}” went to the team.".$missed
+                        : "Sandbox: “{$subject}” went to the team rather than {$reached}.".$missed)
+                    : "Emailed {$reached}: “{$subject}”".$missed,
             );
         }
 
@@ -400,6 +516,20 @@ final class ExecuteAction
                  * which row and when, which is what makes them findable.
                  */
                 'recipient_count' => count($decision->recipients),
+                /*
+                 * Counted separately, because it is the number an auditor
+                 * would ask about: a send recorded as reaching one person out
+                 * of two is only honest if the other one is somewhere.
+                 *
+                 * **Zero under sandbox**, and the rehearsal counted apart —
+                 * round 4 of review. `RecordDeliveries` writes no withheld row
+                 * when the send was redirected, deliberately, so a
+                 * `withheld_count` of two with one delivery row was a number
+                 * with nothing behind it on the one surface that cannot be
+                 * re-read for context later.
+                 */
+                'withheld_count' => $decision->redirected ? 0 : count($decision->withheld),
+                'would_skip_count' => $decision->redirected ? count($decision->withheld) : 0,
                 'redirected' => $decision->redirected,
                 'message_key' => $instance->message_key,
             ],
@@ -407,21 +537,39 @@ final class ExecuteAction
     }
 
     /**
-     * The instance's own intended recipients, for a sentence a person reads.
+     * Names for a sentence a person reads.
      *
-     * Never `$decision->recipients` — under sandbox those are the team owner,
+     * The list handed in is the **intended** one minus anything withheld —
+     * never `$decision->recipients`, which under sandbox is the team owner,
      * and *"Emailed Ian Monroe"* about a message meant for the seller is the
      * sentence that makes somebody think the client was told.
+     *
+     * @param  list<string>  $names
      */
-    private function names(ActionInstance $instance): string
+    private function joinNames(array $names): string
     {
-        $names = array_column($instance->recipients(), 'name');
-
         return $names === [] ? 'nobody' : implode(', ', $names);
     }
 
     /**
-     * @param  list<array{name: string, email: string}>  $recipients
+     * The id the provider assigned, if it gave one.
+     *
+     * `SentMessage::getMessageId()` is the transport's answer, which for SES
+     * over SMTP is the id in its `250 Ok` line — the same id SNS will name in
+     * a bounce. Symfony falls back to the `Message-ID` header when a transport
+     * offers nothing, which is what the array transport does, so a test cannot
+     * tell the two apart and this class does not try to: either way it is what
+     * the send is known by.
+     */
+    private function providerMessageId(?SentMessage $sent): ?string
+    {
+        $id = $sent?->getMessageId();
+
+        return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    /**
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
      * @return list<Address>
      */
     private function addresses(array $recipients): array

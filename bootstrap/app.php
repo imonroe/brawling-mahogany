@@ -16,6 +16,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -24,6 +25,24 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        /*
+         * Webhooks, outside the `web` group (#95).
+         *
+         * They carry no session and no CSRF token — a third party has
+         * neither — so registering them here rather than in `web.php` is what
+         * keeps `VerifyCsrfToken` from having an exception list, which is the
+         * usual shape and the one that grows.
+         *
+         * Rate-limited generously rather than not at all: a bounce storm is
+         * genuinely thousands of notifications a minute, and SNS retries a 429
+         * with backoff, so the limit costs nothing but bounds what an
+         * unauthenticated endpoint can be made to do before the signature
+         * check runs.
+         */
+        then: function (): void {
+            Route::middleware('throttle:600,1')
+                ->group(base_path('routes/webhooks.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);

@@ -111,6 +111,37 @@ const TEAM_AGNOSTIC_MODELS = [
      * `action_instances`, which is team-scoped by construction.
      */
     App\Models\ActionDefinition::class,
+
+    /*
+     * The only one that is team-agnostic because it is **deliberately
+     * cross-tenant** rather than merely shared (Slice 3, #95).
+     *
+     * (No ordinal: an earlier draft said "the eighth", and a count written
+     * into a comment beside a list is a claim nothing checks — which is the
+     * reason CLAUDE.md points at this array rather than quoting a number.)
+     *
+     * A hard bounce is a fact about the address, not about the team that
+     * happened to send to it: the mailbox does not exist for anybody. And SES
+     * measures bounce and complaint rates across the **whole account** (PRD
+     * §12.2 — bounce under 2%, complaint under 0.1%), so a per-team
+     * suppression list would have each new team rediscover the same dead
+     * address at every other team's expense.
+     *
+     * Issue #95 asks for it in as many words — *"this is the one place where a
+     * deliberately cross-tenant record is correct, and it needs to be built
+     * explicitly rather than falling out of a scope gap"* — and this entry is
+     * where the decision is recorded rather than implied.
+     *
+     * What keeps it from being a disclosure: **nothing team-facing reads the
+     * row.** `SuppressedAddress::suppresses()` returns a reason and nothing
+     * else, `discovered_by_team_id` is console-only, and a team is told *"we
+     * are not writing to this address"* in words about the address rather than
+     * about another team's correspondence. It also outlives a team purge on
+     * purpose (#57): the address is still dead afterwards, and having no
+     * `team_id` is what makes that true by construction rather than by an
+     * exception in the sweep.
+     */
+    App\Models\SuppressedAddress::class,
 ];
 
 /**

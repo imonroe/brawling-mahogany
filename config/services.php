@@ -28,6 +28,19 @@ return [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+
+        /*
+         * The SNS topic that may post bounce and complaint notifications
+         * (#95). **Not optional in production**, and the webhook refuses
+         * everything while it is empty rather than accepting everything.
+         *
+         * A valid Amazon signature only proves *some* SNS topic sent the
+         * message: anybody with an AWS account can create one, point it here,
+         * and have its notifications signed exactly as genuinely as ours. This
+         * is what makes the signature check mean *our* topic — see
+         * `App\Support\Delivery\SnsMessage`.
+         */
+        'topic_arn' => env('SES_SNS_TOPIC_ARN'),
     ],
 
     /*

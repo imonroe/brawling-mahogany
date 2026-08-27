@@ -226,7 +226,13 @@ it('renders the words at raise time, against this deal', function (): void {
 
     expect($instance->rendered()->subject)->toBe('Hello Dana Okafor')
         ->and($instance->recipients())->toBe([
-            ['name' => 'Dana Okafor', 'email' => 'dana@example.test'],
+            [
+                'name' => 'Dana Okafor',
+                'email' => 'dana@example.test',
+                // #95: carried so a delivery row can link to somebody a reader
+                // can open. The address beside it stays the fact of record.
+                'membershipId' => (string) $this->client->getKey(),
+            ],
         ]);
 });
 
@@ -304,7 +310,11 @@ it('records the addresses rather than the rule', function (): void {
     DealParticipant::query()->delete();
 
     expect($instance->fresh()->recipients())->toBe([
-        ['name' => 'Dana Okafor', 'email' => 'dana@example.test'],
+        [
+            'name' => 'Dana Okafor',
+            'email' => 'dana@example.test',
+            'membershipId' => (string) $this->client->getKey(),
+        ],
     ]);
 });
 
