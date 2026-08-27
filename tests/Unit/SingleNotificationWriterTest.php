@@ -46,6 +46,21 @@ use Symfony\Component\Finder\Finder;
  * Eloquent has no reason to name the model, so `touchesNotifications()` admits
  * the table name and raw SQL as well, and `it('reads a file whose only signal
  * is the write itself')` pins that with fixtures naming no model at all.
+ *
+ * **Round 2 of review found this file making that exact mistake about itself.**
+ * The first version's model pattern was `/\bNotification(?:::|\s*\$)/` — a
+ * static call or a type hint — and `Notify` writes `$notification = new
+ * Notification;`, where the next character is a semicolon. So the guard could
+ * not see the one file it is written about, and a copy of `Notify` pasted into
+ * a new feature would have been waved through for the same reason. Measured:
+ * `touchesNotifications(file_get_contents('app/Support/Notifications/Notify.php'))`
+ * returned **false** while `raisesNotifications()` on the same bytes returned
+ * true.
+ *
+ * The filter now also admits `new Notification` and the model's import, and
+ * `it('can see the file it is written about')` pins the case that was missed —
+ * a self-check, because a guard that cannot read its own subject is the one
+ * failure mode a dataset of invented fixtures will never surface.
  */
 
 /** The calls that take an array of columns and write them. */
@@ -163,6 +178,17 @@ function touchesNotifications(string $contents): bool
 
     foreach ([
         '/\bNotification(?:::|\s*\$)/',
+        /*
+         * `new Notification;` — the shape `Notify` itself uses, and the one
+         * the first version of this filter could not see, because the next
+         * character after the class name is a semicolon rather than `::` or a
+         * variable. See the class docblock.
+         */
+        '/\bnew\s+Notification\b/',
+        // And the import, which any file using the model by its short name
+        // must carry. `NotificationPreference` and friends do not match: the
+        // `;` is required immediately after.
+        '/use\s+App\\\\Models\\\\Notification\s*;/',
         '/[\'"]notifications[\'"]/',
         '/->\s*notifications\s*\(/',
         '/\b(?:UPDATE|INSERT\s+INTO)\s+notifications\b/i',
@@ -230,6 +256,33 @@ it('lets nothing but Notify raise a notification', function (): void {
 });
 
 /**
+ * The guard can see the file it is written about.
+ *
+ * Round 2 of review's second blocking finding, pinned as a self-check rather
+ * than as another invented fixture — because the thing that was wrong was not
+ * a shape nobody thought of, it was the **subject**. `Notify` writes
+ * `$notification = new Notification;`, and the filter wanted `::` or a
+ * variable after the class name.
+ *
+ * A dataset cannot catch that: every fixture in this file was written to clear
+ * the filter, so they all did. Reading the real file is the only assertion
+ * that could have failed.
+ */
+it('can see the file it is written about', function (): void {
+    $notify = (string) file_get_contents(app_path('Support/Notifications/Notify.php'));
+
+    expect(touchesNotifications($notify))
+        ->toBeTrue('The candidate filter never opens Notify itself, so nothing that looks like '
+            .'Notify is checked either.')
+        ->and(raisesNotifications($notify))
+        ->toBeTrue('The write patterns do not match the writer they are modelled on.');
+
+    // And it is in the sanctioned list, which is what keeps the suite green.
+    expect(SANCTIONED_NOTIFICATION_WRITERS)
+        ->toHaveKey('app/Support/Notifications/Notify.php');
+});
+
+/**
  * The guard, guarded.
  *
  * Every entry is a way of putting a row in that table, in a file that names
@@ -276,6 +329,12 @@ it('reads a file whose only signal is the write itself', function (string $shape
     expect(touchesNotifications($source))->toBeTrue("The detector never even reads: {$shape}")
         ->and(raisesNotifications($source))->toBeTrue("The detector waves through: {$shape}");
 })->with([
+    /*
+     * `new Notification;` in a file with no type hint and no static call —
+     * exactly `Notify`'s own shape, and exactly what round 2 found the filter
+     * blind to.
+     */
+    'constructor, nothing else' => ['$row = new Notification; $row->forceFill([\'channels\' => []])->save();'],
     'relation create' => ['$person->notifications()->create([\'summary\' => \'x\']);'],
     'relation create many' => ['$person->notifications()->createMany([[\'summary\' => \'x\']]);'],
     'query builder insert' => ['DB::table(\'notifications\')->insert([\'summary\' => \'x\']);'],

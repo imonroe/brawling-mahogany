@@ -193,8 +193,42 @@ final class NotificationFeed
         ));
     }
 
-    public function unreadCountFor(Person $person): int
+    /**
+     * Every id folded into the same line as this one.
+     *
+     * ## Why this reads the feed rather than rebuilding the key
+     *
+     * A folded line stands for as many rows as it folded, so opening one has
+     * to mark the line rather than the row — otherwise the badge still says
+     * three after somebody has dealt with all three. Round 2 of review found
+     * `open()` marking exactly one.
+     *
+     * The grouping key is (type, deal, day-in-the-team's-timezone), and
+     * writing that predicate a second time here is the shape `CLAUDE.md`
+     * warns about twice over: *"a rule enforced at call sites is enforced at
+     * some call sites"*, and the two would drift the first time the key
+     * changed. So this asks {@see self::groupsFor()} — the one implementation
+     * — and takes the group the row landed in.
+     *
+     * Bounded by `PAGE` for free, and honest when it falls off the end: a row
+     * older than the page is marked on its own, which is exactly what the
+     * panel would have shown for it anyway.
+     *
+     * @return list<string>
+     */
+    public function idsGroupedWith(Person $person, Notification $row): array
     {
-        return Notification::query()->forPerson($person)->unread()->count();
+        $id = (string) $row->getKey();
+
+        foreach ($this->groupsFor($person, self::PAGE) as $group) {
+            /** @var list<string> $ids */
+            $ids = $group['ids'];
+
+            if (in_array($id, $ids, true)) {
+                return $ids;
+            }
+        }
+
+        return [$id];
     }
 }

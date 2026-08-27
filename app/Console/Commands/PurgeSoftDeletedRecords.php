@@ -80,7 +80,7 @@ class PurgeSoftDeletedRecords extends Command
             $purgedStaging += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
                 + $this->purgeAbandonedImports($cutoff)
                 + $this->purgeAbandonedDrafts($cutoff)
-                + $this->purgeReadNotifications($cutoff));
+                + $this->purgeReadNotifications($team, $cutoff));
             $purgedRows += $this->purgeRowsFor($team, $cutoff);
         }
 
@@ -340,13 +340,43 @@ class PurgeSoftDeletedRecords extends Command
      * old it is, and deleting one would answer *"has anybody been told?"* by
      * quietly making it no. A person who has read something and left it thirty
      * days is a person who is finished with it.
+     *
+     * ## `forceDelete()` on a builder is unscoped, and round 2 of review
+     * caught it
+     *
+     * `Illuminate\Database\Eloquent\Builder::forceDelete()` is one line —
+     * `return $this->query->delete()` — and `$this->query` is the **base**
+     * builder. It never calls `applyScopes()`, so `TeamScope` is dropped. The
+     * same trap `CLAUDE.md` records one method along about `getQuery()` versus
+     * `toBase()`, and the SQL says so plainly:
+     *
+     *     forceDelete(): delete from "notifications" where "read_at" < …
+     *     toBase():      delete from "notifications" where "read_at" < …
+     *                      and "team_id" = '01TEAM…'
+     *
+     * Every team is visited by the loop above, so the *rows* that end up gone
+     * are the same set today. That is not a reason to leave it: it made
+     * `records:purge` a cross-tenant destructive write held in check by
+     * nothing but the shape of its caller, it is invisible to
+     * `UnscopedQueryConventionTest` (which reads for `withoutTeamScope` and
+     * `withoutGlobalScope`, neither of which appears here), and the first
+     * team's pass reported a count belonging to the whole platform.
+     *
+     * `toBase()` applies the scopes and hands back a base builder, so the
+     * `DELETE` is real — `Builder::delete()` would call `SoftDeletes`'
+     * `onDelete` and give this table a sixty-day window, which the draft sweep
+     * above rejects for the same reason. The team is also named explicitly,
+     * because a destructive statement should say what it is bounded by rather
+     * than inherit it.
      */
-    private function purgeReadNotifications(CarbonInterface $cutoff): int
+    private function purgeReadNotifications(Team $team, CarbonInterface $cutoff): int
     {
         return Notification::query()
+            ->where('team_id', $team->getKey())
             ->whereNotNull('read_at')
             ->where('read_at', '<', $cutoff)
-            ->forceDelete();
+            ->toBase()
+            ->delete();
     }
 
     /**

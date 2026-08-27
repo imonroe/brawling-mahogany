@@ -10,6 +10,7 @@ use App\Models\Passkey;
 use App\Models\Person;
 use App\Support\Database\BlueprintMacros;
 use App\Support\Help\HelpLibrary;
+use App\Support\Notifications\NotificationAudience;
 use App\Support\Notifications\Notify;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
@@ -59,6 +60,14 @@ class AppServiceProvider extends ServiceProvider
          * memo is correct for.
          */
         $this->app->scoped(Notify::class);
+
+        /*
+         * And the audience beside it, for the same reason one layer along:
+         * `AdvanceWorkflow` asks who should hear about a cleared gate **once
+         * per cleared gate**, inside the advance's own transaction, and the
+         * answer cannot change between two gates of one advance.
+         */
+        $this->app->scoped(NotificationAudience::class);
     }
 
     /**

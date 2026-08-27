@@ -25,6 +25,22 @@ use Inertia\Response;
  * their own id — so the authorization *is* the predicate. A policy would be a
  * second thing to keep in step with the query that already decides.
  *
+ * ## One of these writes on a `GET`, deliberately
+ *
+ * `open()` marks read on the way through, which makes it a `GET` that
+ * mutates. That is a real trade and worth naming rather than leaving for a
+ * reader to notice: the alternative is a link that does not mark read, and
+ * *opening the thing* is the strongest signal there is that somebody has seen
+ * it — stronger than the dismiss button, which is what people press to make a
+ * badge go away.
+ *
+ * What it is **not** is a CSRF hazard worth guarding. The only write is
+ * `read_at` on rows already addressed to the person following the link, and
+ * the only other effect is the team switch, which is refused unless
+ * `activeTeams()` still contains the team. A forged link can cause somebody to
+ * mark their own notification read and land on a deal they are a member of.
+ * A prefetcher can do the same, which is the honest cost of the trade.
+ *
  * ## It reads across teams, deliberately
  *
  * Issue #101: *"a person in two teams needs to know which one a notification
@@ -68,7 +84,7 @@ class NotificationController extends Controller
      * 404 rather than a 403 for the reason `TeamSwitchController` gives —
      * confirming a row exists is itself a disclosure.
      */
-    public function open(Request $request, string $notification): RedirectResponse
+    public function open(Request $request, NotificationFeed $feed, string $notification): RedirectResponse
     {
         $person = $request->user();
 
@@ -86,10 +102,18 @@ class NotificationController extends Controller
          * Read on the way through, because opening it is the strongest signal
          * there is that somebody has seen it — stronger than the dismiss
          * button, which is the thing people press to make a badge go away.
+         *
+         * **The line, not the row.** A folded line stands for as many rows as
+         * it folded, so marking only the one clicked leaves the badge saying
+         * three after somebody has dealt with all three — the panel telling
+         * them their action did not work. The panel's own click handler posts
+         * the group already; this is the same rule for a link followed cold,
+         * and it asks `NotificationFeed` for the ids rather than rebuilding
+         * the grouping key a second time.
          */
         Notification::query()
             ->forPerson($person)
-            ->whereKey($row->getKey())
+            ->whereIn('id', $feed->idsGroupedWith($person, $row))
             ->unread()
             ->update(['read_at' => now(), 'updated_at' => now()]);
 
@@ -128,13 +152,21 @@ class NotificationController extends Controller
          * of 12 cancelled), while each survivor re-ran the whole feed. One
          * request naming them all is both correct and cheaper.
          *
-         * No ids at all still means *"all of mine"*, which is the Mark all
-         * read button.
+         * **Validated rather than coerced**, which round 2 of review is why on
+         * two counts. `array_filter()` on a scalar is a `TypeError`, so
+         * `notifications=x` in the body was a 500 rather than a 422. And the
+         * absent-key branch means *"all of mine"* — the Mark all read button —
+         * so a list that filtered down to nothing silently became **mark
+         * everything read**, which is the one thing on this route somebody
+         * cannot undo. A key that is present must be a usable list.
          */
-        $ids = array_values(array_filter(
-            $request->input('notifications', []),
-            static fn (mixed $id): bool => is_string($id) && $id !== '',
-        ));
+        $validated = $request->validate([
+            'notifications' => ['sometimes', 'array', 'min:1'],
+            'notifications.*' => ['string', 'ulid'],
+        ]);
+
+        /** @var list<string> $ids */
+        $ids = array_values($validated['notifications'] ?? []);
 
         $query = Notification::query()->forPerson($person)->unread();
 

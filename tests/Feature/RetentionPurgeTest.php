@@ -516,3 +516,92 @@ it('does not take a person’s contact log with a purged deal', function (): voi
         // rather than ownership.
         ->and(ActivityEvent::withoutTeamScope()->find($workflowsOwn->getKey()))->toBeNull();
 });
+
+it('purges a read notification once its window closes, and keeps an unread one', function (): void {
+    /*
+     * The third staging sweep (#101). Nothing ever soft-deletes a
+     * notification, so `purgeRowsFor()` — which finds rows by `deleted_at` —
+     * would never reach this table, and it sits under `ShellCounts`' unread
+     * count on every request in the product.
+     *
+     * **Read ones only**: an unread notification is still doing its job
+     * however old it is, and deleting one would answer *"has anybody been
+     * told?"* by quietly making it no.
+     */
+    [$team, $member] = $this->teamWithMember();
+
+    [$read, $unread, $recent] = app(TeamContext::class)->runFor($team, function () use ($team, $member): array {
+        $read = App\Models\Notification::factory()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $member->getKey(),
+            'read_at' => now(),
+        ]);
+
+        $unread = App\Models\Notification::factory()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $member->getKey(),
+            'read_at' => null,
+        ]);
+
+        return [$read, $unread, null];
+    });
+
+    $this->travel(31)->days();
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(App\Models\Notification::withoutTeamScope()->find($read->getKey()))->toBeNull()
+        ->and(App\Models\Notification::withoutTeamScope()->find($unread->getKey()))->not->toBeNull()
+        ->and($recent)->toBeNull();
+});
+
+it('bounds every notification delete by the team it is purging', function (): void {
+    /*
+     * **The statement, not the outcome**, and that is the point.
+     *
+     * `Builder::forceDelete()` is `return $this->query->delete()` — the base
+     * builder — so it never applies `TeamScope`, and round 2 of review caught
+     * this sweep shipping that way. The rows that end up gone are the same
+     * set either way, because the caller loops every team, so no assertion
+     * about survivors can tell the two apart. What differs is whether
+     * `records:purge` is a destructive write bounded by its own SQL or by the
+     * shape of its caller.
+     *
+     * `UnscopedQueryConventionTest` cannot see this: it reads for
+     * `withoutTeamScope` and `withoutGlobalScope`, and `forceDelete()` spells
+     * neither.
+     */
+    [$teamA, $memberA] = $this->teamWithMember();
+    [$teamB, $memberB] = $this->teamWithMember();
+
+    foreach ([[$teamA, $memberA], [$teamB, $memberB]] as [$team, $member]) {
+        app(TeamContext::class)->runFor($team, function () use ($team, $member): void {
+            App\Models\Notification::factory()->create([
+                'team_id' => $team->getKey(),
+                'person_id' => $member->getKey(),
+                'read_at' => now(),
+            ]);
+        });
+    }
+
+    $this->travel(31)->days();
+
+    DB::enableQueryLog();
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    $deletes = array_values(array_filter(
+        DB::getQueryLog(),
+        static fn (array $entry): bool => str_contains($entry['query'], 'delete from "notifications"'),
+    ));
+
+    DB::disableQueryLog();
+
+    // The control: if the sweep stopped running, the loop below asserts
+    // nothing and this test would pass against a deleted method.
+    expect($deletes)->not->toBeEmpty();
+
+    foreach ($deletes as $entry) {
+        expect($entry['query'])->toContain('"team_id"');
+    }
+});

@@ -40,9 +40,36 @@ final class NotificationAudience
     public const MAX = 25;
 
     /**
+     * Resolved audiences, keyed by team and permission.
+     *
+     * Round 2 of review's finding: `AdvanceWorkflow` calls this **once per
+     * cleared gate**, inside the advance's own transaction, and each call is a
+     * membership select plus two eager loads. An advance that clears four
+     * gates paid for four identical answers while holding a write transaction
+     * open — the cost of which is not the queries, it is the lock.
+     *
+     * Memoised on the instance rather than in the cache, and the instance is
+     * bound `scoped()` in `AppServiceProvider` for the same reason `Notify` is
+     * (#101): per request, so a role changed on S17 is honoured by the next
+     * thing that happens, and never per process, where it would outlive the
+     * change that invalidates it.
+     *
+     * @var array<string, Collection<int, Person>>
+     */
+    private array $resolved = [];
+
+    /**
      * @return Collection<int, Person>
      */
     public function holding(Team $team, string $permission): Collection
+    {
+        return $this->resolved[$team->getKey().'|'.$permission] ??= $this->resolve($team, $permission);
+    }
+
+    /**
+     * @return Collection<int, Person>
+     */
+    private function resolve(Team $team, string $permission): Collection
     {
         return TeamMembership::query()
             ->where('team_id', $team->getKey())

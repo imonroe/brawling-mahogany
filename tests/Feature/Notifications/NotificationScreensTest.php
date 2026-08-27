@@ -174,6 +174,42 @@ it('will not switch a person into a team they have left', function (): void {
         );
 });
 
+it('marks the whole folded line read when one of them is opened', function (): void {
+    /*
+     * A folded line stands for as many rows as it folded, so opening it has to
+     * mark the line. Marking one leaves the badge saying three after somebody
+     * has dealt with all three, which is the panel telling them their action
+     * did not work.
+     *
+     * The ids come from `NotificationFeed` rather than from a second copy of
+     * the grouping key, so this also fails if the two ever disagree.
+     */
+    $rows = Notification::factory()->count(3)->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+        'type' => NotificationType::TaskAssigned->value,
+        'deal_id' => $this->deal->getKey(),
+        'read_at' => null,
+    ]);
+
+    // A different type on the same deal must not be swept up with them.
+    $other = Notification::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+        'type' => NotificationType::GateCleared->value,
+        'deal_id' => $this->deal->getKey(),
+        'read_at' => null,
+    ]);
+
+    $this->get('/notifications/'.$rows->first()->getKey().'/open')->assertRedirect();
+
+    foreach ($rows as $row) {
+        expect($row->fresh()->read_at)->not->toBeNull();
+    }
+
+    expect($other->fresh()->read_at)->toBeNull();
+});
+
 it('will not open somebody else’s notification', function (): void {
     $stranger = Person::factory()->create();
 
@@ -236,6 +272,34 @@ it('marks one read without touching the rest', function (): void {
 
     expect($mine->fresh()->read_at)->not->toBeNull()
         ->and($other->fresh()->read_at)->toBeNull();
+});
+
+it('refuses a malformed notifications body rather than 500ing on it', function (): void {
+    /*
+     * `array_filter()` on a scalar is a `TypeError`. The first version read
+     * the key straight off the request, so `notifications=x` was a 500.
+     */
+    $this->post('/notifications/read', ['notifications' => 'not-a-list'])
+        ->assertSessionHasErrors('notifications');
+});
+
+it('never widens a named list into “all of mine”', function (): void {
+    /*
+     * The absent-key branch means *"mark all read"*, so a present list that
+     * filtered down to nothing used to become **mark everything read** — the
+     * one thing on this route that cannot be undone. A list of junk is a 422,
+     * not a silent broadening.
+     */
+    $mine = Notification::factory()->count(2)->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+    ]);
+
+    $this->post('/notifications/read', ['notifications' => ['', 'nonsense']])
+        ->assertSessionHasErrors();
+
+    expect(Notification::query()->forPerson($this->member)->unread()->count())
+        ->toBe($mine->count());
 });
 
 it('will not let somebody mark another person’s notification read', function (): void {
