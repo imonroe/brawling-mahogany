@@ -53,6 +53,28 @@ enum DealSide: string implements HasLabel
      * unclassified type showing a tab nobody uses costs a tab, and hiding one
      * somebody needs costs them the feature with no way to ask for it.
      */
+    /**
+     * IA §2's client-facing word for a deal: *"Your Sale"* / *"Your Purchase"*.
+     *
+     * **Not `Deal::displayName()`**, which is an internal string that falls
+     * back to a client's surname — *"Bosart Purchase"* is not a heading to put
+     * in front of the Bosarts. The client's own page says what this is from
+     * their side, and the address underneath says which one.
+     *
+     * `Other` gets a real answer rather than null: a page with no heading is
+     * worse than a general one, and a client on a deal type nobody categorised
+     * is still on a transaction.
+     */
+    public function clientLabel(): string
+    {
+        return match ($this) {
+            self::Buy => 'Your Purchase',
+            self::Sell => 'Your Sale',
+            self::Rent => 'Your Rental',
+            self::Other => 'Your Transaction',
+        };
+    }
+
     public function hasOffers(): bool
     {
         return $this !== self::Rent;

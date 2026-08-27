@@ -253,6 +253,7 @@ named — treat that test as the authority, not this summary.
 | `php artisan notifications:release-held` | Queues the emails and pushes quiet hours held, once the window closes. Every five minutes |
 | `php artisan push:vapid-keys` | Generate the VAPID key pair web push needs (#103). Printed, never written — paste it wherever this environment keeps secrets. **Generate once and do not rotate**: the public half is baked into every subscription a browser has already made, so replacing the pair silently invalidates all of them |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, abandoned import uploads and drafts, read notifications, and notifications for people who have left. Nightly; safe to run by hand |
+| `php artisan status-page:link <deal> <email>` | Print a client's status page link (ADR 0003, no mail transport needed). Works once, for 30 minutes, and revokes any link that person already had for that deal. Audited |
 | `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation (ADR 0003, no mail transport needed). `--team=<slug>` if invited to more than one. Rotates the token. Audited |
 | `php artisan auth:reset-link <email>` | Print a single-use password reset link (ADR 0003). Audited |
 

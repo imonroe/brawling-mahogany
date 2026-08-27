@@ -15,8 +15,8 @@ import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
+import HandedLinkPanel from '@/components/app/HandedLinkPanel.vue';
 import Heading from '@/components/app/Heading.vue';
-import InvitationLinkPanel from '@/components/app/InvitationLinkPanel.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
@@ -46,7 +46,7 @@ defineProps<{
     /**
      * The link the server just minted, if this render followed a request for
      * one (ADR 0003). Null on every other visit, and deliberately so — see
-     * `InvitationLinkPanel`.
+     * `HandedLinkPanel`.
      */
     issuedLink: { id: string; email: string; url: string } | null;
 }>();
@@ -200,7 +200,7 @@ function revokeInvitation(id: string): void {
             </form>
         </Card>
 
-        <InvitationLinkPanel v-if="issuedLink" :link="issuedLink" />
+        <HandedLinkPanel v-if="issuedLink" :link="issuedLink" />
 
         <Card title="Pending invitations">
             <EmptyState

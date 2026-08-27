@@ -111,6 +111,39 @@ const UNGATED_ROUTES = [
     'help.index',
     'help.show',
 
+    /*
+     * The client status page (#110, #111), and the same situation the
+     * invitation routes at the top of this list are in — one step further out.
+     *
+     * There is no `$request->user()` at all. A client has no account, no
+     * membership and no session, which is the whole of PRD §3.3's *"must work
+     * on a phone, first try, no password"*. **The token is the
+     * authorisation**, and it establishes the tenant as well: ADR 0002's
+     * stated exception.
+     *
+     * A policy could not run — there is nobody to ask it about — and a
+     * permission would be a permission held by nobody. What takes their place
+     * is asserted rather than assumed, in `StatusPageTest`: an expired token,
+     * a spent token and a revoked token each land on S64; a token from another
+     * team's deal reaches nothing; and the credential is 256 bits of
+     * `random_bytes` on a unique column, so an equality match can only ever
+     * find the one row it names.
+     *
+     * `status.request` is the one that is genuinely open, and deliberately: it
+     * takes an email address and nothing else, because #110 requires that a
+     * client be able to ask for a new link *"knowing nothing but their email
+     * address"*. It is rate-limited twice over — globally on the route, and
+     * per address in the controller — it answers identically whether or not
+     * the address is one we know, and it can only re-issue access somebody
+     * already had. `status.documents.show` is **not** on this list: it is the
+     * one that hands over bytes, and it narrows by hand against the link's own
+     * team, the deal that link names, and `client_visible`.
+     */
+    'status.show',
+    'status.documents',
+    'status.expired',
+    'status.request',
+
     // Somebody's own account, gated by `auth` rather than by a team policy —
     // they must reach it with no membership at all, which is exactly the case
     // the 2FA mandate strands them in.

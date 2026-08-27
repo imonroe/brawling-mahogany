@@ -51,9 +51,31 @@ it('renders the admin variant under the admin namespace', function (): void {
             ->where('variant', 'admin'));
 });
 
-it('renders the client variant for an expired status page link', function (): void {
+it('sends an unknown status page token to S64 rather than to a 404', function (): void {
+    /*
+     * Before Slice 4 there was no `/s/{token}` route, so an unknown token fell
+     * through to the client-variant 404 — which was the right answer while the
+     * screen it should reach did not exist.
+     *
+     * It does now (#110), and S64 is a better answer than any 404 can be: it
+     * says *which* of expired, already used, or revoked, and it offers a way
+     * to ask for a new link knowing nothing but an email address. The 404's
+     * client variant is still asserted below, on a client-surface path that
+     * genuinely has no route.
+     */
+    $this->get('/s/'.str_repeat('z', 43))
+        ->assertRedirect('/s/expired?reason=expired');
+
+    $this->get('/s/expired')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Status/Expired')
+            ->where('reason', 'expired'));
+});
+
+it('renders the client variant of a 404 on the client surface', function (): void {
     // IA §9: no alarming words, and a route back to a human.
-    $this->get('/s/expired-token')
+    $this->get('/s/'.str_repeat('z', 43).'/nothing-here')
         ->assertNotFound()
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->component('System/NotFound')

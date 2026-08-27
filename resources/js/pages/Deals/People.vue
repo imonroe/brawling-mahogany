@@ -15,7 +15,7 @@
  * the expensive way. The roles are named rather than counted: "no Seller yet"
  * is actionable, "1 role missing" sends somebody looking for which.
  */
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { MessageSquarePlus, UserPlus } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AddParticipantDialog from '@/components/app/AddParticipantDialog.vue';
@@ -23,12 +23,14 @@ import AppButton from '@/components/app/AppButton.vue';
 import Card from '@/components/app/Card.vue';
 import type { DealHeaderProps } from '@/components/app/DealHeader.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
+import HandedLinkPanel from '@/components/app/HandedLinkPanel.vue';
 import Heading from '@/components/app/Heading.vue';
 import LogContactDialog from '@/components/app/LogContactDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import TextLink from '@/components/app/TextLink.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { usePermissions } from '@/composables/usePermissions';
+import { formatRelativeDate } from '@/lib/formatters';
 
 type Participant = {
     id: string;
@@ -40,6 +42,31 @@ type Participant = {
     isPrimary: boolean;
     notes: string | null;
     personUrl: string;
+    /**
+     * Their status page access, or null when they have never been given any
+     * (#110). The two are different questions and one control cannot answer
+     * both.
+     */
+    statusPage: {
+        hasSession: boolean;
+        linkIsLive: boolean;
+        lastSeenAt: string | null;
+        viewCount: number;
+    } | null;
+};
+
+/**
+ * The status page link, when the agent has just asked for one (#110).
+ *
+ * Flashed by the server rather than sent as a prop, for the reason S74
+ * flashes an invitation link: a credential that lives in a prop is a
+ * credential in every subsequent partial reload of the screen.
+ */
+type HandedLink = {
+    membershipId: string;
+    name: string;
+    url: string;
+    minutes: number;
 };
 
 const props = defineProps<{
@@ -56,6 +83,14 @@ const props = defineProps<{
 }>();
 
 const { can } = usePermissions();
+
+const page = usePage();
+
+const handedLink = computed<HandedLink | null>(() => {
+    const flashed = page.props.statusPageLink;
+
+    return (flashed ?? null) as HandedLink | null;
+});
 
 const adding = ref(false);
 
@@ -137,6 +172,97 @@ function remove(participant: Participant): void {
         preserveScroll: true,
     });
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * The client's own status page (#110)
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The roles a status page is *about*.
+ *
+ * The page describes one client's transaction, so only the client sees it. A
+ * lender or a title company is a participant and is not the person the page is
+ * for — and the one this list most exists to exclude is `opposing_agent`,
+ * where the control is one click from handing the other side a live view of
+ * the deal.
+ *
+ * Kept here rather than derived from the role's own enum: `ParticipantRole::
+ * isTeamSide()` answers a different question (who to ring), and a second
+ * meaning on one method is how the two start disagreeing.
+ */
+const CLIENT_ROLES = ['seller', 'buyer'];
+
+/** PRD §4.2 F2.2's Read Only role reads this screen and grants nothing. */
+const canGrant = computed(() => can('deals.manage'));
+
+/**
+ * *"Opened 4 times · last on Tuesday"*, or that they have not yet.
+ *
+ * The question an agent asks is *"has the client looked?"* — and *"more than
+ * once?"* straight after it, because a client who has opened the page six
+ * times is a client with a question they have not asked.
+ */
+function seenLine(participant: Participant): string {
+    const access = participant.statusPage;
+
+    if (!access?.lastSeenAt) {
+        return 'Has access · not opened yet';
+    }
+
+    const times =
+        access.viewCount === 1
+            ? 'Opened once'
+            : `Opened ${access.viewCount} times`;
+
+    return `${times} · last ${formatRelativeDate(access.lastSeenAt)}`;
+}
+
+const VISIT = { preserveScroll: true } as const;
+
+function sendStatusPage(participant: Participant): void {
+    router.post(
+        `/deals/${props.dealHeader.id}/people/${participant.membershipId}/status-page`,
+        {},
+        VISIT,
+    );
+}
+
+/**
+ * The link, on screen, for the agent to hand over (ADR 0003).
+ *
+ * A fresh one every time, because issuing revokes what came before — which
+ * means a copied link is always the live one and there is never a second
+ * working URL somebody forgot about.
+ */
+function copyStatusPageLink(participant: Participant): void {
+    router.post(
+        `/deals/${props.dealHeader.id}/people/${participant.membershipId}/status-page/link`,
+        {},
+        VISIT,
+    );
+}
+
+function revokeStatusPage(participant: Participant): void {
+    /*
+     * IA §10: name the object and the consequence. A revoke is not reversible
+     * by undo — it is reversible by sending a new link, and saying so is what
+     * stops somebody hesitating over a control they should use.
+     */
+    if (
+        !window.confirm(
+            `Revoke ${participant.name}’s access to the status page? They will not be able to open it until you send them a new link.`,
+        )
+    ) {
+        return;
+    }
+
+    router.delete(
+        `/deals/${props.dealHeader.id}/people/${participant.membershipId}/status-page`,
+        VISIT,
+    );
+}
 </script>
 
 <template>
@@ -204,6 +330,17 @@ function remove(participant: Participant): void {
             description="Add the client first — everything the workflow sends goes to somebody here."
         />
 
+        <HandedLinkPanel
+            v-if="handedLink"
+            :link="{
+                id: handedLink.membershipId,
+                email: handedLink.name,
+                url: handedLink.url,
+            }"
+            label="Status page link for"
+            :note="`Read it out, text it, or paste it anywhere. It works once, for ${handedLink.minutes} minutes, and it replaced any link this person already had for this deal.`"
+        />
+
         <Card v-for="group in roles" :key="group.role" :title="group.label">
             <ul class="flex flex-col">
                 <li
@@ -251,6 +388,54 @@ function remove(participant: Participant): void {
                         <MessageSquarePlus class="size-4" aria-hidden="true" />
                         Log contact
                     </AppButton>
+
+                    <!--
+                        The client's own status page (#110). Only for the
+                        roles a client actually holds — a lender does not get
+                        a page about somebody else's sale, and offering the
+                        control for every participant is how one gets sent to
+                        the opposing agent.
+                    -->
+                    <template
+                        v-if="canGrant && CLIENT_ROLES.includes(group.role)"
+                    >
+                        <span
+                            v-if="participant.statusPage?.hasSession"
+                            class="text-[11px] text-muted-foreground"
+                            >{{ seenLine(participant) }}</span
+                        >
+
+                        <AppButton
+                            variant="ghost"
+                            size="compact"
+                            @click="sendStatusPage(participant)"
+                            >{{
+                                participant.statusPage
+                                    ? 'Send a new link'
+                                    : 'Send status page'
+                            }}</AppButton
+                        >
+
+                        <!--
+                            ADR 0003's second door, on the screen: the URL, for
+                            the phone call. A client who never receives the
+                            email is not a client who cannot see the page.
+                        -->
+                        <AppButton
+                            variant="ghost"
+                            size="compact"
+                            @click="copyStatusPageLink(participant)"
+                            >Copy link</AppButton
+                        >
+
+                        <AppButton
+                            v-if="participant.statusPage"
+                            variant="ghost"
+                            size="compact"
+                            @click="revokeStatusPage(participant)"
+                            >Revoke access</AppButton
+                        >
+                    </template>
 
                     <AppButton
                         variant="ghost"

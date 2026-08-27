@@ -21,6 +21,7 @@ use App\Http\Controllers\Deals\OfferController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
+use App\Http\Controllers\Deals\StatusPageAccessController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\Documents\DocumentController;
@@ -38,12 +39,15 @@ use App\Http\Controllers\Pwa\ServiceWorkerController;
 use App\Http\Controllers\Pwa\WebManifestController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Settings\RoleController;
+use App\Http\Controllers\StatusPage\StatusDocumentController;
+use App\Http\Controllers\StatusPage\StatusPageController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
 use App\Http\Controllers\Templates\AutomationController;
 use App\Http\Controllers\Templates\StageTemplateController;
 use App\Http\Controllers\Templates\TemplateController;
 use App\Http\Controllers\WorkController;
+use App\Http\Middleware\ClientSurfaceHeaders;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -77,6 +81,54 @@ Route::get('sw.js', ServiceWorkerController::class)->name('pwa.service-worker');
  * in, and it is the same bytes for everybody.
  */
 Route::get('manifest.webmanifest', WebManifestController::class)->name('pwa.manifest');
+
+/*
+ * The client status page (PRD §4.7 · IA §6 · #110, #111).
+ *
+ * **Outside `auth`, outside `team`, and outside `verified`.** A client has no
+ * account, no membership and no session — the token is what establishes the
+ * tenant, which is ADR 0002's stated exception and the one an invitation
+ * already makes.
+ *
+ * `/s/{token}` is IA §6's route, *"short and opaque"*, and it takes both of
+ * #110's credentials: a 30-minute single-use link and the session it mints.
+ * `StatusPageController` explains which is which and why the session token is
+ * in the path rather than in a cookie.
+ *
+ * `/s/expired` is registered **before** the wildcard, or the word `expired`
+ * would be read as a token — a 404 dressed as the very screen it should be.
+ *
+ * `ClientSurfaceHeaders` puts `no-referrer`, `noindex` and a private
+ * `Cache-Control` on every one of these, which is a rule these four routes
+ * need and nothing else does.
+ */
+Route::middleware(ClientSurfaceHeaders::class)->group(function (): void {
+    Route::get('s/expired', [StatusPageController::class, 'expiredPage'])->name('status.expired');
+
+    /*
+     * S64's escape hatch, and an email-sending endpoint anybody can hit — so
+     * it carries a global throttle as well as the per-address one the
+     * controller applies. Neither alone is enough: a global limit lets one
+     * attacker spend everybody's budget, and a per-address limit alone lets a
+     * script walk a list.
+     */
+    Route::post('s/request', [StatusPageController::class, 'request'])
+        ->middleware('throttle:10,1')
+        ->name('status.request');
+
+    /*
+     * The bytes of a client-visible document, before the wildcard page route
+     * so `{token}/documents/{document}` is not read as a page.
+     */
+    Route::get('s/{token}/documents/{document}', StatusDocumentController::class)
+        ->name('status.documents.show');
+    Route::get('s/{token}/documents', [StatusPageController::class, 'documents'])
+        ->name('status.documents');
+
+    Route::get('s/{token}', [StatusPageController::class, 'show'])
+        ->middleware('throttle:60,1')
+        ->name('status.show');
+});
 
 /*
  * Accepting an invitation happens before there is a membership to resolve, so
@@ -423,6 +475,23 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          */
         Route::get('deals/{deal}/timeline', [DealTimelineController::class, 'index'])
             ->name('deals.timeline');
+
+        /*
+         * The agent's half of the client status page (#110).
+         *
+         * On the People tab because that is where the roster is, and *"can
+         * Dana see this deal"* is a fact about Dana's place on it rather than
+         * a setting. `link` is ADR 0003's second door: the URL handed to the
+         * agent, for the phone call or the text message.
+         */
+        Route::post('deals/{deal}/people/{membership}/status-page', [StatusPageAccessController::class, 'send'])
+            ->middleware('throttle:20,1')
+            ->name('deals.status-page.send');
+        Route::post('deals/{deal}/people/{membership}/status-page/link', [StatusPageAccessController::class, 'handOver'])
+            ->middleware('throttle:20,1')
+            ->name('deals.status-page.link');
+        Route::delete('deals/{deal}/people/{membership}/status-page', [StatusPageAccessController::class, 'revoke'])
+            ->name('deals.status-page.revoke');
 
         Route::get('deals/{deal}/people', [ParticipantController::class, 'index'])
             ->name('deals.people.index');

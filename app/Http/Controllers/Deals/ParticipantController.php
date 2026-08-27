@@ -13,6 +13,7 @@ use App\Http\Requests\Deals\StoreParticipantRequest;
 use App\Http\Requests\Deals\UpdateParticipantRequest;
 use App\Models\Deal;
 use App\Models\DealParticipant;
+use App\Models\StatusPageLink;
 use App\Models\TeamMembership;
 use App\Queries\PeopleDirectory;
 use App\Support\Deals\DealHeader;
@@ -48,6 +49,23 @@ class ParticipantController extends Controller
         $this->authorize('viewAny', [DealParticipant::class, $deal]);
 
         $deal->load('participants.membership', 'dealType');
+
+        /*
+         * Who on this roster can already see the status page (#110).
+         *
+         * One query for the whole page rather than one per participant, and
+         * the *live* grants only: an expired link is somebody who no longer
+         * has access, and drawing them as though they do would make the
+         * Revoke control a lie.
+         *
+         * Loaded here because *"can Dana see this deal"* is a fact about
+         * Dana's place on the roster, which is what this screen is.
+         */
+        $access = StatusPageLink::query()
+            ->where('deal_id', $deal->getKey())
+            ->live()
+            ->get()
+            ->keyBy(fn (StatusPageLink $link): string => (string) $link->team_membership_id);
 
         // PRD §6.3 order, as a lookup rather than a search per group.
         $rolePositions = array_flip(array_column(ParticipantRole::cases(), 'value'));
@@ -100,6 +118,16 @@ class ParticipantController extends Controller
                         'isPrimary' => $participant->is_primary,
                         'notes' => $participant->notes,
                         'personUrl' => route('people.show', $participant->membership),
+                        /*
+                         * Null when nobody has been given a link, so the
+                         * screen can tell *"never had access"* from *"has
+                         * access and last looked on Tuesday"* — which are the
+                         * two questions an agent asks, and one control cannot
+                         * answer both.
+                         */
+                        'statusPage' => $this->accessFor(
+                            $access->get((string) $participant->team_membership_id),
+                        ),
                     ])->values()->all(),
                 ])->values()->all(),
             /*
@@ -240,5 +268,33 @@ class ParticipantController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Participant removed.')]);
 
         return to_route('deals.people.index', $deal);
+    }
+
+    /**
+     * What the People tab says about one person's status page access (#110).
+     *
+     * `hasOpened` rather than a raw `used_at`, because the question an agent
+     * asks is *"has the client looked?"* — and `view_count` answers a second
+     * one they ask straight after, which is *"more than once?"*.
+     *
+     * No token, no hash, nothing that could be turned back into access. The
+     * link itself is handed over by its own route, which mints a fresh one:
+     * a credential that lived in a page's props would be a credential in every
+     * subsequent partial reload of that page.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function accessFor(?StatusPageLink $link): ?array
+    {
+        if (! $link instanceof StatusPageLink) {
+            return null;
+        }
+
+        return [
+            'hasSession' => $link->sessionIsLive(),
+            'linkIsLive' => $link->linkIsLive(),
+            'lastSeenAt' => $link->last_seen_at?->toIso8601String(),
+            'viewCount' => $link->view_count,
+        ];
     }
 }
