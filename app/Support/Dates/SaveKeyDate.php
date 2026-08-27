@@ -207,10 +207,27 @@ final class SaveKeyDate
 
         DB::transaction(function () use ($keyDate, $dependents): void {
             foreach ($dependents as $dependent) {
+                /*
+                 * `is_derived` and `detached_at` only. The anchor id and the
+                 * offset **stay**, and both halves of that matter.
+                 *
+                 * They are what the date has to say about itself: nulling them
+                 * left *Inspection objection* indistinguishable from a day
+                 * somebody typed, which is the exact sentence the PRD entry
+                 * for this behaviour says must not be true. Keeping them lets
+                 * S18 say it used to follow something, and how far behind it
+                 * ran.
+                 *
+                 * And they are what makes the composite FK's `ON DELETE SET
+                 * NULL` reachable. The CHECK refuses a row that is derived and
+                 * missing its anchor, and `SET NULL` is an UPDATE the CHECK is
+                 * evaluated on — so a row still flagged derived cannot be
+                 * detached by the database at all: the force-delete raises
+                 * 23514 and takes the team's nightly purge with it. Clearing
+                 * the flag here is what leaves the FK a row it is allowed to
+                 * touch, thirty days later.
+                 */
                 $dependent->forceFill([
-                    'anchor_key_date_id' => null,
-                    'offset_days' => null,
-                    'offset_basis' => null,
                     'is_derived' => false,
                     'detached_at' => now(),
                 ])->save();

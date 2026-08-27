@@ -11,6 +11,7 @@ use App\Queries\CalendarBoard;
 use App\Queries\DealDates;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -75,11 +76,7 @@ class DateListController extends Controller
              * on the model now rather than in whichever of them remembered.
              */
             ->onOpenDeals()
-            ->when($window === 'upcoming', fn ($query) => $query
-                ->whereBetween('date', [$today, CarbonImmutable::parse($today)
-                    ->addDays(self::HORIZON_DAYS)
-                    ->toDateString()]))
-            ->when($window === 'overdue', fn ($query) => $query->where('date', '<', $today))
+            ->tap(fn (Builder $query) => self::within($query, $window, $today))
             ->when($criticalOnly, fn ($query) => $query->where('is_critical', true))
             ->with(['deal', 'anchor'])
             ->orderBy('date')
@@ -100,8 +97,29 @@ class DateListController extends Controller
                     ]
                     : null,
             ])->values()->all(),
-            'counts' => $this->counts($today),
+            'counts' => $this->counts($window, $today),
         ]);
+    }
+
+    /**
+     * The window a tab shows, as a narrowing both the list and its counts apply.
+     *
+     * One function rather than two copies of the same two `when()`s: a badge
+     * that counts a different set from the list beneath it is worse than no
+     * badge, and the way that happens is a second place to state the rule.
+     *
+     * @param  Builder<KeyDate>  $query
+     * @return Builder<KeyDate>
+     */
+    private static function within(Builder $query, string $window, string $today): Builder
+    {
+        return $query
+            ->when($window === 'upcoming', fn (Builder $inner): Builder => $inner
+                ->whereBetween('date', [$today, CarbonImmutable::parse($today)
+                    ->addDays(self::HORIZON_DAYS)
+                    ->toDateString()]))
+            ->when($window === 'overdue', fn (Builder $inner): Builder => $inner
+                ->where('date', '<', $today));
     }
 
     /**
@@ -120,10 +138,8 @@ class DateListController extends Controller
      *
      * @return array{upcoming: int, overdue: int, critical: int}
      */
-    private function counts(string $today): array
+    private function counts(string $window, string $today): array
     {
-        $horizon = CarbonImmutable::parse($today)->addDays(self::HORIZON_DAYS)->toDateString();
-
         $count = static fn (Closure $narrow): \Illuminate\Database\Query\Builder => $narrow(
             // The same two narrowings the list above applies, or the badge
             // counts rows the tab beneath it does not show.
@@ -131,18 +147,22 @@ class DateListController extends Controller
         )->toBase()->selectRaw('count(*)');
 
         $row = DB::query()
-            ->selectSub(
-                $count(fn ($query) => $query->whereBetween('date', [$today, $horizon])),
-                'upcoming',
-            )
-            ->selectSub($count(fn ($query) => $query->where('date', '<', $today)), 'overdue')
+            ->selectSub($count(fn (Builder $q) => self::within($q, 'upcoming', $today)), 'upcoming')
+            ->selectSub($count(fn (Builder $q) => self::within($q, 'overdue', $today)), 'overdue')
             /*
-             * Critical counts the ones still ahead. A critical deadline that
-             * has passed is already in `overdue`, and counting it twice would
-             * make the toggle look like it widened the list it narrows.
+             * **Critical counts what the toggle would leave**, which means it
+             * has to sit inside the window the tab is showing. It counted
+             * *"critical and still ahead"* regardless of the window, so on the
+             * Past due tab a checkbox reading `(0)` produced three rows — and
+             * three overdue critical deadlines is exactly the state S59 exists
+             * to surface. It was wrong the other way on Next 14 days too,
+             * counting critical dates past the horizon the list stops at.
+             *
+             * The same `within()` the list applies, so the number and the rows
+             * cannot disagree about which question is being asked.
              */
             ->selectSub(
-                $count(fn ($query) => $query->where('is_critical', true)->where('date', '>=', $today)),
+                $count(fn (Builder $q) => self::within($q, $window, $today)->where('is_critical', true)),
                 'critical',
             )
             ->first();

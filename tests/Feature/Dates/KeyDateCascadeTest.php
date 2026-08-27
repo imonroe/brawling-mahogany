@@ -207,17 +207,80 @@ it('leaves a dependent standing when its anchor is deleted', function (): void {
 
     /*
      * The obligation in the contract did not go away because somebody tidied
-     * up the calendar. `ON DELETE SET NULL` nulls the anchor; the service
-     * nulls the rest of the derivation so no row claims to derive from
-     * nothing.
+     * up the calendar. It keeps its day, stops following, and **says so** —
+     * which is the half that was missing: nulling the anchor and the offset
+     * left the row indistinguishable from a day somebody typed, and
+     * `detached_at` was a column nothing could read.
+     *
+     * The offset stays because it is what the date has to say about itself,
+     * and because a row still flagged derived is one the composite FK's
+     * `ON DELETE SET NULL` cannot touch — the CHECK refuses it, and the
+     * force-delete thirty days later would abort the whole team's purge.
      */
     $objection->refresh();
 
     expect($objection->exists)->toBeTrue()
         ->and($objection->date->toDateString())->toBe('2026-09-11')
-        ->and($objection->anchor_key_date_id)->toBeNull()
         ->and($objection->is_derived)->toBeFalse()
-        ->and($objection->offset_days)->toBeNull();
+        ->and($objection->wasDetached())->toBeTrue()
+        ->and($objection->anchor_key_date_id)->toBe($acceptance->getKey())
+        ->and($objection->offset_days)->toBe(10);
+});
+
+it('says a date used to follow one that has been deleted, without naming it', function (): void {
+    /*
+     * S18's three states — derived, detached, neither — have to survive the
+     * anchor being gone, or the PRD's *"rather than presenting a typed date it
+     * did not type"* is a sentence with nothing keeping it.
+     *
+     * The removed anchor is not named: it does not exist any more, and naming
+     * it would send somebody looking for it. How far behind the date ran is
+     * the part that still means something.
+     */
+    [$acceptance, $objection] = chainOfThree($this->deal);
+
+    $this->save->remove($acceptance);
+
+    $row = app(App\Queries\DealDates::class)->forDeal($this->deal->fresh());
+
+    $detached = collect($row)->firstWhere('id', $objection->getKey());
+
+    expect($detached['isDerived'])->toBeFalse()
+        ->and($detached['wasDetached'])->toBeTrue()
+        ->and($detached['anchor'])->toBeNull()
+        ->and($detached['derivation'])->toContain('since been removed')
+        ->and($detached['derivation'])->not->toContain($acceptance->name);
+});
+
+it('lets the purge force-delete an anchor without the CHECK refusing the detach', function (): void {
+    /*
+     * The other half of `remove()`'s "belt and braces", and it did not work.
+     *
+     * `ON DELETE SET NULL (anchor_key_date_id)` is an UPDATE, and Postgres
+     * evaluates the CHECK on it — so a dependant still flagged `is_derived`
+     * cannot be detached by the database: the force-delete raises 23514, and
+     * `records:purge` deletes a whole table per statement inside one
+     * transaction, so a single such row would stop that team's nightly purge
+     * indefinitely.
+     *
+     * Clearing the flag at remove-time is what leaves the FK a row it is
+     * allowed to touch. This is the thirty-days-later half, run here in one
+     * step.
+     */
+    [$acceptance, $objection] = chainOfThree($this->deal);
+
+    $this->save->remove($acceptance);
+
+    KeyDate::withoutTeamScope()->withTrashed()->whereKey($acceptance->getKey())->forceDelete();
+
+    $objection->refresh();
+
+    expect($objection->exists)->toBeTrue()
+        ->and($objection->date->toDateString())->toBe('2026-09-11')
+        // The database nulled the pointer; the row still says it was detached,
+        // which is why `wasDetached()` reads the column and not the anchor.
+        ->and($objection->anchor_key_date_id)->toBeNull()
+        ->and($objection->wasDetached())->toBeTrue();
 });
 
 it('does not count an extracted date nobody has confirmed', function (): void {

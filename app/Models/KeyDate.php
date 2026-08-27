@@ -229,7 +229,7 @@ class KeyDate extends Model
     /** A date that was derived and has since been typed over. */
     public function wasDetached(): bool
     {
-        return ! $this->is_derived && $this->anchor_key_date_id !== null;
+        return $this->detached_at !== null;
     }
 
     /**

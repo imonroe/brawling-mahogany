@@ -6,6 +6,7 @@ use App\Enums\DealState;
 use App\Enums\OffsetBasis;
 use App\Models\Deal;
 use App\Models\KeyDate;
+use App\Models\MessageTemplate;
 use Inertia\Testing\AssertableInertia;
 
 /**
@@ -299,6 +300,91 @@ it('lets a date carry its own reminder schedule, and tells the screen it is stor
 
     expect($date->fresh()->reminder_offsets)->toBe([])
         ->and($date->fresh()->reminderDays())->toBe([]);
+});
+
+it('counts critical dates inside the window the tab is showing', function (): void {
+    /*
+     * The toggle narrows the current list, so its count has to be *"of what
+     * you are looking at, how many are critical"*. It counted *"critical and
+     * still ahead"* regardless of the window, so on Past due a checkbox
+     * reading `(0)` produced three rows — and three overdue critical
+     * deadlines is precisely the state S59 exists to surface.
+     */
+    foreach ([-9, -4, -1] as $index => $offset) {
+        KeyDate::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $this->deal->getKey(),
+            'name' => 'Missed deadline '.$index,
+            'date' => now()->addDays($offset)->toDateString(),
+            'is_critical' => true,
+        ]);
+    }
+
+    // Well past the fourteen-day horizon, so Next 14 days must not count it.
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Closing',
+        'date' => now()->addDays(60)->toDateString(),
+        'is_critical' => true,
+    ]);
+
+    $this->get('/dates?window=overdue')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('dates', 3)
+            ->where('counts.critical', 3));
+
+    $this->get('/dates?window=overdue&critical=1')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->has('dates', 3));
+
+    // And the other direction: nothing critical inside the next fortnight.
+    $this->get('/dates')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('dates', [])
+            ->where('counts.critical', 0));
+});
+
+it('does not spend another route’s rate limit', function (): void {
+    /*
+     * For a signed-in person `ThrottleRequests` keys on the **person's id
+     * alone** — no route, no name — so every inline `throttle:n,m` in the app
+     * incremented one counter and each middleware compared it against its own
+     * maximum. The effective limit on any route was the tightest number among
+     * every throttled route that person had touched in the last minute.
+     *
+     * The cascade preview is the loudest thing in that bucket and the one
+     * route written to be pressed on a keystroke, at 120 a minute. Twelve
+     * presses of it refused the first-ever *Send a test*, whose own limit is
+     * ten and which the person had not pressed once.
+     */
+    $date = KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Mutual acceptance',
+        'date' => now()->addDays(10)->toDateString(),
+    ]);
+
+    foreach (range(1, 12) as $ignored) {
+        $this->postJson("/deals/{$this->deal->getKey()}/dates/preview", [
+            'keyDateId' => $date->getKey(),
+            'name' => 'Mutual acceptance',
+            'mode' => 'typed',
+            'date' => now()->addDays(11)->toDateString(),
+        ])->assertOk();
+    }
+
+    /*
+     * A different route with a limit of ten, never pressed. Any answer but 429
+     * proves the buckets are separate — this asserts on the status rather than
+     * on the body, because what the endpoint *does* is another test's subject.
+     */
+    $template = MessageTemplate::factory()->create(['team_id' => $this->team->getKey()]);
+
+    expect($this->post("/templates/messages/{$template->getKey()}/test")->getStatusCode())
+        ->not->toBe(429);
 });
 
 it('refuses an impossible reminder schedule in words, under the field’s own key', function (): void {

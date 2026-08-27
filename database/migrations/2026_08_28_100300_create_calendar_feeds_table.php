@@ -100,12 +100,23 @@ return new class extends Migration
         });
 
         /*
-         * One live feed per person per subject.
+         * One live feed per person per subject, **per team**.
          *
          * Two personal feeds for one person is two URLs to revoke and no way
          * to tell them apart, and the *"generate"* button on S60 is one click.
          * A partial index rather than a service check, because the button is
          * one click and a double-tap is the ordinary way to get two.
+         *
+         * `team_id` leads it, and its absence was a real defect rather than an
+         * omission: `ManageCalendarFeeds::generate()` clears the way with an
+         * ordinary **team-scoped** query, so *"generating replaces rather than
+         * adds"* was scoped to the team somebody is standing in while the index
+         * enforcing it was not. A person holding memberships in two agencies —
+         * the case `Person` and `TeamMembership` exist to tell apart — got one
+         * live personal feed in total, and pressing Generate in the second team
+         * was a unique-violation 500 with nothing on screen able to explain it:
+         * the row to revoke was on the other team's list, which S60 does not
+         * show them. An index has to agree with the query that maintains it.
          *
          * `COALESCE` on the deal, because Postgres treats nulls as distinct in
          * a unique index — without it every personal feed would be unique from
@@ -113,7 +124,7 @@ return new class extends Migration
          */
         DB::statement(<<<'SQL'
             CREATE UNIQUE INDEX calendar_feeds_one_live_per_subject
-                ON calendar_feeds (person_id, COALESCE(deal_id, '-'))
+                ON calendar_feeds (team_id, person_id, COALESCE(deal_id, '-'))
                 WHERE revoked_at IS NULL AND deleted_at IS NULL
         SQL);
     }

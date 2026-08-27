@@ -135,6 +135,20 @@ function shift(direction: -1 | 1): void {
     const focus = new Date(`${props.focus}T12:00:00Z`);
 
     if (days === null) {
+        /*
+         * To the **first** before adding, because `setUTCMonth` overflows: the
+         * 31st of August plus one month is the 31st of September, which is the
+         * 1st of October. The focus really is the exact day — the controller
+         * echoes it back unnormalised — so on the seven months with a 31st,
+         * pressing › skipped a month entirely, and from March, May and October
+         * pressing ‹ landed inside the month already on screen, which reads as
+         * a dead button.
+         *
+         * The grid a month draws is decided by the server from whichever day
+         * this sends, so the 1st is as good a day as any and the only one that
+         * cannot overflow.
+         */
+        focus.setUTCDate(1);
         focus.setUTCMonth(focus.getUTCMonth() + direction);
     } else {
         focus.setUTCDate(focus.getUTCDate() + direction * days);

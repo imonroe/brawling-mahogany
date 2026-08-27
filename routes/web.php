@@ -101,7 +101,7 @@ Route::get('manifest.webmanifest', WebManifestController::class)->name('pwa.mani
  * single header.
  */
 Route::get('calendar/feeds/{token}.ics', [CalendarFeedController::class, 'show'])
-    ->middleware('throttle:60,1')
+    ->middleware('throttle:60,1,calendar-feed-fetch')
     ->where('token', '[A-Za-z0-9]+')
     ->name('calendar.feeds.show');
 
@@ -136,6 +136,23 @@ Route::get('calendar/feeds/{token}.ics', [CalendarFeedController::class, 'show']
  * and not `throttle:n,m`. Two inline throttles on one request share a bucket:
  * the guest key is `sha1(domain|ip)` with no route in it, so `s/request` spent
  * two hits of one budget and every page view ate the mail allowance.
+ *
+ * ## And every other `throttle:n,m` in this file carries a prefix
+ *
+ * The same defect, one scope wider, and it took a second look to see: for a
+ * signed-in person `ThrottleRequests` keys on the **person's id alone** — no
+ * route, no name — so every inline throttle in the app incremented one counter
+ * and each compared it against its own maximum. The effective limit on any
+ * route was the tightest number among every throttled route that person had
+ * touched in the last minute.
+ *
+ * Ten presses of *Check what moves* (its own limit 120, and the one route in
+ * the product deliberately written to be pressed on a keystroke) refused the
+ * first-ever **Send a test** with a 429. The third argument is the bucket, and
+ * with it the numbers beside each route mean what they say.
+ *
+ * **A new throttled route needs a prefix**, or it joins whichever bucket it
+ * happens to collide with and quietly borrows its limit.
  */
 Route::middleware([ClientSurfaceHeaders::class, 'throttle:client-surface'])->group(function (): void {
     Route::get('s/expired', [StatusPageController::class, 'expiredPage'])->name('status.expired');
@@ -171,7 +188,7 @@ Route::middleware([ClientSurfaceHeaders::class, 'throttle:client-surface'])->gro
  */
 Route::get('invitations/{token}', [InvitationController::class, 'show'])->name('invitations.show');
 Route::post('invitations/{token}', [InvitationController::class, 'accept'])
-    ->middleware('throttle:10,1')
+    ->middleware('throttle:10,1,invitation-accept')
     ->name('invitations.accept');
 
 /*
@@ -186,7 +203,7 @@ Route::post('invitations/{token}', [InvitationController::class, 'accept'])
  * against a signed-in session is the one probe this route makes possible.
  */
 Route::post('invitations/{invitation}/claim', [InvitationController::class, 'claim'])
-    ->middleware(['auth', 'throttle:10,1'])
+    ->middleware(['auth', 'throttle:10,1,invitation-claim'])
     ->name('invitations.claim');
 
 /*
@@ -519,10 +536,10 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          * agent, for the phone call or the text message.
          */
         Route::post('deals/{deal}/people/{membership}/status-page', [StatusPageAccessController::class, 'send'])
-            ->middleware('throttle:20,1')
+            ->middleware('throttle:20,1,status-page-send')
             ->name('deals.status-page.send');
         Route::post('deals/{deal}/people/{membership}/status-page/link', [StatusPageAccessController::class, 'handOver'])
-            ->middleware('throttle:20,1')
+            ->middleware('throttle:20,1,status-page-link')
             ->name('deals.status-page.link');
         Route::delete('deals/{deal}/people/{membership}/status-page', [StatusPageAccessController::class, 'revoke'])
             ->name('deals.status-page.revoke');
@@ -567,13 +584,13 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         Route::get('deals/{deal}/dates', [DealDateController::class, 'index'])
             ->name('deals.dates.index');
         Route::post('deals/{deal}/dates', [DealDateController::class, 'store'])
-            ->middleware('throttle:60,1')
+            ->middleware('throttle:60,1,key-date-save')
             ->name('deals.dates.store');
         Route::post('deals/{deal}/dates/preview', [DealDateController::class, 'preview'])
-            ->middleware('throttle:120,1')
+            ->middleware('throttle:120,1,key-date-preview')
             ->name('deals.dates.preview');
         Route::patch('deals/{deal}/dates/{keyDate}', [DealDateController::class, 'update'])
-            ->middleware('throttle:60,1')
+            ->middleware('throttle:60,1,key-date-save')
             ->name('deals.dates.update');
         Route::delete('deals/{deal}/dates/{keyDate}', [DealDateController::class, 'destroy'])
             ->name('deals.dates.destroy');
@@ -665,16 +682,16 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * rides in that screen's props and there is no `index` route here.
      */
     Route::post('calendar/feeds', [CalendarFeedController::class, 'store'])
-        ->middleware('throttle:20,1')
+        ->middleware('throttle:20,1,calendar-feed-generate')
         ->name('calendar.feeds.store');
     Route::delete('calendar/feeds/{feed}', [CalendarFeedController::class, 'destroy'])
         ->name('calendar.feeds.destroy');
 
     Route::post('calendar/events', [EventController::class, 'store'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,event-save')
         ->name('calendar.events.store');
     Route::patch('calendar/events/{event}', [EventController::class, 'update'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,event-save')
         ->name('calendar.events.update');
     Route::delete('calendar/events/{event}', [EventController::class, 'destroy'])
         ->name('calendar.events.destroy');
@@ -788,12 +805,12 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * none on the routes that compute *and* write is half an answer.
      */
     Route::post('templates/messages', [MessageTemplateController::class, 'store'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,message-template-save')
         ->name('message-templates.store');
     Route::get('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'show'])
         ->name('message-templates.show');
     Route::patch('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'update'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,message-template-save')
         ->name('message-templates.update');
     Route::post('templates/messages/{messageTemplate}/archive', [MessageTemplateController::class, 'archive'])
         ->name('message-templates.archive');
@@ -814,7 +831,7 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * than finding out.
      */
     Route::post('templates/messages/{messageTemplate}/preview', [MessageTemplateController::class, 'preview'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,message-template-preview')
         ->name('message-templates.preview');
     /*
      * Throttled, because this is the first route in the product that sends
@@ -824,7 +841,7 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * that blocker exists to refuse.
      */
     Route::post('templates/messages/{messageTemplate}/test', [MessageTemplateController::class, 'test'])
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,message-template-test')
         ->name('message-templates.test');
 
     /*
@@ -873,7 +890,7 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * it is the ordinary bound on a write endpoint somebody can hold down.
      */
     Route::post('messages/{message}/approval', [MessageQueueController::class, 'approve'])
-        ->middleware('throttle:30,1')
+        ->middleware('throttle:30,1,message-approval')
         ->name('messages.approve');
     Route::delete('messages/{message}/approval', [MessageQueueController::class, 'cancel'])
         ->name('messages.cancel');

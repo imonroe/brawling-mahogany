@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\Teams\ProvisionTeam;
 use App\Enums\DealSide;
 use App\Enums\EventType;
 use App\Enums\ParticipantRole;
@@ -11,6 +12,7 @@ use App\Models\DealType;
 use App\Models\Event;
 use App\Models\KeyDate;
 use App\Models\Property;
+use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Calendar\ManageCalendarFeeds;
 use App\Support\Deals\DealRoster;
@@ -53,6 +55,61 @@ function feedToken(?Deal $deal = null): string
         $deal instanceof Deal ? 'That deal' : 'Everything',
     )->token;
 }
+
+it('lets somebody who works for two agencies subscribe to both', function (): void {
+    /*
+     * `Person` and `TeamMembership` exist to tell these apart, and
+     * `push_subscriptions` records the same shape one table along: *"a person
+     * with two agencies has one phone."*
+     *
+     * The unique index enforcing *"one live feed per person per subject"*
+     * carried no `team_id` while the revoke-on-regenerate query beside it was
+     * team-scoped — so the second team's Generate was a unique violation, a
+     * 500 with nothing on screen able to explain it, and the row to revoke was
+     * on a list S60 does not show. An index has to agree with the query that
+     * maintains it.
+     */
+    $second = Team::factory()->create();
+
+    app(TeamContext::class)->runFor($second, function () use ($second): void {
+        app(ProvisionTeam::class)->attachOwner($second, $this->member);
+    });
+
+    $mine = $this->feeds->generate($this->team, $this->member, null, 'Bosart Group');
+
+    $theirs = app(TeamContext::class)->runFor(
+        $second,
+        fn () => $this->feeds->generate($second, $this->member, null, 'The other shop'),
+    );
+
+    expect($theirs->token)->not->toBe($mine->token);
+
+    // And both still serve, which is the point of having two.
+    foreach ([$mine, $theirs] as $feed) {
+        $this->asStranger();
+        $this->get($feed->url())->assertOk();
+    }
+
+    /*
+     * Regenerating one replaces its own team's feed and leaves the other
+     * alone — the behaviour the index is there to guarantee, now that the two
+     * agree about what "one feed" is scoped to.
+     */
+    $this->withTeam($this->team);
+
+    $again = $this->feeds->generate($this->team, $this->member, null, 'Bosart Group');
+
+    expect($again->token)->not->toBe($mine->token);
+
+    $this->asStranger();
+    $this->get($theirs->url())->assertOk();
+
+    $this->asStranger();
+    $this->get($mine->url())->assertNotFound();
+
+    $this->asStranger();
+    $this->get($again->url())->assertOk();
+});
 
 it('stops serving the moment the person is no longer on the team', function (): void {
     /*

@@ -99,11 +99,26 @@ final class DealDates
 
     private function derivation(KeyDate $date, ?KeyDate $anchor): ?string
     {
-        if (! $anchor instanceof KeyDate || $date->offset_days === null) {
+        if ($date->offset_days === null) {
             return null;
         }
 
         $basis = $date->offset_basis ?? OffsetBasis::Calendar;
+
+        /*
+         * The anchor is gone — deleted, and the graph is built from live dates
+         * so it cannot be found. The offset survives on the row, so the date
+         * can still say **how far behind it ran** without naming a date that
+         * no longer exists, which would only send somebody looking for it.
+         *
+         * Without this the row read exactly like a day somebody typed, which
+         * is what the PRD entry for the detach behaviour says must not happen.
+         */
+        if (! $anchor instanceof KeyDate) {
+            return $date->wasDetached()
+                ? 'Was '.lcfirst($basis->phrase($date->offset_days)).' another date, which has since been removed'
+                : null;
+        }
 
         $phrase = $date->offset_days === 0
             ? 'The same day as '.$anchor->name

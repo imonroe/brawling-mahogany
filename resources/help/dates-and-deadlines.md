@@ -94,7 +94,14 @@ Close a deal and its reminders stop.
 
 A stage can wait for a named date to arrive. Add a **Date reached** requirement
 to a stage in your template and name the date — the same name your deals use
-for it, capitals and spacing ignored — and the stage clears itself on the day.
+for it, capitals and spacing ignored — and the requirement is met from that day
+onwards.
+
+**It does not move the deal on by itself.** Nothing in this product advances a
+stage without somebody pressing **Advance**; what the requirement does is stop
+being the thing in the way. That is deliberate — an advance can send a client
+an email, and an email nobody chose to send is not something you can take
+back.
 
 If a deal has no date of that name, the requirement says so and links to the
 tab where you would add it.
