@@ -40,7 +40,12 @@ final class NotificationFeed
     /** How many rows the panel reads. Generous, because they fold. */
     public const PAGE = 100;
 
-    /** How many the shell's popover shows before *"see all"*. */
+    /**
+     * How many **lines** the shell's popover shows before *"see all"*.
+     *
+     * Lines, not rows — which round 3 of review found being passed to
+     * `groupsFor()` as the row limit. See {@see self::previewFor()}.
+     */
     public const PREVIEW = 8;
 
     /**
@@ -191,6 +196,44 @@ final class NotificationFeed
             },
             $groups,
         ));
+    }
+
+    /**
+     * The popover's lines: folded over the whole page, then cut to length.
+     *
+     * ## Why not just read eight rows
+     *
+     * That is what the shell did, and round 3 of review measured what it
+     * cost. `groupsFor($person, $limit)` applies the limit to **rows read**
+     * and folds afterwards, so a burst folded inside an eight-row window and
+     * rendered as though it were the whole thing:
+     *
+     *     popover, groupsFor(PREVIEW):  "5 tasks were assigned to you"
+     *     page,    groupsFor(PAGE):    "12 tasks were assigned to you"
+     *
+     * Three things follow, and the middle one is the worst. The number is
+     * simply wrong, in exactly #101's headline scenario. The bell said 15 over
+     * a panel accounting for 8 rows, and `markRead()` posts the group's ids —
+     * so pressing it dropped the badge to 10 and the line came straight back
+     * saying *"5 tasks were assigned to you"*, which is the panel telling
+     * somebody their action did not work. And the popover **under-filled**:
+     * four lines where the constant promises eight, because rows spent on
+     * folding are rows not spent on other lines.
+     *
+     * It also falsified `Notifications/Index.vue`'s claim that the two screens
+     * *"cannot come to disagree about what counts as one line"*. They agreed
+     * about the lines and disagreed about what each one said, which is the
+     * half a reader acts on.
+     *
+     * Folding is cheap and the window was the problem, so this reads the same
+     * page the full screen reads — one indexed query either way — and slices
+     * afterwards. The two screens then cannot disagree by construction.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function previewFor(Person $person): array
+    {
+        return array_slice($this->groupsFor($person, self::PAGE), 0, self::PREVIEW);
     }
 
     /**

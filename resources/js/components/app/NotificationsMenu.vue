@@ -27,6 +27,10 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatRelativeDate } from '@/lib/formatters';
+import {
+    index as notificationsIndex,
+    read as markNotificationsRead,
+} from '@/routes/notifications';
 
 type Group = {
     id: string;
@@ -119,7 +123,7 @@ function markRead(group: Group): void {
      *   article promises. `async` puts this on Inertia's other stream.
      */
     router.post(
-        '/notifications/read',
+        markNotificationsRead.url(),
         { notifications: group.ids },
         {
             async: true,
@@ -132,7 +136,7 @@ function markRead(group: Group): void {
 
 function markAllRead(): void {
     router.post(
-        '/notifications/read',
+        markNotificationsRead.url(),
         {},
         {
             async: true,
@@ -258,7 +262,7 @@ function markAllRead(): void {
 
             <div class="border-t border-border px-3 py-2">
                 <Link
-                    href="/notifications"
+                    :href="notificationsIndex.url()"
                     class="text-13 text-muted-foreground hover:text-foreground"
                 >
                     See all notifications

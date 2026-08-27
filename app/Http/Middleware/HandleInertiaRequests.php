@@ -136,10 +136,7 @@ class HandleInertiaRequests extends Middleware
              * reload the popover fires when it opens.
              */
             'notifications' => $person instanceof Person
-                ? Inertia::optional(fn (): array => $this->notifications->groupsFor(
-                    $person,
-                    NotificationFeed::PREVIEW,
-                ))
+                ? Inertia::optional(fn (): array => $this->notifications->previewFor($person))
                 : null,
             /*
              * The top bar's Report a bug button (issue #176).

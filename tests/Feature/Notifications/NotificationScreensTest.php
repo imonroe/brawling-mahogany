@@ -131,11 +131,16 @@ it('opens a deal in another team by switching to it first', function (): void {
     expect($notification->fresh()->read_at)->not->toBeNull();
 });
 
-it('will not switch a person into a team they have left', function (): void {
+it('will not switch a person into a team the platform has suspended', function (): void {
     /*
-     * A membership revoked since the notification was written must not be
-     * re-established by following a link — which is why the switch asks
-     * `activeTeams()` rather than trusting the row's own `team_id`.
+     * `Notification::forPerson()` now filters on the membership, so a revoked
+     * one is no longer findable at all — covered by *"will not open a
+     * notification from a team the person has left"* above.
+     *
+     * What is left for `open()`'s own `activeTeams()` check is the case the
+     * membership cannot answer: the team is **suspended**. That is a platform
+     * action against the team rather than a statement about this person, so
+     * the row is still theirs and the switch still must not happen.
      */
     [$other] = $this->teamWithMember($this->member);
 
@@ -152,62 +157,15 @@ it('will not switch a person into a team they have left', function (): void {
         },
     );
 
-    /*
-     * Revoked **inside that team's context**: `TeamMembership` is team-scoped
-     * like everything else, so an update issued from the first team's context
-     * matches nothing and the test passes for the wrong reason — which is what
-     * the first version of it did.
-     */
-    app(App\Support\Tenancy\TeamContext::class)->runFor($other, function () use ($other): void {
-        TeamMembership::query()
-            ->where('team_id', $other->getKey())
-            ->where('person_id', $this->member->getKey())
-            ->update(['revoked_at' => now()]);
-    });
+    $other->forceFill(['suspended_at' => now()])->save();
 
     $this->get('/notifications/'.$notification->getKey().'/open')
         ->assertRedirect()
-        // Still in the team they are actually in.
+        // Still in the team they were actually working in.
         ->assertSessionHas(
             App\Http\Middleware\ResolveCurrentTeam::SESSION_KEY,
             $this->team->getKey(),
         );
-});
-
-it('marks the whole folded line read when one of them is opened', function (): void {
-    /*
-     * A folded line stands for as many rows as it folded, so opening it has to
-     * mark the line. Marking one leaves the badge saying three after somebody
-     * has dealt with all three, which is the panel telling them their action
-     * did not work.
-     *
-     * The ids come from `NotificationFeed` rather than from a second copy of
-     * the grouping key, so this also fails if the two ever disagree.
-     */
-    $rows = Notification::factory()->count(3)->create([
-        'team_id' => $this->team->getKey(),
-        'person_id' => $this->member->getKey(),
-        'type' => NotificationType::TaskAssigned->value,
-        'deal_id' => $this->deal->getKey(),
-        'read_at' => null,
-    ]);
-
-    // A different type on the same deal must not be swept up with them.
-    $other = Notification::factory()->create([
-        'team_id' => $this->team->getKey(),
-        'person_id' => $this->member->getKey(),
-        'type' => NotificationType::GateCleared->value,
-        'deal_id' => $this->deal->getKey(),
-        'read_at' => null,
-    ]);
-
-    $this->get('/notifications/'.$rows->first()->getKey().'/open')->assertRedirect();
-
-    foreach ($rows as $row) {
-        expect($row->fresh()->read_at)->not->toBeNull();
-    }
-
-    expect($other->fresh()->read_at)->toBeNull();
 });
 
 it('will not open somebody else’s notification', function (): void {
@@ -226,6 +184,143 @@ it('will not open somebody else’s notification', function (): void {
     $this->get('/notifications/'.$theirs->getKey().'/open')->assertNotFound();
 
     expect($theirs->fresh()->read_at)->toBeNull();
+});
+
+it('stops showing a team’s notifications once the membership is revoked', function (): void {
+    /*
+     * Round 3 of review's first blocking finding, and the distinction it turns
+     * on: `summary` is **snapshotted** at raise time, but `dealName` and
+     * `teamName` are hydrated **live** on every load. So the docblock's claim
+     * that the feed *"reads exactly the deals the person was already told
+     * about"* was true of which rows and false of what they say — a former
+     * member with an account in another team went on receiving team A's
+     * current deal names indefinitely.
+     *
+     * The rename after the revocation is what makes this a leak rather than a
+     * stale line: the name the feed returns is one that did not exist while
+     * they were a member.
+     */
+    [$other] = $this->teamWithMember($this->member);
+
+    $notification = app(App\Support\Tenancy\TeamContext::class)->runFor(
+        $other,
+        function () use ($other): Notification {
+            $deal = Deal::factory()->create([
+                'team_id' => $other->getKey(),
+                'name' => 'While they were a member',
+            ]);
+
+            return Notification::factory()->create([
+                'team_id' => $other->getKey(),
+                'person_id' => $this->member->getKey(),
+                'deal_id' => $deal->getKey(),
+            ]);
+        },
+    );
+
+    // Both teams' lines while the membership stands.
+    $this->get('/notifications')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('groups', 1));
+
+    app(App\Support\Tenancy\TeamContext::class)->runFor($other, function () use ($other): void {
+        TeamMembership::query()
+            ->where('team_id', $other->getKey())
+            ->where('person_id', $this->member->getKey())
+            ->update(['revoked_at' => now()]);
+
+        Deal::query()->whereKey(
+            Notification::query()->where('team_id', $other->getKey())->value('deal_id'),
+        )->update(['name' => 'Renamed after they left']);
+    });
+
+    $this->get('/notifications')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('groups', 0));
+
+    // The badge counts the same rows, so it has to agree.
+    expect(App\Queries\ShellCounts::for($this->member)['notifications'])->toBe(0);
+
+    // And the row is still there — this is a read predicate, not a purge.
+    expect(Notification::withoutTeamScope()->find($notification->getKey()))->not->toBeNull();
+});
+
+it('will not open a notification from a team the person has left', function (): void {
+    /*
+     * The same predicate, one route along. `open()` used to redirect anyway
+     * and merely decline the team switch, which landed somebody on a 404
+     * through Deal's team-scoped binding; now the row is not theirs to find.
+     */
+    [$other] = $this->teamWithMember($this->member);
+
+    $notification = app(App\Support\Tenancy\TeamContext::class)->runFor(
+        $other,
+        function () use ($other): Notification {
+            $deal = Deal::factory()->create(['team_id' => $other->getKey()]);
+
+            return Notification::factory()->create([
+                'team_id' => $other->getKey(),
+                'person_id' => $this->member->getKey(),
+                'deal_id' => $deal->getKey(),
+            ]);
+        },
+    );
+
+    app(App\Support\Tenancy\TeamContext::class)->runFor($other, function () use ($other): void {
+        TeamMembership::query()
+            ->where('team_id', $other->getKey())
+            ->where('person_id', $this->member->getKey())
+            ->update(['revoked_at' => now()]);
+    });
+
+    $this->get('/notifications/'.$notification->getKey().'/open')->assertNotFound();
+});
+
+it('counts a folded burst by everything in it, not by what fits the popover', function (): void {
+    /*
+     * Round 3's second blocking finding. `PREVIEW` is a count of **lines**,
+     * and passing it as `groupsFor()`'s row limit folded a burst inside an
+     * eight-row window: the popover said *"5 tasks were assigned to you"* over
+     * an event that produced twelve, while the full page said twelve.
+     *
+     * The consequence that matters is not the wrong number on its own. The
+     * bell counts rows, `markRead()` posts the group's ids, so pressing it
+     * dropped the badge by five and the line came back — the panel telling
+     * somebody their action did not work.
+     */
+    $burst = Notification::factory()->count(12)->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+        'type' => NotificationType::TaskAssigned->value,
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    $preview = app(App\Support\Notifications\NotificationFeed::class)->previewFor($this->member);
+    $page = app(App\Support\Notifications\NotificationFeed::class)
+        ->groupsFor($this->member, App\Support\Notifications\NotificationFeed::PAGE);
+
+    expect($preview[0]['count'])->toBe($burst->count())
+        // The two screens cannot disagree about what a line says, which is the
+        // half a reader acts on.
+        ->and($preview[0]['summary'])->toBe($page[0]['summary'])
+        ->and($preview[0]['ids'])->toBe($page[0]['ids']);
+});
+
+it('still cuts the popover to its promised length', function (): void {
+    /*
+     * The other half: folding over the whole page rather than an eight-row
+     * window must not turn the popover into the full list.
+     */
+    Notification::factory()->count(App\Support\Notifications\NotificationFeed::PREVIEW + 5)->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+        // A type that never folds, so every row is its own line.
+        'type' => NotificationType::GateOverridden->value,
+        'deal_id' => $this->deal->getKey(),
+    ]);
+
+    expect(app(App\Support\Notifications\NotificationFeed::class)->previewFor($this->member))
+        ->toHaveCount(App\Support\Notifications\NotificationFeed::PREVIEW);
 });
 
 it('shows nobody else’s notifications', function (): void {

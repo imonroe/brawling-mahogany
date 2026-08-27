@@ -68,9 +68,16 @@ class NotifyAboutDeadlines extends Command
             $told += (int) $teams->runFor($team, fn (): int => $this->sweep($team, $notify));
         }
 
+        /*
+         * **Notifications, not people.** `sweep()` returns rows written, and
+         * one person with three tasks due tomorrow produces three of them — so
+         * the old wording reported that as three people. An operator reading
+         * nightly output has no way to tell the two apart, and the number that
+         * is actually true is the one being counted.
+         */
         $this->components->info($told === 1
-            ? 'Told 1 person about a deadline.'
-            : "Told {$told} people about deadlines.");
+            ? 'Sent 1 deadline reminder.'
+            : "Sent {$told} deadline reminders.");
 
         return self::SUCCESS;
     }

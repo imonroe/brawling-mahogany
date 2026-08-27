@@ -590,15 +590,24 @@ it('bounds every notification delete by the team it is purging', function (): vo
 
     $this->artisan('records:purge')->assertSuccessful();
 
+    /*
+     * **On `read_at`, not on the table name**, and round 3 of review is why.
+     * `purgeableTables()` discovers `notifications` too, so `purgeRowsFor()`
+     * issues its own `delete from "notifications" … "deleted_at" …` per team
+     * whether or not a row matches — measured at four statements with no
+     * notifications in the database at all. Matching the table alone meant the
+     * control below stayed green with this sweep deleted entirely.
+     */
     $deletes = array_values(array_filter(
         DB::getQueryLog(),
-        static fn (array $entry): bool => str_contains($entry['query'], 'delete from "notifications"'),
+        static fn (array $entry): bool => str_contains($entry['query'], 'delete from "notifications"')
+            && str_contains($entry['query'], '"read_at"'),
     ));
 
     DB::disableQueryLog();
 
-    // The control: if the sweep stopped running, the loop below asserts
-    // nothing and this test would pass against a deleted method.
+    // The control: if this sweep stopped running, the loop below would assert
+    // nothing and the test would pass against a deleted method.
     expect($deletes)->not->toBeEmpty();
 
     foreach ($deletes as $entry) {

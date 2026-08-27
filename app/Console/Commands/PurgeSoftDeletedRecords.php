@@ -92,8 +92,8 @@ class PurgeSoftDeletedRecords extends Command
 
         $this->info(
             "Purged {$purgedRows} records, {$purgedPeople} people, ".
-            "{$purgedStaging} expired exports, abandoned uploads and drafts, ".
-            "and {$purgedTeams} teams past the {$days}-day window.",
+            "{$purgedStaging} expired exports, abandoned uploads, drafts and read ".
+            "notifications, and {$purgedTeams} teams past the {$days}-day window.",
         );
 
         return self::SUCCESS;
@@ -352,7 +352,12 @@ class PurgeSoftDeletedRecords extends Command
      *
      *     forceDelete(): delete from "notifications" where "read_at" < …
      *     toBase():      delete from "notifications" where "read_at" < …
-     *                      and "team_id" = '01TEAM…'
+     *                      and "team_id" = … and "deleted_at" is null
+     *
+     * (`toBase()` applies `SoftDeletingScope` as well, which is where the
+     * `deleted_at` predicate comes from, and the team appears twice because
+     * the explicit `where` sits beside `TeamScope`'s. Neither costs anything
+     * and both are the point: the statement says what bounds it.)
      *
      * Every team is visited by the loop above, so the *rows* that end up gone
      * are the same set today. That is not a reason to leave it: it made
@@ -368,6 +373,10 @@ class PurgeSoftDeletedRecords extends Command
      * above rejects for the same reason. The team is also named explicitly,
      * because a destructive statement should say what it is bounded by rather
      * than inherit it.
+     *
+     * The `deleted_at is null` that `SoftDeletingScope` adds leaves nothing
+     * unreachable: `notifications` carries `BelongsToTeam`, so a row that ever
+     * were soft-deleted is swept by `purgeRowsFor()` on `deleted_at` instead.
      */
     private function purgeReadNotifications(Team $team, CarbonInterface $cutoff): int
     {

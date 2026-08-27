@@ -24,6 +24,7 @@ import Card from '@/components/app/Card.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { update as updateNotifications } from '@/routes/notification-preferences';
 
 type Type = {
     value: string;
@@ -71,7 +72,7 @@ function submit(): void {
         // validator refuses one half of a window, so both go together.
         quiet_hours_start: data.quiet_hours_start || null,
         quiet_hours_end: data.quiet_hours_end || null,
-    })).patch('/settings/notifications', { preserveScroll: true });
+    })).patch(updateNotifications.url(), { preserveScroll: true });
 }
 </script>
 

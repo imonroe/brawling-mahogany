@@ -71,7 +71,7 @@ class Notification extends Model
     }
 
     /**
-     * This person's notifications, **across every team they are in**.
+     * This person's notifications, across every team they are **still** in.
      *
      * The one read in the product that lifts the team scope on purpose, and
      * issue #101 asks for it: *"a person in two teams needs to know which one
@@ -84,13 +84,59 @@ class Notification extends Model
      * is the person's own id, the rows are ones addressed to them, and the
      * team each belongs to is shown on the line rather than hidden.
      *
+     * ## The membership predicate, and what its absence cost
+     *
+     * Round 3 of review found the sentence above true of **which rows** and
+     * false of **what they say**. `summary` is snapshotted at raise time by
+     * `Notify::line()`, but `NotificationFeed` hydrates `dealName` and
+     * `teamName` **live** on every load — so a person whose membership was
+     * revoked, and who still holds an account because they are in another
+     * team, went on receiving team A's current deal names indefinitely.
+     * Measured: the membership revoked, the deal then renamed, and the feed
+     * returned the new name.
+     *
+     * `deals.name` falls back to `generated_name`, which `NameDeal` derives
+     * from the subject property's address and the roster — so for the ordinary
+     * deal that is a client's address and a client's name, delivered to
+     * somebody the team removed. An **unread** notification is never purged
+     * (`records:purge` sweeps on `read_at`), so it does not age out either.
+     *
+     * `open()` already knew revocation mattered — it refuses the team switch
+     * unless `activeTeams()` still contains the team. The predicate belongs
+     * here rather than there, because putting it at one call site is
+     * `CLAUDE.md`'s *"a rule enforced at call sites is enforced at some call
+     * sites"*: the feed, `ShellCounts`' badge, `read()` and `open()` are four
+     * readers, and the fourth is the one written without the rule.
+     *
+     * A subquery rather than a loaded list of ids, so `ShellCounts` stays the
+     * one round trip `PeopleIndexBudgetTest` holds it to.
+     *
+     * ## Revocation only, and deliberately not the rest of `activeTeams()`
+     *
+     * `Person::activeTeams()` asks three further things — the membership
+     * carries a team-surface permission, the team is not suspended, the team
+     * is not deleted. None of them belongs here, and `carryingAccess()` is the
+     * one worth naming because adding it was tried and reverted: `Notify`
+     * writes a row for a task's assignee whatever roles they hold, so reading
+     * more strictly than writing would manufacture rows nobody can ever see —
+     * `CLAUDE.md`'s *"a row nothing can reach"*, created by the fix for a
+     * leak.
+     *
+     * That is also what keeps `open()`'s own `activeTeams()` check honest
+     * rather than dead: a suspended team, a deleted one, or a membership
+     * stripped of its roles all still reach it.
+     *
      * @param  Builder<self>  $query
      * @return Builder<self>
      */
     public function scopeForPerson(Builder $query, Person $person): Builder
     {
         return $query->withoutGlobalScope(TeamScope::class)
-            ->where('person_id', $person->getKey());
+            ->where('person_id', $person->getKey())
+            ->whereIn('team_id', TeamMembership::withoutTeamScope()
+                ->select('team_id')
+                ->where('person_id', $person->getKey())
+                ->whereNull('revoked_at'));
     }
 
     /**

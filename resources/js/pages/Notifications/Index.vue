@@ -23,6 +23,7 @@ import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import { formatRelativeDate } from '@/lib/formatters';
+import { read as markNotificationsRead } from '@/routes/notifications';
 
 type Group = {
     id: string;
@@ -66,7 +67,7 @@ function markRead(group: Group): void {
     }
 
     router.post(
-        '/notifications/read',
+        markNotificationsRead.url(),
         { notifications: group.ids },
         { async: true, preserveScroll: true },
     );
@@ -74,7 +75,7 @@ function markRead(group: Group): void {
 
 function markAllRead(): void {
     router.post(
-        '/notifications/read',
+        markNotificationsRead.url(),
         {},
         { async: true, preserveScroll: true },
     );
