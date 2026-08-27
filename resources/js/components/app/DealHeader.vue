@@ -17,13 +17,13 @@
  *
  * ## The tabs that have no screen yet
  *
- * Dates (S18) and Documents (S21) are later slices. They are rendered, and
- * disabled, with a title naming the slice —
- * `Tab` already draws a hrefless tab as a `<button>`. Visible, so the shape of
- * a deal is honest; inert, so nothing offers a route that 404s. §7.3's "hide
- * rather than disable" rule is about **permission**: a section somebody may
- * not use should not advertise itself. A section nobody can use yet is a
- * different case and reads as one.
+ * None, as of Slice 4. Dates (S18) was the last one, and the mechanism stays:
+ * `arrivesWith` renders a tab disabled with a title naming its slice, and
+ * `Tab` draws a hrefless tab as a `<button>`. Visible, so the shape of a deal
+ * is honest; inert, so nothing offers a route that 404s. §7.3's "hide rather
+ * than disable" rule is about **permission** — a section somebody may not use
+ * should not advertise itself — and a section nobody can use *yet* is a
+ * different case that reads as one.
  *
  * **Offers is absent entirely**, which is IA §5.2 read literally: *"hidden
  * when empty and the deal type has no offers."* There is no `offers` table in
@@ -68,6 +68,7 @@ export type DealHeaderProps = {
         tasks: number;
         offers: number;
         documents: number;
+        dates: number;
     };
     /** Whether this deal's type has offers at all (IA §5.2 · #73). */
     hasOffers: boolean;
@@ -108,7 +109,12 @@ const tabs = computed<TabSpec[]>(() => [
         count: props.deal.counts.tasks,
         arrivesWith: null,
     },
-    { label: 'Dates', segment: 'dates', count: null, arrivesWith: 'S18' },
+    {
+        label: 'Dates',
+        segment: 'dates',
+        count: props.deal.counts.dates,
+        arrivesWith: null,
+    },
     {
         label: 'People',
         segment: 'people',

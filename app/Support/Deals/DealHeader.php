@@ -7,6 +7,7 @@ namespace App\Support\Deals;
 use App\Models\Deal;
 use App\Models\DealParticipant;
 use App\Models\DealProperty;
+use App\Models\KeyDate;
 use App\Models\Stage;
 use App\Models\Task;
 use App\Models\Workflow;
@@ -74,6 +75,16 @@ final class DealHeader
                  * except S21, which loads its own.
                  */
                 'documents' => $deal->documents()->count(),
+                /*
+                 * The deadlines this deal actually has (#106, #107).
+                 *
+                 * **Confirmed ones only.** An extracted date nobody has agreed
+                 * to is shown on S18 so somebody can agree to it, and counted
+                 * nowhere — #107: *"it must not be counted as a deadline until
+                 * confirmed."* A tab badge is exactly the kind of place a
+                 * proposal would quietly become a fact.
+                 */
+                'dates' => KeyDate::query()->confirmed()->where('deal_id', $deal->getKey())->count(),
             ],
             /*
              * Whether this deal's type has offers at all (IA §5.2 · #73).

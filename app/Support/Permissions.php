@@ -304,7 +304,21 @@ final class Permissions
             SystemRole::SuperAdministrator->value => [self::ADMINISTER_PLATFORM, self::IMPERSONATE],
             SystemRole::TeamOwner->value => $teamOwner,
             SystemRole::TeamMember->value => $teamMember,
-            SystemRole::StatusViewer->value => [],
+            /*
+             * Slice 4 (#110) hands them the one permission on their own
+             * surface, which is what `VIEW_STATUS_PAGE`'s docblock said this
+             * issue would decide.
+             *
+             * **Nothing about team membership changes.** `PermissionSurface::
+             * Client` is what decides that, not the count of permissions, so a
+             * Status Viewer is still not on `/settings/members`, still not in
+             * the People index's Team segment, and still removable by somebody
+             * without `team.members.manage`. `TeamAccessConventionTest` holds
+             * that, and it held it before this line existed — which is the
+             * whole reason the surface column was added ahead of the role
+             * needing it.
+             */
+            SystemRole::StatusViewer->value => [self::VIEW_STATUS_PAGE],
             SystemRole::Contact->value => [],
         ];
     }

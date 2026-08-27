@@ -7,6 +7,7 @@
  * the wrong lifetime for both.
  */
 
+import { xsrfToken } from '@/lib/csrf';
 import { OFFLINE_CACHE } from '@/lib/pwaCache';
 
 /**
@@ -17,21 +18,6 @@ import { OFFLINE_CACHE } from '@/lib/pwaCache';
  * cache was filled, and a value that dies with the session cannot say that.
  */
 const IDENTITY_KEY = 'goldieflow.offline.identity';
-
-/**
- * Laravel's CSRF token, from the cookie it sets rather than from a meta tag.
- *
- * This application renders no `csrf-token` meta — Inertia's client reads the
- * `XSRF-TOKEN` cookie and sends it back as `X-XSRF-TOKEN`, and the value is
- * URL-encoded in the cookie. Adding a meta tag for one `fetch` would be a
- * second source for the same secret, and the two would drift the first time
- * somebody rotated how it is issued.
- */
-function xsrfToken(): string | null {
-    const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-
-    return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
 
 /**
  * Empty the offline cache, from the page.

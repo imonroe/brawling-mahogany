@@ -154,6 +154,29 @@ const SANCTIONED_TEAM_ROLE_KEY_USES = [
             'it is the address a team always has and the one the sandbox rail redirects to.',
     ],
 
+    'Support/StatusPage/ClientStatus.php' => [
+        // Two, and only one of them is a role: the Team Owner lookup, plus the
+        // `contact` prop key — the same false positive ActivityCategory
+        // carries, since `contact` is both a system role key and an ordinary
+        // English word this product uses for what F7.6 calls the contact block.
+        'count' => 2,
+        'reason' => 'The same last link SendingIdentity has, on the client\'s own page: '.
+            'F7.6 needs a name and a number to ring, `deals` has no owning-agent column, '.
+            'and a client told to call "your agent" with no name has been told nothing. '.
+            'The named role rather than a permission for the same reason — an owner is '.
+            'the person a team always has — and through holdingSystemRole(), so a team\'s '.
+            'own role called "Team Owner" is not one.',
+    ],
+
+    'Http/Controllers/StatusPage/StatusPageController.php' => [
+        // Both are the `contact` prop key, passed through to S62 and to S63.
+        'count' => 2,
+        'reason' => 'A false positive of exactly the kind ActivityCategory carries: '.
+            '`contact` is both a system role key and the ordinary English word for what '.
+            'F7.6 calls the contact block. Nothing here filters on a role at all, and '.
+            'listing it beats widening the pattern until it stops catching the real thing.',
+    ],
+
     'Models/Role.php' => [
         'count' => 1,
         'reason' => 'assignableWithinTeam() keeps Super Administrator off a team’s own '.

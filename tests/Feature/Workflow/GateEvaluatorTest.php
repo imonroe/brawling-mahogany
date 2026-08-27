@@ -6,11 +6,13 @@ use App\Enums\AutomationState;
 use App\Models\ActionInstance;
 use App\Models\Deal;
 use App\Models\Gate;
+use App\Models\KeyDate;
 use App\Models\Stage;
 use App\Models\Task;
 use App\Models\Workflow;
 use App\Support\Workflow\Gates\GateRegistry;
 use App\Support\Workflow\Gates\UnknownGateType;
+use Illuminate\Support\Carbon;
 
 /**
  * The seven evaluators, each in isolation (issue #67).
@@ -204,21 +206,31 @@ it('refuses an approval gate that names no role', function (): void {
 /**
  * Issue #67: *"the three deferred evaluators return an explanatory unmet,
  * never a silent false, and each names the issue that will wire it."*
+ *
+ * **All three are wired now.** `document_present` left with S21 (#98, #104),
+ * `action_completed` with the send path (#92), and `date_reached` with the
+ * contingency calendar (#109) — so the dataset is empty and the mechanism is
+ * asserted directly below instead, against a verdict built by hand.
+ *
+ * The alternative was deleting this, and that is worse: the *rule* is still
+ * live. A gate type added in Slice 5 or 6 will be deferred exactly the same
+ * way, and this is where the shape it must take is written down.
  */
-it('explains a deferred gate rather than failing silently', function (string $type, string $issue): void {
-    $verdict = verdictFor(gateOfType($type));
+it('says which issue will wire a gate type that is still deferred', function (): void {
+    $verdict = App\Support\Workflow\Gates\GateVerdict::notYetWired(
+        'This stage is waiting for something Slice 6 will build.',
+        '#131',
+    );
 
     expect($verdict->met)->toBeFalse()
-        ->and($verdict->explanation)->toContain($issue)
+        ->and($verdict->explanation)->toContain('#131')
         ->and($verdict->explanation)->toContain('not wired up yet')
+        // Unmet rather than met, because a gate that has not been built cannot
+        // have been satisfied — the safe direction on a gate is always closed.
+        ->and($verdict->explanation)->toContain('override it with a reason')
         ->and($verdict->linkTarget['type'])->toBe('awaiting_slice')
-        ->and($verdict->linkTarget['issue'])->toBe($issue);
-})->with([
-    // `document_present` left this list when S21 landed (#98, #104). What it
-    // does instead is asserted below, because a type quietly dropped from a
-    // dataset is a type nothing covers.
-    'date reached' => ['date_reached', '#109'],
-]);
+        ->and($verdict->linkTarget['issue'])->toBe('#131');
+});
 
 it('sends somebody to the upload that clears a document gate', function (): void {
     /*
@@ -331,3 +343,124 @@ it('says so when a document gate looks somewhere nothing can attach', function (
         // editing the template, not visiting a screen.
         ->and($verdict->linkTarget)->toBe([]);
 })->with(['stage', 'property']);
+
+/*
+ * ---------------------------------------------------------------------------
+ * date_reached (#109)
+ * ---------------------------------------------------------------------------
+ *
+ * The second of the two evaluators CLAUDE.md named as owing a *"is this path
+ * actually reachable"* check. It is reachable from both ends now: S43
+ * configures the date this gate names, and S18 is where somebody moves it.
+ */
+
+it('clears a date gate on the day the date lands, and not before', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-14 12:00:00', 'UTC'));
+
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Inspection objection',
+        'date' => '2026-09-15',
+    ]);
+
+    $gate = gateOfType('date_reached', ['keyDateName' => 'Inspection objection']);
+
+    expect(verdictFor($gate)->met)->toBeFalse()
+        ->and(verdictFor($gate)->explanation)->toContain('has not arrived yet')
+        // PRD §5.4: the link goes to the thing somebody does about it, which
+        // for a date is looking at it — and moving it if the contract moved.
+        ->and(verdictFor($gate)->linkTarget['type'])->toBe('key_date');
+
+    /*
+     * **Today counts.** A deadline of the 15th has been reached on the 15th; a
+     * gate that waited until the 16th would hold a stage for a day nobody
+     * agreed to.
+     */
+    Carbon::setTestNow(Carbon::parse('2026-09-15 06:00:00', 'UTC'));
+
+    expect(verdictFor($gate)->met)->toBeTrue();
+
+    Carbon::setTestNow();
+});
+
+it('reads the day in the team’s calendar, not in UTC', function (): void {
+    $this->team->forceFill(['timezone' => 'America/Denver'])->save();
+    $this->withTeam($this->team->refresh());
+
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Closing',
+        'date' => '2026-09-15',
+    ]);
+
+    $gate = gateOfType('date_reached', ['keyDateName' => 'Closing']);
+
+    /*
+     * 01:00 UTC on the 15th is still the **14th** in Denver, and a gate that
+     * cleared then would have advanced a stage a day early — the mirror of the
+     * defect `Task::state()` records, where a task read as overdue while the
+     * reader still had six hours of their working day.
+     */
+    Carbon::setTestNow(Carbon::parse('2026-09-15 01:00:00', 'UTC'));
+
+    expect(verdictFor($gate)->met)->toBeFalse();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-15 18:00:00', 'UTC'));
+
+    expect(verdictFor($gate)->met)->toBeTrue();
+
+    Carbon::setTestNow();
+});
+
+it('matches the date by name however either side typed it', function (): void {
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => '  Inspection Objection ',
+        'date' => now()->subDay()->toDateString(),
+    ]);
+
+    expect(verdictFor(gateOfType('date_reached', ['keyDateName' => 'inspection objection']))->met)
+        ->toBeTrue();
+});
+
+it('says so when the deal has no date of that name', function (): void {
+    $verdict = verdictFor(gateOfType('date_reached', ['keyDateName' => 'Inspection objection']));
+
+    /*
+     * An advance blocked by a requirement nobody can clear is worse than one
+     * blocked by a requirement somebody can, because the second has a next
+     * action. This one does: add the date.
+     */
+    expect($verdict->met)->toBeFalse()
+        ->and($verdict->explanation)->toContain('has no date called')
+        ->and($verdict->linkTarget['type'])->toBe('key_date');
+});
+
+it('refuses a date gate that names nothing', function (): void {
+    $verdict = verdictFor(gateOfType('date_reached'));
+
+    expect($verdict->met)->toBeFalse()
+        ->and($verdict->explanation)->toContain('does not say which date');
+});
+
+it('is not cleared by a date nobody has confirmed', function (): void {
+    /*
+     * PRD §4.10: extraction never writes into a live record without human
+     * confirmation, and clearing a gate is writing into the record by another
+     * door.
+     */
+    KeyDate::factory()->pending()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Closing',
+        'date' => now()->subWeek()->toDateString(),
+    ]);
+
+    $verdict = verdictFor(gateOfType('date_reached', ['keyDateName' => 'Closing']));
+
+    expect($verdict->met)->toBeFalse()
+        ->and($verdict->explanation)->toContain('has no date called');
+});

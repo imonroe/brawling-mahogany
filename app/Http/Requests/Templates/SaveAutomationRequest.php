@@ -88,6 +88,28 @@ class SaveAutomationRequest extends FormRequest
                 'max:200',
             ],
             'config.taskDueOffsetDays' => ['nullable', 'integer', 'between:-365,365'],
+            /*
+             * F5.3's *a number of days from a key date* (#106).
+             *
+             * The name is free text and has to be: it is matched against
+             * whatever the team calls that date on each deal, and a picker
+             * would have to enumerate dates that do not exist yet. What the
+             * rules do enforce is that it is *present* — a `key_date_offset`
+             * automation naming nothing fires on nothing, which is an
+             * automation somebody believes is running.
+             */
+            'config.keyDateName' => [
+                Rule::requiredIf(fn (): bool => $this->chosenTrigger()?->needsKeyDate() === true),
+                Rule::excludeIf(fn (): bool => $this->chosenTrigger()?->needsKeyDate() !== true),
+                'string',
+                'max:120',
+            ],
+            'config.offsetDays' => [
+                Rule::excludeIf(fn (): bool => $this->chosenTrigger()?->needsKeyDate() !== true),
+                'nullable',
+                'integer',
+                'between:-365,365',
+            ],
             'config.instruction' => [
                 Rule::requiredIf(fn (): bool => $action === AutomationActionType::ManualPrompt),
                 Rule::excludeIf(fn (): bool => $action !== AutomationActionType::ManualPrompt),
@@ -108,6 +130,7 @@ class SaveAutomationRequest extends FormRequest
             'message_template_id.prohibited' => 'This kind of automation does not send a message, so it has no template.',
             'message_template_id.required' => 'This automation sends a message, so it needs a template to send.',
             'config.gateTemplateId.required' => 'Choose which requirement clearing should start this.',
+            'config.keyDateName.required' => 'Name the date this counts from — the same name the deal uses for it.',
             'config.taskTitle.required' => 'Give the task a title.',
             'config.instruction.required' => 'Say what somebody should do.',
         ];

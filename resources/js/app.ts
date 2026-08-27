@@ -23,6 +23,7 @@ const DEAL_TAB_PAGES = [
     'Deals/Overview',
     'Deals/Timeline',
     'Deals/Tasks',
+    'Deals/Dates',
     'Deals/People',
     'Deals/Properties',
     'Deals/Offers',

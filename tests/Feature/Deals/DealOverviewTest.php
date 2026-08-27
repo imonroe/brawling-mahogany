@@ -793,6 +793,7 @@ it('gives the people and properties tabs the same header the overview has', func
             'tasks' => 0,
             'offers' => 0,
             'documents' => 0,
+            'dates' => 0,
         ]);
 
     expect($header($people))->toBe($header($overview))

@@ -24,10 +24,15 @@
 import {
     Activity,
     ArrowRight,
+    CalendarClock,
+    CalendarPlus,
     CircleCheck,
     CircleSlash,
+    Download,
+    Eye,
     FileSignature,
     Flag,
+    GitBranch,
     House,
     Import,
     Link2,
@@ -202,6 +207,49 @@ const EVENT_TYPES: Record<string, ActivityDescriptor> = {
     'offer.added': { icon: FileSignature, tone: 'neutral' },
     'offer.status_changed': { icon: Scale, tone: 'neutral' },
     'offer.removed': { icon: Trash2, tone: 'neutral' },
+
+    /*
+     * Dates & Deadlines (S18 · #106, #107). All four **neutral**, including
+     * the cascade — §7.3 tints a *completion*, a message the product sent, and
+     * an override, and a date moving is none of them. It is a fact about the
+     * contract, and the row that matters most (`key_date.cascaded`) is
+     * findable by its glyph rather than by its colour.
+     *
+     * `GitBranch` for the cascade rather than a second flag: it is the one row
+     * on the feed that describes *several* dates moving because one did, and
+     * the shape says so without the summary.
+     */
+    'key_date.added': { icon: Flag, tone: 'neutral' },
+    'key_date.moved': { icon: CalendarClock, tone: 'neutral' },
+    'key_date.cascaded': { icon: GitBranch, tone: 'neutral' },
+    'key_date.removed': { icon: Trash2, tone: 'neutral' },
+
+    /*
+     * The calendar (S57, S58 · #105). Neutral for the same reason, and
+     * `CalendarPlus` / `CalendarClock` keep *added* and *moved* apart: the
+     * question somebody chases six weeks later is *"when did the inspection
+     * get pushed?"*, and burying that under a generic "edited" is how the
+     * answer stops being findable.
+     */
+    'event.added': { icon: CalendarPlus, tone: 'neutral' },
+    'event.moved': { icon: CalendarClock, tone: 'neutral' },
+    'event.edited': { icon: PenLine, tone: 'neutral' },
+    'event.removed': { icon: Trash2, tone: 'neutral' },
+
+    /*
+     * The client's own page (#110, #111). Neutral, all four: §7.3 tints a
+     * completion, a message the product sent, and an override — and a client
+     * opening their status page is none of them. It is on the feed because
+     * *"has the client looked?"* is a question an agent asks, and the audit
+     * log is not a screen they work from (IA §11 keeps the two apart).
+     *
+     * `Link2Off` for the revoke, matching `property.unlinked` — access taken
+     * away is the same shape of event as a link removed.
+     */
+    'status_page.link_issued': { icon: Link2, tone: 'neutral' },
+    'status_page.opened': { icon: Eye, tone: 'neutral' },
+    'status_page.document_downloaded': { icon: Download, tone: 'neutral' },
+    'status_page.link_revoked': { icon: Link2Off, tone: 'neutral' },
 
     'stage.skipped': { icon: CircleSlash, tone: 'neutral' },
     'stage.reopened': { icon: RotateCcw, tone: 'neutral' },

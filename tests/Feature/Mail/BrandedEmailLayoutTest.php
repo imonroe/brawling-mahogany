@@ -6,6 +6,7 @@ use App\Actions\Teams\ProvisionTeam;
 use App\Mail\AutomatedMessageMail;
 use App\Mail\InternalAlertMail;
 use App\Mail\MessageTemplateTestMail;
+use App\Mail\StatusPageLinkMail;
 use App\Mail\TeamInvitationMail;
 use App\Models\ActionInstance;
 use App\Models\Deal;
@@ -244,8 +245,9 @@ it('renders every mailable in the product without throwing', function (): void {
      * test of these three mailables runs under `Mail::fake()`, which records
      * the mailable and **never executes its view** — so a broken Blade
      * expression in any of them passes the whole suite and fails in front of a
-     * client. There are four, they all extend one layout now, and one of them
-     * cannot be reached without a queue, an approval and a rail.
+     * client. They all extend one layout, and two of them cannot be reached
+     * without a queue, an approval and a rail — or, for the client's magic
+     * link, without a token nobody can produce from a test double.
      *
      * A new mailable belongs in this list, beside its entry in
      * `EmailIndependence::FLOWS`.
@@ -266,6 +268,19 @@ it('renders every mailable in the product without throwing', function (): void {
         new AutomatedMessageMail($instance, $instance->rendered(), $this->team, redirected: true),
         new MessageTemplateTestMail($template, $instance->rendered(), $this->team),
         new TeamInvitationMail($invitation, TeamInvitation::newToken()),
+        /*
+         * S89 (#110). The one message in the product written for somebody who
+         * has never used it — which is exactly the message a broken Blade
+         * expression would be worst in, because its reader has no idea what it
+         * was supposed to look like.
+         */
+        new StatusPageLinkMail(
+            team: $this->team,
+            clientName: 'Dana Okafor',
+            url: 'https://example.test/s/'.str_repeat('a', 43),
+            minutes: 30,
+            what: 'Your Sale',
+        ),
     ];
 
     /*

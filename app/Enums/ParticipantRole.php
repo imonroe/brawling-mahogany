@@ -31,6 +31,22 @@ enum ParticipantRole: string implements HasLabel
     case Attorney = 'attorney';
     case Other = 'other';
 
+    /**
+     * Whether this participant is on **the team's** side of the deal (#111).
+     *
+     * Only `co_agent`. Every other role is the client, the other side, or a
+     * vendor — and the distinction matters on exactly one surface: the client
+     * status page names the person to ring, and naming the *opposing* agent
+     * there would be the worst possible answer to *"who do I call?"*.
+     *
+     * Deliberately not a list of *"internal-ish"* roles. A lender and a title
+     * company are the team's contacts and are not the team.
+     */
+    public function isTeamSide(): bool
+    {
+        return $this === self::CoAgent;
+    }
+
     public function label(): string
     {
         return match ($this) {

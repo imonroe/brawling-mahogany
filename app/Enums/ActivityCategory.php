@@ -82,7 +82,13 @@ enum ActivityCategory: string implements HasLabel
             // automated message is something the *product* did on the team's
             // behalf. A reader filtering to Contact Log is asking "when did we
             // last speak to them", and an automated stage email is not that.
-            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note', 'offer', 'message'],
+            //
+            // `key_date` joins them with Slice 4 (#106). A date moving is a
+            // fact about the deal — and a cascade is a fact about several of
+            // them at once — so it sits with the workflow rather than getting
+            // a category of its own: a filter with a tab holding one prefix is
+            // a tab nobody presses.
+            self::Deals => ['workflow', 'stage', 'gate', 'milestone', 'participant', 'task', 'note', 'offer', 'message', 'key_date', 'event', 'status_page'],
             self::People => ['person'],
             self::Properties => ['property'],
         };

@@ -3,7 +3,12 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Activity\ActivityController;
+use App\Http\Controllers\Calendar\CalendarController;
+use App\Http\Controllers\Calendar\CalendarFeedController;
+use App\Http\Controllers\Calendar\EventController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Dates\DateListController;
+use App\Http\Controllers\Dates\DealDateController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
 use App\Http\Controllers\Deals\ConfirmGateController;
 use App\Http\Controllers\Deals\DealDocumentController;
@@ -17,6 +22,7 @@ use App\Http\Controllers\Deals\OfferController;
 use App\Http\Controllers\Deals\OverrideGateController;
 use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
+use App\Http\Controllers\Deals\StatusPageAccessController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\Documents\DocumentController;
@@ -34,12 +40,15 @@ use App\Http\Controllers\Pwa\ServiceWorkerController;
 use App\Http\Controllers\Pwa\WebManifestController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Settings\RoleController;
+use App\Http\Controllers\StatusPage\StatusDocumentController;
+use App\Http\Controllers\StatusPage\StatusPageController;
 use App\Http\Controllers\Teams\InvitationController;
 use App\Http\Controllers\Teams\TeamSwitchController;
 use App\Http\Controllers\Templates\AutomationController;
 use App\Http\Controllers\Templates\StageTemplateController;
 use App\Http\Controllers\Templates\TemplateController;
 use App\Http\Controllers\WorkController;
+use App\Http\Middleware\ClientSurfaceHeaders;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -75,13 +84,111 @@ Route::get('sw.js', ServiceWorkerController::class)->name('pwa.service-worker');
 Route::get('manifest.webmanifest', WebManifestController::class)->name('pwa.manifest');
 
 /*
+ * The `.ics` feed itself (PRD §4.8 F8.3 · S60 · #108).
+ *
+ * **Outside `auth` and `team`.** The reader is Google's fetcher or Apple's,
+ * with no cookie and no idea what a tenant is — the token establishes the
+ * team, ADR 0002's stated exception and the same one the status page makes.
+ *
+ * Throttled, because #108 asks for it: a feed URL is pasted into services that
+ * poll on their own schedule, and one that has been shared four times is four
+ * pollers. The limit is generous — a calendar client fetches every few hours,
+ * not every few seconds — so it bounds abuse without breaking a subscription
+ * somebody legitimately has on a laptop, a phone and a shared team calendar.
+ *
+ * The `.ics` suffix is part of the path rather than a query parameter: several
+ * clients decide how to treat a URL by its extension before they have read a
+ * single header.
+ */
+Route::get('calendar/feeds/{token}.ics', [CalendarFeedController::class, 'show'])
+    ->middleware('throttle:60,1,calendar-feed-fetch')
+    ->where('token', '[A-Za-z0-9]+')
+    ->name('calendar.feeds.show');
+
+/*
+ * The client status page (PRD §4.7 · IA §6 · #110, #111).
+ *
+ * **Outside `auth`, outside `team`, and outside `verified`.** A client has no
+ * account, no membership and no session — the token is what establishes the
+ * tenant, which is ADR 0002's stated exception and the one an invitation
+ * already makes.
+ *
+ * `/s/{token}` is IA §6's route, *"short and opaque"*, and it takes both of
+ * #110's credentials: a 30-minute single-use link and the session it mints.
+ * `StatusPageController` explains which is which and why the session token is
+ * in the path rather than in a cookie.
+ *
+ * `/s/expired` is registered **before** the wildcard, or the word `expired`
+ * would be read as a token — a 404 dressed as the very screen it should be.
+ *
+ * `ClientSurfaceHeaders` puts `no-referrer`, `noindex` and a private
+ * `Cache-Control` on every one of these, which is a rule these routes need
+ * and nothing else does.
+ *
+ * The **throttle is on the group**, not on the page route. It sat on
+ * `s/{token}` alone, and `s/{token}/documents` resolves a session token by
+ * exactly the same mechanism and answers an unknown one exactly the same way
+ * — so the limit was bypassable by appending a path segment. A 256-bit token
+ * makes that impractical rather than harmless, and a stated control that does
+ * not cover what its comment claims is worse than a missing one.
+ *
+ * Both are **named** limiters (`AppServiceProvider::configureClientSurfaceLimits()`)
+ * and not `throttle:n,m`. Two inline throttles on one request share a bucket:
+ * the guest key is `sha1(domain|ip)` with no route in it, so `s/request` spent
+ * two hits of one budget and every page view ate the mail allowance.
+ *
+ * ## And every other `throttle:n,m` in this file carries a prefix
+ *
+ * The same defect, one scope wider, and it took a second look to see: for a
+ * signed-in person `ThrottleRequests` keys on the **person's id alone** — no
+ * route, no name — so every inline throttle in the app incremented one counter
+ * and each compared it against its own maximum. The effective limit on any
+ * route was the tightest number among every throttled route that person had
+ * touched in the last minute.
+ *
+ * Ten presses of *Check what moves* (its own limit 120, and the one route in
+ * the product deliberately written to be pressed on a keystroke) refused the
+ * first-ever **Send a test** with a 429. The third argument is the bucket, and
+ * with it the numbers beside each route mean what they say.
+ *
+ * **A new throttled route needs a prefix**, or it joins whichever bucket it
+ * happens to collide with and quietly borrows its limit.
+ */
+Route::middleware([ClientSurfaceHeaders::class, 'throttle:client-surface'])->group(function (): void {
+    Route::get('s/expired', [StatusPageController::class, 'expiredPage'])->name('status.expired');
+
+    /*
+     * S64's escape hatch, and an email-sending endpoint anybody can hit — so
+     * it carries a global throttle as well as the per-address one the
+     * controller applies. Neither alone is enough: a global limit lets one
+     * attacker spend everybody's budget, and a per-address limit alone lets a
+     * script walk a list.
+     */
+    Route::post('s/request', [StatusPageController::class, 'request'])
+        ->middleware('throttle:client-link-request')
+        ->name('status.request');
+
+    /*
+     * The bytes of a client-visible document, before the wildcard page route
+     * so `{token}/documents/{document}` is not read as a page.
+     */
+    Route::get('s/{token}/documents/{document}', StatusDocumentController::class)
+        ->name('status.documents.show');
+    Route::get('s/{token}/documents', [StatusPageController::class, 'documents'])
+        ->name('status.documents');
+
+    Route::get('s/{token}', [StatusPageController::class, 'show'])
+        ->name('status.show');
+});
+
+/*
  * Accepting an invitation happens before there is a membership to resolve, so
  * it sits outside the team middleware. The token is what establishes the team
  * (ADR 0002), and nothing else.
  */
 Route::get('invitations/{token}', [InvitationController::class, 'show'])->name('invitations.show');
 Route::post('invitations/{token}', [InvitationController::class, 'accept'])
-    ->middleware('throttle:10,1')
+    ->middleware('throttle:10,1,invitation-accept')
     ->name('invitations.accept');
 
 /*
@@ -96,7 +203,7 @@ Route::post('invitations/{token}', [InvitationController::class, 'accept'])
  * against a signed-in session is the one probe this route makes possible.
  */
 Route::post('invitations/{invitation}/claim', [InvitationController::class, 'claim'])
-    ->middleware(['auth', 'throttle:10,1'])
+    ->middleware(['auth', 'throttle:10,1,invitation-claim'])
     ->name('invitations.claim');
 
 /*
@@ -420,6 +527,23 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         Route::get('deals/{deal}/timeline', [DealTimelineController::class, 'index'])
             ->name('deals.timeline');
 
+        /*
+         * The agent's half of the client status page (#110).
+         *
+         * On the People tab because that is where the roster is, and *"can
+         * Dana see this deal"* is a fact about Dana's place on it rather than
+         * a setting. `link` is ADR 0003's second door: the URL handed to the
+         * agent, for the phone call or the text message.
+         */
+        Route::post('deals/{deal}/people/{membership}/status-page', [StatusPageAccessController::class, 'send'])
+            ->middleware('throttle:20,1,status-page-send')
+            ->name('deals.status-page.send');
+        Route::post('deals/{deal}/people/{membership}/status-page/link', [StatusPageAccessController::class, 'handOver'])
+            ->middleware('throttle:20,1,status-page-link')
+            ->name('deals.status-page.link');
+        Route::delete('deals/{deal}/people/{membership}/status-page', [StatusPageAccessController::class, 'revoke'])
+            ->name('deals.status-page.revoke');
+
         Route::get('deals/{deal}/people', [ParticipantController::class, 'index'])
             ->name('deals.people.index');
         Route::get('deals/{deal}/people/candidates', [ParticipantController::class, 'candidates'])
@@ -447,6 +571,30 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
          * flag makes "I fixed a typo" and "it is done" the same request, which
          * is the shape IA §7 objects to when Override and Skip share a label.
          */
+        /*
+         * S18 — a deal's Dates & Deadlines (F8.2 · #106, #107).
+         *
+         * The cascade preview is its own `POST` rather than a query parameter
+         * on the tab, because it is a *computation over a proposed change*
+         * that writes nothing — and a GET carrying a proposed date would be a
+         * URL somebody could bookmark and re-run against a deal that has since
+         * moved. `SaveKeyDate::preview()` and `::edit()` are the same
+         * computation, which is what makes the preview honest.
+         */
+        Route::get('deals/{deal}/dates', [DealDateController::class, 'index'])
+            ->name('deals.dates.index');
+        Route::post('deals/{deal}/dates', [DealDateController::class, 'store'])
+            ->middleware('throttle:60,1,key-date-save')
+            ->name('deals.dates.store');
+        Route::post('deals/{deal}/dates/preview', [DealDateController::class, 'preview'])
+            ->middleware('throttle:120,1,key-date-preview')
+            ->name('deals.dates.preview');
+        Route::patch('deals/{deal}/dates/{keyDate}', [DealDateController::class, 'update'])
+            ->middleware('throttle:60,1,key-date-save')
+            ->name('deals.dates.update');
+        Route::delete('deals/{deal}/dates/{keyDate}', [DealDateController::class, 'destroy'])
+            ->name('deals.dates.destroy');
+
         Route::get('deals/{deal}/tasks', [TaskController::class, 'index'])
             ->name('deals.tasks.index');
         Route::post('deals/{deal}/tasks', [TaskController::class, 'store'])
@@ -518,6 +666,45 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         ->name('documents.show');
     Route::patch('documents/{document}/visibility', [DocumentController::class, 'updateVisibility'])
         ->name('documents.visibility.update');
+
+    /*
+     * S57 and S58 — the calendar (F8.1 · #105).
+     *
+     * `/calendar` is IA §5.1's sidebar destination and has been since Slice 0;
+     * this replaces the placeholder that stood there. The event modal posts to
+     * `/calendar/events` rather than to a top-level `/events`, because an event
+     * has no life outside the grid it is drawn on — IA §6 allows one level of
+     * nesting and this is what it is for.
+     */
+    Route::get('calendar', [CalendarController::class, 'index'])->name('calendar.index');
+    /*
+     * S60's generate and revoke (#108). The modal opens over S57, so its list
+     * rides in that screen's props and there is no `index` route here.
+     */
+    Route::post('calendar/feeds', [CalendarFeedController::class, 'store'])
+        ->middleware('throttle:20,1,calendar-feed-generate')
+        ->name('calendar.feeds.store');
+    Route::delete('calendar/feeds/{feed}', [CalendarFeedController::class, 'destroy'])
+        ->name('calendar.feeds.destroy');
+
+    Route::post('calendar/events', [EventController::class, 'store'])
+        ->middleware('throttle:60,1,event-save')
+        ->name('calendar.events.store');
+    Route::patch('calendar/events/{event}', [EventController::class, 'update'])
+        ->middleware('throttle:60,1,event-save')
+        ->name('calendar.events.update');
+    Route::delete('calendar/events/{event}', [EventController::class, 'destroy'])
+        ->name('calendar.events.destroy');
+
+    /*
+     * S59 — every deadline across every deal (F8.2 · #107).
+     *
+     * `/dates` at the top level, beside `/work`: it answers *"what is this
+     * week's exposure"* from a standing start, which is a question with no
+     * deal in mind. The UI calls it **Dates & Deadlines** (IA §2, Emily's
+     * phrase); the route keeps the code name.
+     */
+    Route::get('dates', [DateListController::class, 'index'])->name('dates.index');
 
     Route::get('properties', [PropertyController::class, 'index'])->name('properties.index');
     Route::post('properties', [PropertyController::class, 'store'])->name('properties.store');
@@ -618,12 +805,12 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * none on the routes that compute *and* write is half an answer.
      */
     Route::post('templates/messages', [MessageTemplateController::class, 'store'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,message-template-save')
         ->name('message-templates.store');
     Route::get('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'show'])
         ->name('message-templates.show');
     Route::patch('templates/messages/{messageTemplate}', [MessageTemplateController::class, 'update'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,message-template-save')
         ->name('message-templates.update');
     Route::post('templates/messages/{messageTemplate}/archive', [MessageTemplateController::class, 'archive'])
         ->name('message-templates.archive');
@@ -644,7 +831,7 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * than finding out.
      */
     Route::post('templates/messages/{messageTemplate}/preview', [MessageTemplateController::class, 'preview'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:60,1,message-template-preview')
         ->name('message-templates.preview');
     /*
      * Throttled, because this is the first route in the product that sends
@@ -654,7 +841,7 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * that blocker exists to refuse.
      */
     Route::post('templates/messages/{messageTemplate}/test', [MessageTemplateController::class, 'test'])
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,message-template-test')
         ->name('message-templates.test');
 
     /*
@@ -703,7 +890,7 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * it is the ordinary bound on a write endpoint somebody can hold down.
      */
     Route::post('messages/{message}/approval', [MessageQueueController::class, 'approve'])
-        ->middleware('throttle:30,1')
+        ->middleware('throttle:30,1,message-approval')
         ->name('messages.approve');
     Route::delete('messages/{message}/approval', [MessageQueueController::class, 'cancel'])
         ->name('messages.cancel');
@@ -764,7 +951,6 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     Route::post('settings/roles/{role}/restore', [RoleController::class, 'restore'])->name('roles.restore');
 
     $placeholders = [
-        'calendar' => ['Calendar', 'S57', 4],
         'keep-in-touch' => ['Keep in Touch', 'S68', 6],
     ];
 

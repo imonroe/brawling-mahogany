@@ -7,6 +7,7 @@ namespace App\Queries;
 use App\Enums\ActivityCategory;
 use App\Models\ActivityEvent;
 use App\Models\Deal;
+use App\Models\KeyDate;
 use App\Models\Person;
 use App\Models\Property;
 use App\Models\TeamMembership;
@@ -197,7 +198,11 @@ final class ActivityFeed
      *
      * `Workflow` takes `deals.view` because a workflow is a deal's process —
      * there is no separate permission for one, and `WorkflowPolicy` asks the
-     * same key.
+     * same key. `KeyDate` takes it for the same reason and not `calendar.view`:
+     * the entry says a **deal's** deadline moved and carries the deal's name
+     * beside it, so reading it is reading the deal. `calendar.view` is the key
+     * for the cross-deal grid, which is a different screen answering a
+     * different question.
      *
      * @return array<string, string> morph class => permission key
      */
@@ -206,6 +211,7 @@ final class ActivityFeed
         return [
             (new Deal)->getMorphClass() => Permissions::VIEW_DEALS,
             (new Workflow)->getMorphClass() => Permissions::VIEW_DEALS,
+            (new KeyDate)->getMorphClass() => Permissions::VIEW_DEALS,
             (new Person)->getMorphClass() => Permissions::VIEW_PEOPLE,
             (new Property)->getMorphClass() => Permissions::VIEW_PROPERTIES,
         ];

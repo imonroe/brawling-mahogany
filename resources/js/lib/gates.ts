@@ -135,6 +135,20 @@ export function gateResolutionLink(
          */
         case 'document_upload':
             return `${dealUrl}/documents`;
+        /*
+         * `key_date` arrived with S18 (#106, #107, #109), and it is the other
+         * evaluator CLAUDE.md named as owing the *"a row nothing can reach"*
+         * check. It is reachable from both ends now: S43 configures the date
+         * the gate names, and this is where somebody goes to look at it.
+         *
+         * What clears this gate is **time**, which nobody can do anything
+         * about — so the link is not "go and clear it". It is *"go and look at
+         * the date"*, because the action somebody actually takes is checking
+         * whether the contract moved and moving the date if it did, and that
+         * is a cascade they need the tab for.
+         */
+        case 'key_date':
+            return `${dealUrl}/dates`;
         default:
             return null;
     }

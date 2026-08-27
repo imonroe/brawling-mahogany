@@ -7,6 +7,9 @@
 {!! $headline !!}
 
 {!! $detail !!}
+@foreach ($lines ?? [] as $line)
+- {!! $line !!}
+@endforeach
 
 {!! $actionLabel !!}:
 {!! $actionUrl !!}

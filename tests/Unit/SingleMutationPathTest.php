@@ -241,6 +241,35 @@ const SANCTIONED_STATE_WRITERS = [
     'database/factories/ActionInstanceFactory.php' => 'The same argument as the workflow and stage '.
         'factories: a suite that could not build a sent, failed or awaiting-approval instance could '.
         'not test the services that produce one.',
+
+    /*
+     * The fifth verb, added in Slice 4 (#106).
+     *
+     * A row is raised, released, carried out, stopped by a person — and
+     * **invalidated by the deal changing underneath it**. That last one is not
+     * a new verb here: `AdvanceWorkflow::skip()` already owns an instance of
+     * it, cancelling what a stage had queued when the stage turns out not to
+     * apply. A key date being removed is the same event on a different table,
+     * and it cancels for the same reason: a client must not be emailed about a
+     * deadline that is no longer on their deal.
+     *
+     * It is not routed through `ApproveMessage` because that service answers a
+     * *person's* decision about one message and writes an activity entry
+     * naming them. Nobody decided anything about these messages; a date they
+     * hung off stopped existing, which is a fact about the deal rather than a
+     * judgement about the mail. Routing it there would put somebody's name on
+     * a cancellation they never made.
+     *
+     * And it is in this file rather than in `SaveKeyDate` for the reason
+     * `RaiseAutomations` is not in `AdvanceWorkflow`: the automation half of a
+     * key-date write is a separable thing with its own rules about what may
+     * still be moved, and one of those rules — never a row with a claimed
+     * `message_key` — is the one the guard most wants kept in one place.
+     */
+    'app/Support/Dates/KeyDateAutomations.php' => 'Cancels what a removed key date had queued, in '.
+        'one direction only and never a row that has reached a transport. The same event '.
+        'AdvanceWorkflow::skip() handles for a skipped stage (#92), arriving from #106\'s side: a '.
+        'message about a deadline that is no longer on the deal must not go out.',
 ];
 
 /**

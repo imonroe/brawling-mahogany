@@ -14,12 +14,15 @@ use App\Support\Notifications\NotificationAudience;
 use App\Support\Notifications\Notify;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Laravel\Passkeys\Passkeys;
@@ -77,6 +80,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureMailGuardrail();
+        $this->configureClientSurfaceLimits();
 
         BlueprintMacros::register();
 
@@ -137,6 +141,45 @@ class AppServiceProvider extends ServiceProvider
     /**
      * Configure default behaviors for production-ready applications.
      */
+    /**
+     * The two limits the client surface carries, with keys of their own.
+     *
+     * ## Two `throttle:n,m` on one request is one bucket, not two
+     *
+     * Laravel's inline throttle keys a guest by `sha1(domain|ip)` and nothing
+     * else — no route, no name — so stacking `throttle:60,1` on the group and
+     * `throttle:10,1` on `s/request` gave both middlewares the **same** cache
+     * key. Every page view spent the mail budget, and the request itself cost
+     * two hits, so an ordinary *"my link expired, send me another"* round trip
+     * was refused with a bare 429 on the third press.
+     *
+     * Named limiters get `throttle:<name>` prefixes, which is what separates
+     * them. Written here rather than as two inline strings because the defect
+     * is invisible in `routes/web.php`: two different numbers *look* like two
+     * different limits.
+     *
+     * ## And they are deliberately different limits
+     *
+     * Sixty an hour for reading: a client refreshing their own page is not an
+     * attack, and this is the surface PRD §3.3 says must work *"first try"*.
+     * Ten for the endpoint that **sends mail**, on top of the per-address
+     * limit `StatusPageController` applies — a global limit alone lets one
+     * attacker spend everybody's budget, and a per-address limit alone lets a
+     * script walk a list.
+     */
+    protected function configureClientSurfaceLimits(): void
+    {
+        RateLimiter::for(
+            'client-surface',
+            fn (Request $request): Limit => Limit::perMinute(60)->by((string) $request->ip()),
+        );
+
+        RateLimiter::for(
+            'client-link-request',
+            fn (Request $request): Limit => Limit::perMinute(10)->by((string) $request->ip()),
+        );
+    }
+
     protected function configureDefaults(): void
     {
         Date::use(CarbonImmutable::class);

@@ -42,7 +42,7 @@ final class GateRegistry
         // advance modal is told why it cannot clear.
         DocumentPresentEvaluator::class,  // Slice 3, #104
         ActionCompletedEvaluator::class,  // Slice 3, #92
-        DateReachedEvaluator::class,      // Slice 4, #109
+        DateReachedEvaluator::class,      // Live in Slice 4, #109
     ];
 
     /**
@@ -58,6 +58,26 @@ final class GateRegistry
     private const CONFIGURATION_FREE = [
         'manual_confirmation',
         'required_tasks_complete',
+    ];
+
+    /**
+     * Types S43 *can* fully specify, because the editor has a field for them.
+     *
+     * The list this class's docblock said would grow *"when the editor for a
+     * type's configuration does"*. `date_reached` is the first: S43 asks for
+     * the name of the key date, which is the whole of its configuration, so a
+     * gate composed there is one an evaluator can answer.
+     *
+     * Its own constant rather than an entry in {@see self::CONFIGURATION_FREE},
+     * because the two say different things and only one of them is about the
+     * database: a configuration-free type needs nothing stored, and this one
+     * needs something the editor now knows how to ask for. Collapsing them
+     * would lose the distinction the next configurable type needs.
+     *
+     * @var list<string>
+     */
+    private const EDITOR_CONFIGURABLE = [
+        'date_reached',
     ];
 
     public function __construct(private readonly Container $container) {}
@@ -100,6 +120,19 @@ final class GateRegistry
     }
 
     /**
+     * Whether S43 has to ask for a key date before this type can be saved.
+     *
+     * One question rather than a `match` in the controller and a second one in
+     * the component: a gate type that needs a configuration and a screen that
+     * does not know it is the state `selectableOptions()` exists to prevent,
+     * and the answer belongs beside the list that admits the type.
+     */
+    public static function needsKeyDate(string $gateType): bool
+    {
+        return $gateType === 'date_reached';
+    }
+
+    /**
      * The types S43 can fully specify **today**.
      *
      * Not the same list as `types()`, and the difference is the whole point.
@@ -127,7 +160,8 @@ final class GateRegistry
     {
         return array_filter(
             self::options(),
-            fn (string $type): bool => in_array($type, self::CONFIGURATION_FREE, true),
+            fn (string $type): bool => in_array($type, self::CONFIGURATION_FREE, true)
+                || in_array($type, self::EDITOR_CONFIGURABLE, true),
             ARRAY_FILTER_USE_KEY,
         );
     }

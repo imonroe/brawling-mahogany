@@ -133,10 +133,44 @@ class StageTemplateController extends Controller
             'gate_type' => ['required', Rule::in(array_keys(GateRegistry::selectableOptions()))],
             'label' => ['required', 'string', 'max:120'],
             'is_blocking' => ['boolean'],
+            /*
+             * `date_reached`'s whole configuration (#109), and the first thing
+             * this editor has ever asked for beyond a label — which is what
+             * moved the type from `types()` into `selectableOptions()`.
+             *
+             * Free text, and it has to be: a gate lives on a **template**, and
+             * a template has never met the deal it will run on, so there is no
+             * `key_dates` row to point at. The two sides meet on the word the
+             * team uses, folded for case and whitespace by the evaluator.
+             *
+             * `required_if` rather than `required_with`, so a request naming
+             * the type and omitting the date is refused rather than saving a
+             * gate only an override could pass — the state
+             * `selectableOptions()` exists to keep out of the product.
+             */
+            'config.keyDateName' => [
+                Rule::requiredIf(fn (): bool => GateRegistry::needsKeyDate(
+                    (string) $request->input('gate_type'),
+                )),
+                Rule::excludeIf(fn (): bool => ! GateRegistry::needsKeyDate(
+                    (string) $request->input('gate_type'),
+                )),
+                'string',
+                'max:120',
+            ],
+        ], [
+            'config.keyDateName.required' => 'Name the date this waits for — '
+                .'the same name the deal uses for it on Dates & Deadlines.',
         ]);
 
         $gate = new GateTemplate;
 
+        /*
+         * `config` is fillable on `GateTemplate`, so the validated nested key
+         * arrives with the rest — and `is_blocking` keeps its column default
+         * when the form does not send one, which a `forceFill` would have
+         * quietly overwritten.
+         */
         $gate->fill($validated);
         $gate->forceFill([
             'stage_template_id' => $stageTemplate->getKey(),

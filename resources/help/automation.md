@@ -41,9 +41,17 @@ property address, the MLS link. Click one to drop it into whatever you were
 typing. They are checked when you save, so a misspelled field is refused then
 rather than discovered in somebody's inbox.
 
-Two of them are listed and cannot be filled in yet — the next deadline and the
-client's status page link — because the features behind them have not been
-built. The editor says so, and refuses to save a template using one.
+**Next deadline** arrived with the calendar and now fills in like the rest: it
+is the soonest confirmed date on the deal that has not passed. The **day
+only** — not the name you gave the date, because the names you type are for
+your screens and some of them would read oddly to a client.
+
+One field is still listed and cannot be filled in: the **client's status page
+link**. The page exists, and handing somebody a link to it is something you do
+deliberately from the deal's People tab — see
+[The client status page](/help/client-status-page). Putting it in an automated
+message is a different thing, and the reason it is still off is on the field
+itself. The editor says so, and refuses to save a template using it.
 
 **“Replies go to” sets the reply address for this template.** Leave it blank
 and replies go to the reply-to address in **Settings → Team**, which is the
@@ -304,7 +312,12 @@ and a reply reaches you — but the address underneath it is the app's, not
 yours. Sending as `you@youragency.com` needs your domain verified with the mail
 provider, which is a setup step rather than a feature.
 
-**A link to the client's status page** in a milestone email. The email has a
-place for it; the page itself is still being built.
+**A link to the client's status page** in a milestone email. The page is
+built, and the email has a place for it — what is missing is a safe way for a
+message to hand out access. Giving somebody the page is a deliberate act on
+the People tab, and a link that arrives in a milestone email would either be
+stale by the time it is read or would end the session of a client who happened
+to be looking at the page at that moment. Until that is settled, give access
+once from the People tab and the client keeps it.
 
 **Push notifications and calendar events** as things an automation can do.

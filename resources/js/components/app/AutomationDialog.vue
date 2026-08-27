@@ -91,6 +91,9 @@ const form = useForm<{
         taskTitle: string;
         taskDueOffsetDays: string;
         instruction: string;
+        /** F5.3's key-date offset (#106): a name and a signed number of days. */
+        keyDateName: string;
+        offsetDays: string;
     };
     is_active: boolean;
 }>({
@@ -103,6 +106,8 @@ const form = useForm<{
         taskTitle: '',
         taskDueOffsetDays: '',
         instruction: '',
+        keyDateName: '',
+        offsetDays: '',
     },
     is_active: true,
 });
@@ -155,6 +160,14 @@ watch(
                 typeof stored.instruction === 'string'
                     ? stored.instruction
                     : '',
+            keyDateName:
+                typeof stored.keyDateName === 'string'
+                    ? stored.keyDateName
+                    : '',
+            offsetDays:
+                stored.offsetDays === undefined || stored.offsetDays === null
+                    ? ''
+                    : String(stored.offsetDays),
         };
         form.is_active = props.automation?.isActive ?? true;
     },
@@ -165,8 +178,19 @@ const shape = computed<AutomationShape | null>(
     () => props.shapes[form.action_type] ?? null,
 );
 
-/** `gate_cleared` is the only trigger that carries a second choice today. */
+/** Two triggers carry a further choice. */
 const needsGate = computed(() => form.trigger === 'gate_cleared');
+
+/**
+ * F5.3's key-date offset (#106).
+ *
+ * The date is **named**, not picked: an automation lives on a template, and a
+ * template has never met the deal it will run on — there is no `key_dates` row
+ * to point at, and PRD §8.1 keeps the definition layer out of the runtime one.
+ * The two sides meet on the word the team uses, folded for case and whitespace
+ * on the way in.
+ */
+const needsKeyDate = computed(() => form.trigger === 'key_date_offset');
 
 /** Only templates on the channel this action sends. */
 const usableTemplates = computed(() =>
@@ -220,6 +244,15 @@ watch(
     () => {
         if (!needsGate.value) {
             form.config = { ...form.config, gateTemplateId: null };
+        }
+
+        /*
+         * The same rule for the key-date pair: a choice that stops being
+         * offered must stop being held, or the server refuses a value on a
+         * control the reader can no longer see.
+         */
+        if (!needsKeyDate.value) {
+            form.config = { ...form.config, keyDateName: '', offsetDays: '' };
         }
     },
 );
@@ -275,6 +308,53 @@ function submit(): void {
                     >
                         {{ form.errors.trigger }}
                     </p>
+                </div>
+
+                <!--
+                    F5.3's key-date offset (#106). Free text, deliberately: the
+                    name is matched against whatever this team calls that date
+                    on each deal, and a picker would have to enumerate dates
+                    that do not exist yet.
+                -->
+                <div v-if="needsKeyDate" class="grid gap-3 sm:grid-cols-3">
+                    <div class="flex flex-col gap-1.5 sm:col-span-2">
+                        <Label for="automation_key_date">Which date</Label>
+                        <AppInput
+                            id="automation_key_date"
+                            v-model="form.config.keyDateName"
+                            placeholder="Inspection objection"
+                        />
+                        <p class="text-[11px] text-muted-foreground">
+                            The name a deal uses for it, on Dates &amp;
+                            Deadlines. Capitals and spacing do not matter.
+                        </p>
+                        <p
+                            v-if="form.errors['config.keyDateName']"
+                            class="text-[11px] text-state-danger"
+                        >
+                            {{ form.errors['config.keyDateName'] }}
+                        </p>
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                        <Label for="automation_offset">Days from it</Label>
+                        <!--
+                            Signed: three days *before* is -3. A separate
+                            before/after toggle would be a second control
+                            holding half of one number.
+                        -->
+                        <AppInput
+                            id="automation_offset"
+                            v-model="form.config.offsetDays"
+                            placeholder="-3"
+                        />
+                        <p
+                            v-if="form.errors['config.offsetDays']"
+                            class="text-[11px] text-state-danger"
+                        >
+                            {{ form.errors['config.offsetDays'] }}
+                        </p>
+                    </div>
                 </div>
 
                 <!--

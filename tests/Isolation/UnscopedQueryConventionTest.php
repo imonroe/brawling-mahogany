@@ -256,6 +256,80 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'ever left the kill switch on, forever, against Postgres\'s 65,535-parameter '.
             'ceiling. It reads one column.',
     ],
+
+    /*
+     * The client status page (#110, #111), and every one of these is the
+     * second kind of reason this file names: **a context with no tenant.**
+     *
+     * A client has no account, no membership and no session. The token *is*
+     * what establishes the team — ADR 0002's stated exception, the same one an
+     * invitation makes — so the lookup that finds the row cannot be scoped by
+     * the thing the row is about to establish. Everything after it is narrowed
+     * against that row's own `team_id` and `deal_id` by hand, which is what
+     * the scope would have done.
+     */
+    'Support/StatusPage/IssueStatusPageLink.php' => [
+        'count' => 2,
+        'reason' => 'The two token lookups, and the only two places a client\'s credential '.
+            'is resolved. A client has no team to scope by — the token is what establishes '.
+            'it — so this is the boundary where a tenant comes into existence for the '.
+            'request, the same shape `invitations.show` has. Both are equality matches on a '.
+            'unique sha256 column, so neither can read more than one row, and everything '.
+            'downstream is narrowed against that row\'s own team.',
+    ],
+
+    'Support/StatusPage/DispatchStatusPageLink.php' => [
+        'count' => 1,
+        'reason' => 'S64\'s escape hatch, which starts from an email address and nothing '.
+            'else — #110 requires that a client be able to ask for a new link "knowing '.
+            'nothing but their email address", so there is no tenant to scope by and no '.
+            'session to read one from. It matches only grants that **already exist** and '.
+            'are not revoked, so asking cannot get anybody onto a deal they were not '.
+            'already on; each send then runs inside runFor() on that grant\'s own team.',
+    ],
+
+    'Support/StatusPage/ClientStatus.php' => [
+        'count' => 1,
+        'reason' => 'The team\'s owner, as the fallback for "who do I call?" (F7.6). '.
+            'Reached from a client request, which has no tenant resolved — the link\'s own '.
+            'team is the one it asks about, and it is passed in rather than inferred. '.
+            'Filters active() for the reason SendingIdentity records: an owner who has '.
+            'left is not somebody to tell a client to ring.',
+    ],
+
+    'Http/Controllers/StatusPage/StatusDocumentController.php' => [
+        'count' => 1,
+        'reason' => 'The document a client is downloading. No tenant is resolved because '.
+            'the caller is a client, so the query is narrowed by hand against the link\'s '.
+            'own team_id **and** the deal that link names **and** client_visible — three '.
+            'conditions where the scope would have supplied one, because a client with a '.
+            'session for one deal must not be able to name a document id from another.',
+    ],
+
+    'Support/Calendar/ManageCalendarFeeds.php' => [
+        'count' => 2,
+        'reason' => 'A context with no tenant: the reader is a calendar client — Google\'s '.
+            'fetcher or Apple\'s — with no cookie and no idea what a team is, so the token '.
+            'is what establishes one (F8.3, ADR 0002\'s stated exception, the same one the '.
+            'status page makes). An equality match on a unique sha256 column can find only '.
+            'the row it names, and the controller then renders the feed inside runFor() on '.
+            'that row\'s own team, so the board query is scoped exactly as any screen\'s is. '.
+            'The second is the membership subquery inside that same lookup, and it narrows '.
+            'rather than widens: a feed keeps working only while its person is still on the '.
+            'team, which is what stops a colleague who left in March fetching the whole '.
+            'calendar from a URL nobody remembers exists. It has to lift the scope for the '.
+            'same reason the lookup does — it runs before any team is established, and it is '.
+            'correlated to the feed\'s own team_id, so it can match nothing else.',
+    ],
+
+    'Console/Commands/IssueStatusPageLinkCommand.php' => [
+        'count' => 2,
+        'reason' => 'ADR 0003\'s console door, and the sweep shape every scheduled command '.
+            'here uses: a console run has no session, so the deal and the membership are '.
+            'looked up unscoped and the issue itself happens inside runFor() on that '.
+            'deal\'s team. The membership lookup is narrowed to the deal\'s own team_id, '.
+            'so an address that exists in two teams cannot resolve to the wrong one.',
+    ],
 ];
 
 /**

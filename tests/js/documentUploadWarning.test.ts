@@ -54,6 +54,7 @@ const dealHeader = {
         tasks: 0,
         offers: 0,
         documents: 0,
+        dates: 0,
     },
     hasOffers: true,
     advance: null,

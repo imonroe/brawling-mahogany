@@ -1,6 +1,6 @@
 ---
 created: 2026-08-20
-modified: 2026-08-22
+modified: 2026-08-28
 project: Goldieflow
 type: plan
 status: draft
@@ -28,9 +28,9 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 |---|---|---|---|
 | **0** ✅ | Scaffolding, platform, design system | 19 | A stack that runs, a pipeline that gates once `scripts/protect-branches.sh` is run, and a component kit the other 70 screens assemble from |
 | **1** ✅ | Tenancy, identity, people | 19 | A team can exist, log in, and hold contacts — with isolation proven |
-| **2** | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
-| **3** | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
-| **4** | Calendar, key dates, status page | 8 | Deadlines drive the work, and the client can look without calling |
+| **2** ✅ | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
+| **3** ✅ | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
+| **4** ✅ | Calendar, key dates, status page | 8 | Deadlines drive the work, and the client can look without calling |
 | **5** | AI document intelligence | 6 (+2 gates) | Parity with the competitor's headline feature |
 | **6** | Post-close and Keep in Touch | 5 | A closed deal stays an asset |
 | **7** | Commercial | 3 (+3 gates) | It becomes a business |
@@ -48,6 +48,24 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 > that gates — the gating needs `scripts/protect-branches.sh` run once by an
 > admin, because branch protection lives in repository settings and cannot be
 > committed.
+
+> [!success] Slice 4 has landed
+> All eight issues are built: `key_dates` with the derived-date cascade (#106),
+> events and the calendar (#105), the Dates & Deadlines screens (#107), the
+> tokenised iCal feeds (#108), deadline reminders and the `date_reached` gate
+> (#109), magic-link access (#110), the client status page (#111), and the
+> WCAG 2.1 AA audit of the client surface (#112). The exit criterion — *"deadlines
+> drive the work, and the client can look without calling"* — is met, and
+> **Slice 5's destination now exists**, which was the reason this slice came
+> before it.
+>
+> One thing inside it is deliberately open and named in the pull request rather
+> than quietly carried: **the manual screen-reader pass** on real iOS and
+> Android devices. #112's automated audit is real — axe-core over the rendered
+> client surface with a positive control, plus a server-side contrast pass over
+> every accent a team can pick — but VoiceOver and TalkBack on a phone are not
+> something a test suite can stand in for, and this is the one surface whose
+> audience makes that difference matter.
 
 ### Why Slice 0 exists
 

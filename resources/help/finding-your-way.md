@@ -12,9 +12,11 @@ Everything is reached from the left, in three groups.
 The **first group** is what you open daily: the dashboard, My Work, and Deals.
 
 The **second** is your reference material: People, Properties and Activity.
-Calendar and Keep in Touch sit in the same group and are placeholders for now —
-see [Dates and deadlines](/help/dates-and-deadlines) and
-[Keep in Touch](/help/keep-in-touch) for what they will hold.
+Calendar and Dates & Deadlines sit in the same group — see
+[The calendar](/help/calendar) and
+[Dates and deadlines](/help/dates-and-deadlines). Keep in Touch is in the same
+group and is still a placeholder; [Keep in Touch](/help/keep-in-touch)
+describes what it will hold.
 
 The **third** is configuration: Templates and Settings.
 
@@ -41,7 +43,7 @@ Beside search you will find:
 - **Report a bug** — see below.
 - **Log contact** — records a call, email or meeting against a person, in two
   clicks. See [Notes and activity](/help/notes-and-activity).
-- **Notifications** — arriving in a later release.
+- **Notifications** — the bell. See [Notifications](/help/notifications).
 - **Help** — this manual.
 
 ## Reporting a bug

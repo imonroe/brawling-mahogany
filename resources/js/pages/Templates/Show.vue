@@ -122,7 +122,17 @@ const gateForm = useForm({
      */
     gate_type: Object.keys(props.gateTypes)[0] ?? '',
     label: '',
+    /*
+     * `date_reached`'s whole configuration (#109), and the first thing this
+     * editor asks for beyond a label. Nested under `config` because that is
+     * where `gate_templates` keeps it, and named rather than picked because a
+     * template has never met the deal it will run on.
+     */
+    config: { keyDateName: '' },
 });
+
+/** Whether the chosen type needs a date named before it can be saved. */
+const gateNeedsKeyDate = computed(() => gateForm.gate_type === 'date_reached');
 const taskForm = useForm({ title: '', is_required: true });
 /*
  * One form, one stage open at a time — the same pattern `addingTo` uses for
@@ -467,6 +477,18 @@ function remove(): void {
                             v-model="gateForm.label"
                             size="filter"
                             placeholder="Survey received"
+                            class="w-56"
+                        />
+                        <!--
+                            Only for the one type that needs it. A field that
+                            is always on screen and usually meaningless is a
+                            field people fill in anyway.
+                        -->
+                        <AppInput
+                            v-if="gateNeedsKeyDate"
+                            v-model="gateForm.config.keyDateName"
+                            size="filter"
+                            placeholder="Inspection objection"
                             class="w-56"
                         />
                         <AppButton size="compact" @click="addGate(stage)"

@@ -59,7 +59,20 @@ import { describe, expect, it } from 'vitest';
  * this because the test failed on an import, that is the pattern being blunt
  * rather than your code being wrong — narrow the pattern, do not delete it.
  */
-const UNBUILT_DEAL_TABS = ['dates'];
+/*
+ * **Empty as of Slice 4** (#107), and deliberately still here.
+ *
+ * `dates` was the last entry: S18 shipped with the contingency calendar, so
+ * every tab `DealHeader` draws now has a route behind it and there is nothing
+ * left to protect. An empty list makes the sweep below a no-op — which is
+ * correct, and is exactly the state a scan is most likely to rot in unnoticed.
+ *
+ * So the positive control takes its segments explicitly rather than reading
+ * this constant. It goes on proving the *mechanism* against `dates`, which is
+ * now a real route, so the day a Slice 5 or 6 tab is added inert the only
+ * thing that has to change is this line.
+ */
+const UNBUILT_DEAL_TABS: string[] = [];
 
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
@@ -116,10 +129,13 @@ const EXPECTED_CODE_CHARS = 100_000;
  * hung off the end. The trailing guard keeps `/dates-and-deadlines` and
  * `/documentsUpload` out.
  */
-function deadLinksIn(source: string): string[] {
+function deadLinksIn(
+    source: string,
+    segments: string[] = UNBUILT_DEAL_TABS,
+): string[] {
     const code = withoutComments(source);
 
-    return UNBUILT_DEAL_TABS.flatMap((segment) => {
+    return segments.flatMap((segment) => {
         const match = new RegExp(`\\S*/${segment}(?![\\w-])\\S*`).exec(code);
 
         return match === null ? [] : [match[0]];
@@ -148,12 +164,14 @@ describe('route targets', () => {
         ];
 
         for (const source of dead) {
-            expect(deadLinksIn(source), source).toHaveLength(1);
+            expect(deadLinksIn(source, ['dates']), source).toHaveLength(1);
         }
 
         const fine = [
             "const label = 'Dates';",
             "{ segment: 'dates', arrivesWith: 'S18' }",
+            // A tab name is not a path: the slash is what separates them.
+            "const label = 'Dates & Deadlines';",
             "router.visit('/dates-and-deadlines');",
             "fetch('/deals/1/datesPicker');",
             '// the deal has no /dates route yet',
@@ -166,7 +184,7 @@ describe('route targets', () => {
         ];
 
         for (const source of fine) {
-            expect(deadLinksIn(source), source).toEqual([]);
+            expect(deadLinksIn(source, ['dates']), source).toEqual([]);
         }
     });
 
