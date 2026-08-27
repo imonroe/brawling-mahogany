@@ -58,15 +58,36 @@ final class DispatchStatusPageLink
         $sent = 0;
 
         foreach ($this->grantsFor($address) as $link) {
-            $deal = $link->deal;
-            $membership = $link->membership;
+            /*
+             * The team first, and **only** the team, because `Team` is the one
+             * model here that carries no `team_id` and can be read with
+             * nothing resolved. `$link->deal` and `$link->membership` are
+             * ordinary scoped reads: taken out here they threw
+             * `MissingTeamContextException` on an endpoint whose entire
+             * audience is strangers with no session. Inside the closure they
+             * are correct *and* scoped to the tenant the row names.
+             */
             $team = $link->team;
 
-            if (! $deal instanceof Deal || ! $membership instanceof TeamMembership || ! $team instanceof Team) {
+            if (! $team instanceof Team) {
                 continue;
             }
 
-            $this->teams->runFor($team, function () use ($deal, $membership, $team): void {
+            /*
+             * The closure reports whether it sent, so a grant whose deal or
+             * membership has gone is not counted. The count is what the
+             * console command prints and what the tests assert on; a row
+             * skipped inside the closure and counted outside it would make
+             * both of them say a message went out that did not.
+             */
+            $sent += $this->teams->runFor($team, function () use ($link, $team): int {
+                $deal = $link->deal;
+                $membership = $link->membership;
+
+                if (! $deal instanceof Deal || ! $membership instanceof TeamMembership) {
+                    return 0;
+                }
+
                 $issued = $this->links->issue($deal, $membership);
 
                 Mail::to((string) $membership->email)->send(new StatusPageLinkMail(
@@ -76,9 +97,9 @@ final class DispatchStatusPageLink
                     minutes: StatusPageLink::LINK_MINUTES,
                     what: $deal->dealType?->side->clientLabel() ?? 'Your Transaction',
                 ));
-            });
 
-            $sent++;
+                return 1;
+            });
         }
 
         return $sent;
@@ -104,7 +125,14 @@ final class DispatchStatusPageLink
             ->whereHas('membership', fn ($query) => $query
                 ->withoutGlobalScopes()
                 ->whereRaw('lower(email) = ?', [$address]))
-            ->with(['deal.dealType', 'membership', 'team'])
+            /*
+             * `team` only, for the same reason the token lookups lift the
+             * scope: `deal` and `membership` are team-scoped, and eager-loading
+             * them here runs their queries with nothing resolved — on an
+             * endpoint whose entire audience is strangers. They are loaded per
+             * row inside that row's own team, in `forAddress()`.
+             */
+            ->with('team')
             ->orderByDesc('created_at')
             ->get();
 

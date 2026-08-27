@@ -160,6 +160,14 @@ final class CalendarBoard
             'deal' => $deal instanceof Deal
                 ? ['label' => $deal->displayName(), 'url' => route('deals.show', $deal)]
                 : null,
+            /*
+             * Alongside the label, not inside it. S57 draws the label — a
+             * colleague reading their own team's screen — and the `.ics` feed
+             * must not, because `Deal::displayName()` falls back to a client's
+             * surname and that document is stored by Google. `IcsDocument`
+             * needs the id to compose a safe suffix of its own.
+             */
+            'dealId' => $deal?->getKey(),
             'sortsAfterAllDay' => $event->is_all_day ? 0 : 1,
             'sortKey' => $event->is_all_day ? '' : $start->format('H:i:s'),
         ];
@@ -202,6 +210,8 @@ final class CalendarBoard
                 'deal' => $dealOf instanceof Deal
                     ? ['label' => $dealOf->displayName(), 'url' => route('deals.dates.index', $dealOf)]
                     : null,
+                // See the note on the event row above.
+                'dealId' => $dealOf?->getKey(),
                 /*
                  * Ahead of every timed event on the same day, and ahead of
                  * all-day events too. A deadline is the thing on that square

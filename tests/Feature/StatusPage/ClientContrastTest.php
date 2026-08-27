@@ -60,7 +60,7 @@ function brandingFor(?string $accent): array
 
     $issued = app(IssueStatusPageLink::class)->issue(test()->deal, test()->client);
 
-    auth()->logout();
+    test()->asStranger();
 
     $session = (string) str(
         test()->get('/s/'.$issued->token)->headers->get('Location'),

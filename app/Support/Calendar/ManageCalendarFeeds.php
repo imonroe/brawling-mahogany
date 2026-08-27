@@ -8,6 +8,7 @@ use App\Models\CalendarFeed;
 use App\Models\Deal;
 use App\Models\Person;
 use App\Models\Team;
+use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -106,6 +107,13 @@ final class ManageCalendarFeeds
      * last* — which is what decides whether a forgotten feed is worth
      * revoking.
      */
+    /**
+     * Bump the fetch counter.
+     *
+     * Team-scoped like every other write here, so **the caller runs it inside
+     * the feed's team**. Called from outside one, it threw on every fetch a
+     * real calendar client made.
+     */
     public function recordFetch(CalendarFeed $feed): void
     {
         CalendarFeed::query()
@@ -127,10 +135,39 @@ final class ManageCalendarFeeds
      */
     public function findByToken(string $token): ?CalendarFeed
     {
+        /*
+         * `team` only. `deal` is team-scoped, and eager-loading it here runs a
+         * `Deal` query with nothing resolved — so a **per-deal** feed threw
+         * `MissingTeamContextException` before the caller reached the line
+         * that establishes the tenant, while a whole-team feed (null
+         * `deal_id`, no query) worked. The lookup that finds the row cannot
+         * itself depend on the tenant the row is about to name; the deal is
+         * loaded by the caller, inside the team.
+         */
         $feed = CalendarFeed::withoutTeamScope()
             ->where('token_hash', CalendarFeed::hashToken($token))
             ->live()
-            ->with(['deal', 'team'])
+            /*
+             * **And the person still has to be on the team.** `live()` asks
+             * only whether the *feed* was revoked, so without this a colleague
+             * who left in March goes on fetching the team's whole calendar —
+             * every showing, every closing date, every deal name — from a URL
+             * nobody remembers exists, and revoking their membership does
+             * nothing about it. Whoever removes somebody's access is not going
+             * to think of their calendar subscription; the subscription has to
+             * think of them.
+             *
+             * The same predicate `Notification::scopeForPerson()` uses, and
+             * deliberately the same: **revocation only**, not
+             * `carryingAccess()`. Reading more strictly than the app writes
+             * would kill the feed of somebody who still works there and holds
+             * a role composed without a team-surface permission.
+             */
+            ->whereIn('person_id', TeamMembership::withoutTeamScope()
+                ->select('person_id')
+                ->whereColumn('team_memberships.team_id', 'calendar_feeds.team_id')
+                ->whereNull('revoked_at'))
+            ->with('team')
             ->first();
 
         return $feed instanceof CalendarFeed ? $feed : null;

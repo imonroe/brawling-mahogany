@@ -146,14 +146,22 @@ class CalendarFeedController extends Controller
             $from = CarbonImmutable::now($timezone)->subDays(CalendarFeed::DAYS_BACK)->startOfDay();
             $to = CarbonImmutable::now($timezone)->addDays(CalendarFeed::DAYS_AHEAD)->endOfDay();
 
-            return IcsDocument::render(
+            $document = IcsDocument::render(
                 $feed,
                 $board->between($from, $to, $feed->deal),
                 $timezone,
             );
-        });
 
-        $this->feeds->recordFetch($feed);
+            /*
+             * Inside the team, not after it. `recordFetch` is a scoped write
+             * and a calendar client resolves no team, so one line below the
+             * closure threw on every fetch — the render having already
+             * succeeded, which is the shape that makes it easy to miss.
+             */
+            $this->feeds->recordFetch($feed);
+
+            return $document;
+        });
 
         return response($body, 200, [
             'Content-Type' => 'text/calendar; charset=utf-8',

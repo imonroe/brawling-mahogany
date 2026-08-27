@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Support\Calendar;
 
 use App\Models\CalendarFeed;
+use App\Models\DealProperty;
 use App\Models\Event;
+use App\Models\Property;
 use Carbon\CarbonImmutable;
 
 /**
@@ -37,6 +39,14 @@ use Carbon\CarbonImmutable;
  *  - **No description.** Nothing on an event is safe by construction —
  *    `description` is free text somebody typed, and *"lockbox code 4412"* is
  *    exactly the kind of thing that ends up in one.
+ *  - **No deal name.** The obvious suffix is `Deal::displayName()`, which is
+ *    what S57 draws — and `NameDeal` falls back to the **client's surname**
+ *    when a deal has no subject property, so every buy-side deal before an
+ *    offer would publish a client's surname into Google's copy of somebody's
+ *    calendar. This is the `PushPayload` rule (#103) one surface along, and it
+ *    has the same answer: compose from an allowlist rather than copy. The
+ *    suffix is the subject property's **street** when there is one, and
+ *    nothing when there is not.
  *  - **The location, which is the exception, and it is a deliberate one.** A
  *    calendar entry with no location is a calendar entry somebody has to open
  *    the app to use, which is the whole point of subscribing. It is a street
@@ -95,8 +105,10 @@ final class IcsDocument
             'X-PUBLISHED-TTL:PT4H',
         ];
 
+        $streets = self::streetsFor($items);
+
         foreach ($items as $item) {
-            $lines = [...$lines, ...self::event($item, $feed, $timezone)];
+            $lines = [...$lines, ...self::event($item, $feed, $timezone, $streets)];
         }
 
         $lines[] = 'END:VCALENDAR';
@@ -110,10 +122,53 @@ final class IcsDocument
     }
 
     /**
+     * The subject street of every deal named in this feed, keyed by deal id.
+     *
+     * One query for the whole document rather than one per row: a year of a
+     * busy team's calendar is hundreds of entries, and the feed is fetched by
+     * every subscribed client every few hours forever.
+     *
+     * `is_subject` is the predicate `NameDeal` uses, so the street here is the
+     * street on the deal header rather than whichever property was linked
+     * first — the same reasoning `PushPayload::subjectStreet()` records.
+     *
+     * @param  list<array<string, mixed>>  $items
+     * @return array<string, string>
+     */
+    private static function streetsFor(array $items): array
+    {
+        $dealIds = array_values(array_unique(array_filter(array_map(
+            static fn (array $item): string => (string) ($item['dealId'] ?? ''),
+            $items,
+        ))));
+
+        if ($dealIds === []) {
+            return [];
+        }
+
+        $streets = [];
+
+        foreach (DealProperty::query()
+            ->whereIn('deal_id', $dealIds)
+            ->where('is_subject', true)
+            ->with('property')
+            ->get() as $link) {
+            $property = $link->property;
+
+            if ($property instanceof Property && is_string($property->street)) {
+                $streets[(string) $link->deal_id] = $property->street;
+            }
+        }
+
+        return $streets;
+    }
+
+    /**
      * @param  array<string, mixed>  $item
+     * @param  array<string, string>  $streets
      * @return list<string>
      */
-    private static function event(array $item, CalendarFeed $feed, string $timezone): array
+    private static function event(array $item, CalendarFeed $feed, string $timezone, array $streets): array
     {
         $isDeadline = ($item['kind'] ?? '') === 'deadline';
 
@@ -122,10 +177,15 @@ final class IcsDocument
             ? 'Deadline: '.(string) $item['title']
             : (string) $item['title'];
 
-        $deal = is_array($item['deal'] ?? null) ? (string) $item['deal']['label'] : null;
+        /*
+         * The street, never `$item['deal']['label']` — see the class docblock.
+         * A deal with no subject property contributes nothing, which reads as
+         * *"Deadline: Closing"* rather than as a surname.
+         */
+        $street = $streets[(string) ($item['dealId'] ?? '')] ?? null;
 
-        if ($deal !== null) {
-            $summary .= ' — '.$deal;
+        if (is_string($street) && $street !== '') {
+            $summary .= ' — '.$street;
         }
 
         $lines = [

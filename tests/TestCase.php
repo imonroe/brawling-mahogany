@@ -214,6 +214,32 @@ abstract class TestCase extends BaseTestCase
         Queue::fake();
     }
 
+    /**
+     * Make the next request the way a **stranger** makes it: no session, and
+     * no team already bound into the container.
+     *
+     * This exists because `withTeam()` is a lie for the two surfaces that have
+     * no `team` middleware — the client status page and the `.ics` feed. It
+     * binds a `TeamContext` before the request is made, so by the time the
+     * pipeline runs there is a team whatever the route does, and
+     * `auth()->logout()` clears the guard rather than the binding. Issue #156
+     * records that trap for a signed-in route; Slice 4 shipped both
+     * token-authenticated surfaces 500ing in production and green in the
+     * suite, for exactly this reason.
+     *
+     * Anything asserting how a client-facing route behaves calls this first.
+     * `tests/Isolation/ClientSurfaceTenancyTest.php` proves it does what it
+     * says.
+     */
+    protected function asStranger(): void
+    {
+        app(TeamContext::class)->set(null);
+
+        auth()->forgetUser();
+
+        $this->flushSession();
+    }
+
     protected function tearDown(): void
     {
         // The container is rebuilt between tests, but the context is cheap to

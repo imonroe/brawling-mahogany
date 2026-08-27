@@ -10,10 +10,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\Document;
 use App\Models\StatusPageLink;
+use App\Models\Team;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentStorage;
 use App\Support\StatusPage\IssueStatusPageLink;
+use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\Response as HttpResponse;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 
@@ -44,6 +46,17 @@ use Symfony\Component\HttpFoundation\HeaderUtils;
  * a policy keyed on the wrong subject produced a list somebody could see and
  * not open.
  *
+ * ## The token establishes the tenant, and that has to be *done*
+ *
+ * Everything below the lookup — the link's deal, the client's membership, the
+ * activity entry — is an ordinary scoped read, and a client has no resolved
+ * team. So the work runs inside the link's own team (`TeamContext::runFor`),
+ * which is what `StatusPageController` does one route along and for the same
+ * reason. `Document` keeps its explicit `withoutTeamScope()` and its
+ * `team_id` predicate: the narrowing there is written out against **this
+ * link's** deal, and re-stating it is cheaper than depending on the wrapper
+ * from a file that does not contain it.
+ *
  * ## `actorPersonId` is null, deliberately
  *
  * A client is not a `people` row acting in the app — they are a membership the
@@ -66,6 +79,26 @@ class StatusDocumentController extends Controller
 
         abort_unless($link instanceof StatusPageLink && $link->sessionIsLive(), 404);
 
+        $team = $link->team;
+
+        abort_unless($team instanceof Team, 404);
+
+        return app(TeamContext::class)->runFor($team, fn (): HttpResponse => $this->serve(
+            $link,
+            $document,
+            $storage,
+            $audit,
+            $activity,
+        ));
+    }
+
+    private function serve(
+        StatusPageLink $link,
+        string $document,
+        DocumentStorage $storage,
+        AuditLogger $audit,
+        RecordActivity $activity,
+    ): HttpResponse {
         $deal = $link->deal;
 
         abort_unless($deal instanceof Deal, 404);

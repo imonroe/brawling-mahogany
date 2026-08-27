@@ -43,7 +43,7 @@ function clientSession(): string
 {
     $issued = app(IssueStatusPageLink::class)->issue(test()->deal, test()->client);
 
-    auth()->logout();
+    test()->asStranger();
 
     return (string) str(
         test()->get('/s/'.$issued->token)->headers->get('Location'),
@@ -88,7 +88,7 @@ it('never lets another team’s token open this team’s deal', function (): voi
         return app(IssueStatusPageLink::class)->issue($deal, $membership)->token;
     });
 
-    auth()->logout();
+    $this->asStranger();
 
     $redirect = $this->get("/s/{$theirs}");
 

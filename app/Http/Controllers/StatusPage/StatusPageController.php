@@ -7,9 +7,12 @@ namespace App\Http\Controllers\StatusPage;
 use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\StatusPageLink;
+use App\Models\Team;
 use App\Support\StatusPage\ClientStatus;
 use App\Support\StatusPage\DispatchStatusPageLink;
 use App\Support\StatusPage\IssueStatusPageLink;
+use App\Support\Tenancy\TeamContext;
+use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -57,6 +60,23 @@ use Inertia\Response;
  * The token is what establishes the tenant — ADR 0002's stated exception, the
  * one an invitation already makes. A client has no membership to resolve and
  * no session to be in.
+ *
+ * **Establishing it is a thing this controller has to do**, not a thing the
+ * sentence above makes true. The two token lookups lift the scope, and
+ * everything after them — spending the link, touching the session, reading
+ * the deal off the link, and every query `ClientStatus` composes — is an
+ * ordinary scoped read that throws `MissingTeamContextException` with nothing
+ * resolved. Shipped that way once: every one of these routes was a 500 for a
+ * real client and green in the suite, because `TestCase::withTeam()` binds a
+ * context into the container before the request and `auth()->logout()` does
+ * not clear it. That is issue #156's trap, one surface along, and
+ * `tests/Isolation/ClientSurfaceTenancyTest.php` is the answer to it: it
+ * clears the binding and proves, with a control, that it is cleared.
+ *
+ * So `withinTeamOf()` wraps the work. Not `withoutTeamScope()` on each query —
+ * that would answer *"whose data is this"* by not asking, on the one surface a
+ * stranger reaches. Running inside the link's own team keeps every scope on
+ * and pointed at the right tenant.
  */
 class StatusPageController extends Controller
 {
@@ -82,18 +102,20 @@ class StatusPageController extends Controller
                 return $this->expired($link->refusalReason());
             }
 
-            $session = $this->links->redeem($link);
+            return $this->withinTeamOf($link, function () use ($link): RedirectResponse {
+                $session = $this->links->redeem($link);
 
-            if ($session === null) {
-                /*
-                 * Lost the race — two taps on a slow phone, or a mail scanner
-                 * that fetched the link first. *Used* is the honest answer and
-                 * S64 says what to do about it.
-                 */
-                return $this->expired('used');
-            }
+                if ($session === null) {
+                    /*
+                     * Lost the race — two taps on a slow phone, or a mail
+                     * scanner that fetched the link first. *Used* is the honest
+                     * answer and S64 says what to do about it.
+                     */
+                    return $this->expired('used');
+                }
 
-            return redirect('/s/'.$session);
+                return redirect('/s/'.$session);
+            });
         }
 
         $link = $this->links->findBySessionToken($token);
@@ -102,12 +124,14 @@ class StatusPageController extends Controller
             return $this->expired($link?->refusalReason() ?? 'expired');
         }
 
-        $this->links->touch($link);
+        return $this->withinTeamOf($link, function () use ($link, $token, $status): Response {
+            $this->links->touch($link);
 
-        return $this->client('Status/Show', [
-            'token' => $token,
-            ...$status->for($link),
-        ]);
+            return $this->client('Status/Show', [
+                'token' => $token,
+                ...$status->for($link),
+            ]);
+        });
     }
 
     /**
@@ -125,6 +149,14 @@ class StatusPageController extends Controller
             return $this->expired($link?->refusalReason() ?? 'expired');
         }
 
+        return $this->withinTeamOf(
+            $link,
+            fn (): Response|RedirectResponse => $this->documentsWithin($link, $token, $status),
+        );
+    }
+
+    private function documentsWithin(StatusPageLink $link, string $token, ClientStatus $status): Response|RedirectResponse
+    {
         $deal = $link->deal;
 
         if (! $deal instanceof Deal) {
@@ -238,6 +270,34 @@ class StatusPageController extends Controller
     private function expired(string $reason): RedirectResponse
     {
         return redirect('/s/expired?reason='.$reason);
+    }
+
+    /**
+     * Run the rest of the request inside the team the token belongs to.
+     *
+     * `StatusPageLink` is the one row a client's token can name, and it is
+     * team-scoped like everything else — so the row itself answers *which
+     * tenant*, and from there every ordinary scoped query is both correct and
+     * pointed at exactly one team.
+     *
+     * **A team in the purge window resolves to nothing, and that is the right
+     * refusal.** `Team` soft-deletes, so `$link->team` is null for a deleted
+     * one; a client of a team that no longer exists gets S64 rather than a
+     * page composed from rows on their way out (`CLAUDE.md`'s rule that a
+     * soft-deleted tenant must not decide a fact that is not the tenant's —
+     * here it decides one that *is*).
+     *
+     * @param  Closure(): (Response|RedirectResponse)  $work
+     */
+    private function withinTeamOf(StatusPageLink $link, Closure $work): Response|RedirectResponse
+    {
+        $team = $link->team;
+
+        if (! $team instanceof Team) {
+            return $this->expired('expired');
+        }
+
+        return app(TeamContext::class)->runFor($team, $work);
     }
 
     /**

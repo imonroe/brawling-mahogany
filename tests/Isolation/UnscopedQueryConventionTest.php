@@ -307,13 +307,19 @@ const SANCTIONED_UNSCOPED_QUERIES = [
     ],
 
     'Support/Calendar/ManageCalendarFeeds.php' => [
-        'count' => 1,
+        'count' => 2,
         'reason' => 'A context with no tenant: the reader is a calendar client — Google\'s '.
             'fetcher or Apple\'s — with no cookie and no idea what a team is, so the token '.
             'is what establishes one (F8.3, ADR 0002\'s stated exception, the same one the '.
             'status page makes). An equality match on a unique sha256 column can find only '.
             'the row it names, and the controller then renders the feed inside runFor() on '.
-            'that row\'s own team, so the board query is scoped exactly as any screen\'s is.',
+            'that row\'s own team, so the board query is scoped exactly as any screen\'s is. '.
+            'The second is the membership subquery inside that same lookup, and it narrows '.
+            'rather than widens: a feed keeps working only while its person is still on the '.
+            'team, which is what stops a colleague who left in March fetching the whole '.
+            'calendar from a URL nobody remembers exists. It has to lift the scope for the '.
+            'same reason the lookup does — it runs before any team is established, and it is '.
+            'correlated to the feed\'s own team_id, so it can match nothing else.',
     ],
 
     'Console/Commands/IssueStatusPageLinkCommand.php' => [

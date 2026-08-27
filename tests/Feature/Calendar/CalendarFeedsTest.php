@@ -2,14 +2,22 @@
 
 declare(strict_types=1);
 
+use App\Enums\DealSide;
 use App\Enums\EventType;
+use App\Enums\ParticipantRole;
 use App\Models\CalendarFeed;
 use App\Models\Deal;
+use App\Models\DealType;
 use App\Models\Event;
 use App\Models\KeyDate;
+use App\Models\Property;
 use App\Models\TeamMembership;
 use App\Support\Calendar\ManageCalendarFeeds;
+use App\Support\Deals\DealRoster;
+use App\Support\Deals\NameDeal;
+use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
+use Carbon\CarbonImmutable;
 
 /**
  * S60 — tokenised read-only iCal feeds (PRD §4.8 F8.3 · issue #108).
@@ -46,6 +54,127 @@ function feedToken(?Deal $deal = null): string
     )->token;
 }
 
+it('stops serving the moment the person is no longer on the team', function (): void {
+    /*
+     * A feed URL is a bearer token in somebody's calendar app, and nobody
+     * revoking a colleague's access is going to think of their calendar
+     * subscription. Without a membership predicate, a person who left in March
+     * goes on fetching every showing and every closing date the team has, from
+     * a URL nobody remembers exists — `live()` asks only whether the *feed*
+     * was revoked.
+     *
+     * Revocation only, matching `Notification::scopeForPerson()`: reading more
+     * strictly than the app writes would cut off somebody who still works
+     * there and holds a role composed without a team-surface permission.
+     */
+    Event::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'title' => 'Open house',
+        'starts_at' => CarbonImmutable::now()->addDays(3),
+    ]);
+
+    $token = feedToken();
+
+    $this->asStranger();
+
+    $this->get("/calendar/feeds/{$token}.ics")->assertOk();
+
+    TeamMembership::withoutTeamScope()
+        ->where('team_id', $this->team->getKey())
+        ->where('person_id', $this->member->getKey())
+        ->update(['revoked_at' => now()]);
+
+    $this->asStranger();
+
+    $this->get("/calendar/feeds/{$token}.ics")->assertNotFound();
+});
+
+it('never puts a client’s surname in a document Google keeps', function (): void {
+    /*
+     * `PushPayload`'s rule (#103), one surface along. `Deal::displayName()`
+     * falls back to `generated_name`, and `NameDeal` derives that from the
+     * client's surname when a deal has no subject property — which is every
+     * buy-side deal before an offer. The obvious suffix would publish it.
+     *
+     * The control is the second half: with a subject property, the street
+     * *does* appear, so this cannot pass by the suffix having been dropped
+     * altogether.
+     */
+    $client = TeamMembership::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'first_name' => 'Rae',
+        'last_name' => 'Zellweger',
+    ]);
+
+    /*
+     * A deal of its own, with no subject property and no factory-supplied
+     * `generated_name` — which is the buy-side deal before an offer that
+     * `NameDeal` names after the client.
+     */
+    $deal = Deal::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'generated_name' => null,
+        // Buy side, because `DealRoster::expectedRoles()` is what decides
+        // whose surname `NameDeal` reaches for, and on a sale it is the seller.
+        'deal_type_id' => DealType::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'side' => DealSide::Buy,
+        ])->getKey(),
+    ]);
+
+    app(DealRoster::class)->add($deal, $client, ParticipantRole::Buyer, isPrimary: true);
+
+    app(NameDeal::class)->refresh($deal->fresh());
+
+    expect($deal->fresh()->displayName())->toContain('Zellweger');
+
+    KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $deal->getKey(),
+        'name' => 'Closing',
+        'date' => CarbonImmutable::now()->addDays(20)->toDateString(),
+    ]);
+
+    $token = feedToken($deal);
+
+    $this->asStranger();
+
+    $body = $this->get("/calendar/feeds/{$token}.ics")->getContent();
+
+    expect($body)->toContain('Deadline: Closing')
+        ->and($body)->not->toContain('Zellweger');
+
+    /*
+     * The control: a subject property, and the street *is* carried — so this
+     * cannot pass by the suffix having been dropped altogether. Linking is the
+     * agent's act, so it happens in the agent's team; `asStranger()` above
+     * left none resolved, which is the calendar client's situation.
+     */
+    app(TeamContext::class)->runFor($this->team, function () use ($deal): void {
+        $link = app(PropertyDeals::class)->link(
+            Property::factory()->create([
+                'team_id' => $this->team->getKey(),
+                'street' => '4120 Ivywood Ln',
+            ]),
+            $deal->fresh(),
+        );
+
+        /*
+         * Promoted, because a buy-side link is a **candidate** — `link()`
+         * refuses to make one the subject on its own, since a buyer looking at
+         * six houses has no subject until they choose. Which is also why the
+         * half above is the ordinary case rather than an edge: a buy-side deal
+         * has no street to publish for as long as the search lasts.
+         */
+        app(PropertyDeals::class)->promote($link);
+    });
+
+    $this->asStranger();
+
+    expect($this->get("/calendar/feeds/{$token}.ics")->getContent())
+        ->toContain('4120 Ivywood Ln');
+});
+
 it('serves a calendar a client can subscribe to', function (): void {
     Event::factory()->create([
         'team_id' => $this->team->getKey(),
@@ -59,7 +188,7 @@ it('serves a calendar a client can subscribe to', function (): void {
 
     $token = feedToken();
 
-    auth()->logout();
+    $this->asStranger();
 
     $response = $this->get("/calendar/feeds/{$token}.ics")->assertOk();
 
@@ -87,7 +216,7 @@ it('draws a deadline as a labelled all-day event', function (): void {
 
     $token = feedToken();
 
-    auth()->logout();
+    $this->asStranger();
 
     $body = $this->get("/calendar/feeds/{$token}.ics")->assertOk()->getContent();
 
@@ -128,7 +257,7 @@ it('carries no attendee, no description, and no address book', function (): void
 
     $token = feedToken();
 
-    auth()->logout();
+    $this->asStranger();
 
     $body = $this->get("/calendar/feeds/{$token}.ics")->assertOk()->getContent();
 
@@ -158,7 +287,7 @@ it('escapes a value that would otherwise end the property early', function (): v
 
     $token = feedToken();
 
-    auth()->logout();
+    $this->asStranger();
 
     $body = $this->get("/calendar/feeds/{$token}.ics")->assertOk()->getContent();
 
@@ -198,7 +327,7 @@ it('folds a long line the way the standard requires', function (): void {
 
     $token = feedToken();
 
-    auth()->logout();
+    $this->asStranger();
 
     $body = $this->get("/calendar/feeds/{$token}.ics")->assertOk()->getContent();
 
@@ -230,7 +359,7 @@ it('narrows a per-deal feed to that deal', function (): void {
 
     $token = feedToken($this->deal);
 
-    auth()->logout();
+    $this->asStranger();
 
     $body = $this->get("/calendar/feeds/{$token}.ics")->assertOk()->getContent();
 
@@ -241,7 +370,7 @@ it('narrows a per-deal feed to that deal', function (): void {
 it('stops the moment a feed is revoked', function (): void {
     $issued = $this->feeds->generate($this->team, $this->member, null, 'Everything');
 
-    auth()->logout();
+    $this->asStranger();
 
     $this->get("/calendar/feeds/{$issued->token}.ics")->assertOk();
 
@@ -256,7 +385,7 @@ it('stops the moment a feed is revoked', function (): void {
 });
 
 it('answers an unknown token exactly as it answers a revoked one', function (): void {
-    auth()->logout();
+    $this->asStranger();
 
     $this->get('/calendar/feeds/'.str_repeat('z', 43).'.ics')->assertNotFound();
 });
@@ -296,7 +425,7 @@ it('stores the token hashed, and encrypted rather than in the clear', function (
 it('notes that a calendar read it, without an entry per fetch', function (): void {
     $issued = $this->feeds->generate($this->team, $this->member, null, 'Everything');
 
-    auth()->logout();
+    $this->asStranger();
 
     $this->get("/calendar/feeds/{$issued->token}.ics");
     $this->get("/calendar/feeds/{$issued->token}.ics");
@@ -335,7 +464,7 @@ it('reaches nothing belonging to another team', function (): void {
         'starts_at' => now()->addDay()->setTime(10, 0),
     ]);
 
-    auth()->logout();
+    $this->asStranger();
 
     $body = $this->get("/calendar/feeds/{$theirs}.ics")->assertOk()->getContent();
 

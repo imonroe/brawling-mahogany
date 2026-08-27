@@ -10,6 +10,7 @@ use App\Models\DealParticipant;
 use App\Models\StatusPageLink;
 use App\Models\TeamMembership;
 use App\Support\StatusPage\IssueStatusPageLink;
+use App\Support\Tenancy\TeamContext;
 use Inertia\Testing\AssertableInertia;
 
 /**
@@ -60,7 +61,7 @@ it('opens the page from a link, first try, with no password', function (): void 
      * years… must work on a phone, first try, no password"*, and a test that
      * kept the agent's session would not be testing that at all.
      */
-    auth()->logout();
+    $this->asStranger();
 
     $redirect = $this->get("/s/{$token}");
 
@@ -78,7 +79,7 @@ it('opens the page from a link, first try, with no password', function (): void 
 it('spends a link once, and the second attempt lands on S64', function (): void {
     [, $token] = issuedFor();
 
-    auth()->logout();
+    $this->asStranger();
 
     $this->get("/s/{$token}")->assertRedirect();
 
@@ -87,7 +88,7 @@ it('spends a link once, and the second attempt lands on S64', function (): void 
 });
 
 it('says which of expired, used and revoked it is', function (): void {
-    auth()->logout();
+    $this->asStranger();
 
     $cases = [
         'expired' => StatusPageLink::factory()->expired(),
@@ -122,7 +123,7 @@ it('keeps a session working after the link that made it has been spent', functio
      */
     [$link, $token] = issuedFor();
 
-    auth()->logout();
+    $this->asStranger();
 
     $session = (string) str($this->get("/s/{$token}")->headers->get('Location'))->afterLast('/s/');
 
@@ -140,13 +141,23 @@ it('keeps a session working after the link that made it has been spent', functio
 it('stops both credentials the moment access is revoked', function (): void {
     [$link, $token] = issuedFor();
 
-    auth()->logout();
+    $this->asStranger();
 
     $session = (string) str($this->get("/s/{$token}")->headers->get('Location'))->afterLast('/s/');
 
     $this->get("/s/{$session}")->assertOk();
 
-    app(IssueStatusPageLink::class)->revoke($link->refresh());
+    /*
+     * The agent's act, so it happens in the agent's team — `asStranger()`
+     * above left none resolved, which is the client's situation and not the
+     * team's. Reading `$link` back is the same: `status_page_links` is
+     * team-scoped like everything else.
+     */
+    app(TeamContext::class)->runFor($this->team, function () use ($link): void {
+        app(IssueStatusPageLink::class)->revoke($link->refresh());
+    });
+
+    $this->asStranger();
 
     $this->get("/s/{$session}")->assertRedirect('/s/expired?reason=revoked');
 });
@@ -171,18 +182,25 @@ it('writes an activity event and an audit entry for every issuance and use', fun
     expect(ActivityEvent::query()->where('event_type', 'status_page.link_issued')->exists())->toBeTrue()
         ->and(AuditEntry::query()->where('action', 'status_page.link_issued')->exists())->toBeTrue();
 
-    auth()->logout();
+    $this->asStranger();
 
     $this->get("/s/{$token}");
 
-    expect(ActivityEvent::query()->where('event_type', 'status_page.opened')->exists())->toBeTrue()
-        ->and(AuditEntry::query()->where('action', 'status_page.opened')->exists())->toBeTrue();
+    /*
+     * Read back inside the team, because that is where the rows are. The
+     * client's request resolved a team from its own token and left none
+     * behind, which is what makes the entries above provable at all.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        expect(ActivityEvent::query()->where('event_type', 'status_page.opened')->exists())->toBeTrue()
+            ->and(AuditEntry::query()->where('action', 'status_page.opened')->exists())->toBeTrue();
+    });
 });
 
 it('counts repeat visits without writing an entry for each one', function (): void {
     [$link, $token] = issuedFor();
 
-    auth()->logout();
+    $this->asStranger();
 
     $session = (string) str($this->get("/s/{$token}")->headers->get('Location'))->afterLast('/s/');
 
@@ -193,15 +211,17 @@ it('counts repeat visits without writing an entry for each one', function (): vo
      * A client refreshing a page four times is one visit, and four timeline
      * entries would bury the advance that happened between them.
      */
-    expect($link->refresh()->view_count)->toBe(2)
-        ->and($link->last_seen_at)->not->toBeNull()
-        ->and(ActivityEvent::query()->where('event_type', 'status_page.opened')->count())->toBe(1);
+    app(TeamContext::class)->runFor($this->team, function () use ($link): void {
+        expect($link->refresh()->view_count)->toBe(2)
+            ->and($link->last_seen_at)->not->toBeNull()
+            ->and(ActivityEvent::query()->where('event_type', 'status_page.opened')->count())->toBe(1);
+    });
 });
 
 it('carries the headers a URL-borne credential needs', function (): void {
     [, $token] = issuedFor();
 
-    auth()->logout();
+    $this->asStranger();
 
     $session = (string) str($this->get("/s/{$token}")->headers->get('Location'))->afterLast('/s/');
 
