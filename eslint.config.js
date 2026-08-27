@@ -113,6 +113,26 @@ export default defineConfigWithVueTs(
         ],
     },
     prettier,
+    /*
+     * The service worker is checked against its own tsconfig (#102).
+     *
+     * `tsconfig.json` excludes `resources/js/sw.ts` because a worker needs
+     * `lib: WebWorker`, whose `self` is a `ServiceWorkerGlobalScope` rather
+     * than a `Window` — the two cannot share one program. Without this block
+     * the type-aware rules cannot find the file at all and eslint fails with
+     * a parsing error rather than linting it, which would leave the one file
+     * in the codebase running outside the browser's page context as the one
+     * file nobody checks.
+     */
+    {
+        files: ['resources/js/sw.ts'],
+        languageOptions: {
+            parserOptions: {
+                projectService: false,
+                project: './tsconfig.sw.json',
+            },
+        },
+    },
     {
         plugins: {
             '@stylistic': stylistic,

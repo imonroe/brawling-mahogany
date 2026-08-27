@@ -55,6 +55,31 @@ the container which uses them transparently."*
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
 | `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
 
+### `VAPID_*` is generated once and never rotated
+
+Web push (#103). Three keys — `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY` — produced by `php artisan push:vapid-keys`, which prints
+them rather than writing them, like `invitation:link` and `auth:reset-link`.
+
+**This is the one secret in this document that must not be rotated on a
+schedule.** The public half is baked into every subscription a browser has
+already created, so replacing the pair does not re-key anything: it silently
+invalidates every existing subscription, and every device has to be
+re-subscribed by hand from Settings → Notifications. Nobody finds out until
+they notice they have stopped being notified. Treat the pair like a domain
+name, not like a password — and if the private key is ever *exposed*, rotating
+it is still correct, but plan for the re-subscription rather than discovering
+it.
+
+`VAPID_SUBJECT` must be a `mailto:` or `https:` URL (RFC 8292); a push service
+uses it to reach somebody about this application, and several reject a
+malformed one at send time rather than at configuration time.
+
+An environment with any of the three unset simply does not offer push:
+`SendPush::configured()` is what S78 asks before drawing the switch and what
+`Notify` asks before writing `push` into a notification's channels, so a
+half-configured environment is not a state the product can reach.
+
 ### `APP_NAME` is not the product's name
 
 Two keys, because one was doing two jobs. `APP_NAME` is slugged into the

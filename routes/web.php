@@ -30,6 +30,8 @@ use App\Http\Controllers\People\PersonController;
 use App\Http\Controllers\Properties\PhotoController;
 use App\Http\Controllers\Properties\PropertyController;
 use App\Http\Controllers\Properties\PropertyDealController;
+use App\Http\Controllers\Pwa\ServiceWorkerController;
+use App\Http\Controllers\Pwa\WebManifestController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Settings\RoleController;
 use App\Http\Controllers\Teams\InvitationController;
@@ -43,6 +45,34 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::inertia('/', 'Welcome')->name('home');
+
+/*
+ * The service worker (#102), from the root and outside `auth`.
+ *
+ * **The root is the whole point**: a worker controls only URLs at or below its
+ * own path, so one served from `/build/sw.js` would install cleanly and
+ * intercept nothing. `ServiceWorkerController` explains why this is a route
+ * rather than a copied file or a web-server header.
+ *
+ * Outside `auth` because the browser re-fetches this script on its own
+ * schedule to check for updates, and a session that expired between two of
+ * those checks would otherwise get the sign-in page's HTML served back as
+ * JavaScript. It carries no data — it is the same bytes for everybody, signed
+ * in or not.
+ */
+Route::get('sw.js', ServiceWorkerController::class)->name('pwa.service-worker');
+
+/*
+ * The web app manifest, served rather than built (#102). See
+ * `WebManifestController`: the plugin's own copy lands in `public/build` and
+ * enters the worker's precache list as a relative URL that resolves to a path
+ * nothing serves — and unlike the asset entries, no build hook can reach it.
+ *
+ * Outside `auth` for the reason the worker is: a browser fetches this to
+ * decide whether the site is installable, sometimes before anybody has signed
+ * in, and it is the same bytes for everybody.
+ */
+Route::get('manifest.webmanifest', WebManifestController::class)->name('pwa.manifest');
 
 /*
  * Accepting an invitation happens before there is a membership to resolve, so

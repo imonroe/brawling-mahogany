@@ -35,9 +35,15 @@ and F5.9's rails (kill switch, rate ceiling, sandbox) are enforced in the
 worker immediately before the mailer. Then the client-facing half (#97): one
 branded email layout every mailable extends, the milestone notification as a
 *frame* around an ordinary automation rather than a second mailable, and S91's
-internal alert. Remaining: SES and delivery tracking (#94, #95), documents and
-their guardrails (#98–#100, #104), and the mobile layer (#101–#103). #19 (web
-push on a real iPhone) is not code — don't try to close it with a commit.
+internal alert. Then delivery tracking and suppression (#95), the documents
+module and its guardrails (#98–#100, #104), notifications and their panel
+(#101), and the mobile layer — the PWA shell and web push (#102, #103).
+
+**Slice 3 is now code-complete.** What is left in the epic cannot be closed by
+a commit: #19 (web push confirmed on a real iPhone) and #12's console half are
+both console, DNS and device work. Two application halves wait on decisions
+rather than on code — #94's per-team sending identity is gated on #15's naming
+decision, and #87's seeded template packs are gated on #11's content.
 
 **Mail is configured** (#12): SES over SMTP, verified domain
 `monroedigitalconsulting.com`, everything leaving as
@@ -198,6 +204,14 @@ named — treat that test as the authority, not this summary.
   - **A `nullable` field the form did not send is absent from `$validated`, not null in it.** `$validated['caption']` was a 500 on every upload without a caption — the ordinary case — and every earlier test happened to send one.
   - **Report a number, do not imply a limit.** S50's storage figure is `SUM(size_bytes)` over live rows and nothing else: there is no plan tier to exceed, and a progress bar toward an invented ceiling is the kind of lie somebody later builds a billing assumption on.
   - **One path to the bytes.** The viewer's preview and the download both go through the subject's own audited route, so a rendered preview is an access with an entry behind it (PRD §9) and the authorization lives in one place rather than two that can drift. Never a presigned URL: an entry written when a link is *minted* records an intention, not a read.
+- **A service worker controls only URLs at or below its own path** (#102). Vite writes to `public/build`, so a worker registered from `/build/sw.js` installs cleanly, reports itself healthy, and intercepts **nothing anybody visits** — the failure mode is silence. `ServiceWorkerController` serves the built file from `/sw.js` so the scope is `/` with no header needed, and `PwaTest` holds it; a `Service-Worker-Allowed` header would put the rule in whatever serves static files rather than in the application.
+  - **Offline is read-only, and the banner promises exactly that.** Nothing is queued for replay: completing a task clears a gate, and clearing a gate can send a client an email that cannot be recalled, so a tick shown now for a write attempted from a pocket two hours later is the lie #102 forbids. S56 says *"you can read, nothing will be saved"*, which is a promise the code keeps.
+  - **A cached response does not remember when it was cached.** S56 has to say *when* the data is from, so the worker stamps `sw-fetched-at` on the way in. Without it the banner can only say *"this might be old"*, which is the warning people learn to dismiss.
+  - **`any` and `maskable` icons are different pictures, not different sizes.** A launcher crops a maskable icon to its own shape and only the inner 80% survives, so one image declared both gets its edges shaved. `scripts/generate-pwa-icons.php` draws both from the product mark, because an icon that drifts from the one in the sidebar is something nobody notices until it is on thirty phones.
+- **A push payload is composed from an allowlist, never copied** (#103 · PRD §9). A push sits on a third-party service and on a lock screen, so `PushPayload` builds it from a **constant in the enum** plus the subject property's **street** — never `notifications.summary`, which is free text carrying a task title or a gate label somebody typed a client's name into. And never `Deal::displayName()`: `NameDeal` falls back to the **client's surname** when there is no property, so the obvious one-liner pushes a surname for every buy-side deal before an offer.
+  - **404 and 410 mean gone; everything else means try again.** Wrong in either direction is expensive: delete on a 500 and a push outage unsubscribes the customer base; keep on a 410 and every send from now on spends a request on an address that will never answer. `last_seen_at` is touched on **success only**, because touching it on failure keeps a dead device alive forever.
+  - **A library that advises through `trigger_error` will be escalated into an exception.** `minishlink/web-push` notices that GMP/BCMath are missing; Laravel turns notices into `ErrorException`; the constructor threw and the `catch` logged *"misconfigured"* — silently disabling push on a correctly configured install. Passing a PSR-3 logger takes the other branch. **Before wrapping a library constructor in a `catch`, find out what it does when it merely disapproves.**
+  - **A subscription is a credential for a browser, so it carries no `team_id`** — the `Passkey` argument, one table along. A person with two agencies has one phone; a `team_id` would mean a row per team per device and a send that pushes twice to one lock screen. Safe because every row describes a *colleague's own browser*: no client name, address or figure, and nothing one team could learn about another.
 - **No user flow depends on email alone.** Every email-initiated flow needs a second way to start/answer it (in-app, artifact handoff, or an operator console command) — email is a channel we don't control. See [`docs/adr/0003`](docs/adr/0003-no-email-only-flows.md). New mailables and mail-sending notifications are catalogued in `App\Support\Mail\EmailIndependence`; `tests/Unit/EmailIndependenceTest.php` fails the build when one has no resolvable second door.
 
 ## Data handling and security
@@ -236,6 +250,7 @@ named — treat that test as the authority, not this summary.
 | `php artisan mail:suppression <email\|id>` | Show whether an address is on the account-wide suppression list, and why. Takes a row id too, so an audit entry (which records no address, by design) leads somewhere. `--lift` removes it (every team is affected — it is deliberately not something a team can do to itself); `--suppress` adds one by hand. Audited |
 | `php artisan notifications:deadlines` | Tells people about tasks due tomorrow. Hourly; each team is handled only in the hour that is 8am **locally to them** |
 | `php artisan notifications:release-held` | Queues the emails and pushes quiet hours held, once the window closes. Every five minutes |
+| `php artisan push:vapid-keys` | Generate the VAPID key pair web push needs (#103). Printed, never written — paste it wherever this environment keeps secrets. **Generate once and do not rotate**: the public half is baked into every subscription a browser has already made, so replacing the pair silently invalidates all of them |
 | `php artisan records:purge` | The 30-day retention purge (PRD §9): team-scoped rows, deleted accounts, expired exports, abandoned import uploads and drafts, read notifications, and notifications for people who have left. Nightly; safe to run by hand |
 | `php artisan invitation:link <email>` | Print the accept link for an outstanding invitation (ADR 0003, no mail transport needed). `--team=<slug>` if invited to more than one. Rotates the token. Audited |
 | `php artisan auth:reset-link <email>` | Print a single-use password reset link (ADR 0003). Audited |

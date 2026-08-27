@@ -17,6 +17,7 @@ use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentStorage;
+use App\Support\Push\PushSubscriptionRegistry;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
@@ -53,8 +54,11 @@ class PurgeSoftDeletedRecords extends Command
 
     protected $description = 'Hard-delete records and teams whose recovery window has closed.';
 
-    public function handle(TeamContext $teams, AuditLogger $audit): int
-    {
+    public function handle(
+        TeamContext $teams,
+        AuditLogger $audit,
+        PushSubscriptionRegistry $subscriptions,
+    ): int {
         $days = (int) $this->option('days');
         $cutoff = now()->subDays($days);
 
@@ -85,16 +89,21 @@ class PurgeSoftDeletedRecords extends Command
             $purgedRows += $this->purgeRowsFor($team, $cutoff);
         }
 
-        // `people` is not team-scoped, so it is purged once rather than per
-        // team. See `purgePeople()`.
+        /*
+         * Neither of these is team-scoped, so both run once rather than per
+         * team — sweeping them inside the loop would either miss the people
+         * in no team or delete the same rows once per team they are in.
+         */
+        $purgedStaging += $this->purgeStalePushSubscriptions($subscriptions);
         $purgedPeople = $this->purgePeople($cutoff, $audit);
 
         $purgedTeams = $this->purgeTeams($teams, $audit);
 
         $this->info(
             "Purged {$purgedRows} records, {$purgedPeople} people, ".
-            "{$purgedStaging} expired exports, abandoned uploads, drafts and read ".
-            "notifications, and {$purgedTeams} teams past the {$days}-day window.",
+            "{$purgedStaging} expired exports, abandoned uploads, drafts, ".
+            "notifications and dead devices, and {$purgedTeams} teams past the ".
+            "{$days}-day window.",
         );
 
         return self::SUCCESS;
@@ -446,6 +455,36 @@ class PurgeSoftDeletedRecords extends Command
             ->whereIn('person_id', $formerMembers)
             ->toBase()
             ->delete();
+    }
+
+    /**
+     * Devices nothing has reached in a very long time (#103).
+     *
+     * ## Why this needs a sweep at all, when the cascade covers the rest
+     *
+     * `push_subscriptions.person_id` cascades, so an account being purged
+     * takes its subscriptions with it, and a push service answering 404 or
+     * 410 removes one immediately (`SendPush`). What neither covers is the
+     * commonest ending: a phone wiped, reset or replaced, whose push service
+     * simply never says so. Those endpoints sit there being retried on every
+     * notification, forever.
+     *
+     * ## Outside the per-team loop, because the table is outside tenancy
+     *
+     * A subscription belongs to a person rather than a team (see the
+     * migration), so sweeping it per team would either miss the people in no
+     * team or delete the same rows once per team they are in. Purged once,
+     * like `people` below and for the same reason.
+     *
+     * The cutoff is `PushSubscription::STALE_AFTER_DAYS` rather than the
+     * command's `--days`: the retention window is about **customer data**
+     * PRD §9 requires be destroyed, and this is neither — it is a dead
+     * address, swept on a schedule chosen for how long somebody may
+     * reasonably go without being notified.
+     */
+    private function purgeStalePushSubscriptions(PushSubscriptionRegistry $subscriptions): int
+    {
+        return $subscriptions->pruneStale();
     }
 
     /**
