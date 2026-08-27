@@ -71,6 +71,25 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'the bug, not the fix.',
     ],
 
+    'Models/Notification.php' => [
+        'count' => 1,
+        'reason' => 'Kind 1, a question about the **actor**. `forPerson()` asks "what have I '.
+            'been told", and issue #101 requires it to span teams: "a person in two teams '.
+            'needs to know which one a notification came from, and switching teams should '.
+            'not hide it." A stager working two agencies who is told at nine that a task is '.
+            'theirs must not lose it by switching at ten. The predicate is their own id, '.
+            'the rows are ones addressed to them, and each line names the team it came '.
+            'from rather than hiding it — so nothing is read across a boundary that was '.
+            'not already this person\'s to read.',
+    ],
+
+    'Console/Commands/ReleaseHeldNotifications.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2, and the same shape: what quiet hours held belongs to every team '.
+            'at once, so the sweep is above the tenancy and each notification carries its '.
+            'own team_id into the job, which re-establishes it before anything is read.',
+    ],
+
     'Support/Delivery/ApplyDeliveryEvent.php' => [
         'count' => 1,
         'reason' => 'Kind 2, and the clearest example of it in the product: a bounce '.

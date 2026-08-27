@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Notifications\NotificationPreferenceController;
 use App\Http\Controllers\Settings\DataExportController;
 use App\Http\Controllers\Settings\DealTypeController;
 use App\Http\Controllers\Settings\MemberController;
@@ -105,6 +106,15 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     Route::patch('settings/sending', [SendSafetyController::class, 'update'])->name('team.send-safety.update');
 
     // S79 — team data export.
+    /*
+     * S78 (#101). Inside the team group but behind no permission: everybody
+     * chooses how they are told, and the row is keyed on the person asking.
+     */
+    Route::get('settings/notifications', [NotificationPreferenceController::class, 'edit'])
+        ->name('notification-preferences.edit');
+    Route::patch('settings/notifications', [NotificationPreferenceController::class, 'update'])
+        ->name('notification-preferences.update');
+
     Route::get('settings/export', [DataExportController::class, 'index'])->name('export.index');
     Route::post('settings/export', [DataExportController::class, 'store'])->name('export.store');
 });

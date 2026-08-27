@@ -27,6 +27,12 @@ const sidebarNavItems = computed<NavItem[]>(() => {
         { title: 'Profile', href: editProfile() },
         { title: 'Security', href: editSecurity() },
         { title: 'Appearance', href: editAppearance() },
+        /*
+         * S78 (#101). Beside the other personal settings and above the
+         * team-wide ones, because how somebody is told about work is theirs —
+         * every member has this row whatever permissions they hold.
+         */
+        { title: 'Notifications', href: '/settings/notifications' },
     ];
 
     if (page.props.team && can('settings.manage')) {

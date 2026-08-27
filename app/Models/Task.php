@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\NotificationType;
 use App\Enums\TaskSource;
 use App\Enums\TaskState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
+use App\Support\Notifications\Notify;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
 use Database\Factories\TaskFactory;
@@ -178,5 +180,110 @@ class Task extends Model
     public function scopeRequired(Builder $query): Builder
     {
         return $query->where('is_required', true);
+    }
+
+    /**
+     * Telling somebody a task is theirs (#101 · F12.4).
+     *
+     * ## On the column, not on a caller
+     *
+     * `assignee_id` is written from four places — `DealTasks::add()` and
+     * `::edit()`, `InstantiateWorkflow` when a workflow is attached, and
+     * `AdvanceWorkflow::override()`'s follow-up task — and `CLAUDE.md` records
+     * what happens to a trigger hung off one of them: *"a trigger wired to one
+     * implementation of a thing is wired to none of it."* `gate_cleared`
+     * shipped exactly that way. A model hook fires wherever the value actually
+     * changes, including from the caller somebody adds next slice.
+     *
+     * ## `saved`, not `saving`
+     *
+     * The notification names the task, so the row has to exist — and a
+     * `saving` hook fires before `BelongsToTeam` has filled `team_id`, which
+     * is the ordering `docs/adr/0002`'s S76 table records somebody getting
+     * wrong on a different guard.
+     *
+     * ## Never about your own doing
+     *
+     * `Notify` filters the actor out, and the actor is the resolved person
+     * rather than one passed in — a hook has no argument to carry one. Somebody
+     * assigning a task to themselves is the common case and is exactly the
+     * notification nobody wants.
+     */
+    protected static function booted(): void
+    {
+        /*
+         * **Two hooks, not one `saved` with a predicate**, and the second
+         * attempt at this is why.
+         *
+         * `wasChanged()` is **false** for a model that was just inserted:
+         * `performInsert()` calls `syncOriginal()`, so `getDirty()` is empty by
+         * the time `finishSave()` fills `changes`. Written as `saved` +
+         * `wasChanged`, this fired for a reassignment and for **no**
+         * assignment made at creation time — which is most of them: every task
+         * a workflow instantiation hands out, and every one added with an
+         * assignee already picked. Measured at zero.
+         *
+         * Reaching for `wasRecentlyCreated` to patch that is the next trap: it
+         * stays true for every later save of the same instance, so editing the
+         * title of a task announced a moment ago announced it again. Measured
+         * at two.
+         *
+         * `created` fires exactly once, on the insert. `updated` fires only on
+         * an update, which is the only place `wasChanged` means what it reads
+         * as. Neither needs a predicate about which one it is.
+         */
+        static::created(static fn (self $task) => self::announceAssignment($task));
+
+        static::updated(static function (self $task): void {
+            if ($task->wasChanged('assignee_id')) {
+                self::announceAssignment($task);
+            }
+        });
+    }
+
+    /**
+     * Telling somebody a task is theirs (#101 · F12.4).
+     *
+     * ## On the column, not on a caller
+     *
+     * `assignee_id` is written from four places — `DealTasks::add()` and
+     * `::edit()`, `InstantiateWorkflow` when a workflow is attached, and
+     * `AdvanceWorkflow::override()`'s follow-up task — and `CLAUDE.md` records
+     * what happens to a trigger hung off one of them: *"a trigger wired to one
+     * implementation of a thing is wired to none of it."* `gate_cleared`
+     * shipped exactly that way. A model hook fires wherever the value actually
+     * changes, including from the caller somebody adds next slice.
+     *
+     * ## Never about your own doing
+     *
+     * `Notify` filters the actor out, and the actor is the resolved person
+     * rather than one passed in — a hook has no argument to carry one.
+     * Assigning a task to yourself is the common case and is exactly the
+     * notification nobody wants.
+     */
+    private static function announceAssignment(self $task): void
+    {
+        $assignee = $task->assignee_id;
+
+        if ($assignee === null) {
+            return;
+        }
+
+        $person = Person::query()->find($assignee);
+        $team = app(TeamContext::class)->get();
+
+        if (! $person instanceof Person || ! $team instanceof Team) {
+            return;
+        }
+
+        app(Notify::class)->send(
+            type: NotificationType::TaskAssigned,
+            people: [$person],
+            team: $team,
+            summary: 'You were assigned “'.$task->title.'”',
+            deal: $task->deal,
+            data: ['taskId' => $task->getKey()],
+            actor: auth()->user() instanceof Person ? auth()->user() : null,
+        );
     }
 }

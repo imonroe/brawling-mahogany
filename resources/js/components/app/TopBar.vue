@@ -7,7 +7,6 @@
  */
 import { Link } from '@inertiajs/vue3';
 import {
-    Bell,
     Bug,
     ChevronRight,
     CircleQuestionMark,
@@ -17,6 +16,7 @@ import {
 } from '@lucide/vue';
 import AppButton from '@/components/app/AppButton.vue';
 import IconButton from '@/components/app/IconButton.vue';
+import NotificationsMenu from '@/components/app/NotificationsMenu.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { toUrl } from '@/lib/utils';
 import type { BreadcrumbItem } from '@/types';
@@ -24,11 +24,10 @@ import type { BreadcrumbItem } from '@/types';
 withDefaults(
     defineProps<{
         breadcrumbs?: BreadcrumbItem[];
-        unreadNotifications?: boolean;
         /** Whether the n8n bug-report form is configured (issue #176). */
         bugReport?: boolean;
     }>(),
-    { breadcrumbs: () => [], unreadNotifications: false, bugReport: false },
+    { breadcrumbs: () => [], bugReport: false },
 );
 
 defineEmits<{
@@ -151,11 +150,12 @@ const { can } = usePermissions();
             @click="$emit('log-contact')"
         />
 
-        <IconButton
-            :icon="Bell"
-            label="Notifications"
-            :unread="unreadNotifications"
-        />
+        <!--
+            S08 (#101). The bell was a dead control until now — no href, no
+            handler, and a prop nothing fed. `CLAUDE.md`'s *"a reader with no
+            writer is as dead as a row nothing can reach"*, on the shell.
+        -->
+        <NotificationsMenu />
         <!--
             S92 (#170). An anchor rather than a button, so it can be
             middle-clicked into a tab — which is what people do to a help icon
