@@ -10,6 +10,7 @@ use App\Models\Passkey;
 use App\Models\Person;
 use App\Support\Database\BlueprintMacros;
 use App\Support\Help\HelpLibrary;
+use App\Support\Notifications\Notify;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Queue\Events\JobFailed;
@@ -45,6 +46,19 @@ class AppServiceProvider extends ServiceProvider
          * read twenty-two files twice.
          */
         $this->app->singleton(HelpLibrary::class);
+
+        /*
+         * `scoped`, not `singleton`, and the distinction is the point (#101).
+         *
+         * `Notify` memoises a team's notification preferences so a workflow
+         * instantiation reads them once rather than once per assigned task —
+         * review measured twelve identical selects among sixty. A `singleton`
+         * would carry that memo across requests in a long-lived worker, so a
+         * preference changed on S78 would go on being ignored; `scoped` clears
+         * it at the request or job boundary, which is exactly the lifetime the
+         * memo is correct for.
+         */
+        $this->app->scoped(Notify::class);
     }
 
     /**

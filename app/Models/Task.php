@@ -281,7 +281,13 @@ class Task extends Model
             people: [$person],
             team: $team,
             summary: 'You were assigned “'.$task->title.'”',
-            deal: $task->deal,
+            /*
+             * The **id**, not the relation. `$task->deal` is a query per task,
+             * and a workflow instantiation runs this a dozen times for one
+             * deal — review measured twelve identical selects among sixty.
+             * `Notify` only ever wants the key.
+             */
+            dealId: $task->deal_id,
             data: ['taskId' => $task->getKey()],
             actor: auth()->user() instanceof Person ? auth()->user() : null,
         );

@@ -60,9 +60,13 @@ return new class extends Migration
             $table->json('channels')->nullable();
 
             /*
-             * The window, in the team's wall clock. Both null or both set —
-             * the model refuses one — because half a window is a rule nothing
-             * can evaluate.
+             * The window, in the team's wall clock. Both null or both set,
+             * because half a window is a rule nothing can evaluate — enforced
+             * by `SaveNotificationPreferences`' `required_with` pair and by
+             * nothing else. **There is no CHECK constraint and no model hook**,
+             * which an earlier version of this comment claimed: the guard is
+             * one layer, and saying so is the difference between knowing where
+             * to look and trusting a sentence.
              *
              * A window that wraps midnight (21:00 → 07:00) is the ordinary
              * case rather than the exception, which is why this is two times

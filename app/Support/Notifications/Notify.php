@@ -12,6 +12,7 @@ use App\Models\NotificationPreference;
 use App\Models\Person;
 use App\Models\Team;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Str;
 
 /**
  * The only writer of `notifications` (issue #101 · F12.4).
@@ -49,10 +50,22 @@ use Carbon\CarbonInterface;
  */
 final class Notify
 {
+    /**
+     * How long a panel line may be.
+     *
+     * Short of `notifications.summary`'s 255 on purpose: `Str::limit()` adds
+     * its own ellipsis, and a line this long is already past the width of the
+     * popover it renders in.
+     */
+    public const MAX_SUMMARY = 180;
+
     public function __construct(private readonly DeliverNotification $delivery) {}
 
     /**
      * @param  iterable<int, mixed>  $people
+     * @param  string|null  $dealId  when the caller has the id and not the row —
+     *                               a `Task` hook holding `deal_id` should not
+     *                               load the deal to hand back its key
      * @param  array<string, mixed>  $data
      * @return list<Notification>
      */
@@ -62,6 +75,7 @@ final class Notify
         Team $team,
         string $summary,
         ?Deal $deal = null,
+        ?string $dealId = null,
         array $data = [],
         ?Person $actor = null,
         ?CarbonInterface $at = null,
@@ -108,8 +122,8 @@ final class Notify
                 'team_id' => $team->getKey(),
                 'person_id' => $person->getKey(),
                 'type' => $type->value,
-                'deal_id' => $deal?->getKey(),
-                'summary' => $summary,
+                'deal_id' => $deal?->getKey() ?? $dealId,
+                'summary' => self::line($summary),
                 'data' => $data,
                 'channels' => array_map(
                     static fn (NotificationChannel $channel): string => $channel->value,
@@ -143,22 +157,68 @@ final class Notify
     }
 
     /**
-     * Every preference in this team, in one query.
+     * A panel line, guaranteed to fit the column it lands in.
+     *
+     * ## Truncated at the writer, because every caller composes one
+     *
+     * `notifications.summary` is a `varchar(255)`, and review measured what
+     * that cost: `'You were assigned “'.$task->title.'”'` overflows from a
+     * title of 236 characters upward, while `ResolvesTaskFields` accepts 255.
+     * The hook is `created`, so the `QueryException` came out of
+     * `Task::save()` — a **500 on a title the form said was fine**, with the
+     * whole task creation rolled back.
+     *
+     * Two callers were worse than that. `NotifyAboutDeadlines` composes the
+     * same string inside an uncaught `Team::cursor()` loop, so one long title
+     * in one team would kill the hourly sweep for every team after it in the
+     * cursor — every hour, until somebody renamed the task. And
+     * `ExecuteAction::postNotification()` feeds a `text` column into it, which
+     * is unbounded by construction.
+     *
+     * Fixing it at each caller is the shape this codebase keeps being bitten
+     * by: four callers, and the fifth is written without the rule. This is the
+     * only writer of the table, so it is the place the guarantee belongs.
+     *
+     * The limit is well short of the column, because a line in a panel is
+     * unreadable long before 255 characters — the ceiling is a schema fact,
+     * and this is a legibility one.
+     */
+    private static function line(string $summary): string
+    {
+        return Str::limit(trim($summary), self::MAX_SUMMARY);
+    }
+
+    /**
+     * Every preference in this team, in one query **per request**.
      *
      * A workflow instantiation assigns a dozen tasks at once, which is the
-     * burst #101 names when it asks for grouping — and asking the same table
-     * once per recipient inside it is the shape the budget tests refuse.
+     * burst #101 names when it asks for grouping — and `Task::created` calls
+     * `send()` once per task, so batching inside a single call cannot help.
+     * Review measured the consequence: twelve tasks cost twelve preference
+     * selects among sixty queries, under a docblock claiming the opposite.
+     *
+     * Memoised on the instance, which is why `Notify` is bound `scoped()` in
+     * `AppServiceProvider` — a fresh instance per resolution would memoise
+     * nothing. Per request rather than per process, so a preference changed on
+     * S78 is honoured by the next thing that happens.
      *
      * @return array<string, NotificationPreference>
      */
     private function preferencesFor(Team $team): array
     {
-        return NotificationPreference::query()
+        return $this->preferences[$team->getKey()] ??= NotificationPreference::query()
             ->where('team_id', $team->getKey())
             ->get()
             ->keyBy('person_id')
             ->all();
     }
+
+    /**
+     * Preferences already read this request, keyed by team.
+     *
+     * @var array<string, array<string, NotificationPreference>>
+     */
+    private array $preferences = [];
 
     /**
      * @param  list<NotificationChannel>  $channels

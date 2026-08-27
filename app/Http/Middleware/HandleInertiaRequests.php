@@ -22,6 +22,8 @@ use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
+    public function __construct(private readonly NotificationFeed $notifications) {}
+
     /**
      * The root template that's loaded on the first page visit.
      *
@@ -48,8 +50,6 @@ class HandleInertiaRequests extends Middleware
      *
      * @return array<string, mixed>
      */
-    public function __construct(private readonly NotificationFeed $notifications) {}
-
     public function share(Request $request): array
     {
         $person = $request->user();

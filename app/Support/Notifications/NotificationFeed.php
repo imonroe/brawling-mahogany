@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Notifications;
 
+use App\Models\Deal;
 use App\Models\Notification;
 use App\Models\Person;
 use App\Models\Team;
@@ -49,7 +50,6 @@ final class NotificationFeed
     {
         $rows = Notification::query()
             ->forPerson($person)
-            ->with('deal')
             ->orderByDesc('created_at')
             /*
              * A tiebreaker, because `created_at` is stamped in PHP and a
@@ -62,9 +62,54 @@ final class NotificationFeed
             ->limit($limit)
             ->get();
 
-        $teams = Team::query()
-            ->whereIn('id', $rows->pluck('team_id')->unique()->all())
-            ->pluck('name', 'id');
+        /*
+         * **Both lookups lift the team scope, and that is the whole of blocking
+         * finding #5.**
+         *
+         * `forPerson()` lifts it from the notifications query, and an
+         * `->with('deal')` beside it does **not** inherit that: the eager load
+         * issues its own `Deal` query, which still carries Deal's global scope
+         * for whichever team happens to be resolved. So the cross-team row —
+         * the feature this whole panel exists for — came back with a null deal
+         * and a link built from `deal_id` alone that 404s through Deal's
+         * team-scoped route binding. Measured by review; the test asserted only
+         * that two groups came back, so it passed with both names null.
+         *
+         * Lifting the scope here is safe in the way `ApplyDeliveryEvent`'s is:
+         * the ids are not arbitrary. They come off rows addressed to this
+         * person, each carrying its own `team_id`, and a composite foreign key
+         * makes a notification pointing at another team's deal
+         * unrepresentable. So this reads exactly the deals the person was
+         * already told about.
+         */
+        $teamIds = $rows->pluck('team_id')->unique()->all();
+
+        /*
+         * `Team::query()`, not `Team::withoutTeamScope()`: `Team` is the tenant
+         * boundary rather than a tenant-scoped table, so it has no such scope
+         * and no such method — the call was a 500 on every panel load.
+         *
+         * `withTrashed()` for the reason `ApplyDeliveryEvent` gives: `Team`
+         * soft-deletes, so a team inside its 30-day purge window would come
+         * back null and every line from it would lose the name that says which
+         * team it is about — on the one screen whose whole point is reading
+         * across teams.
+         *
+         * `->all()` on both, so a missing key is honestly `null`. A `Collection`
+         * types `get()` as its value type, which made `$team?->timezone` look
+         * unnecessary to PHPStan while being exactly what stops a fatal.
+         */
+        $teams = Team::withTrashed()
+            ->whereIn('id', $teamIds)
+            ->get()
+            ->keyBy('id')
+            ->all();
+
+        $deals = Deal::withoutTeamScope()
+            ->whereIn('id', $rows->pluck('deal_id')->filter()->unique()->all())
+            ->get()
+            ->keyBy('id')
+            ->all();
 
         $groups = [];
 
@@ -76,10 +121,11 @@ final class NotificationFeed
              * a person in two teams may be reading two zones on one screen.
              */
             $team = $teams[$row->team_id] ?? null;
+            $deal = $row->deal_id === null ? null : ($deals[$row->deal_id] ?? null);
 
             $day = $row->created_at
                 ?->copy()
-                ->setTimezone($this->timezoneOf($row->team_id))
+                ->setTimezone($team->timezone ?? config('app.timezone'))
                 ->toDateString() ?? '';
 
             $key = $row->type->groups()
@@ -92,10 +138,27 @@ final class NotificationFeed
                     'type' => $row->type->value,
                     'summary' => $row->summary,
                     'dealId' => $row->deal_id,
-                    'dealName' => $row->deal?->displayName(),
+                    /*
+                     * Null when the deal has been deleted, which is a real
+                     * state rather than the scoping bug above: the line still
+                     * says what happened, and the screen renders no link.
+                     */
+                    'dealName' => $deal?->displayName(),
                     'teamId' => $row->team_id,
-                    'teamName' => $team,
-                    'url' => $row->url(),
+                    'teamName' => $team?->name,
+                    /*
+                     * **Through the app's own opener, not straight at the
+                     * deal.** A notification from another team links to a deal
+                     * the resolved team cannot see, and Deal's team-scoped
+                     * route binding turns that into a 404 — for the person the
+                     * cross-team panel exists to serve. `notifications.open`
+                     * switches first and then redirects, so one click works
+                     * from either team.
+                     *
+                     * Null when there is nothing to open, so the screen
+                     * renders plain text rather than a link that goes nowhere.
+                     */
+                    'url' => $deal === null ? null : route('notifications.open', ['notification' => $row->getKey()]),
                     'occurredAt' => $row->created_at?->toIso8601String(),
                     'count' => 0,
                     'unread' => 0,
@@ -133,19 +196,5 @@ final class NotificationFeed
     public function unreadCountFor(Person $person): int
     {
         return Notification::query()->forPerson($person)->unread()->count();
-    }
-
-    /**
-     * A team's timezone, read once per team per request.
-     *
-     * @var array<string, string>
-     */
-    private array $timezones = [];
-
-    private function timezoneOf(string $teamId): string
-    {
-        return $this->timezones[$teamId] ??= (string) (Team::query()
-            ->whereKey($teamId)
-            ->value('timezone') ?? config('app.timezone'));
     }
 }

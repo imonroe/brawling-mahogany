@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\NotificationChannel;
 use App\Enums\NotificationType;
+use App\Jobs\DeliverNotification as DeliverNotificationJob;
 use App\Mail\InternalAlertMail;
 use App\Models\Deal;
 use App\Models\Notification;
@@ -11,6 +12,7 @@ use App\Models\NotificationPreference;
 use App\Models\Task;
 use App\Support\Notifications\Notify;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 
 /**
  * Notifications, the panel and quiet hours (PRD §4.12 F12.4 · issue #101).
@@ -149,6 +151,18 @@ it('holds an evening notification until the next morning, not that morning', fun
 });
 
 it('releases what quiet hours held, once the window closes', function (): void {
+    /*
+     * **Asserted on the queue, not by calling the sender by hand.**
+     *
+     * The first version of this test ran the command and then invoked
+     * `SendNotification::deliver()` itself, which meant it passed against a
+     * command whose query selected nothing at all — an inverted `due()`, a
+     * `whereNotNull` on the wrong column, a `limit(0)`. It measured the sender
+     * and reported on the sweep. What the sweep does is *dispatch*, so that is
+     * what is asserted.
+     */
+    Queue::fake();
+
     $notification = Notification::factory()->held()->create([
         'team_id' => $this->team->getKey(),
         'person_id' => $this->member->getKey(),
@@ -157,6 +171,43 @@ it('releases what quiet hours held, once the window closes', function (): void {
     $this->travelTo(now()->addHours(9));
 
     $this->artisan('notifications:release-held')->assertSuccessful();
+
+    Queue::assertPushed(
+        DeliverNotificationJob::class,
+        fn (DeliverNotificationJob $job): bool => $job->notificationId === (string) $notification->getKey(),
+    );
+});
+
+it('leaves a held notification alone until its window closes', function (): void {
+    /*
+     * The other half, and the one that makes the assertion above mean
+     * something: a sweep that dispatched *everything* would pass the test
+     * above and defeat quiet hours entirely. `held()` puts the window eight
+     * hours out; nothing here moves the clock.
+     */
+    Queue::fake();
+
+    Notification::factory()->held()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+    ]);
+
+    $this->artisan('notifications:release-held')->assertSuccessful();
+
+    Queue::assertNothingPushed();
+});
+
+it('sends the email when the released job runs', function (): void {
+    /*
+     * And the far end of that dispatch, which is the part the old test was
+     * actually exercising. Separated deliberately: the sweep's job is to
+     * choose rows, the sender's is to reach somebody, and a test that fails
+     * should say which of the two broke.
+     */
+    $notification = Notification::factory()->held()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+    ]);
 
     app(App\Support\Notifications\SendNotification::class)
         ->deliver((string) $notification->getKey());
@@ -255,4 +306,60 @@ it('does not repeat itself when a task is saved again', function (): void {
     $task->forceFill(['title' => 'Order the survey again'])->save();
 
     expect(Notification::query()->forPerson($other)->count())->toBe(1);
+});
+
+it('does not let a long task title break the save', function (): void {
+    /*
+     * `notifications.summary` is a `varchar(255)` and the hook is `created`,
+     * so an overflowing line came out of `Task::save()` as a `QueryException`
+     * — a **500 on a title the form said was fine**, with the whole task
+     * creation rolled back. `ResolvesTaskFields` accepts 255 characters, and
+     * `'You were assigned “…”'` overflows from 236 upward.
+     *
+     * Truncated at the writer rather than at each caller, because there are
+     * four of them and the fifth is the one written without the rule:
+     * `NotifyAboutDeadlines` composes the same string inside an uncaught
+     * `Team::cursor()` loop, so one long title in one team would kill the
+     * hourly sweep for every team after it.
+     */
+    $other = notifiableColleague();
+
+    $title = str_repeat('a', 255);
+
+    Task::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'title' => $title,
+        'assignee_id' => $other->getKey(),
+    ]);
+
+    $notification = Notification::query()->forPerson($other)->sole();
+
+    expect(mb_strlen($notification->summary))
+        // Well inside the column, which is the failure being prevented...
+        ->toBeLessThan(255)
+        // ...and inside the legibility limit, plus `Str::limit()`'s own '...'.
+        ->toBeLessThanOrEqual(Notify::MAX_SUMMARY + 3)
+        ->and($notification->summary)->toEndWith('...')
+        // Still recognisably about the task, rather than cut to nothing.
+        ->and($notification->summary)->toStartWith('You were assigned');
+});
+
+it('keeps a short summary exactly as the caller wrote it', function (): void {
+    /*
+     * The other half: a truncation that fired on every line would be a silent
+     * rewrite of every notification in the product, and `Str::limit()` adds an
+     * ellipsis, so the failure would be visible but nobody would be looking.
+     */
+    $other = notifiableColleague();
+
+    $written = app(Notify::class)->send(
+        type: NotificationType::GateCleared,
+        people: [$other],
+        team: $this->team,
+        summary: 'A requirement cleared',
+        deal: $this->deal,
+    );
+
+    expect($written[0]->summary)->toBe('A requirement cleared');
 });

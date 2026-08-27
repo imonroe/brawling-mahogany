@@ -24,7 +24,6 @@ import Card from '@/components/app/Card.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import SettingsLayout from '@/layouts/SettingsLayout.vue';
 
 type Type = {
     value: string;
@@ -79,149 +78,141 @@ function submit(): void {
 <template>
     <Head title="Notifications" />
 
-    <SettingsLayout>
-        <PageHeader
-            title="Notifications"
-            :description="
-                teamName
-                    ? `How you are told about work in ${teamName}. Each team you are in has its own settings.`
-                    : 'How you are told about work.'
-            "
-        />
+    <PageHeader
+        title="Notifications"
+        :description="
+            teamName
+                ? `How you are told about work in ${teamName}. Each team you are in has its own settings.`
+                : 'How you are told about work.'
+        "
+    />
 
-        <form class="flex flex-col gap-6" @submit.prevent="submit">
-            <Card title="What you hear about">
-                <ul class="divide-y divide-border">
-                    <li
-                        v-for="type in types"
-                        :key="type.value"
-                        class="flex flex-col gap-2 px-4 py-4"
-                    >
-                        <div>
-                            <p class="text-13 font-medium">{{ type.label }}</p>
-                            <p class="text-13 text-muted-foreground">
-                                {{ type.description }}
-                            </p>
-                        </div>
-
-                        <div class="flex flex-wrap items-center gap-4">
-                            <!--
-                                Shown, checked and disabled. Leaving it out
-                                would make a row reading only "Email" ambiguous
-                                about whether the panel is always on.
-                            -->
-                            <Label
-                                class="flex items-center gap-2 text-13 text-muted-foreground"
-                            >
-                                <Checkbox :model-value="true" disabled />
-                                In the app
-                            </Label>
-
-                            <Label
-                                v-for="channel in channels"
-                                :key="channel.value"
-                                class="flex items-center gap-2 text-13"
-                            >
-                                <Checkbox
-                                    :model-value="
-                                        (
-                                            form.channels[type.value] ?? []
-                                        ).includes(channel.value)
-                                    "
-                                    @update:model-value="
-                                        (on) =>
-                                            toggle(
-                                                type.value,
-                                                channel.value,
-                                                on === true,
-                                            )
-                                    "
-                                />
-                                {{ channel.label }}
-                            </Label>
-                        </div>
-                    </li>
-                </ul>
-
-                <p
-                    v-if="comingSoon.length > 0"
-                    class="border-t border-border px-4 py-3 text-13 text-muted-foreground"
+    <form class="flex flex-col gap-6" @submit.prevent="submit">
+        <Card title="What you hear about">
+            <ul class="divide-y divide-border">
+                <li
+                    v-for="type in types"
+                    :key="type.value"
+                    class="flex flex-col gap-2 px-4 py-4"
                 >
-                    <span v-for="line in comingSoon" :key="line">{{
-                        line
-                    }}</span>
-                </p>
-            </Card>
-
-            <Card title="Quiet hours">
-                <div class="flex flex-col gap-3 px-4 py-4">
-                    <p class="text-13 text-muted-foreground">
-                        Emails and push notifications are held during these
-                        hours and sent when they end — never dropped. The app
-                        itself always keeps the notification, so nothing is lost
-                        either way. Times are
-                        <template v-if="timezone">
-                            in your team's timezone ({{ timezone }}).
-                        </template>
-                        <template v-else>in your team's timezone.</template>
-                    </p>
-
-                    <div class="flex flex-wrap items-end gap-3">
-                        <div class="flex flex-col gap-1">
-                            <Label for="quiet-start" class="text-13"
-                                >From</Label
-                            >
-                            <input
-                                id="quiet-start"
-                                v-model="form.quiet_hours_start"
-                                type="time"
-                                class="h-9 rounded-md border border-input bg-background px-3 text-13"
-                            />
-                        </div>
-                        <div class="flex flex-col gap-1">
-                            <Label for="quiet-end" class="text-13">Until</Label>
-                            <input
-                                id="quiet-end"
-                                v-model="form.quiet_hours_end"
-                                type="time"
-                                class="h-9 rounded-md border border-input bg-background px-3 text-13"
-                            />
-                        </div>
-                        <AppButton
-                            v-if="
-                                form.quiet_hours_start || form.quiet_hours_end
-                            "
-                            variant="ghost"
-                            type="button"
-                            @click="
-                                form.quiet_hours_start = '';
-                                form.quiet_hours_end = '';
-                            "
-                        >
-                            Clear
-                        </AppButton>
+                    <div>
+                        <p class="text-13 font-medium">{{ type.label }}</p>
+                        <p class="text-13 text-muted-foreground">
+                            {{ type.description }}
+                        </p>
                     </div>
 
-                    <p
-                        v-if="
-                            form.errors.quiet_hours_start ||
-                            form.errors.quiet_hours_end
-                        "
-                        class="text-13 text-state-danger"
-                    >
-                        {{
-                            form.errors.quiet_hours_start ??
-                            form.errors.quiet_hours_end
-                        }}
-                    </p>
-                </div>
-            </Card>
+                    <div class="flex flex-wrap items-center gap-4">
+                        <!--
+                            Shown, checked and disabled. Leaving it out
+                            would make a row reading only "Email" ambiguous
+                            about whether the panel is always on.
+                        -->
+                        <Label
+                            class="flex items-center gap-2 text-13 text-muted-foreground"
+                        >
+                            <Checkbox :model-value="true" disabled />
+                            In the app
+                        </Label>
 
-            <div>
-                <AppButton type="submit" :disabled="form.processing">
-                    Save
-                </AppButton>
+                        <Label
+                            v-for="channel in channels"
+                            :key="channel.value"
+                            class="flex items-center gap-2 text-13"
+                        >
+                            <Checkbox
+                                :model-value="
+                                    (form.channels[type.value] ?? []).includes(
+                                        channel.value,
+                                    )
+                                "
+                                @update:model-value="
+                                    (on) =>
+                                        toggle(
+                                            type.value,
+                                            channel.value,
+                                            on === true,
+                                        )
+                                "
+                            />
+                            {{ channel.label }}
+                        </Label>
+                    </div>
+                </li>
+            </ul>
+
+            <p
+                v-if="comingSoon.length > 0"
+                class="border-t border-border px-4 py-3 text-13 text-muted-foreground"
+            >
+                <span v-for="line in comingSoon" :key="line">{{ line }}</span>
+            </p>
+        </Card>
+
+        <Card title="Quiet hours">
+            <div class="flex flex-col gap-3 px-4 py-4">
+                <p class="text-13 text-muted-foreground">
+                    Emails and push notifications are held during these hours
+                    and sent when they end — never dropped. The app itself
+                    always keeps the notification, so nothing is lost either
+                    way. Times are
+                    <template v-if="timezone">
+                        in your team's timezone ({{ timezone }}).
+                    </template>
+                    <template v-else>in your team's timezone.</template>
+                </p>
+
+                <div class="flex flex-wrap items-end gap-3">
+                    <div class="flex flex-col gap-1">
+                        <Label for="quiet-start" class="text-13">From</Label>
+                        <input
+                            id="quiet-start"
+                            v-model="form.quiet_hours_start"
+                            type="time"
+                            class="h-9 rounded-md border border-input bg-background px-3 text-13"
+                        />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <Label for="quiet-end" class="text-13">Until</Label>
+                        <input
+                            id="quiet-end"
+                            v-model="form.quiet_hours_end"
+                            type="time"
+                            class="h-9 rounded-md border border-input bg-background px-3 text-13"
+                        />
+                    </div>
+                    <AppButton
+                        v-if="form.quiet_hours_start || form.quiet_hours_end"
+                        variant="ghost"
+                        type="button"
+                        @click="
+                            form.quiet_hours_start = '';
+                            form.quiet_hours_end = '';
+                        "
+                    >
+                        Clear
+                    </AppButton>
+                </div>
+
+                <p
+                    v-if="
+                        form.errors.quiet_hours_start ||
+                        form.errors.quiet_hours_end
+                    "
+                    class="text-13 text-state-danger"
+                >
+                    {{
+                        form.errors.quiet_hours_start ??
+                        form.errors.quiet_hours_end
+                    }}
+                </p>
             </div>
-        </form>
-    </SettingsLayout>
+        </Card>
+
+        <div>
+            <AppButton type="submit" :disabled="form.processing">
+                Save
+            </AppButton>
+        </div>
+    </form>
 </template>

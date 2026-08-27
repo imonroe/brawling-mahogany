@@ -83,6 +83,19 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'not already this person\'s to read.',
     ],
 
+    'Support/Notifications/NotificationFeed.php' => [
+        'count' => 1,
+        'reason' => 'Kind 1, and downstream of Notification::forPerson() rather than beside '.
+            'it. The panel reads across teams by design, so the deals those rows point at '.
+            'have to be readable too — an ->with(\'deal\') does **not** inherit the lifted '.
+            'scope, it issues its own query under whichever team happens to be resolved, '.
+            'so the cross-team line came back with a null deal name and a link that 404s. '.
+            'The ids are not arbitrary: they come off rows addressed to this person, each '.
+            'carrying its own team_id, and a composite foreign key makes a notification '.
+            'pointing at another team\'s deal unrepresentable — so this reads exactly the '.
+            'deals the person was already told about.',
+    ],
+
     'Console/Commands/ReleaseHeldNotifications.php' => [
         'count' => 1,
         'reason' => 'Kind 2, and the same shape: what quiet hours held belongs to every team '.

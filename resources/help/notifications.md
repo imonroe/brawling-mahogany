@@ -17,10 +17,10 @@ Attaching a workflow to a deal can hand you a dozen tasks at once. That reads
 as _"12 tasks were assigned to you"_ on one line, not twelve lines — the count
 tells you how many, and opening the deal shows you which.
 
-Two things are deliberately never folded together: **overrides**. If somebody
-advanced a stage over a requirement that was not met, that is worth reading one
-at a time, because each one is recorded permanently and each one has its own
-reason attached.
+One kind of notification is deliberately never folded: an **override**. If
+somebody advanced a stage over a requirement that was not met, that is worth
+reading one at a time, because each one is recorded permanently and each one
+has its own reason attached.
 
 ## If you are in more than one team
 

@@ -79,19 +79,6 @@ Schedule::command(AlertOnAutomationFailures::class)
     ->onOneServer();
 
 /*
- * What quiet hours held (#101).
- *
- * Every five minutes, which is the resolution F12.4 actually needs: the rule
- * is *"nobody wants a 6am push"*, and a person whose window ends at seven does
- * not care whether their email arrives at 07:00 or 07:04. Every minute would
- * be a sweep of a table that is empty for most of the day.
- *
- * A sweep rather than a delayed job, because a queue that loses its backlog
- * loses every held notification silently and the person they were for never
- * learns anything was owed. `notifications.deliver_after` is the record; the
- * queue is only how it travels.
- */
-/*
  * Deadline reminders (#101).
  *
  * **Hourly**, and the command decides which teams are in scope — each is
@@ -105,6 +92,19 @@ Schedule::command(NotifyAboutDeadlines::class)
     ->withoutOverlapping()
     ->onOneServer();
 
+/*
+ * What quiet hours held (#101).
+ *
+ * Every five minutes, which is the resolution F12.4 actually needs: the rule
+ * is *"nobody wants a 6am push"*, and a person whose window ends at seven does
+ * not care whether their email arrives at 07:00 or 07:04. Every minute would
+ * be a sweep of a table that is empty for most of the day.
+ *
+ * A sweep rather than a delayed job, because a queue that loses its backlog
+ * loses every held notification silently and the person they were for never
+ * learns anything was owed. `notifications.deliver_after` is the record; the
+ * queue is only how it travels.
+ */
 Schedule::command(ReleaseHeldNotifications::class)
     ->everyFiveMinutes()
     ->withoutOverlapping()

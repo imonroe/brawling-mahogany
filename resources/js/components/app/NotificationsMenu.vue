@@ -46,7 +46,22 @@ type Group = {
 const page = usePage();
 
 const open = ref(false);
-const loaded = ref(false);
+
+/**
+ * Whether a fetch is **in flight**, not whether one has ever finished.
+ *
+ * The first version latched a `loaded` flag and never reset it, which the
+ * persistent layout makes permanent: `notifications` is an `Inertia::optional`
+ * prop, so it is absent from every ordinary page load — and `AppLayout` is
+ * persistent, so this component is not remounted between visits. After the
+ * first open, `groups` was `[]` on every subsequent page while `loaded` stayed
+ * true, so the panel rendered *"Nothing yet."* beside a bell still carrying
+ * the unread dot, for the rest of the session.
+ *
+ * Asking *"is a request in flight"* makes the empty branch a statement about
+ * the answer rather than about the history.
+ */
+const loading = ref(false);
 
 const unread = computed<number>(
     () =>
@@ -71,14 +86,16 @@ const showsTeams = computed(
 );
 
 watch(open, (isOpen) => {
-    if (!isOpen || loaded.value) {
+    if (!isOpen) {
         return;
     }
 
+    loading.value = true;
+
     router.reload({
         only: ['notifications'],
-        onSuccess: () => {
-            loaded.value = true;
+        onFinish: () => {
+            loading.value = false;
         },
     });
 });
@@ -89,21 +106,28 @@ function markRead(group: Group): void {
     }
 
     /*
-     * Every id the line folded, not just the newest. A line that dismissed one
-     * of twelve would leave the badge saying eleven, which is the panel
-     * telling somebody their action did not work.
+     * **One request naming every id the line folded**, and `async` so it
+     * cannot interrupt anything. Two things the first version got wrong, both
+     * measured by review against the installed router:
+     *
+     * - It looped `router.post` once per id. Inertia's sync stream is
+     *   `maxConcurrent: 1, interruptible: true`, so each visit aborted the
+     *   last — 11 of 12 cancelled, and each survivor re-ran the whole feed.
+     * - Without `async`, marking a line read as part of clicking it cancelled
+     *   the click's own navigation: the notification was dismissed and the
+     *   person stayed where they were, which is the opposite of what the help
+     *   article promises. `async` puts this on Inertia's other stream.
      */
-    group.ids.forEach((id) => {
-        router.post(
-            '/notifications/read',
-            { notification: id },
-            {
-                preserveScroll: true,
-                preserveState: true,
-                only: ['counts', 'notifications'],
-            },
-        );
-    });
+    router.post(
+        '/notifications/read',
+        { notifications: group.ids },
+        {
+            async: true,
+            preserveScroll: true,
+            preserveState: true,
+            only: ['counts', 'notifications'],
+        },
+    );
 }
 
 function markAllRead(): void {
@@ -111,6 +135,7 @@ function markAllRead(): void {
         '/notifications/read',
         {},
         {
+            async: true,
             preserveScroll: true,
             preserveState: true,
             only: ['counts', 'notifications'],
@@ -152,24 +177,26 @@ function markAllRead(): void {
                 </button>
             </div>
 
+            <p
+                v-if="loading && groups.length === 0"
+                class="px-3 py-6 text-center text-13 text-muted-foreground"
+            >
+                Loading…
+            </p>
+
             <!--
                 Empty is a real state, not an oversight. #101 lists it first,
                 and a menu that opens on nothing with no sentence in it reads
-                as broken rather than as quiet.
+                as broken rather than as quiet. Shown only once a fetch has come
+                back with nothing — see `loading` for why the first version
+                showed it forever.
             -->
             <p
-                v-if="loaded && groups.length === 0"
+                v-else-if="groups.length === 0"
                 class="px-3 py-6 text-center text-13 text-muted-foreground"
             >
                 Nothing yet. You will hear about tasks assigned to you and
                 anything that needs a look.
-            </p>
-
-            <p
-                v-else-if="!loaded"
-                class="px-3 py-6 text-center text-13 text-muted-foreground"
-            >
-                Loading…
             </p>
 
             <ul v-else class="max-h-96 divide-y divide-border overflow-y-auto">

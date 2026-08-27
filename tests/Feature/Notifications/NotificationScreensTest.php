@@ -93,6 +93,105 @@ it('shows a person their notifications from every team they are in', function ()
         ->assertInertia(fn ($page) => $page->has('groups', 2));
 });
 
+it('opens a deal in another team by switching to it first', function (): void {
+    /*
+     * Blocking finding #5, end to end. The panel reads across teams on purpose,
+     * so a line can be about a deal the **resolved** team cannot see — and
+     * Deal's team-scoped route binding turns a direct link into a 404 for
+     * exactly the person the cross-team panel exists for.
+     *
+     * The assertion that matters is the session key: without the switch the
+     * redirect is correct and the page it lands on is a 404, which is why
+     * asserting only on the `Location` header would pass against the defect.
+     */
+    [$other] = $this->teamWithMember($this->member);
+
+    $notification = app(App\Support\Tenancy\TeamContext::class)->runFor(
+        $other,
+        function () use ($other): Notification {
+            $deal = Deal::factory()->create(['team_id' => $other->getKey()]);
+
+            return Notification::factory()->create([
+                'team_id' => $other->getKey(),
+                'person_id' => $this->member->getKey(),
+                'deal_id' => $deal->getKey(),
+            ]);
+        },
+    );
+
+    // Still in the first team, which is the whole point.
+    $this->get('/notifications/'.$notification->getKey().'/open')
+        ->assertRedirect('/deals/'.$notification->deal_id.'/tasks')
+        ->assertSessionHas(
+            App\Http\Middleware\ResolveCurrentTeam::SESSION_KEY,
+            $other->getKey(),
+        );
+
+    // Opening is the strongest signal there is that somebody has seen it.
+    expect($notification->fresh()->read_at)->not->toBeNull();
+});
+
+it('will not switch a person into a team they have left', function (): void {
+    /*
+     * A membership revoked since the notification was written must not be
+     * re-established by following a link — which is why the switch asks
+     * `activeTeams()` rather than trusting the row's own `team_id`.
+     */
+    [$other] = $this->teamWithMember($this->member);
+
+    $notification = app(App\Support\Tenancy\TeamContext::class)->runFor(
+        $other,
+        function () use ($other): Notification {
+            $deal = Deal::factory()->create(['team_id' => $other->getKey()]);
+
+            return Notification::factory()->create([
+                'team_id' => $other->getKey(),
+                'person_id' => $this->member->getKey(),
+                'deal_id' => $deal->getKey(),
+            ]);
+        },
+    );
+
+    /*
+     * Revoked **inside that team's context**: `TeamMembership` is team-scoped
+     * like everything else, so an update issued from the first team's context
+     * matches nothing and the test passes for the wrong reason — which is what
+     * the first version of it did.
+     */
+    app(App\Support\Tenancy\TeamContext::class)->runFor($other, function () use ($other): void {
+        TeamMembership::query()
+            ->where('team_id', $other->getKey())
+            ->where('person_id', $this->member->getKey())
+            ->update(['revoked_at' => now()]);
+    });
+
+    $this->get('/notifications/'.$notification->getKey().'/open')
+        ->assertRedirect()
+        // Still in the team they are actually in.
+        ->assertSessionHas(
+            App\Http\Middleware\ResolveCurrentTeam::SESSION_KEY,
+            $this->team->getKey(),
+        );
+});
+
+it('will not open somebody else’s notification', function (): void {
+    $stranger = Person::factory()->create();
+
+    $theirs = Notification::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $stranger->getKey(),
+        'deal_id' => Deal::factory()->create(['team_id' => $this->team->getKey()])->getKey(),
+    ]);
+
+    /*
+     * 404 rather than 403, for the reason `TeamSwitchController` gives:
+     * confirming a row exists is itself a disclosure.
+     */
+    $this->get('/notifications/'.$theirs->getKey().'/open')->assertNotFound();
+
+    expect($theirs->fresh()->read_at)->toBeNull();
+});
+
 it('shows nobody else’s notifications', function (): void {
     $stranger = Person::factory()->create();
 
@@ -126,7 +225,13 @@ it('marks one read without touching the rest', function (): void {
         'person_id' => $this->member->getKey(),
     ]);
 
-    $this->post('/notifications/read', ['notification' => $mine->getKey()])
+    /*
+     * **A list, because a folded line stands for as many rows as it folded.**
+     * The panel fires one request naming every id in the group rather than one
+     * per id — measured at 11 of 12 aborted by Inertia's sync stream, each
+     * survivor re-running the whole feed.
+     */
+    $this->post('/notifications/read', ['notifications' => [$mine->getKey()]])
         ->assertRedirect();
 
     expect($mine->fresh()->read_at)->not->toBeNull()
@@ -141,7 +246,7 @@ it('will not let somebody mark another person’s notification read', function (
         'person_id' => $stranger->getKey(),
     ]);
 
-    $this->post('/notifications/read', ['notification' => $theirs->getKey()])
+    $this->post('/notifications/read', ['notifications' => [$theirs->getKey()]])
         ->assertRedirect();
 
     // The predicate *is* the authorization: the update is scoped to the person
@@ -155,9 +260,22 @@ it('marks all read', function (): void {
         'person_id' => $this->member->getKey(),
     ]);
 
+    /*
+     * A stranger's row, because *"all"* has to mean all of **mine**. No ids
+     * named is the branch that writes the most rows, and the predicate is the
+     * only thing bounding it — there is no policy here to catch a mistake.
+     */
+    $stranger = Person::factory()->create();
+
+    $theirs = Notification::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $stranger->getKey(),
+    ]);
+
     $this->post('/notifications/read')->assertRedirect();
 
-    expect(Notification::query()->forPerson($this->member)->unread()->count())->toBe(0);
+    expect(Notification::query()->forPerson($this->member)->unread()->count())->toBe(0)
+        ->and($theirs->fresh()->read_at)->toBeNull();
 });
 
 it('offers S78 the channels somebody may actually choose', function (): void {
@@ -204,4 +322,55 @@ it('refuses a channel nothing can deliver on', function (): void {
     $this->patch('/settings/notifications', [
         'channels' => [NotificationType::GateCleared->value => ['push']],
     ])->assertSessionHasErrors('channels.'.NotificationType::GateCleared->value.'.0');
+});
+
+it('turns a channel off, which is an empty array rather than an absent key', function (): void {
+    /*
+     * How somebody stops being emailed, and the one save shape a "does it
+     * store what I chose" test misses: switching the last channel off sends
+     * `[]`, not a key with something in it. The controller's `is_array()`
+     * guard is what makes that different from *"this type was not in the
+     * form"* — read as absent, the previous choice would survive the save and
+     * the email would keep arriving from a screen showing the switch off.
+     *
+     * Asserted through `Notify` as well as through the row, because the
+     * storage and the honouring are two different questions and only the
+     * second is the one somebody is asking.
+     */
+    [$team, $member] = [$this->team, $this->member];
+
+    $this->patch('/settings/notifications', [
+        'channels' => [NotificationType::TaskAssigned->value => []],
+    ])->assertRedirect();
+
+    $preference = NotificationPreference::query()->sole();
+
+    expect($preference->channels[NotificationType::TaskAssigned->value])->toBe([]);
+
+    $written = app(App\Support\Notifications\Notify::class)->send(
+        type: NotificationType::TaskAssigned,
+        people: [$member],
+        team: $team,
+        summary: 'Order the survey',
+    );
+
+    // The panel keeps the record; nothing reaches out.
+    expect($written[0]->channels)->toBe(['in_app'])
+        ->and($written[0]->outboundChannels())->toBe([]);
+});
+
+it('refuses a quiet-hours window whose ends meet', function (): void {
+    /*
+     * `09:00 → 09:00` takes the non-wrapping branch in `holdUntil()`, where
+     * `>= start && < end` can never be true — so it stores cleanly and means
+     * *"never quiet"*, which is plausibly the opposite of what was intended.
+     * A setting that does nothing while looking set is the failure S78 exists
+     * to avoid.
+     */
+    $this->patch('/settings/notifications', [
+        'quiet_hours_start' => '09:00',
+        'quiet_hours_end' => '09:00',
+    ])->assertSessionHasErrors('quiet_hours_end');
+
+    expect(NotificationPreference::query()->count())->toBe(0);
 });

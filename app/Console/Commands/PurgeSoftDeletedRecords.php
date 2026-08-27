@@ -11,6 +11,7 @@ use App\Models\DataExport;
 use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\Document;
+use App\Models\Notification;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
@@ -78,7 +79,8 @@ class PurgeSoftDeletedRecords extends Command
              */
             $purgedStaging += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
                 + $this->purgeAbandonedImports($cutoff)
-                + $this->purgeAbandonedDrafts($cutoff));
+                + $this->purgeAbandonedDrafts($cutoff)
+                + $this->purgeReadNotifications($cutoff));
             $purgedRows += $this->purgeRowsFor($team, $cutoff);
         }
 
@@ -322,6 +324,29 @@ class PurgeSoftDeletedRecords extends Command
         }
 
         return $purged;
+    }
+
+    /**
+     * Notifications somebody has read and moved on from (#101).
+     *
+     * `CLAUDE.md`'s rule, arriving with a third table: *"a table that ends by
+     * neglect needs its own sweep."* Nothing ever soft-deletes a notification,
+     * so `purgeRowsFor()` — which finds rows by `deleted_at` — would never
+     * touch this one, and it sits under `ShellCounts`' unread count on every
+     * request in the product.
+     *
+     * **Read ones only.** The column to sweep on is chosen per table, and here
+     * it is `read_at`: an unread notification is still doing its job however
+     * old it is, and deleting one would answer *"has anybody been told?"* by
+     * quietly making it no. A person who has read something and left it thirty
+     * days is a person who is finished with it.
+     */
+    private function purgeReadNotifications(CarbonInterface $cutoff): int
+    {
+        return Notification::query()
+            ->whereNotNull('read_at')
+            ->where('read_at', '<', $cutoff)
+            ->forceDelete();
     }
 
     /**

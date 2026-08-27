@@ -111,7 +111,22 @@ class NotificationPreferenceController extends Controller
              * they have set quiet hours and the sends go out anyway.
              */
             'quiet_hours_start' => ['nullable', 'date_format:H:i', 'required_with:quiet_hours_end'],
-            'quiet_hours_end' => ['nullable', 'date_format:H:i', 'required_with:quiet_hours_start'],
+            'quiet_hours_end' => [
+                'nullable',
+                'date_format:H:i',
+                'required_with:quiet_hours_start',
+                /*
+                 * **Not the same as the start.** A window whose ends meet
+                 * takes the non-wrapping branch in `holdUntil()`, where
+                 * `>= start && < end` is never true — so it silently means
+                 * *"never quiet"*, and a person setting `09:00 → 09:00`
+                 * plausibly means the opposite. Refusing it is the honest
+                 * answer: neither reading is obviously right, and a setting
+                 * that does nothing while looking set is the failure this
+                 * screen exists to avoid.
+                 */
+                'different:quiet_hours_start',
+            ],
         ]);
 
         $channels = [];

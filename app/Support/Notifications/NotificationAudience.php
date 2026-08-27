@@ -60,6 +60,15 @@ final class NotificationAudience
             ->filter(static fn (TeamMembership $membership): bool => $membership->hasPermission($permission))
             ->map(static fn (TeamMembership $membership): Person => $membership->person)
             /*
+             * **Not somebody inside their own deletion window.**
+             * `TeamMembership::person()` is deliberately `withTrashed()`, so an
+             * account deleted yesterday still resolves — which is right for an
+             * audit entry naming who did something, and wrong for a list of
+             * people to write to. PRD §9's thirty days is a recovery window,
+             * not a period of continued service.
+             */
+            ->reject(static fn (Person $person): bool => $person->trashed())
+            /*
              * One row per human. A membership belongs to one person, but a
              * person could hold two in a team across a future re-invite, and a
              * duplicate here is somebody told twice about one thing.

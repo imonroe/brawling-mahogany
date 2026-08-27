@@ -64,6 +64,14 @@ const UNGATED_ROUTES = [
      */
     'notifications.index',
     'notifications.read',
+    /*
+     * `notifications.open` is the same predicate one step further on: the row
+     * is found among **this person's**, a stranger's id is a 404 rather than a
+     * 403, and the team switch it performs is refused unless `activeTeams()`
+     * still contains the team — so following a link cannot re-establish a
+     * membership that was revoked.
+     */
+    'notifications.open',
     'notification-preferences.edit',
     'notification-preferences.update',
 

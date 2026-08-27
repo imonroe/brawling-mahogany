@@ -654,6 +654,13 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
         ->name('notifications.index');
     Route::post('notifications/read', [NotificationController::class, 'read'])
         ->name('notifications.read');
+    /*
+     * The opener: switch to the notification's own team, then redirect. A
+     * plain link to the deal 404s for a cross-team notification, which is the
+     * one case the panel exists to serve.
+     */
+    Route::get('notifications/{notification}/open', [NotificationController::class, 'open'])
+        ->name('notifications.open');
 
     Route::get('messages', [MessageQueueController::class, 'index'])
         ->name('messages.index');
