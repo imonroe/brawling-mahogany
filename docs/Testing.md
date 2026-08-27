@@ -46,6 +46,19 @@ Inside the container stack: `docker compose exec app composer check`.
 Everything but Unit runs against a real Postgres, one transaction per test
 (`RefreshDatabase`).
 
+> [!warning] A Unit test that touches the database passes locally and fails in CI
+> `tests/Pest.php` gives `RefreshDatabase` to Feature, Isolation and
+> Performance — and **not** to Unit, because Unit is pure logic. So a test
+> placed in `tests/Unit` that builds a model runs against whatever happens to
+> be in the test database: migrated, on a developer's machine that has run the
+> other suites; **empty**, in CI, where Unit may run before the first Feature
+> test has migrated anything. The symptom is `relation "teams" does not
+> exist`, and it is invisible until the pipeline sees it.
+>
+> Found on #103, whose payload test built a team, a deal and a property from
+> `tests/Unit`. The suite a test lives in is a claim about what it needs, not
+> a folder preference — if it makes a row, it is a Feature test.
+
 > [!note] A query budget is a **comparison**, not a ceiling
 > A test asserting "fewer than 20 queries" passes an N+1 on a fixture of three
 > rows, which is the size a fixture tends to be. The assertion that catches one

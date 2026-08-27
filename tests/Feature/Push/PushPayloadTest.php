@@ -15,6 +15,19 @@ use App\Support\Push\PushPayload;
  * The rule it holds, in the issue's own words: a push body sits on a
  * third-party push service and on a lock screen, so *"123 Main St has an
  * overdue task"* is fine and a client's name, phone number or figure is not.
+ *
+ * ## A Feature test, and it was written as a Unit one by mistake
+ *
+ * `docs/Testing.md`: Unit is *"pure logic"*, and *"everything but Unit runs
+ * against a real Postgres"*. This builds a team, a deal, a property and a
+ * notification, so it was never a unit test — and the mistake was invisible
+ * locally, where the development database is already migrated, and fatal in
+ * CI, where the Unit suite has no schema at all (`relation "teams" does not
+ * exist`).
+ *
+ * Worth recording rather than quietly moving: *"it passes on my machine"* had
+ * a specific mechanism here, and the suite a test lives in is a claim about
+ * what it needs rather than a folder preference.
  */
 beforeEach(function (): void {
     [$this->team, $this->member] = $this->teamWithMember();
