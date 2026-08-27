@@ -67,6 +67,7 @@ export type DealHeaderProps = {
         properties: number;
         tasks: number;
         offers: number;
+        documents: number;
     };
     /** Whether this deal's type has offers at all (IA §5.2 · #73). */
     hasOffers: boolean;
@@ -139,8 +140,8 @@ const tabs = computed<TabSpec[]>(() => [
     {
         label: 'Documents',
         segment: 'documents',
-        count: null,
-        arrivesWith: 'S21',
+        count: props.deal.counts.documents,
+        arrivesWith: null,
     },
 ]);
 

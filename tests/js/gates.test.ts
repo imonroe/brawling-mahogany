@@ -91,13 +91,36 @@ describe('gateResolutionLink', () => {
         ).toBe('/deals/d1/tasks');
     });
 
+    it('sends a document gate to the documents tab', () => {
+        /*
+         * `document_present` returned `awaiting_slice` and resolved to null
+         * until S21 shipped (#98, #104) — same shape as `tasks` above, one
+         * slice later. CLAUDE.md names this evaluator as owing the *"a row
+         * nothing can reach"* check, and this is the assertion that discharges
+         * it: a gate type with one way to be satisfied, now reachable from the
+         * screen that satisfies it.
+         */
+        expect(
+            gateResolutionLink(
+                gate({
+                    linkTarget: {
+                        type: 'document_upload',
+                        category: 'inspection_report',
+                    },
+                }),
+                '/deals/d1',
+            ),
+        ).toBe('/deals/d1/documents');
+    });
+
     it('resolves the shapes with no screen yet to nothing at all', () => {
         // A dead link is worse than a sentence: it teaches the reader that the
         // links do not work. `awaiting_slice` is what all three deferred
         // evaluators return, so this is the common case in Slice 2.
         //
-        // `tasks` used to be in this list. It moved to the test above when its
-        // screen shipped, which is the only reason a shape ever leaves here —
+        // `tasks` used to be in this list, and `document_upload` never was:
+        // `document_present` returned `awaiting_slice` until its screen
+        // shipped. A shape leaves here only when its screen exists —
         // this exact link was round 1's blocker on #158, and it came back when
         // the two screens' copies of `linkFor()` were folded into this
         // resolver. `tests/js/routeTargets.test.ts` holds the rule by reading

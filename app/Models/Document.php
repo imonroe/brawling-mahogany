@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\DocumentCategory;
+use App\Enums\DocumentVisibility;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use Database\Factories\DocumentFactory;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Carbon;
 
 /**
  * One uploaded file (PRD §4.6 F6.4–F6.6, §7.14 · S38 · issue #63).
@@ -41,9 +43,14 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property string|null $caption
  * @property int $sort_order
  * @property bool $is_primary
+ * @property DocumentVisibility $visibility
+ * @property string|null $scan_state
+ * @property Carbon|null $scanned_at
  * @property string|null $uploaded_by
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
-#[Fillable(['caption'])]
+#[Fillable(['caption', 'visibility'])]
 class Document extends Model
 {
     /** @use HasFactory<DocumentFactory> */
@@ -56,6 +63,8 @@ class Document extends Model
     {
         return [
             'category' => DocumentCategory::class,
+            'visibility' => DocumentVisibility::class,
+            'scanned_at' => 'datetime',
             'is_primary' => 'boolean',
             'size_bytes' => 'integer',
             'sort_order' => 'integer',
@@ -68,6 +77,25 @@ class Document extends Model
     public function documentable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * Whether nobody looked inside this file.
+     *
+     * Not the same question as *"is it safe"*, and the screens must not
+     * collapse them: PRD §14.1 Q6's whole objection is that a scan implies a
+     * guarantee it cannot give, and an image this build has no OCR for was
+     * never examined at all. A row that says `not_scanned` is telling the
+     * truth about a check that did not happen.
+     */
+    public function wasScanned(): bool
+    {
+        return $this->scan_state === 'clean';
+    }
+
+    public function isClientVisible(): bool
+    {
+        return $this->visibility->isClientVisible();
     }
 
     /**

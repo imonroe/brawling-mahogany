@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\DealState;
 use App\Models\Concerns\BelongsToTeam;
+use App\Models\Concerns\HasDocuments;
 use App\Models\Concerns\HasProductDefaults;
 use App\Models\Concerns\HasStateMachine;
 use App\Support\Tenancy\ArchivedReferenceException;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -44,7 +46,17 @@ use Illuminate\Support\Carbon;
 class Deal extends Model
 {
     /** @use HasFactory<DealFactory> */
-    use BelongsToTeam, HasFactory, HasProductDefaults, HasStateMachine;
+    /*
+     * `HasDocuments` is what makes S21's uploads survivable, and it is a rule
+     * rather than a convenience: `documents.documentable_id` is polymorphic,
+     * so **no foreign key reaches it** and nothing cascades when a deal goes.
+     * Without the trait, deleting a deal would leave live rows pointing at a
+     * parent that no longer exists and their bytes on the disk permanently —
+     * past PRD §9's retention window and past F6.4's promise that a deletion
+     * deletes. The same lesson `Property` records, arriving at its second
+     * parent.
+     */
+    use BelongsToTeam, HasDocuments, HasFactory, HasProductDefaults, HasStateMachine;
 
     /**
      * @return array<string, string>
@@ -232,6 +244,22 @@ class Deal extends Model
     public function propertyLinks(): HasMany
     {
         return $this->hasMany(DealProperty::class)->orderByDesc('is_subject')->orderBy('created_at');
+    }
+
+    /**
+     * The deal's own documents (S21).
+     *
+     * A `MorphMany` beside the `HasDocuments` sweep, which is deliberately
+     * only a `deleting` hook: the trait exists so nothing strands bytes, and
+     * a relation is what a screen reads. `Property::photos()` orders by
+     * `sort_order` because a gallery is arranged; a deal's documents are not,
+     * so this leaves the order to the caller.
+     *
+     * @return MorphMany<Document, $this>
+     */
+    public function documents(): MorphMany
+    {
+        return $this->morphMany(Document::class, 'documentable');
     }
 
     /**

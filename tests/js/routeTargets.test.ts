@@ -38,9 +38,10 @@ import { describe, expect, it } from 'vitest';
 /**
  * Segments under `/deals/{deal}/…` whose screens have not been built.
  *
- * `timeline` left this list when S16 landed (#76), and `tasks` when S17 did
- * (#71) — both are routes now, and a link to one is a link. The list shrinks
- * one entry per slice; what it protects is the ones still unbuilt.
+ * `timeline` left this list when S16 landed (#76), `tasks` when S17 did (#71),
+ * and `documents` when S21 did (#98) — all three are routes now, and a link to
+ * one is a link. The list shrinks one entry per slice; what it protects is the
+ * ones still unbuilt.
  *
  * `tasks` leaving is the case the test was written for: PRD §5.4 asks that
  * *"each unmet gate links directly to the thing that clears it"*, and
@@ -58,7 +59,7 @@ import { describe, expect, it } from 'vitest';
  * this because the test failed on an import, that is the pattern being blunt
  * rather than your code being wrong — narrow the pattern, do not delete it.
  */
-const UNBUILT_DEAL_TABS = ['dates', 'documents'];
+const UNBUILT_DEAL_TABS = ['dates'];
 
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
@@ -141,9 +142,9 @@ describe('route targets', () => {
         const dead = [
             'return `${dealUrl.value}/dates`;',
             "return dealUrl.value + '/dates';",
-            "return '/deals/' + deal.id + '/documents';",
+            "return '/deals/' + deal.id + '/dates';",
             'return `/deals/${deal.id}/dates?filter=all`;',
-            'const u = dealUrl.value; return u + "/documents";',
+            'const u = dealUrl.value; return u + "/dates";',
         ];
 
         for (const source of dead) {
@@ -154,12 +155,14 @@ describe('route targets', () => {
             "const label = 'Dates';",
             "{ segment: 'dates', arrivesWith: 'S18' }",
             "router.visit('/dates-and-deadlines');",
-            "fetch('/deals/1/documentsUpload');",
+            "fetch('/deals/1/datesPicker');",
             '// the deal has no /dates route yet',
             // Built, so a link to it is a link rather than an offence.
             'return `${dealUrl}/tasks`;',
             // Offers left the list with S22 (#73).
             'form.post(`${dealUrl}/offers`,',
+            // Documents left it with S21 (#98).
+            'form.post(`${dealUrl}/documents`,',
         ];
 
         for (const source of fine) {

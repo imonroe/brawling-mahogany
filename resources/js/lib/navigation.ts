@@ -11,6 +11,7 @@ import {
     Activity,
     Briefcase,
     CalendarDays,
+    FileText,
     Heart,
     House,
     LayoutDashboard,
@@ -60,6 +61,23 @@ export const NAV_GROUPS: NavEntry[][] = [
             href: '/properties',
             icon: House,
             permission: 'properties.view',
+        },
+        /*
+         * S50 (#98). Beside Properties rather than under Deals, because the
+         * question it answers — "where is that disclosure" — is asked from a
+         * standing start, without a deal already in mind.
+         *
+         * **Ungated**, and that is not an oversight. `DocumentPolicy::viewAny()`
+         * admits either subject permission and the query scopes each row to
+         * what the person may see, so gating the link on `deals.view` hid the
+         * screen from somebody holding `properties.view` who has documents to
+         * find there. A nav rule narrower than the policy is a screen nobody
+         * can reach; one wider is a 403 they can read.
+         */
+        {
+            label: 'Documents',
+            href: '/documents',
+            icon: FileText,
         },
         {
             label: 'Calendar',

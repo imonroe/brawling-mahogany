@@ -119,6 +119,22 @@ export function gateResolutionLink(
             return `${dealUrl}/properties`;
         case 'tasks':
             return `${dealUrl}/tasks`;
+        /*
+         * `document_upload` arrived with S21 (#98, #104). Until then
+         * `document_present` returned `awaiting_slice` and resolved to
+         * nothing, which was right — the tab did not exist. It does now, and
+         * CLAUDE.md names this evaluator as one of two owing the *"a row
+         * nothing can reach"* check: a gate type with exactly one way to be
+         * satisfied, never verified as reachable from a screen. This line is
+         * that verification.
+         *
+         * The tab rather than a pre-filled upload dialog, for the reason
+         * `tasks` goes to the whole checklist: somebody arriving at a blocker
+         * needs to see what is already there before adding to it, and half the
+         * time the document is present under a category nobody expected.
+         */
+        case 'document_upload':
+            return `${dealUrl}/documents`;
         default:
             return null;
     }

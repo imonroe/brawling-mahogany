@@ -1,37 +1,54 @@
 ---
 title: Documents
-summary: Attaching files to deals, categories, and what will be refused.
-section: coming-later
-order: 1
-arrives_with: A later release
+summary: Attaching files to a deal, who can see them, and what will be refused.
+section: deals
+order: 6
 ---
 
-Files against a deal — contracts, disclosures, inspection reports — with
-categories, client visibility, and a viewer.
+Inspection reports, disclosures, correspondence, photographs — kept against the
+deal they belong to, so the file and the transaction are in the same place.
 
-## What exists today
+## Adding one
 
-Two upload points, and only two: **photographs on a property**, and the
-contact list an import reads — a CSV, a vCard, or a Google Contacts export.
-Photographs are private, served through the app rather than from a public
-address, with every view recorded. See [Properties](/help/properties). An
-import's file is held only long enough to finish the import; see
-[People](/help/people).
+Open a deal and go to **Documents**, or find any file the team holds under
+**Documents** in the sidebar. Adding one asks for three things: the file, a
+category, and who can see it.
 
-Everything else is still to come.
+**The category matters more than it looks.** A stage requirement can be set to
+wait for a particular kind of document — _"no seller disclosure yet"_ — and it
+clears when a document of that category is attached. A disclosure filed as
+"Other" will not clear it, and the requirement will go on saying it is waiting
+while the document sits there.
 
-## What it will do
+**Files are checked before they are stored.** More on that below.
 
-Files attached to a deal, each with a category — contract, disclosure,
-inspection report, and so on — and a setting for whether the client can see
-it on their status page. The _document present_ requirement will then be able
-to clear on its own, which today it cannot.
+**A file has to be under 15MB.** A photograph off a phone and a scanned
+inspection report both fit comfortably; a long scan at a high resolution may
+not, and the answer there is usually to scan it again at a lower one rather
+than to split it.
 
-## What it will refuse, and why
+## Who can see it
 
-Some categories will be **refused outright** rather than accepted with a
-warning: executed contracts, earnest money instruments, lending packets, bank
-statements, and government identification.
+Every document is **internal** unless you say otherwise. Internal means your
+team; client-visible means it appears on the client's status page for this
+deal.
+
+The default is deliberate. A document that should have been shared and was not
+is a conversation. A document that should not have been shared and was is not
+recoverable, and this app holds inspection reports and disclosures about
+somebody's house. You can change it later from the document's own page, and
+both directions are recorded.
+
+## What will be refused
+
+Five kinds of document are **refused outright** rather than accepted with a
+warning:
+
+- executed contracts
+- earnest money instruments
+- lending packets
+- bank statements
+- government identification
 
 That is not caution for its own sake. Those documents carry the kind of
 personal and financial information that makes a breach a different sort of
@@ -39,9 +56,37 @@ event, and this app is not the system of record for any of them — your
 e-signature platform and your lender already hold them, under arrangements
 built for it.
 
-The refusal will explain itself and say where the document does belong.
+The check reads the file, not its name — a bank statement saved as `notes.pdf`
+is still read as one. It is not perfect at it: what a PDF gives up depends on
+how it was produced, and some files hand over less than others.
+When something is refused you are told what it looked like and where it does
+belong; nothing is stored in the meantime.
 
-## In the meantime
+**It is not a guarantee.** The check reads text, so a _photograph_ of a cheque
+has nothing for it to read and will go through. That is exactly why the warning
+on the upload box is worded the way it is: the check is a backstop for a
+mistake, not a substitute for not uploading these things.
 
-Keep those files where they are now. When this arrives it will not ask you to
-move anything that should not be here in the first place.
+## Finding one later
+
+**Documents** in the sidebar lists everything the team holds, filtered by
+category, by deal, or by who can see it. Search matches the file name and the
+caption — not what is inside the file, which nothing reads.
+
+The same page reports how much you have stored. It is a number for your
+information, not a limit: nothing changes when it grows.
+
+## Opening one
+
+Images and PDFs preview in the app. Anything else offers a download, because it
+needs whatever you normally open it with.
+
+Every read is recorded — who opened which document and when — and files are
+never served from a public address. A link copied out of the app will not work
+for somebody who is not signed in and entitled to see it.
+
+## Removing one
+
+Removing a document deletes the file immediately. The record of it stays for
+thirty days and is then removed too, which is the same retention every deleted
+record in this app gets.

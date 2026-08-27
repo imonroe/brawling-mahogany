@@ -378,6 +378,52 @@ export function formatCount(
     return `${new Intl.NumberFormat('en-US').format(count)} ${noun}`;
 }
 
+/**
+ * A file size a person reads — "2.4 MB", "17 KB", "840 bytes".
+ *
+ * Here rather than in the two screens that want it (S21's list, S50's index),
+ * because Frontend conventions §3 is that nothing formats a number itself and
+ * because the two decisions in this are exactly the kind that drift apart when
+ * they are taken twice.
+ *
+ * **1024, and the units say so.** Disks are sold in powers of ten and files
+ * are measured in powers of two; every operating system a customer uses shows
+ * this one the second way, so matching them beats being pedantic about SI.
+ *
+ * **One decimal place, and only above a megabyte.** "1.4 MB" is a size
+ * somebody is deciding about; "17.0 KB" is noise, and "840.0 bytes" is worse.
+ * A precision that varies by magnitude reads as care rather than
+ * inconsistency, which is the same judgement `formatPropertyFacts` makes about
+ * a trailing zero on 2.50 baths.
+ */
+export function formatFileSize(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes < 0) {
+        return '—';
+    }
+
+    if (bytes < 1024) {
+        return formatCount(Math.round(bytes), 'byte');
+    }
+
+    const units = ['KB', 'MB', 'GB'];
+    let value = bytes / 1024;
+    let unit = 0;
+
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+
+    // Whole numbers below a megabyte; one decimal above, where the fraction is
+    // the part somebody is actually weighing.
+    const decimals = unit === 0 ? 0 : 1;
+
+    return `${new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    }).format(value)} ${units[unit]}`;
+}
+
 export interface PropertyFacts {
     beds?: number | null;
     /** A decimal string from the server — 2.5 baths is real, and money-safe. */

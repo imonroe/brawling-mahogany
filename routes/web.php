@@ -6,6 +6,7 @@ use App\Http\Controllers\Activity\ActivityController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Deals\AdvanceWorkflowController;
 use App\Http\Controllers\Deals\ConfirmGateController;
+use App\Http\Controllers\Deals\DealDocumentController;
 use App\Http\Controllers\Deals\DealIndexController;
 use App\Http\Controllers\Deals\DealOverviewController;
 use App\Http\Controllers\Deals\DealPropertyController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\Deals\ParticipantController;
 use App\Http\Controllers\Deals\StageStateController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
+use App\Http\Controllers\Documents\DocumentController;
 use App\Http\Controllers\HelpController;
 use App\Http\Controllers\Messages\MessageQueueController;
 use App\Http\Controllers\Messages\MessageTemplateController;
@@ -319,6 +321,32 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.offers.destroy');
 
         /*
+         * S21 — a deal's documents (F6.1–F6.3, F6.7 · #98, #99, #100).
+         *
+         * The general upload path Slice 2 deliberately did not build. #63
+         * closed its residual window by restricting the context — images only,
+         * against a property only — and this exists because
+         * `SensitiveContent` inspects the bytes instead, so a photographed
+         * cheque is refused on what it is rather than on where it was going.
+         *
+         * `{document}` resolves through `{deal}` by scoped binding, like
+         * `{offer}` above: only the nesting answers whose deal it is on.
+         */
+        Route::get('deals/{deal}/documents', [DealDocumentController::class, 'index'])
+            ->name('deals.documents.index');
+        Route::post('deals/{deal}/documents', [DealDocumentController::class, 'store'])
+            ->name('deals.documents.store');
+        /*
+         * Streamed through the application, never a presigned URL: PRD §9
+         * makes document access an audited event, and an entry written when a
+         * link is minted records an intention rather than a read.
+         */
+        Route::get('deals/{deal}/documents/{document}', [DealDocumentController::class, 'show'])
+            ->name('deals.documents.show');
+        Route::delete('deals/{deal}/documents/{document}', [DealDocumentController::class, 'destroy'])
+            ->name('deals.documents.destroy');
+
+        /*
          * F4.11 — a note on a deal (#72).
          *
          * Nested under the deal because a note is *about* one, and inside
@@ -440,6 +468,26 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * tenancy layers answer "whose team"; only the nesting answers "whose
      * property".
      */
+    /*
+     * S50 — every document the team holds (F6.1 · #98).
+     *
+     * A team-level list beside `/properties` rather than under a deal: the
+     * deal tab answers "what is on this deal", and this answers "where is that
+     * disclosure", which is asked from a standing start.
+     */
+    Route::get('documents', [DocumentController::class, 'index'])->name('documents.index');
+    /*
+     * S52. The viewer is team-level rather than nested under a deal, because a
+     * document reached from S50 has no deal in the URL to nest under — and the
+     * **bytes** are not served here: the preview and the download both go
+     * through the subject's own audited route, so there is exactly one path to
+     * a file and one place the authorization lives.
+     */
+    Route::get('documents/{document}', [DocumentController::class, 'show'])
+        ->name('documents.show');
+    Route::patch('documents/{document}/visibility', [DocumentController::class, 'updateVisibility'])
+        ->name('documents.visibility.update');
+
     Route::get('properties', [PropertyController::class, 'index'])->name('properties.index');
     Route::post('properties', [PropertyController::class, 'store'])->name('properties.store');
     Route::get('properties/{property}', [PropertyController::class, 'show'])->name('properties.show');
