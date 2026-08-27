@@ -367,6 +367,26 @@ exception in `PurgeSoftDeletedRecords` — which is the shape to prefer, because
 an exception in a sweep is a rule the next person to edit the sweep has to know
 about.
 
+**And it is the one soft-deleting table nothing ever hard-deletes**, which is a
+deliberate exception to PRD §9's *"soft delete, then hard delete after thirty
+days"* and to CLAUDE.md's *"a staging table needs its own sweep"*. The soft
+delete here is not a staging state: `mail:suppression --lift` removes an
+address from the list, and the row stays so that the audit entry written about
+the lift has something to resolve to — an entry whose `auditable_id` points at
+nothing cannot answer *"who decided this address was fine"*, which is the only
+reason it is written. `records:purge` discovers its tables by `team_id`, so it
+never reaches this one, and that is the intended behaviour rather than an
+oversight. The rows are an address, a reason and two timestamps; there is no
+customer data in them to age out.
+
+The same soft delete is why `Suppression::record()` looks `withTrashed()` and
+**restores** rather than inserting: the unique index covers trashed rows, so a
+plain insert after a lift would be ignored and an address that had just
+hard-bounced would stay writable. And why the restore is gated on the event
+postdating the lift — SNS retries for up to 23 days, so a replayed copy of the
+very notification an operator lifted in response to would otherwise reverse
+their decision, silently.
+
 The one place the tenancy is lifted to reach it is
 `ApplyDeliveryEvent`: an SNS notification arrives carrying a message id and no
 team, so the **find** is unscoped and the **write** is not. The rows come back

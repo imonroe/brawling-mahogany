@@ -453,11 +453,21 @@ final class ExecuteAction
          * activity feed is a team-scoped deal screen, not a log — S49 shows
          * the same address one click away.
          */
+        /*
+         * Two tenses, because sandbox is a rehearsal. *"Was not written to"*
+         * is false of a redirected send — nobody was — and *"would have been
+         * skipped"* is the sentence a team came to sandbox for. Round 3 of
+         * review measured the redirected summary naming a dead address among
+         * the people a live send would have reached.
+         */
         $missed = $decision->withheld === []
             ? ''
             : ' '.implode(' ', array_map(
                 static fn (array $recipient): string => $recipient['name']
-                    .' ('.$recipient['email'].') was not written to — that address can no longer be reached.',
+                    .' ('.$recipient['email'].') '
+                    .($decision->redirected
+                        ? 'would have been skipped — that address can no longer be reached.'
+                        : 'was not written to — that address can no longer be reached.'),
                 $decision->withheld,
             ));
 
@@ -466,15 +476,15 @@ final class ExecuteAction
                 subject: $deal,
                 eventType: $decision->redirected ? 'message.redirected' : 'message.sent',
                 /*
-                 * The sandbox branch carries no `$missed`: `SendRails` sends
-                 * no withheld list under sandbox, because sandbox replaced
-                 * every recipient and nothing was withheld from anybody. That
-                 * also keeps the sentence from running on — it ends on a name,
-                 * and round 2 measured *"rather than Sam Reilly Dana Okafor
-                 * was not written to"* reading as one four-word name.
+                 * The redirected branch ends on a **full stop** before
+                 * `$missed` is appended. Round 2 measured *"rather than Sam
+                 * Reilly Dana Okafor was not written to"* reading as one
+                 * four-word name, because the branch ended on a name and the
+                 * clause was appended with only a space. The `message.sent`
+                 * branch was fine by luck — it ends on `: “{subject}”`.
                  */
                 summary: $decision->redirected
-                    ? "Sandbox: “{$subject}” went to the team rather than {$reached}"
+                    ? "Sandbox: “{$subject}” went to the team rather than {$reached}.".$missed
                     : "Emailed {$reached}: “{$subject}”".$missed,
             );
         }

@@ -151,6 +151,13 @@ final class ApplyDeliveryEvent
                     reason: $event->suppresses,
                     detail: $addresses[$key],
                     discoveredByTeamId: $team->getKey(),
+                    /*
+                     * The provider's own clock, which is what decides whether
+                     * this bounce can undo an operator's lift. A replayed
+                     * notification carries the timestamp of the original
+                     * event, so it cannot reverse a decision taken after it.
+                     */
+                    occurredAt: $event->at,
                 );
 
             if (! $advanced && ! $suppressed) {

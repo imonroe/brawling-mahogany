@@ -216,6 +216,31 @@ class MessageDelivery extends Model
                 ->whereNull($column)
                 ->update([...$changes, 'updated_at' => Carbon::now()]);
 
+        if ($claimed === 0 && $advancing && $column !== null && array_key_exists($column, $changes)) {
+            /*
+             * **The claim lost, but the fact is still a fact.**
+             *
+             * Round 3 of review. `$advancing` is computed against the status
+             * this worker *read*, so a stale worker holding `sent` while the
+             * row has moved to `bounced` takes the rank branch, asks for
+             * `WHERE status IN ('sent')`, and misses — dropping `delivered_at`
+             * entirely. That is round 1's `WHERE status = ` defect surviving
+             * inside its own fix, and the docblock above already promised the
+             * opposite.
+             *
+             * Falling back to the timestamp claim writes the moment without
+             * moving the status, which is what the two-branch predicate was
+             * for. The `whereNull` is what keeps it idempotent: a replay finds
+             * the column already set and claims nothing.
+             */
+            $changes = [$column => $changes[$column]];
+
+            $claimed = static::query()
+                ->whereKey($this->getKey())
+                ->whereNull($column)
+                ->update([...$changes, 'updated_at' => Carbon::now()]);
+        }
+
         if ($claimed === 0) {
             return false;
         }

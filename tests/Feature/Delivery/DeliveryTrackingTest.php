@@ -254,9 +254,10 @@ it('does not alert every time a message is addressed to a dead address', functio
                 ->whereNotNull('noticed_at')
                 ->count(),
         )->toBe(0)
-        // The scope still sees them — `failed()` is derived from the enum, and
-        // S49 and any later screen read it. The sweep's own window is what
-        // excludes them.
+        // The scope still sees them — `failed()` is derived from the enum, so
+        // a third failure case cannot silently fall out of it. Its only
+        // consumer today is the alert sweep, whose own `noticed_at` window is
+        // what excludes these.
         ->and(MessageDelivery::query()->failed()->count())->toBe(3);
 });
 
@@ -288,7 +289,7 @@ it('does not collapse two recipients who share a name', function (): void {
         ->and($sent->summary)->toContain('(john.sr@example.test) was not written to');
 });
 
-it('says nothing about a withheld recipient under sandbox, because nobody was written to', function (): void {
+it('rehearses the skip under sandbox without recording it', function (): void {
     /*
      * Round 2 of review. Sandbox replaces *every* recipient, so nothing was
      * withheld from anybody — and carrying the list produced one client marked
@@ -345,8 +346,69 @@ it('says nothing about a withheld recipient under sandbox, because nobody was wr
         ->and($rows->first()->redirected)->toBeTrue()
         ->and($rows->first()->status)->toBe(DeliveryStatus::Sent);
 
-    expect($event->summary)->toContain('went to the team rather than Dana Okafor, Sam Reilly')
+    expect($event->summary)
+        // Dana is **not** among the people a live send would have reached...
+        ->toContain('went to the team rather than Sam Reilly.')
+        // ...and the rehearsal says what would have happened to her instead.
+        ->toContain('Dana Okafor (dana@example.test) would have been skipped')
+        // In the conditional, never the past tense: nobody was written to.
         ->and($event->summary)->not->toContain('was not written to');
+});
+
+it('still rehearses when every address is suppressed, rather than failing', function (): void {
+    /*
+     * Round 3 of review found a cliff between one-of-two and two-of-two.
+     * Round 2's argument for ignoring the withheld list under sandbox —
+     * *"sandbox replaces every recipient, so nothing was withheld from
+     * anybody"* — applies to Rail 0b's refusal as much as to its reporting,
+     * and had only been applied to the reporting. So two dead addresses failed
+     * the send permanently, with an S91 alert, in the mode that exists so a
+     * team can exercise automations without touching a client.
+     */
+    [$team, $owner] = $this->teamWithOwner();
+
+    $team->forceFill([
+        'sandbox_mode' => true,
+        'approval_required_until' => now()->subDay(),
+        'hourly_send_limit' => 60,
+        'daily_send_limit' => 200,
+    ])->save();
+
+    SuppressedAddress::factory()->create(['email' => 'dana@example.test']);
+    SuppressedAddress::factory()->create(['email' => 'sam@example.test']);
+
+    $instance = app(App\Support\Tenancy\TeamContext::class)->runFor($team, function () use ($team): ActionInstance {
+        $deal = Deal::factory()->create(['team_id' => $team->getKey()]);
+
+        $instance = ActionInstance::factory()->create([
+            'team_id' => $team->getKey(),
+            'deal_id' => $deal->getKey(),
+        ]);
+
+        $payload = $instance->payload;
+        $payload['recipients'] = [
+            ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+            ['name' => 'Sam Reilly', 'email' => 'sam@example.test', 'membershipId' => null],
+        ];
+        $instance->forceFill(['payload' => $payload])->save();
+
+        app(ExecuteAction::class)->handle($instance, $team);
+
+        return $instance;
+    });
+
+    expect($instance->fresh()->state)->toBe(AutomationState::Sent)
+        ->and($instance->fresh()->error)->toBeNull();
+
+    $event = app(App\Support\Tenancy\TeamContext::class)->runFor(
+        $team,
+        fn () => ActivityEvent::query()->where('event_type', 'message.redirected')->sole(),
+    );
+
+    // Nobody left to name, and both skips rehearsed.
+    expect($event->summary)->toContain('rather than nobody.')
+        ->and($event->summary)->toContain('Dana Okafor (dana@example.test) would have been skipped')
+        ->and($event->summary)->toContain('Sam Reilly (sam@example.test) would have been skipped');
 });
 
 it('lets an escalation win a race it used to lose', function (): void {
@@ -883,4 +945,139 @@ it('speaks about the address rather than about the reader', function (): void {
         ->and($error)->not->toContain('reported you')
         ->and($error)->not->toContain('your team')
         ->and($error)->not->toContain($otherTeam->name);
+});
+
+it('does not let a replayed bounce reverse an operator’s lift', function (): void {
+    /*
+     * Round 3 of review, and the third round running in which a fix opened
+     * the next defect — this one in the restore branch added for round 2's
+     * lift-audit blocker.
+     *
+     * SNS retries a failed delivery for up to 23 days and duplicates arrive
+     * after a successful one, so a replayed copy of *the very notification
+     * that caused the suppression* landed after an operator had lifted it, and
+     * restored the row. The sequence is the natural one rather than a
+     * coincidence: an operator lifts **because** of the bounce, so the lift
+     * lands inside the retry window.
+     *
+     * Two consequences, both measured by the reviewer: the only escape hatch
+     * from a permanent, account-wide block undid itself with nothing anywhere
+     * recording that it had, and the deal got a **second** `message.bounced`
+     * entry — round 1's duplicate arriving through the fix for round 2's.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $delivery = MessageDelivery::query()->sole();
+
+    $bouncedAt = now()->subMinutes(10);
+
+    $notification = [
+        'notificationType' => 'Bounce',
+        'mail' => ['messageId' => $delivery->provider_message_id],
+        'bounce' => [
+            'bounceType' => 'Permanent',
+            // The provider's clock, fixed: a replay carries the timestamp of
+            // the original event, which is the whole discriminator.
+            'timestamp' => $bouncedAt->toIso8601String(),
+            'bouncedRecipients' => [['emailAddress' => 'dana@example.test']],
+        ],
+    ];
+
+    $apply = fn (): int => app(App\Support\Delivery\ApplyDeliveryEvent::class)
+        ->apply(App\Support\Delivery\DeliveryEvent::tryFrom($notification));
+
+    $apply();
+
+    expect(SuppressedAddress::suppresses('dana@example.test'))
+        ->toBe(SuppressionReason::HardBounce);
+
+    // The operator decides the mailbox is fine after all.
+    app(App\Support\Delivery\Suppression::class)->lift('dana@example.test');
+
+    expect(SuppressedAddress::suppresses('dana@example.test'))->toBeNull();
+
+    // And the provider retries the same notification.
+    expect($apply())->toBe(0)
+        ->and(SuppressedAddress::suppresses('dana@example.test'))->toBeNull()
+        // One entry, not two.
+        ->and(ActivityEvent::query()->where('event_type', 'message.bounced')->count())->toBe(1);
+});
+
+it('lets a genuinely new bounce re-suppress after a lift', function (): void {
+    /*
+     * The other side of the same gate: a lift is not permanent immunity. A
+     * bounce that happened **after** the operator's decision is new
+     * information about the address and suppresses it again.
+     */
+    $suppression = app(App\Support\Delivery\Suppression::class);
+
+    $suppression->record('dana@example.test', SuppressionReason::HardBounce, occurredAt: now()->subHour());
+    $suppression->lift('dana@example.test');
+
+    expect($suppression->record('dana@example.test', SuppressionReason::HardBounce, occurredAt: now()))
+        ->toBeTrue()
+        ->and(SuppressedAddress::suppresses('dana@example.test'))
+        ->toBe(SuppressionReason::HardBounce);
+});
+
+it('keeps the more serious reason across a lift', function (): void {
+    /*
+     * `Suppression`'s class docblock states the invariant — *"an address
+     * suppressed for a complaint and later hard-bouncing stays recorded as a
+     * complaint, because that is the more serious fact and the one that
+     * governs what a person is told"* — and the restore branch overwrote it
+     * unconditionally. Complaint → lift → hard bounce left the row reading
+     * `hard_bounce`, so a team was told to *"check the address with them"*
+     * about somebody who had reported them for spam, and the complaint
+     * vanished from exactly the history the soft delete exists to preserve.
+     */
+    $suppression = app(App\Support\Delivery\Suppression::class);
+
+    $suppression->record('dana@example.test', SuppressionReason::Complaint, occurredAt: now()->subDay());
+    $suppression->lift('dana@example.test');
+
+    $suppression->record('dana@example.test', SuppressionReason::HardBounce, occurredAt: now());
+
+    expect(SuppressedAddress::suppresses('dana@example.test'))
+        ->toBe(SuppressionReason::Complaint);
+});
+
+it('writes a delivery confirmation past a bounce, even from a stale worker', function (): void {
+    /*
+     * Round 3 of review: round 2's two-branch predicate promised to keep a
+     * late "delivered to the server" notification writing `delivered_at` on
+     * the way past a row that has since bounced, and did it only for a
+     * **fresh** read. A stale worker computes `$advancing` against the status
+     * it read, takes the rank branch, and misses — which is round 1's
+     * `WHERE status = ` defect surviving inside its own fix.
+     *
+     * Two separately-loaded models is what two workers actually hold; round
+     * 2's test used `->fresh()`, so it could not see the case the predicate
+     * was rewritten for.
+     */
+    $instance = sendable([
+        ['name' => 'Dana Okafor', 'email' => 'dana@example.test', 'membershipId' => null],
+    ]);
+
+    app(ExecuteAction::class)->handle($instance, $this->team);
+
+    $id = MessageDelivery::query()->sole()->getKey();
+
+    $stale = MessageDelivery::query()->findOrFail($id);
+    $bounceWorker = MessageDelivery::query()->findOrFail($id);
+
+    $bounceWorker->advanceTo(DeliveryStatus::Bounced, now(), 'smtp; 550');
+
+    // Still holding `sent`, and its fact still lands.
+    expect($stale->advanceTo(DeliveryStatus::Delivered, now()->subMinute()))->toBeTrue();
+
+    $final = MessageDelivery::query()->findOrFail($id);
+
+    expect($final->status)->toBe(DeliveryStatus::Bounced)
+        ->and($final->delivered_at)->not->toBeNull()
+        ->and($final->detail)->toBe('smtp; 550');
 });

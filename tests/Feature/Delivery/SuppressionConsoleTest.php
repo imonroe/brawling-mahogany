@@ -130,3 +130,31 @@ it('refuses to lift and suppress in one breath', function (): void {
         '--suppress' => true,
     ])->assertFailed();
 });
+
+it('is reachable from an audit entry, which records no address', function (): void {
+    /*
+     * Round 3 of review. `AuditRedactor` removes an address from an entry —
+     * correctly — so `mail.suppression_lifted` records a row id and nothing
+     * else, and there was no product path from that id back to the address.
+     * `psql` again, which is the state this command exists to end.
+     *
+     * Told apart by shape rather than by a flag: an address always has an `@`
+     * and a ULID never does.
+     */
+    $row = SuppressedAddress::factory()->create(['email' => 'dana@example.test']);
+
+    app(App\Support\Delivery\Suppression::class)->lift('dana@example.test');
+
+    $entry = AuditEntry::query()->where('action', 'mail.suppression_lifted')->first()
+        ?? null;
+
+    $this->artisan('mail:suppression', ['email' => (string) $row->getKey()])
+        ->expectsOutputToContain('Was suppressed for')
+        ->assertSuccessful();
+
+    $this->artisan('mail:suppression', ['email' => '01hzzzzzzzzzzzzzzzzzzzzzzz'])
+        ->expectsOutputToContain('No suppression record has the id')
+        ->assertFailed();
+
+    expect($entry)->toBeNull(); // lifted through the service, not the command
+});

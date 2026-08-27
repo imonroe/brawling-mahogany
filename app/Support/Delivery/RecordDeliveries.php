@@ -81,7 +81,15 @@ final class RecordDeliveries
          * are true whenever somebody looks, which is what a standing condition
          * wants.
          */
-        foreach ($decision->withheld as $recipient) {
+        /*
+         * **Except under sandbox**, where nothing was withheld from anybody
+         * because nobody was written to. The decision still carries the list —
+         * `ExecuteAction` names it in the summary, so a team rehearsing an
+         * automation sees that a live send would skip that address — but a
+         * client-addressed row here would be a record of something that did
+         * not happen, and `noticed_at` aside it is the row S49 renders.
+         */
+        foreach ($decision->redirected ? [] : $decision->withheld as $recipient) {
             $rows[] = $this->write($instance, $recipient, $channel, [
                 // No provider id: nothing was handed over, so nothing will
                 // ever come back about it.

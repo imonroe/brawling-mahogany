@@ -7,6 +7,7 @@ namespace App\Support\Delivery;
 use App\Enums\SuppressionReason;
 use App\Logging\Redactor;
 use App\Models\SuppressedAddress;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -44,7 +45,16 @@ final class Suppression
         SuppressionReason $reason,
         ?string $detail = null,
         ?string $discoveredByTeamId = null,
+        ?CarbonInterface $occurredAt = null,
     ): bool {
+        /*
+         * When the provider says this happened, which is what decides whether
+         * it can undo a lift. Defaults to now for a caller with no event
+         * behind it — the console, which is a person acting deliberately in
+         * the present.
+         */
+        $occurredAt ??= Carbon::now();
+
         $email = SuppressedAddress::normalise($email);
 
         if ($email === '') {
@@ -63,21 +73,67 @@ final class Suppression
 
         if ($existing instanceof SuppressedAddress && $existing->trashed()) {
             /*
-             * Lifted, and now bouncing again. Restored rather than inserted
-             * afresh so the id an audit entry already points at stays the id
-             * of this address's record — the history of a lift and a
-             * re-suppression is one row's story, not two.
+             * Lifted, and now bouncing again — **if the bounce is actually
+             * newer than the lift.**
+             *
+             * Round 3 of review: the first version restored on *any* bounce,
+             * and SNS retries a failed delivery for up to 23 days. So a
+             * replayed copy of the notification that caused the suppression
+             * silently reversed the operator's decision, and — because
+             * `ApplyDeliveryEvent` reads a `true` from here as *"something new
+             * about this address"* — wrote the deal a second `message.bounced`
+             * entry, which is round 1's duplicate arriving through the fix for
+             * round 2's.
+             *
+             * The sequence is the natural one rather than a coincidence: an
+             * operator lifts **because** of the bounce, so the lift lands
+             * inside the provider's retry window rather than years later. And
+             * the reversal was invisible — the same log line, the same console
+             * output, and an audit log holding `mail.suppression_lifted` with
+             * nothing after it.
+             *
+             * Comparing the provider's own timestamp against `deleted_at` is
+             * the discriminator, because the question really is *"did this
+             * happen after somebody decided the address was fine"*. A bounce
+             * that predates the lift is the event the operator already
+             * considered.
              */
+            $liftedAt = $existing->deleted_at;
+
+            if ($liftedAt instanceof CarbonInterface && ! $occurredAt->greaterThan($liftedAt)) {
+                return false;
+            }
+
+            /*
+             * Restored rather than inserted afresh so the id an audit entry
+             * already points at stays the id of this address's record — the
+             * history of a lift and a re-suppression is one row's story, not
+             * two.
+             *
+             * **And the stronger reason survives**, which the first version
+             * overwrote unconditionally: complaint → lift → hard bounce left
+             * the row reading `hard_bounce`, so a team was told *"their mail
+             * server said this address does not exist, check it with them"*
+             * about somebody who had reported them for spam, and the complaint
+             * vanished from exactly the history the soft delete was added to
+             * preserve. Same precedence as the live branch below — the class
+             * docblock states it as an invariant and it has to hold on both
+             * paths.
+             */
+            $keep = $existing->reason->threatensTheAccount() && ! $reason->threatensTheAccount()
+                ? $existing->reason
+                : $reason;
+
             $existing->restore();
 
             $existing->forceFill([
-                'reason' => $reason->value,
+                'reason' => $keep->value,
                 'detail' => $detail,
                 'discovered_by_team_id' => $discoveredByTeamId,
                 'suppressed_at' => Carbon::now(),
             ])->save();
 
-            $this->announce($reason, upgraded: false);
+            $this->announce($keep, 'restored');
 
             return true;
         }
@@ -97,7 +153,7 @@ final class Suppression
                     'suppressed_at' => Carbon::now(),
                 ])->save();
 
-                $this->announce($reason, upgraded: true);
+                $this->announce($reason, 'upgraded');
 
                 return true;
             }
@@ -133,7 +189,7 @@ final class Suppression
             return false;
         }
 
-        $this->announce($reason, upgraded: false);
+        $this->announce($reason, 'suppressed');
 
         return true;
     }
@@ -177,7 +233,7 @@ final class Suppression
      * `reason` and `ALLOWED_KEY_PATTERNS` passes `_code$`, so the honest
      * spelling is the one that survives to the operator.
      */
-    private function announce(SuppressionReason $reason, bool $upgraded): void
+    private function announce(SuppressionReason $reason, string $event): void
     {
         Log::warning('delivery.address_suppressed', Redactor::context([
             'reason_code' => $reason->value,
@@ -191,7 +247,14 @@ final class Suppression
              * diagnostic has to have to survive.
              */
             'escalation_code' => $reason->threatensTheAccount() ? 'account' : 'team',
-            'upgraded' => $upgraded,
+            /*
+             * Which of the three this was, rather than a boolean that could
+             * only say *"upgraded"*. Round 3 of review: a **restore** reverses
+             * an operator's lift, and it was emitting a line indistinguishable
+             * from a first suppression — so the one event an operator would
+             * want to find looked like the most ordinary one in the file.
+             */
+            'event_code' => $event,
         ]));
     }
 }

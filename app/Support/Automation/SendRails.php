@@ -197,7 +197,18 @@ final class SendRails
 
         $sendable = $this->withoutSuppressed($recipients, $suppressed);
 
-        if ($sendable === []) {
+        /*
+         * **Not under sandbox**, which round 3 of review found as a cliff
+         * between one-of-two and two-of-two. Round 2's argument for dropping
+         * the withheld list under sandbox — *"sandbox replaces every
+         * recipient, so nothing was withheld from anybody"* — applies to the
+         * refusal just as much as to the reporting, and it had only been
+         * applied to the reporting. So one dead address of two rehearsed
+         * fine and two dead addresses failed the send permanently, with an
+         * S91 alert, in the mode that exists so a team can exercise
+         * automations without touching a client.
+         */
+        if ($sendable === [] && ! $live->sandbox_mode) {
             return SendDecision::refuse($this->suppressionRefusal($suppressed));
         }
 
@@ -251,19 +262,25 @@ final class SendRails
             }
 
             /*
-             * **No withheld list under sandbox**, and round 2 of review is
-             * why. Sandbox replaces *every* recipient, so nobody was written
-             * to and nothing was withheld from anybody — carrying the list
-             * produced a client row marked "Not sent" beside another client
-             * omitted entirely, for a message that went nowhere near either of
-             * them, and an S91 alert about a delivery failure during the one
-             * mode that exists so a team can exercise automations without
-             * touching a client.
+             * The withheld list **is** carried under sandbox, and what changes
+             * is who acts on it.
              *
-             * The redirected row plus *"went to the team rather than X and
-             * Y"* is the whole truth of a sandbox send.
+             * Round 2 removed it because carrying it produced a client
+             * delivery row and an S91 alert for a message that went nowhere
+             * near a client. Round 3 measured what removing it then cost: the
+             * summary read *"went to the team rather than Dana Okafor, Sam
+             * Reilly"*, naming Dana as somebody a live send would have
+             * reached, when it would have skipped her. Sandbox exists so a
+             * team can see what an automation **will** do, and it had become
+             * the one mode where a dead address is invisible.
+             *
+             * So the decision tells the truth and the two consumers differ:
+             * `RecordDeliveries` writes no withheld row when the send was
+             * redirected (nothing was withheld from anybody — nobody was
+             * written to), and `ExecuteAction` says so in the summary, which
+             * is the rehearsal a team came to sandbox for.
              */
-            return SendDecision::send([$owner], redirected: true);
+            return SendDecision::send([$owner], redirected: true, withheld: $withheld);
         }
 
         return SendDecision::send($recipients, withheld: $withheld);

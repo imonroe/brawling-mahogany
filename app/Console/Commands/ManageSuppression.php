@@ -44,7 +44,7 @@ use Illuminate\Support\Facades\Validator;
 class ManageSuppression extends Command
 {
     protected $signature = 'mail:suppression
-        {email : The address to look up}
+        {email : The address to look up, or the row id from an audit entry}
         {--lift : Remove the suppression, so this product will write to it again}
         {--suppress : Add a suppression by hand}
         {--reason= : Why, when suppressing by hand. Free text, stored beside the row}';
@@ -53,7 +53,26 @@ class ManageSuppression extends Command
 
     public function handle(Suppression $suppression, AuditLogger $audit): int
     {
-        $email = (string) $this->argument('email');
+        $subject = (string) $this->argument('email');
+
+        /*
+         * **An id is accepted as well as an address**, which round 3 of review
+         * asked for and is a small thing with a specific job.
+         *
+         * An audit entry records `auditable_id` and deliberately no address —
+         * `AuditRedactor` removes one, correctly — so somebody reading
+         * `mail.suppression_lifted` had the id of a row and no product path
+         * from it to the address. `psql` again, which is the state this
+         * command exists to end.
+         *
+         * Told apart by shape rather than by a flag: an address always has an
+         * `@` and a ULID never does.
+         */
+        if (! str_contains($subject, '@')) {
+            return $this->showById($subject);
+        }
+
+        $email = $subject;
 
         /*
          * Validated before anything is written. An address that cannot be
@@ -96,6 +115,22 @@ class ManageSuppression extends Command
         }
 
         return $this->show($email);
+    }
+
+    /**
+     * The same report, reached from an audit entry's `auditable_id`.
+     */
+    private function showById(string $id): int
+    {
+        $row = SuppressedAddress::withTrashed()->find($id);
+
+        if (! $row instanceof SuppressedAddress) {
+            $this->components->error("No suppression record has the id [{$id}].");
+
+            return self::FAILURE;
+        }
+
+        return $this->show($row->email);
     }
 
     private function show(string $email): int
