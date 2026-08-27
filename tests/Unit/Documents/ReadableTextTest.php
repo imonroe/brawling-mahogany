@@ -266,3 +266,154 @@ it('does not eat the compression checksum when it happens to end in a newline', 
     // And the control: the old spelling really would have lost it.
     expect(@gzuncompress(trim((string) $stream, "\r\n")))->toBeFalse();
 });
+
+it('truncates a stream too big to hold rather than dropping it in silence', function (): void {
+    /*
+     * Round 5 of review, and round 1's blocker arriving through a fourth door.
+     *
+     * Round 4 bounded the inflation, because deflate compresses repetition
+     * about a thousandfold and a 1MB PDF could fatal a 128MB process. What the
+     * bound then did is what this measures: `gzuncompress($bytes, $max)`
+     * returns **`false`** when the output exceeds `$max` — not a truncated
+     * string — so a legitimate content stream over half a megabyte was
+     * indistinguishable from an image and dropped entirely, with `$partial`
+     * never set. The document came back short, complete-looking and
+     * **confident**: `clean`, over pages nobody read.
+     *
+     * The fixture is deliberately *readable* text rather than a repetition
+     * bomb, because the defect is about the legitimate case: this is roughly a
+     * 150-page contract, well inside what `DocumentStorage::MAX_BYTES` accepts.
+     */
+    $sentence = 'The seller shall deliver the executed disclosure to the buyer within three business days. ';
+    $content = "BT /F1 10 Tf 40 750 Td (Routing Number: 021000021 ) Tj ET\n"
+        .'BT /F1 10 Tf 40 730 Td ('.str_repeat($sentence, 8_000).") Tj ET\n";
+
+    expect(mb_strlen($content))->toBeGreaterThan(ReadableText::MAX_CHARACTERS);
+
+    $stream = (string) gzcompress($content, 9);
+
+    $pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n"
+        .'2 0 obj<</Length '.strlen($stream)."/Filter/FlateDecode>>stream\n"
+        .$stream."\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
+
+    $text = ReadableText::from($pdf, 'application/pdf');
+
+    // Read, not discarded — the beginning of the document is really there.
+    expect($text)->not->toBeNull()
+        ->and($text)->toContain('021000021')
+        // And *said* to be short of the end, which is the half that was missing.
+        ->and(ReadableText::wasPartial())->toBeTrue()
+        ->and(ReadableText::isConfident($text))->toBeFalse();
+
+    // The control: the spelling this replaced threw the whole stream away.
+    expect(@gzuncompress($stream, ReadableText::MAX_CHARACTERS))->toBeFalse();
+});
+
+it('will not call a Word document checked when one part of it ran past the ceiling', function (): void {
+    /*
+     * The same door, one file format along. `ZipArchive::getFromIndex()` takes
+     * a length and returns the part **cut** at it, so a single
+     * `word/document.xml` over `MAX_CHARACTERS` — a long disclosure packet, or
+     * a workbook with a large shared-strings table — was read in part and
+     * reported whole.
+     *
+     * The PDF side had two guards against this (the stream budget and the
+     * character ceiling) and the OOXML side had one, which covered the case of
+     * *many* parts and not the case of one large one.
+     */
+    $sentence = 'The seller shall deliver the executed disclosure to the buyer within three business days. ';
+    $long = str_repeat($sentence, 8_000);
+
+    expect(mb_strlen($long))->toBeGreaterThan(ReadableText::MAX_CHARACTERS);
+
+    $docx = officeWith('Routing Number: 021000021 '.$long, 'word/document.xml');
+
+    $text = ReadableText::from(
+        $docx,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+
+    expect($text)->toContain('021000021')
+        ->and(ReadableText::wasPartial())->toBeTrue()
+        ->and(ReadableText::isConfident($text))->toBeFalse();
+});
+
+it('walks a large PDF instead of copying it, so a 15MB upload fits in memory', function (): void {
+    /*
+     * The reason the image can raise `upload_max_filesize` to the 15MB this
+     * product says it accepts.
+     *
+     * `preg_split` on the stream delimiter fixed round 2's backtracking
+     * finding, and round 5 of review pointed out what it cost instead: **a
+     * second copy of the whole file, cut up**, and then a third as each body
+     * is taken out of its chunk. Measured on the fixture below — a realistic
+     * 15MB PDF, forty small text streams among a hundred and fifty
+     * incompressible image ones — the split form peaks at **52.3MB** where
+     * walking the file with `strpos` peaks at **24.3MB**, which is the file
+     * itself and nothing above it. The overhead is a multiple of the upload,
+     * so it grows with exactly the limit that was about to be raised.
+     *
+     * Run in a **subprocess under a real limit**, because that is the only
+     * observation that distinguishes the two: `memory_get_peak_usage()` inside
+     * this process is monotonic and already carries every fixture Pest has
+     * built, so an in-process assertion passes against the defect. 40MB sits
+     * between the two measurements with room on both sides.
+     */
+    $content = "BT /F1 10 Tf 40 750 Td (Routing Number: 021000021 ) Tj ET\n";
+    $stream = (string) gzcompress($content, 9);
+
+    $pdf = (string) tempnam(sys_get_temp_dir(), 'bigpdf');
+    $handle = fopen($pdf, 'wb');
+
+    expect($handle)->not->toBeFalse();
+
+    fwrite($handle, "%PDF-1.4\n");
+
+    for ($object = 0; $object < 40; $object++) {
+        fwrite($handle, $object.' 0 obj<</Length '.strlen($stream)."/Filter/FlateDecode>>stream\n"
+            .$stream."\nendstream endobj\n");
+    }
+
+    /*
+     * Incompressible, because a scanned page is: a fixture padded with a run
+     * of one byte would be a file the allocator never has to hold.
+     */
+    for ($image = 0; $image < 150; $image++) {
+        fwrite($handle, "99 0 obj<</Subtype/Image/Length 100000>>stream\n"
+            .random_bytes(100_000)."\nendstream endobj\n");
+    }
+
+    fwrite($handle, "trailer<</Root 1 0 R>>\n%%EOF");
+    fclose($handle);
+
+    expect(filesize($pdf))->toBeGreaterThan(14 * 1024 * 1024);
+
+    $script = (string) tempnam(sys_get_temp_dir(), 'pdfmem');
+    file_put_contents($script, <<<'PHP'
+        <?php
+        require $argv[1];
+        $text = App\Support\Documents\ReadableText::from((string) file_get_contents($argv[2]), 'application/pdf');
+        echo str_contains((string) $text, '021000021') ? 'READ' : 'MISSED';
+        PHP);
+
+    $process = proc_open(
+        [PHP_BINARY, '-d', 'memory_limit=40M', $script, base_path('vendor/autoload.php'), $pdf],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+    );
+
+    expect($process)->not->toBeFalse();
+
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $status = proc_close($process);
+
+    @unlink($script);
+    @unlink($pdf);
+
+    expect($status)->toBe(0, "the scan did not survive a 40MB limit: {$stderr}")
+        // And it read the document, rather than surviving by giving up on it.
+        ->and($stdout)->toBe('READ');
+});

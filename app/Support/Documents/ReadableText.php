@@ -48,6 +48,16 @@ final class ReadableText
     private const MAX_STREAMS = 400;
 
     /**
+     * How much compressed input to hand zlib per call.
+     *
+     * The bound on memory is on the **input**, because that is the side whose
+     * size is known: deflate's worst case is a little over 1000:1, so 4KB in
+     * cannot produce much more than 4MB out. Measured at 64KB the same loop
+     * produced 23MB from a single call and fatalled a 32MB process.
+     */
+    private const INFLATE_CHUNK_BYTES = 4096;
+
+    /**
      * How many letters make a decode believable.
      *
      * Not a quality bar — a floor under the word *"clean"*. Below this the
@@ -327,11 +337,26 @@ final class ReadableText
                     $xml = $zip->getFromIndex($index, self::MAX_CHARACTERS);
 
                     if (is_string($xml)) {
+                        /*
+                         * **The bound is on the part, so it can end a part in
+                         * the middle.** A single `word/document.xml` over half
+                         * a megabyte — a long disclosure packet, or any
+                         * spreadsheet with a large shared-strings table — comes
+                         * back cut, and the words after the cut were not read.
+                         * The fourth door on to the same lie, and the one the
+                         * PDF side had already been given two guards against.
+                         */
+                        if (strlen($xml) >= self::MAX_CHARACTERS) {
+                            self::$partial = true;
+                        }
+
                         // `<w:t>a</w:t><w:t>b</w:t>` must not become "ab".
                         $text .= ' '.strip_tags(str_replace('><', '> <', $xml));
                     }
 
                     if (mb_strlen($text) >= self::MAX_CHARACTERS) {
+                        self::$partial = true;
+
                         break 2;
                     }
                 }
@@ -370,37 +395,29 @@ final class ReadableText
          * between 900KB and 1.2MB. Every scanned contract in this product is
          * larger than that.
          *
-         * Split on the delimiters instead, which does no backtracking at all
-         * and has no size beyond which it stops working. A stream that reaches
-         * this is bounded by `MAX_STREAMS` and `MAX_CHARACTERS` downstream, so
-         * the cost of reading a large one is still capped.
+         * ## Why this walks the file rather than splitting it
+         *
+         * `preg_split` on the delimiter fixed the backtracking, and round 5 of
+         * review named what it cost instead: **a second copy of the whole
+         * file, cut up**, and a third as each body is taken out of its chunk.
+         * Measured on a realistic 15MB PDF — the size
+         * `DocumentStorage::MAX_BYTES` permits — the split form peaks at
+         * **52.3MB** where this one peaks at **24.3MB**, which is the file
+         * itself and nothing above it. The overhead is a multiple of the
+         * upload, so it grows with exactly the limit the image was about to
+         * raise, and an out-of-memory is not something a `catch` downstream
+         * can see.
+         *
+         * So the file is walked with `strpos` and each stream is inflated where
+         * it is found. Only one stream is materialised at a time, and the text
+         * accumulating beside it is capped at `MAX_CHARACTERS`.
          */
-        /*
-         * The lookbehind is load-bearing: `endstream` ends in `stream`, so a
-         * naive split consumes the closing delimiter too and every chunk loses
-         * the marker the loop below looks for. Nothing was found and the
-         * document read as having no text layer at all.
-         */
-        $chunks = preg_split('/(?<!end)stream\r?\n/', $bytes);
-
-        if (! is_array($chunks) || count($chunks) < 2) {
-            return null;
-        }
-
-        $matches = [1 => []];
-
-        foreach (array_slice($chunks, 1) as $chunk) {
-            $end = mb_strpos($chunk, 'endstream', 0, '8bit');
-
-            if ($end !== false) {
-                $matches[1][] = mb_substr($chunk, 0, $end, '8bit');
-            }
-        }
-
         $text = '';
         $inflated = 0;
+        $offset = 0;
+        $length = strlen($bytes);
 
-        foreach ($matches[1] as $stream) {
+        while (true) {
             if ($inflated >= self::MAX_STREAMS || mb_strlen($text) >= self::MAX_CHARACTERS) {
                 /*
                  * **Stopped early, so the read is partial.** Recorded rather
@@ -414,7 +431,46 @@ final class ReadableText
                 break;
             }
 
-            $decoded = self::inflate($stream);
+            $start = strpos($bytes, 'stream', $offset);
+
+            if ($start === false) {
+                break;
+            }
+
+            /*
+             * `endstream` ends in `stream`. The split this replaced needed a
+             * `(?<!end)` lookbehind for the same reason, and without it every
+             * chunk lost the closing marker and the document read as having no
+             * text layer at all.
+             */
+            if ($start >= 3 && substr($bytes, $start - 3, 3) === 'end') {
+                $offset = $start + 6;
+
+                continue;
+            }
+
+            $body = $start + 6;
+
+            // The keyword is a delimiter only when a line ending follows it.
+            if (substr($bytes, $body, 2) === "\r\n") {
+                $body += 2;
+            } elseif ($body < $length && ($bytes[$body] === "\n" || $bytes[$body] === "\r")) {
+                $body += 1;
+            } else {
+                $offset = $start + 6;
+
+                continue;
+            }
+
+            $end = strpos($bytes, 'endstream', $body);
+
+            if ($end === false) {
+                break;
+            }
+
+            $offset = $end + 9;
+
+            $decoded = self::inflate(substr($bytes, $body, $end - $body));
 
             if ($decoded === null) {
                 /*
@@ -483,25 +539,10 @@ final class ReadableText
         }
 
         foreach ($candidates as $candidate) {
-            foreach (['gzuncompress', 'gzinflate'] as $filter) {
-                /*
-                 * **Bounded**, and this is the argument that matters most in
-                 * the file. Round 4 of review built a **1MB** PDF that fatals
-                 * a 128MB process — PHP's default, and the FrankenPHP base
-                 * image installs no `php.ini` — because deflate compresses
-                 * repetition about a thousandfold. `@` suppresses a warning,
-                 * not an out-of-memory, so nothing downstream can catch it:
-                 * the request dies, the controller's `catch` never runs, and
-                 * an upload endpoint anybody can reach becomes a way to kill
-                 * a worker.
-                 *
-                 * `MAX_CHARACTERS` is the honest ceiling because it is what
-                 * the caller would keep anyway, and a stream inflating past it
-                 * is one this class was going to truncate.
-                 */
-                $decoded = @$filter($candidate, self::MAX_CHARACTERS);
+            foreach ([ZLIB_ENCODING_DEFLATE, ZLIB_ENCODING_RAW] as $encoding) {
+                $decoded = self::decompress($candidate, $encoding);
 
-                if (is_string($decoded) && $decoded !== '') {
+                if ($decoded !== null && $decoded !== '') {
                     return $decoded;
                 }
             }
@@ -517,6 +558,86 @@ final class ReadableText
          * operator regex.
          */
         return self::looksLikeContent($stream) ? $stream : null;
+    }
+
+    /**
+     * Inflate a little at a time, and say so when the ceiling ends it.
+     *
+     * ## Why not `gzuncompress($bytes, $max)`
+     *
+     * Round 4 of review built a **1MB** PDF that fatals a 128MB process,
+     * because deflate compresses repetition about a thousandfold; `@`
+     * suppresses a warning, not an out-of-memory, so nothing downstream can
+     * catch it. The bound was the fix, and round 5 found what the bound then
+     * did: `gzuncompress` given a `max_length` returns **`false`** when the
+     * output exceeds it — not a truncated string. So a legitimate stream over
+     * half a megabyte was indistinguishable from an image, silently **dropped**
+     * rather than truncated, and `$partial` was never set. The document came
+     * back short and confident: `clean`, over a page nobody read. That is
+     * round 1's blocker arriving through a fourth door.
+     *
+     * Inflating incrementally answers both. Memory is bounded by the *input*
+     * chunk rather than the output — 4KB in cannot become more than about 4MB
+     * out, where 64KB in was measured producing 23MB in a single call — and
+     * hitting the ceiling is an observation this can report rather than a
+     * failure indistinguishable from corruption.
+     *
+     * `ZLIB_STREAM_END` is what separates a stream that finished from one that
+     * merely stopped, which is stricter than the two functions it replaces:
+     * trailing bytes after the checksum end the read cleanly instead of
+     * failing it, and a truncated stream is refused instead of decoding to a
+     * prefix of noise.
+     */
+    private static function decompress(string $candidate, int $encoding): ?string
+    {
+        if ($candidate === '') {
+            return null;
+        }
+
+        $context = @inflate_init($encoding);
+
+        if ($context === false) {
+            return null;
+        }
+
+        $out = '';
+        $offset = 0;
+        $length = strlen($candidate);
+
+        while ($offset < $length) {
+            $piece = @inflate_add($context, substr($candidate, $offset, self::INFLATE_CHUNK_BYTES), ZLIB_SYNC_FLUSH);
+
+            if ($piece === false) {
+                return null;
+            }
+
+            $out .= $piece;
+            $offset += self::INFLATE_CHUNK_BYTES;
+
+            if (strlen($out) >= self::MAX_CHARACTERS) {
+                /*
+                 * Truncated, not dropped — and **recorded**, which is the
+                 * whole point of doing it this way. A stream this long is one
+                 * the caller was going to cut anyway; what it must not do is
+                 * call the result checked.
+                 */
+                self::$partial = true;
+
+                return substr($out, 0, self::MAX_CHARACTERS);
+            }
+
+            if (inflate_get_status($context) === ZLIB_STREAM_END) {
+                return $out;
+            }
+        }
+
+        /*
+         * All the input consumed and no `ZLIB_STREAM_END` on the way past: the
+         * stream is truncated or was never deflate at all, so what came out is
+         * a prefix of noise rather than a short document. Refused, which sends
+         * it on to `looksLikeContent()` to be judged as raw bytes.
+         */
+        return null;
     }
 
     /**
@@ -581,7 +702,23 @@ final class ReadableText
     {
         $pieces = [];
 
-        if (preg_match_all('/\(((?:\\\\.|[^\\\\()])*)\)/', $content, $literals) !== false) {
+        /*
+         * **Possessive**, and it is not a micro-optimisation.
+         *
+         * An unterminated `(` — which is exactly what truncating a stream at
+         * `MAX_CHARACTERS` produces — makes the greedy form run to the end of
+         * the subject looking for a `)`, and PCRE gives up: `preg_match_all`
+         * returns **`false`** with *"JIT stack limit exhausted"*, measured at
+         * ~500KB. The `!== false` guard below then swallowed it and the whole
+         * stream yielded nothing, so the truncated read this class had just
+         * gone to some trouble to preserve was thrown away one method later.
+         *
+         * `*+` cannot backtrack, so the dangling literal fails at its own start
+         * position instead of dragging the rest of the match down with it — and
+         * the alternation was already deterministic (`[^\\()]` excludes the
+         * backslash), so nothing correct is given up for it.
+         */
+        if (preg_match_all('/\(((?:\\\\.|[^\\\\()])*+)\)/', $content, $literals) !== false) {
             foreach ($literals[1] as $literal) {
                 $pieces[] = str_replace(
                     ['\\(', '\\)', '\\\\', '\\n', '\\r', '\\t'],

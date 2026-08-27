@@ -22,6 +22,11 @@ while the document sits there.
 
 **Files are checked before they are stored.** More on that below.
 
+**A file has to be under 15MB.** A photograph off a phone and a scanned
+inspection report both fit comfortably; a long scan at a high resolution may
+not, and the answer there is usually to scan it again at a lower one rather
+than to split it.
+
 ## Who can see it
 
 Every document is **internal** unless you say otherwise. Internal means your
