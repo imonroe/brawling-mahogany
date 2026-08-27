@@ -190,6 +190,14 @@ export async function reRegisterPush(): Promise<void> {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            /*
+             * Explicit, so the server's *"is this the background re-post"*
+             * branch is answered by something this call states rather than
+             * inferred from what a browser happens to default to. A `fetch`
+             * with no `Accept` gets the browser's catch-all, which is how
+             * round 2's version of that branch came to never fire.
+             */
+            Accept: 'application/json',
             'X-XSRF-TOKEN': token,
             'X-Requested-With': 'XMLHttpRequest',
         },

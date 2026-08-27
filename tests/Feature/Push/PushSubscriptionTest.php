@@ -47,15 +47,110 @@ it('answers the background re-post with no body to follow', function (): void {
      * `resources/js/lib/pwa.ts` re-posts the browser's subscription on every
      * navigation with a plain `fetch`, and **`fetch` follows a 302** — so a
      * bare `back()` meant every navigation quietly fetched and discarded a
-     * whole rendered page. Round 2 of review measured it.
+     * whole rendered page.
      *
-     * The S55 button still needs the redirect, because it re-renders the
-     * device list, so the two are told apart by what they asked for.
+     * ## The headers are the client's, not `postJson()`'s
+     *
+     * Round 3 of review found the first version of this test using
+     * `postJson()`, whose helper injects `Accept: application/json` — so it
+     * passed against a branch keyed on `wantsJson()` that **never fired for
+     * the real caller**, which sets no `Accept` at all and gets the browser's
+     * a catch-all. A test that does not send what the caller sends proves nothing
+     * about the caller.
+     *
+     * So these are spelled out. `X-Requested-With` is what makes
+     * `expectsJson()` true for an XHR that accepts anything; the explicit
+     * `Accept` is what `lib/pwa.ts` now states rather than leaving to a
+     * default.
      */
-    $this->postJson('/settings/notifications/push', subscriptionPayload())
-        ->assertNoContent();
+    $this->json('POST', '/settings/notifications/push', subscriptionPayload(), [
+        'X-Requested-With' => 'XMLHttpRequest',
+        'Accept' => 'application/json',
+    ])->assertNoContent();
 
     expect(PushSubscription::query()->count())->toBe(1);
+});
+
+it('answers a background re-post that sets no Accept at all', function (): void {
+    /*
+     * The case round 2's `wantsJson()` branch fell through: a `fetch` with no
+     * `Accept` gets the browser's catch-all, and `wantsJson()` asks whether
+     * the *first* acceptable type is JSON.
+     *
+     * `lib/pwa.ts` now states `Accept: application/json` explicitly, so this
+     * is belt and braces — but it is the assertion that says the server does
+     * not *depend* on the client remembering to, which is the property that
+     * made the original defect invisible.
+     */
+    $this->call(
+        'POST',
+        '/settings/notifications/push',
+        [],
+        [],
+        [],
+        [
+            'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+            'HTTP_ACCEPT' => '*'.'/'.'*',
+            'CONTENT_TYPE' => 'application/json',
+        ],
+        (string) json_encode(subscriptionPayload()),
+    )->assertNoContent();
+
+    expect(PushSubscription::query()->count())->toBe(1);
+});
+
+it('still redirects the button on S55, which has a list to re-render', function (): void {
+    /*
+     * The other half of that branch, and the one a too-eager discriminator
+     * breaks: Inertia sends `Accept: text/html, …`, so `expectsJson()` is
+     * false and `router.post` gets the redirect that re-renders the device
+     * list. Without this test, "return 204 for everything" passes.
+     */
+    $this->withHeaders([
+        'X-Inertia' => 'true',
+        'X-Requested-With' => 'XMLHttpRequest',
+        'Accept' => 'text/html, application/xhtml+xml',
+    ])->post('/settings/notifications/push', subscriptionPayload())
+        ->assertRedirect();
+});
+
+it('records nothing while an operator is impersonating somebody', function (): void {
+    /*
+     * `store()` keys on the endpoint and moves the row to whoever is signed
+     * in, which is right for a shared device. During an S84 support session
+     * that is the **customer** — so a platform operator's own browser would
+     * be reassigned to them, and from then on the operator's lock screen
+     * would show that team's work, including the property streets
+     * `PushPayload` deliberately allows. It would detach the customer's real
+     * phone too, because the endpoint is unique.
+     *
+     * Before this slice only S55's button reached here. The per-navigation
+     * re-post makes it automatic, which is what turns an odd edge into
+     * something that happens on the first page an operator opens.
+     */
+    $operator = Person::factory()->create(['is_super_admin' => true]);
+
+    /*
+     * Signed in as the member — an impersonated session *is* the customer's,
+     * which is the whole point — with the marker `Impersonation::isActive()`
+     * actually reads. Built through the helper's own key rather than a
+     * hand-made array, so a change to that shape breaks this test rather
+     * than silently making it assert nothing.
+     */
+    $this->withSession(['impersonation' => [
+        'admin_person_id' => $operator->getKey(),
+        'person_id' => $this->member->getKey(),
+        'person_name' => 'Emily',
+        'team_id' => $this->team->getKey(),
+        'team_name' => $this->team->name,
+        'reason' => 'Support call',
+        'expires_at' => now()->addMinutes(30)->toIso8601String(),
+    ]])->json('POST', '/settings/notifications/push', subscriptionPayload(), [
+        'X-Requested-With' => 'XMLHttpRequest',
+        'Accept' => 'application/json',
+    ])->assertNoContent();
+
+    expect(PushSubscription::query()->count())->toBe(0);
 });
 
 it('does not add a row every time the same browser re-registers', function (): void {

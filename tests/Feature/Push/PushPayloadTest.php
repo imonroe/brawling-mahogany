@@ -135,8 +135,8 @@ it('is built only from the type and the street', function (): void {
      * at it on the surface it lands on.
      */
     expect($payload)->toBe([
-        'title' => 'A message did not go out',
-        'body' => 'An automated message failed to send.',
+        'title' => 'An automation needs looking at',
+        'body' => 'Open it to see what happened.',
         'url' => '/notifications',
         'tag' => 'automation_failed:none',
     ]);
@@ -175,5 +175,35 @@ it('never reuses S78’s preference copy on a lock screen', function (): void {
              */
             ->and($type->pushTitle())->not->toEndWith(' me')
             ->and($type->pushTitle())->not->toEndWith(' mine');
+    }
+});
+
+it('never asserts what went wrong with an automation', function (): void {
+    /*
+     * `CLAUDE.md` states this rule and names the failing sentence:
+     *
+     * > **A headline that asserts is wrong for one caller.** *"An automated
+     * > message did not go out"* is false over the reaper's *"it may have
+     * > reached the recipient"*, and false again for a `create_task` that
+     * > involved no message.
+     *
+     * A delivery bounce is a third case: the message *did* go out. Round 3 of
+     * review caught `pushTitle()` reintroducing exactly that phrasing on a
+     * lock screen, one surface along from the alert the rule was written for.
+     *
+     * Held against `AlertOnFailures`' own words rather than a list of banned
+     * phrases, because the point is that the two say the **same** thing — a
+     * person who gets the email and the push about one failure should not be
+     * told two different stories about it.
+     */
+    $title = NotificationType::AutomationFailed->pushTitle();
+    $body = NotificationType::AutomationFailed->pushBody();
+
+    expect($title)->toContain('needs looking at');
+
+    foreach ([$title, $body] as $line) {
+        expect($line)->not->toContain('did not go out')
+            ->and($line)->not->toContain('failed to send')
+            ->and($line)->not->toContain('was not sent');
     }
 });

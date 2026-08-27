@@ -89,7 +89,7 @@ enum NotificationType: string implements HasLabel
             self::DeadlineApproaching => 'Due tomorrow',
             self::GateCleared => 'Requirement cleared',
             self::GateOverridden => 'Requirement overridden',
-            self::AutomationFailed => 'A message did not go out',
+            self::AutomationFailed => 'An automation needs looking at',
             self::Announcement => 'Note for the team',
         };
     }
@@ -106,7 +106,7 @@ enum NotificationType: string implements HasLabel
             self::DeadlineApproaching => 'A task assigned to you is due tomorrow.',
             self::GateCleared => 'A requirement has cleared.',
             self::GateOverridden => 'A stage advanced over a requirement that was not met.',
-            self::AutomationFailed => 'An automated message failed to send.',
+            self::AutomationFailed => 'Open it to see what happened.',
             self::Announcement => 'An automation posted a note to the team.',
         };
     }

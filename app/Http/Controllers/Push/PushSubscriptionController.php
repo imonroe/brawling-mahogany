@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Push;
 
 use App\Http\Controllers\Controller;
 use App\Models\Person;
+use App\Support\Admin\Impersonation;
 use App\Support\Push\PushSubscriptionRegistry;
 use App\Support\Push\SendPush;
 use Illuminate\Http\RedirectResponse;
@@ -63,6 +64,32 @@ class PushSubscriptionController extends Controller
          */
         abort_unless(SendPush::configured(), 503);
 
+        /*
+         * **Never while impersonating** (round 3 of review).
+         *
+         * `store()` keys on the endpoint and moves the row to
+         * `$request->user()`, which is right for a shared device: whoever is
+         * signed in on this browser is who it should push to. During an S84
+         * support session `$request->user()` is the **customer**, so a
+         * platform operator's own laptop would be reassigned to them — and
+         * from then on that operator's lock screen shows a customer team's
+         * work, including the property streets `PushPayload` deliberately
+         * allows. It would also detach the customer's real phone, because the
+         * endpoint is unique.
+         *
+         * Before this slice only S55's button reached here, so it took a
+         * deliberate press. The per-navigation re-post makes it automatic,
+         * which is what turns an odd edge into something that happens on the
+         * first page an operator opens.
+         *
+         * A silent 204 rather than an error: nothing is wrong, there is
+         * simply nothing to record, and an impersonated session must not
+         * behave differently in a way the operator has to think about.
+         */
+        if (Impersonation::isActive($request)) {
+            return response()->noContent();
+        }
+
         $registry->store(
             person: $person,
             endpoint: $validated['endpoint'],
@@ -77,13 +104,24 @@ class PushSubscriptionController extends Controller
          * `resources/js/lib/pwa.ts` re-posts the browser's subscription on
          * every navigation with a plain `fetch`, and `fetch` follows a 302 —
          * so `back()` alone meant every navigation quietly fetched and
-         * discarded a whole rendered page. Round 2 of review measured it.
+         * discarded a whole rendered page.
          *
-         * `wantsJson()` rather than sniffing for Inertia: the S55 button goes
-         * through `router.post` and needs the redirect that re-renders the
-         * device list, and the background call asks for nothing back.
+         * **`expectsJson()`, not `wantsJson()`**, and round 3 of review is
+         * why: round 2 shipped the latter, which asks whether the *first*
+         * acceptable type is JSON. A `fetch` that sets no `Accept` gets the
+         * browser's catch-all, so the branch never fired for the one caller
+         * it was written for. Measured at the live route:
+         *
+         *     fetch-shaped    wantsJson=0  expectsJson=1
+         *     inertia-shaped  wantsJson=0  expectsJson=0
+         *
+         * `expectsJson()` is true for an XHR that accepts anything, and false
+         * for Inertia — which sends `Accept: text/html, …` — so S55's button
+         * keeps the redirect that re-renders its device list. The client also
+         * sends an explicit `Accept: application/json` now, so the intent is
+         * stated where the request is made rather than inferred here.
          */
-        if ($request->wantsJson()) {
+        if ($request->expectsJson()) {
             return response()->noContent();
         }
 
