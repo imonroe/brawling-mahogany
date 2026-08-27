@@ -8,6 +8,7 @@ import { useCurrentUrl } from '@/composables/useCurrentUrl';
 import { usePermissions } from '@/composables/usePermissions';
 import { toUrl } from '@/lib/utils';
 import { edit as editAppearance } from '@/routes/appearance';
+import { edit as editNotifications } from '@/routes/notification-preferences';
 import { edit as editProfile } from '@/routes/profile';
 import { edit as editSecurity } from '@/routes/security';
 import type { NavItem } from '@/types';
@@ -27,6 +28,12 @@ const sidebarNavItems = computed<NavItem[]>(() => {
         { title: 'Profile', href: editProfile() },
         { title: 'Security', href: editSecurity() },
         { title: 'Appearance', href: editAppearance() },
+        /*
+         * S78 (#101). Beside the other personal settings and above the
+         * team-wide ones, because how somebody is told about work is theirs —
+         * every member has this row whatever permissions they hold.
+         */
+        { title: 'Notifications', href: editNotifications() },
     ];
 
     if (page.props.team && can('settings.manage')) {

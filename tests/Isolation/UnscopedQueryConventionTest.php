@@ -71,6 +71,46 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'the bug, not the fix.',
     ],
 
+    'Models/Notification.php' => [
+        'count' => 2,
+        'reason' => 'Kind 1 twice over, and the second one is what makes the first true. '.
+            '`forPerson()` asks "what have I been told", and issue #101 requires it to span '.
+            'teams: "a person in two teams needs to know which one a notification came from, '.
+            'and switching teams should not hide it." A stager working two agencies who is '.
+            'told at nine that a task is theirs must not lose it by switching at ten. So the '.
+            'notifications query lifts the team scope, and the predicate is their own id. '.
+            'The **membership subquery beside it** lifts the scope for the same reason — a '.
+            'question about the actor cannot be asked from inside one tenant — and it is '.
+            'what bounds the first: only teams this person holds an unrevoked membership in. '.
+            'Round 3 of review is why it is there. `summary` is snapshotted at raise time '.
+            'but the feed hydrates `dealName` and `teamName` live, so without it a revoked '.
+            'member who still held an account in another team went on receiving the first '.
+            'team\'s current deal names — which `NameDeal` derives from the subject '.
+            'property\'s address and the roster. Nothing here is read across a boundary that '.
+            'is not already this person\'s, and now that is true of what the lines *say* as '.
+            'well as of which rows come back.',
+    ],
+
+    'Support/Notifications/NotificationFeed.php' => [
+        'count' => 1,
+        'reason' => 'Kind 1, and downstream of Notification::forPerson() rather than beside '.
+            'it. The panel reads across teams by design, so the deals those rows point at '.
+            'have to be readable too — an ->with(\'deal\') does **not** inherit the lifted '.
+            'scope, it issues its own query under whichever team happens to be resolved, '.
+            'so the cross-team line came back with a null deal name and a link that 404s. '.
+            'The ids are not arbitrary: they come off rows addressed to this person, each '.
+            'carrying its own team_id, and a composite foreign key makes a notification '.
+            'pointing at another team\'s deal unrepresentable — so this reads exactly the '.
+            'deals the person was already told about.',
+    ],
+
+    'Console/Commands/ReleaseHeldNotifications.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2, and the same shape: what quiet hours held belongs to every team '.
+            'at once, so the sweep is above the tenancy and each notification carries its '.
+            'own team_id into the job, which re-establishes it before anything is read.',
+    ],
+
     'Support/Delivery/ApplyDeliveryEvent.php' => [
         'count' => 1,
         'reason' => 'Kind 2, and the clearest example of it in the product: a bounce '.

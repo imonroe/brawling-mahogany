@@ -23,6 +23,7 @@ use App\Http\Controllers\Documents\DocumentController;
 use App\Http\Controllers\HelpController;
 use App\Http\Controllers\Messages\MessageQueueController;
 use App\Http\Controllers\Messages\MessageTemplateController;
+use App\Http\Controllers\Notifications\NotificationController;
 use App\Http\Controllers\People\ContactImportController;
 use App\Http\Controllers\People\ContactLogController;
 use App\Http\Controllers\People\PersonController;
@@ -643,6 +644,24 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      * this screen answers is *"what needs me"* across every deal at once. One
      * message's own page links back to the deal it belongs to.
      */
+    /*
+     * S08 (#101). No permission and no policy: the query is keyed on the
+     * person asking, so the predicate *is* the authorization — and it reads
+     * across every team they are in, which is the one screen in the product
+     * that does.
+     */
+    Route::get('notifications', [NotificationController::class, 'index'])
+        ->name('notifications.index');
+    Route::post('notifications/read', [NotificationController::class, 'read'])
+        ->name('notifications.read');
+    /*
+     * The opener: switch to the notification's own team, then redirect. A
+     * plain link to the deal 404s for a cross-team notification, which is the
+     * one case the panel exists to serve.
+     */
+    Route::get('notifications/{notification}/open', [NotificationController::class, 'open'])
+        ->name('notifications.open');
+
     Route::get('messages', [MessageQueueController::class, 'index'])
         ->name('messages.index');
     Route::get('messages/{message}', [MessageQueueController::class, 'show'])

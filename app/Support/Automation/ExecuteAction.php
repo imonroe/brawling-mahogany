@@ -6,6 +6,7 @@ namespace App\Support\Automation;
 
 use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
+use App\Enums\NotificationType;
 use App\Enums\TaskSource;
 use App\Mail\AutomatedMessageMail;
 use App\Models\ActionInstance;
@@ -15,6 +16,9 @@ use App\Models\Team;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
 use App\Support\Delivery\RecordDeliveries;
+use App\Support\Notifications\NotificationAudience;
+use App\Support\Notifications\Notify;
+use App\Support\Permissions;
 use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\SentMessage;
 use Illuminate\Support\Facades\Mail;
@@ -55,6 +59,8 @@ final class ExecuteAction
         private readonly RecordActivity $activity,
         private readonly AuditLogger $audit,
         private readonly RecordDeliveries $deliveries,
+        private readonly Notify $notify,
+        private readonly NotificationAudience $audience,
     ) {}
 
     /**
@@ -98,6 +104,13 @@ final class ExecuteAction
         match ($instance->action_type) {
             AutomationActionType::SendEmail => $this->send($instance, $team),
             AutomationActionType::CreateTask => $this->createTask($instance),
+            /*
+             * F5.3's *post internal notification* (#101). No rails: they are
+             * about messages leaving the building, and this reaches a panel
+             * the team already has open — the same argument `createTask()`
+             * makes one case up.
+             */
+            AutomationActionType::PostInternalNotification => $this->postNotification($instance, $team),
             /*
              * F5.4's manual prompt is done by a person and recorded by
              * {@see ApproveMessage}, so it never reaches a worker. Named
@@ -321,6 +334,65 @@ final class ExecuteAction
                 'claimed_at' => $instance->updated_at?->toIso8601String(),
             ],
         );
+    }
+
+    /**
+     * F5.3's *post a notification to the team* (#101).
+     *
+     * The words come from the rendered payload like an email's do, because an
+     * automation that posts a note is an automation somebody wrote words for
+     * — and `RenderMessage` has already resolved the merge fields against this
+     * deal. What it does **not** do is go through F5.7's approval queue: that
+     * queue exists because a message to a client cannot be recalled, and a
+     * line in a colleague's panel can be.
+     */
+    private function postNotification(ActionInstance $instance, Team $team): void
+    {
+        $rendered = $instance->rendered();
+
+        if (! $rendered->isComplete()) {
+            $this->fail(
+                $instance,
+                'This note still has merge fields that could not be filled in: '
+                .implode(', ', [...$rendered->malformed, ...$rendered->unknown, ...$rendered->unresolved]).'.',
+            );
+
+            return;
+        }
+
+        $summary = trim((string) ($rendered->subject ?? $rendered->bodyText));
+
+        if ($summary === '') {
+            $this->fail($instance, 'This automation is set to post a note, and the note is empty.');
+
+            return;
+        }
+
+        $this->notify->send(
+            type: NotificationType::Announcement,
+            people: $this->audience->holding($team, Permissions::VIEW_DEALS),
+            team: $team,
+            summary: $summary,
+            deal: $instance->deal,
+            data: ['messageId' => $instance->getKey()],
+        );
+
+        $instance->forceFill([
+            'state' => AutomationState::Sent->value,
+            'executed_at' => now(),
+            'attempts' => $instance->attempts + 1,
+            'error' => null,
+        ])->save();
+
+        $deal = $instance->deal;
+
+        if ($deal instanceof Deal) {
+            $this->activity->record(
+                subject: $deal,
+                eventType: 'message.action_done',
+                summary: 'An automation posted a note to the team.',
+            );
+        }
     }
 
     /**

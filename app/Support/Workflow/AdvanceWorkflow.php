@@ -6,19 +6,25 @@ namespace App\Support\Workflow;
 
 use App\Enums\AutomationState;
 use App\Enums\AutomationTrigger;
+use App\Enums\NotificationType;
 use App\Enums\StageState;
 use App\Enums\TaskSource;
 use App\Enums\WorkflowState;
 use App\Jobs\RunAutomation;
 use App\Models\ActionInstance;
+use App\Models\Deal;
 use App\Models\Gate;
 use App\Models\Person;
 use App\Models\Stage;
 use App\Models\Task;
+use App\Models\Team;
 use App\Models\Workflow;
 use App\Support\Activity\RecordActivity;
 use App\Support\Audit\AuditLogger;
 use App\Support\Automation\RaiseAutomations;
+use App\Support\Notifications\NotificationAudience;
+use App\Support\Notifications\Notify;
+use App\Support\Permissions;
 use App\Support\Workflow\Gates\Evaluators\ManualConfirmationEvaluator;
 use App\Support\Workflow\Gates\GateRegistry;
 use App\Support\Workflow\Gates\GateVerdict;
@@ -95,6 +101,8 @@ final class AdvanceWorkflow
         private readonly RecordActivity $activity,
         private readonly AuditLogger $audit,
         private readonly RaiseAutomations $automations,
+        private readonly Notify $notify,
+        private readonly NotificationAudience $audience,
     ) {}
 
     /**
@@ -222,6 +230,23 @@ final class AdvanceWorkflow
              */
             foreach ($cleared as $clearedGate) {
                 $raised = [...$raised, ...$this->automations->forGate($clearedGate)];
+
+                /*
+                 * F12.4's *"gate cleared"*, raised from **the same line** the
+                 * automation trigger is. That is deliberate rather than
+                 * convenient: `CLAUDE.md` records that a trigger hung off one
+                 * implementation of a thing is hung off none of it, and this
+                 * is the one place in the product where `is_met` actually
+                 * transitions false → true. Two notifications diverging from
+                 * two hook points is the same defect with a second victim.
+                 */
+                $this->notifyAboutGate(
+                    NotificationType::GateCleared,
+                    $clearedGate,
+                    $workflow,
+                    'A requirement cleared: '.$clearedGate->label,
+                    $actor,
+                );
             }
 
             $blocking = array_filter(
@@ -433,6 +458,20 @@ final class AdvanceWorkflow
                     'workflow_id' => $workflow->getKey(),
                     'follow_up_task_id' => $followUp->getKey(),
                 ],
+            );
+
+            /*
+             * IA §7 makes an override legally distinct, and `NotificationType`
+             * refuses to group it for the same reason: two overrides collapsed
+             * into *"2 requirements were overridden"* is the summary that
+             * stops somebody reading either.
+             */
+            $this->notifyAboutGate(
+                NotificationType::GateOverridden,
+                $gate,
+                $workflow,
+                $actor->displayNameWithin($workflow->team).' overrode “'.$gate->label.'”',
+                $actor,
             );
 
             return OverrideResult::overridden($gate, $followUp);
@@ -1336,6 +1375,39 @@ final class AdvanceWorkflow
         }
 
         return $verdicts;
+    }
+
+    /**
+     * Tell whoever could act on it (#101).
+     *
+     * Inside the transaction, like every other row this class writes — the
+     * dispatch that would be unsafe there is handled by
+     * `DeliverNotification::dispatch()`'s `afterCommit()`, which is where that
+     * rule belongs now that four different kinds of caller raise these.
+     */
+    private function notifyAboutGate(
+        NotificationType $type,
+        Gate $gate,
+        Workflow $workflow,
+        string $summary,
+        ?Person $actor,
+    ): void {
+        $deal = $workflow->deal;
+        $team = $workflow->team;
+
+        if (! $deal instanceof Deal || ! $team instanceof Team) {
+            return;
+        }
+
+        $this->notify->send(
+            type: $type,
+            people: $this->audience->holding($team, Permissions::MANAGE_DEALS),
+            team: $team,
+            summary: $summary,
+            deal: $deal,
+            data: ['gateId' => $gate->getKey()],
+            actor: $actor,
+        );
     }
 
     private function gateById(Stage $stage, string $gateId): Gate

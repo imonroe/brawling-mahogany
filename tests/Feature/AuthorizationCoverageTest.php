@@ -44,6 +44,38 @@ const UNGATED_ROUTES = [
     'teams.switch',
 
     /*
+     * S08 and S78 (#101). Authorised by construction, like the switcher above.
+     *
+     * Every query on all four is `where('person_id', $me)` — the rows are ones
+     * addressed to the person asking, and the write is an `update()` over that
+     * same predicate, so another person's id matches nothing rather than being
+     * refused. `NotificationScreensTest` asserts both halves: a stranger's
+     * notifications are absent from the panel, and marking one read leaves it
+     * unread.
+     *
+     * There is also no permission that could gate them. Everybody in a team
+     * hears about their own work and chooses how — a `notifications.view`
+     * would be a permission an owner could take away, which is not a thing
+     * this product should be able to express.
+     *
+     * S08 deliberately reads **across** teams (issue #101: switching teams
+     * must not hide a notification), so a team-scoped policy would be the
+     * wrong shape as well as an unnecessary one.
+     */
+    'notifications.index',
+    'notifications.read',
+    /*
+     * `notifications.open` is the same predicate one step further on: the row
+     * is found among **this person's**, a stranger's id is a 404 rather than a
+     * 403, and the team switch it performs is refused unless `activeTeams()`
+     * still contains the team — so following a link cannot re-establish a
+     * membership that was revoked.
+     */
+    'notifications.open',
+    'notification-preferences.edit',
+    'notification-preferences.update',
+
+    /*
      * The manual (S92, #170), which asks only that somebody is signed in —
      * and is outside `verified`, `two-factor` and `team` as well, so an owner
      * held at 2FA enrolment can read the article about 2FA enrolment.

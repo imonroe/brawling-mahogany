@@ -53,7 +53,6 @@ enum AutomationActionType: string implements HasLabel
     public function availableFrom(): ?string
     {
         return match ($this) {
-            self::PostInternalNotification => 'Notifications arrive later in Slice 3 (#101).',
             self::SendPushNotification => 'Web push arrives later in Slice 3 (#103).',
             self::CreateCalendarEvent => 'The calendar arrives in Slice 4.',
             default => null,

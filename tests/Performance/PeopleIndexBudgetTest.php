@@ -153,12 +153,20 @@ it('renders the people index within its query budget at 500 rows', function (): 
      * `(team_id, state, scheduled_for)`, once per request, is what makes the
      * badge true everywhere.
      *
-     * Two is where the shell's counts stop being free. A third would need a
-     * different mechanism — one query returning several counts — rather than a
-     * third line in `HandleInertiaRequests`, and this budget is the thing that
-     * should force that conversation rather than a reviewer noticing.
+     * Two was where the shell's counts stopped being free, and this comment
+     * used to say that a third would need a different mechanism — one query
+     * returning several counts — rather than a third line in
+     * `HandleInertiaRequests`. S08's unread count (#101) was the third, and
+     * the budget did exactly what it was written to do: raising the number by
+     * one was the easy diff and the wrong one, because a fourth badge would
+     * have raised it again.
+     *
+     * So there are now **three** counts and **one** query — `App\Queries\
+     * ShellCounts`, three scalar subqueries in a single round trip. The
+     * ceiling comes down by one rather than up, which is the shape a budget
+     * should have after a feature lands on the shell.
      */
-    expect($queries)->toBeLessThanOrEqual(24);
+    expect($queries)->toBeLessThanOrEqual(23);
 });
 
 it('does not grow its query count with the directory', function (): void {

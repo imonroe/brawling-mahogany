@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use App\Console\Commands\AlertOnAutomationFailures;
 use App\Console\Commands\DispatchDueAutomations;
+use App\Console\Commands\NotifyAboutDeadlines;
 use App\Console\Commands\PurgeSoftDeletedRecords;
 use App\Console\Commands\ReapUnconfirmedSends;
+use App\Console\Commands\ReleaseHeldNotifications;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -72,6 +74,38 @@ Schedule::command(ReapUnconfirmedSends::class)
  * somebody is still at their desk.
  */
 Schedule::command(AlertOnAutomationFailures::class)
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * Deadline reminders (#101).
+ *
+ * **Hourly**, and the command decides which teams are in scope — each is
+ * handled only in the hour that is 8am locally, because a reminder is a thing
+ * somebody reads with their coffee and PRD §9's display-in-the-team's-timezone
+ * applies to a decision as much as to a rendering. A daily schedule would have
+ * to pick one zone and be wrong for every other team on the platform.
+ */
+Schedule::command(NotifyAboutDeadlines::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * What quiet hours held (#101).
+ *
+ * Every five minutes, which is the resolution F12.4 actually needs: the rule
+ * is *"nobody wants a 6am push"*, and a person whose window ends at seven does
+ * not care whether their email arrives at 07:00 or 07:04. Every minute would
+ * be a sweep of a table that is empty for most of the day.
+ *
+ * A sweep rather than a delayed job, because a queue that loses its backlog
+ * loses every held notification silently and the person they were for never
+ * learns anything was owed. `notifications.deliver_after` is the record; the
+ * queue is only how it travels.
+ */
+Schedule::command(ReleaseHeldNotifications::class)
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->onOneServer();

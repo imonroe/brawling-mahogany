@@ -7,13 +7,16 @@ namespace App\Support\Automation;
 use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
 use App\Enums\DeliveryStatus;
+use App\Enums\NotificationType;
 use App\Mail\InternalAlertMail;
 use App\Models\ActionInstance;
 use App\Models\Deal;
 use App\Models\MessageDelivery;
+use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Messages\ResolveRecipients;
+use App\Support\Notifications\Notify;
 use App\Support\Permissions;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -148,7 +151,10 @@ final class AlertOnFailures
     /** Enough people to be sure somebody sees it, few enough not to be a broadcast. */
     private const MAX_RECIPIENTS = 5;
 
-    public function __construct(private readonly ResolveRecipients $recipients) {}
+    public function __construct(
+        private readonly ResolveRecipients $recipients,
+        private readonly Notify $notify,
+    ) {}
 
     /**
      * Tell this team about anything that has failed since they were last told.
@@ -382,6 +388,29 @@ final class AlertOnFailures
         ));
 
         /*
+         * F12.4's *"automation failure"* notification, raised from **this**
+         * sweep rather than from a failure path (#101).
+         *
+         * The argument is this class's own, one channel along: a thing wired
+         * to one implementation of a failure is wired to none of it, and a
+         * transport exception never reaches `ExecuteAction::fail()`. Reading
+         * the same window the email reads means the panel and the inbox can
+         * never disagree about what happened — and the watermark that stops
+         * the email arriving twice stops the notification arriving twice for
+         * free.
+         *
+         * The audience is the same too: whoever can approve messages, and the
+         * owners when nobody holds it.
+         */
+        $this->notify->send(
+            type: NotificationType::AutomationFailed,
+            people: $this->notifiable($audience, $team),
+            team: $team,
+            summary: $this->headline($count, $carriedEmail),
+            deal: $newest?->deal,
+        );
+
+        /*
          * The mark moves **after** the send, which is the safe order and not a
          * free one: a transport that accepts the message and then throws leaves
          * the window unreported, so the next sweep reports it again. Better
@@ -562,6 +591,43 @@ final class AlertOnFailures
         }
 
         return $sentence;
+    }
+
+    /**
+     * The same people, as `Person` rows for the notification fan-out.
+     *
+     * Resolved from the addresses rather than a second query: `audience()`
+     * has already decided who — including its *"owners when nobody holds the
+     * permission"* fallback and its cap — and asking again with a different
+     * predicate is how the email and the panel come to disagree about who was
+     * told.
+     *
+     * @param  list<Address>  $audience
+     * @return list<Person>
+     */
+    private function notifiable(array $audience, Team $team): array
+    {
+        $addresses = array_map(
+            static fn (Address $address): string => mb_strtolower($address->address),
+            $audience,
+        );
+
+        if ($addresses === []) {
+            return [];
+        }
+
+        return array_values(TeamMembership::query()
+            ->where('team_id', $team->getKey())
+            ->active()
+            ->with('person')
+            ->get()
+            ->filter(static fn (TeamMembership $membership): bool => in_array(
+                mb_strtolower((string) $membership->email),
+                $addresses,
+                true,
+            ))
+            ->map(static fn (TeamMembership $membership): Person => $membership->person)
+            ->all());
     }
 
     /**
