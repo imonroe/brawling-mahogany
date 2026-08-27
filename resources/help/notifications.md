@@ -28,7 +28,14 @@ You see everything, from every team you are in, whichever team you are
 currently working in. Switching teams does not hide anything — a task assigned
 to you at nine is still there at ten.
 
-When more than one team has something for you, each line says which.
+When more than one team has something for you, each line says which. Opening a
+line from another team switches you into that team on the way, so one click
+works from wherever you happen to be.
+
+**Leaving a team takes its notifications with it.** Once your access to a team
+is removed, that team's lines go from your bell — including any you had not
+read. They are not yours to see any more, and the deal names on them would
+otherwise keep updating.
 
 ## What you hear about, and how
 

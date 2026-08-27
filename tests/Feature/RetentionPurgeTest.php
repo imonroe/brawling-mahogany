@@ -614,3 +614,62 @@ it('bounds every notification delete by the team it is purging', function (): vo
         expect($entry['query'])->toContain('"team_id"');
     }
 });
+
+it('purges notifications for somebody who left, unread ones included', function (): void {
+    /*
+     * The read sweep spares unread rows because an unread notification is
+     * still doing its job. Round 3's membership predicate made that false for
+     * one class: a row addressed to somebody whose membership was revoked is
+     * unreachable by the panel, the badge and `open()` alike — and
+     * `notifications:deadlines` goes on minting more for as long as a task
+     * stays assigned to them. Unreachable and immortal is the combination PRD
+     * §9 has no answer for.
+     *
+     * Keyed on the **revocation**, so the thirty days is a real recovery
+     * window: this test revokes 40 days ago, and the one below revokes today.
+     */
+    [$team, $member] = $this->teamWithMember();
+
+    $unread = app(TeamContext::class)->runFor($team, function () use ($team, $member): App\Models\Notification {
+        return App\Models\Notification::factory()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $member->getKey(),
+            'read_at' => null,
+        ]);
+    });
+
+    TeamMembership::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->where('person_id', $member->getKey())
+        ->update(['revoked_at' => now()->subDays(40)]);
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(App\Models\Notification::withoutTeamScope()->find($unread->getKey()))->toBeNull();
+});
+
+it('keeps them while the membership could still be restored', function (): void {
+    /*
+     * The other half, and what makes the window a window: restore the
+     * membership inside thirty days and the whole panel comes back, because
+     * nothing was deleted.
+     */
+    [$team, $member] = $this->teamWithMember();
+
+    $unread = app(TeamContext::class)->runFor($team, function () use ($team, $member): App\Models\Notification {
+        return App\Models\Notification::factory()->create([
+            'team_id' => $team->getKey(),
+            'person_id' => $member->getKey(),
+            'read_at' => null,
+        ]);
+    });
+
+    TeamMembership::withoutTeamScope()
+        ->where('team_id', $team->getKey())
+        ->where('person_id', $member->getKey())
+        ->update(['revoked_at' => now()->subDay()]);
+
+    $this->artisan('records:purge')->assertSuccessful();
+
+    expect(App\Models\Notification::withoutTeamScope()->find($unread->getKey()))->not->toBeNull();
+});

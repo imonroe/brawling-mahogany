@@ -116,11 +116,20 @@ class Notification extends Model
      * `Person::activeTeams()` asks three further things — the membership
      * carries a team-surface permission, the team is not suspended, the team
      * is not deleted. None of them belongs here, and `carryingAccess()` is the
-     * one worth naming because adding it was tried and reverted: `Notify`
-     * writes a row for a task's assignee whatever roles they hold, so reading
-     * more strictly than writing would manufacture rows nobody can ever see —
+     * one worth naming because adding it was tried and reverted: reading more
+     * strictly than writing would manufacture rows nobody can ever see —
      * `CLAUDE.md`'s *"a row nothing can reach"*, created by the fix for a
      * leak.
+     *
+     * The writer that proves it is `InstantiateWorkflow::assignableWithin()`,
+     * which filters a template's role assignments on `whereNull('revoked_at')`
+     * and **not** on `carryingAccess()` — so attaching a workflow can assign a
+     * task, and therefore raise a notification, to a colleague holding no
+     * team-surface permission. (Round 4 of review corrected this paragraph,
+     * which had named S27's task form. That form does restrict its list to
+     * `carryingAccess()->active()`; what it also does is keep whoever the task
+     * already names, which is a narrower exception and not the support for the
+     * argument.)
      *
      * That is also what keeps `open()`'s own `activeTeams()` check honest
      * rather than dead: a suspended team, a deleted one, or a membership

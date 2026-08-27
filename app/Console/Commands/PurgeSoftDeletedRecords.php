@@ -80,7 +80,8 @@ class PurgeSoftDeletedRecords extends Command
             $purgedStaging += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
                 + $this->purgeAbandonedImports($cutoff)
                 + $this->purgeAbandonedDrafts($cutoff)
-                + $this->purgeReadNotifications($team, $cutoff));
+                + $this->purgeReadNotifications($team, $cutoff)
+                + $this->purgeNotificationsForFormerMembers($team, $cutoff));
             $purgedRows += $this->purgeRowsFor($team, $cutoff);
         }
 
@@ -384,6 +385,65 @@ class PurgeSoftDeletedRecords extends Command
             ->where('team_id', $team->getKey())
             ->whereNotNull('read_at')
             ->where('read_at', '<', $cutoff)
+            ->toBase()
+            ->delete();
+    }
+
+    /**
+     * Notifications for somebody who has left the team (#101).
+     *
+     * ## A row nobody can read is not "still doing its job"
+     *
+     * `purgeReadNotifications()` above spares **unread** rows on the argument
+     * that an unread notification is still doing its job however old it is,
+     * and that deleting one would answer *"has anybody been told?"* by quietly
+     * making it no. That argument was true of every row in the table until
+     * round 3 of review added a membership predicate to
+     * `Notification::scopeForPerson()`.
+     *
+     * It stopped being true for one class: a row addressed to somebody whose
+     * membership has since been **revoked**. Nothing can read it — not the
+     * panel, not the badge, not `open()` — and nothing ever will, because a
+     * membership is revoked rather than un-revoked in the ordinary case. So
+     * the read sweep spared it forever, and `notifications:deadlines` went on
+     * minting more of them for as long as a task stayed assigned to a former
+     * colleague. Unreachable **and** immortal, which is the one combination
+     * PRD §9 has no answer for.
+     *
+     * ## Keyed on the revocation, not on the row
+     *
+     * The window belongs to the event that made these unreachable, so the
+     * predicate is `revoked_at < $cutoff` rather than anything about the
+     * notification's own age. That is what makes PRD §9's thirty days a real
+     * **recovery** window here: restore the membership inside it and the whole
+     * panel comes back, because nothing was deleted. A cutoff on `created_at`
+     * would have deleted last year's rows the moment somebody left.
+     */
+    private function purgeNotificationsForFormerMembers(Team $team, CarbonInterface $cutoff): int
+    {
+        /*
+         * Scoped, not `withoutTeamScope()`. This runs inside
+         * `TeamContext::runFor($team)`, so the global scope already answers
+         * "this team" and the explicit predicate says so out loud — the same
+         * belt-and-braces `purgeReadNotifications()` uses above. Reaching for
+         * the escape hatch here would have been an unscoped read of another
+         * tenant's memberships to decide what to delete, which is exactly what
+         * `UnscopedQueryConventionTest` exists to stop; it caught this.
+         */
+        $formerMembers = TeamMembership::query()
+            ->where('team_id', $team->getKey())
+            ->whereNotNull('revoked_at')
+            ->where('revoked_at', '<', $cutoff)
+            ->pluck('person_id')
+            ->all();
+
+        if ($formerMembers === []) {
+            return 0;
+        }
+
+        return Notification::query()
+            ->where('team_id', $team->getKey())
+            ->whereIn('person_id', $formerMembers)
             ->toBase()
             ->delete();
     }

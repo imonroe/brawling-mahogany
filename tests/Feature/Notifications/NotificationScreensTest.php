@@ -323,6 +323,54 @@ it('still cuts the popover to its promised length', function (): void {
         ->toHaveCount(App\Support\Notifications\NotificationFeed::PREVIEW);
 });
 
+it('counts unread notifications on the shell badge', function (): void {
+    /*
+     * The badge is what this whole feature is for, and until round 4 of review
+     * every server-side assertion about it was at **zero** — which a
+     * `ShellCounts` that returned a constant zero would have satisfied. Read
+     * across teams like the panel it sits above, and unread only.
+     */
+    [$other] = $this->teamWithMember($this->member);
+
+    Notification::factory()->count(2)->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+        'read_at' => null,
+    ]);
+
+    Notification::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $this->member->getKey(),
+        'read_at' => now(),
+    ]);
+
+    app(App\Support\Tenancy\TeamContext::class)->runFor($other, function () use ($other): void {
+        Notification::factory()->create([
+            'team_id' => $other->getKey(),
+            'person_id' => $this->member->getKey(),
+            'read_at' => null,
+        ]);
+    });
+
+    // Somebody else's, which must not be counted.
+    $stranger = Person::factory()->create();
+
+    Notification::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'person_id' => $stranger->getKey(),
+        'read_at' => null,
+    ]);
+
+    // Two here plus one in the other team; the read one and the stranger's
+    // are excluded.
+    expect(App\Queries\ShellCounts::for($this->member)['notifications'])->toBe(3);
+
+    // And the shell actually carries it, which is the half a component reads.
+    $this->get('/notifications')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('counts.notifications', 3));
+});
+
 it('shows nobody else’s notifications', function (): void {
     $stranger = Person::factory()->create();
 
