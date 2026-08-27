@@ -1,0 +1,439 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support\Dates;
+
+use App\Enums\ActivitySource;
+use App\Enums\AutomationState;
+use App\Enums\KeyDateSource;
+use App\Enums\OffsetBasis;
+use App\Jobs\RunAutomation;
+use App\Models\ActionInstance;
+use App\Models\Deal;
+use App\Models\KeyDate;
+use App\Models\Person;
+use App\Support\Activity\RecordActivity;
+use App\Support\Formatting\Format;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * The only writer of `key_dates` (PRD §4.8 F8.2 · issue #106).
+ *
+ * `RecordActivity` owns `activity_events` and `Notify` owns `notifications`
+ * for the same reason this owns its table: writing a key date is never only
+ * writing a key date. Moving mutual acceptance moves the inspection objection
+ * deadline, and the loan commitment date behind that, and reschedules the
+ * automation that emails the client about the appraisal — and a controller
+ * that called `$keyDate->save()` would produce a correct row beside a calendar
+ * that is now wrong in four places.
+ *
+ * ## Preview and apply are the same computation
+ *
+ * #106 asks for a cascade that is *"previewable before it is applied"*, and
+ * the only way to make a preview honest is for it to be the thing that
+ * happens. {@see self::preview()} and {@see self::edit()} both call
+ * `KeyDateGraph::cascadeFrom()`; the second one persists what the first one
+ * returned.
+ *
+ * ## The two writes are in one transaction, and the dispatch is outside it
+ *
+ * The boundary `AdvanceWorkflow::dispatchRaised()` established: rows inside,
+ * jobs after the commit. A cascade reschedules `action_instances`, and an
+ * instance rescheduled inside a transaction that then rolls back is a client
+ * email queued for a date that never moved.
+ */
+final class SaveKeyDate
+{
+    public function __construct(
+        private readonly RecordActivity $activity,
+        private readonly KeyDateAutomations $automations,
+    ) {}
+
+    /**
+     * A new date on a deal.
+     *
+     * A date being *added* cannot move anything that already exists — nothing
+     * points at a row that did not exist a moment ago — so there is no cascade
+     * here, only the computation of this row's own value from its anchor.
+     *
+     * @param  array<string, mixed>  $attributes
+     *
+     * @throws AnchorWouldLoop
+     */
+    public function add(Deal $deal, array $attributes, ?Person $actor = null): KeyDate
+    {
+        $graph = KeyDateGraph::forDeal($deal);
+
+        $keyDate = new KeyDate;
+
+        $keyDate->forceFill([
+            'team_id' => $deal->team_id,
+            'deal_id' => $deal->getKey(),
+            'source' => KeyDateSource::Manual->value,
+        ]);
+
+        $this->applyAttributes($keyDate, $attributes, $graph);
+
+        DB::transaction(function () use ($keyDate): void {
+            $keyDate->save();
+        });
+
+        $this->activity->record(
+            subject: $keyDate,
+            eventType: 'key_date.added',
+            summary: $keyDate->name.' set to '.Format::date($keyDate->date),
+            source: ActivitySource::System,
+            actor: $actor,
+            payload: ['keyDateId' => $keyDate->getKey(), 'date' => $keyDate->date->toDateString()],
+            teamId: $deal->team_id,
+            deal: $deal,
+        );
+
+        $this->dispatch($this->automations->reschedule([$keyDate], $deal));
+
+        return $keyDate;
+    }
+
+    /**
+     * Edit a date, and everything downstream of it.
+     *
+     * @param  array<string, mixed>  $attributes
+     *
+     * @throws AnchorWouldLoop
+     */
+    public function edit(KeyDate $date, array $attributes, ?Person $actor = null): CascadeResult
+    {
+        $deal = $date->deal;
+
+        $graph = KeyDateGraph::forDeal($deal);
+
+        $before = $date->date->startOfDay();
+
+        /*
+         * Applied to the *graph's* copy, so the cascade reads the edited row
+         * rather than the one still in the database. `find()` returns the same
+         * instance the graph holds, and `cascadeFrom()` reads `follows()` off
+         * every row including this one — an edit that detaches a date has to
+         * be visible to the walk that decides whether to follow it.
+         */
+        $subject = $graph->find((string) $date->getKey()) ?? $date;
+
+        $this->applyAttributes($subject, $attributes, $graph);
+
+        $moved = $graph->cascadeFrom($subject, $subject->date);
+
+        DB::transaction(function () use ($subject, $moved): void {
+            $subject->save();
+
+            foreach ($moved as $change) {
+                $change->keyDate->forceFill(['date' => $change->to->toDateString()])->save();
+            }
+        });
+
+        $this->recordEdit($subject, $before, $moved, $actor);
+
+        $this->dispatch($this->automations->reschedule(
+            [$subject, ...array_map(static fn (DateChange $c): KeyDate => $c->keyDate, $moved)],
+            $deal,
+        ));
+
+        return new CascadeResult($subject, $moved);
+    }
+
+    /**
+     * What `edit()` would do, without doing it (S18's cascade preview).
+     *
+     * The graph is loaded and mutated in memory and thrown away. Nothing here
+     * touches the database, which is what makes it safe to call on a keystroke
+     * — and is why the models it mutates are the graph's copies rather than
+     * the caller's: a preview that left a caller holding a modified row would
+     * be a preview with a side effect.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return list<DateChange>
+     *
+     * @throws AnchorWouldLoop
+     */
+    public function preview(KeyDate $date, array $attributes): array
+    {
+        $graph = KeyDateGraph::forDeal($date->deal);
+
+        $subject = $graph->find((string) $date->getKey());
+
+        if (! $subject instanceof KeyDate) {
+            return [];
+        }
+
+        $this->applyAttributes($subject, $attributes, $graph);
+
+        return $graph->cascadeFrom($subject, $subject->date);
+    }
+
+    /**
+     * Delete a date.
+     *
+     * ## What happens to the dates derived from it
+     *
+     * They **stay where they are**, detached. The composite foreign key nulls
+     * the anchor (`ON DELETE SET NULL`, naming the column so the row's own
+     * `team_id` survives), and this nulls the rest of the derivation so no row
+     * is left claiming to be derived from nothing — which the migration's own
+     * CHECK would refuse anyway.
+     *
+     * Deleting the objection deadline's anchor must not delete the objection
+     * deadline: the obligation in the contract did not go away because
+     * somebody tidied up the calendar. So the value it last had is what it
+     * keeps, and S18 shows it as a date somebody typed, because from here on
+     * that is what it is.
+     */
+    public function remove(KeyDate $keyDate, ?Person $actor = null): void
+    {
+        $deal = $keyDate->deal;
+
+        $dependents = KeyDate::query()
+            ->where('anchor_key_date_id', $keyDate->getKey())
+            ->get();
+
+        DB::transaction(function () use ($keyDate, $dependents): void {
+            foreach ($dependents as $dependent) {
+                $dependent->forceFill([
+                    'anchor_key_date_id' => null,
+                    'offset_days' => null,
+                    'offset_basis' => null,
+                    'is_derived' => false,
+                    'detached_at' => now(),
+                ])->save();
+            }
+
+            $keyDate->delete();
+        });
+
+        $this->activity->record(
+            subject: $deal,
+            eventType: 'key_date.removed',
+            summary: $keyDate->name.' removed from Dates & Deadlines',
+            source: ActivitySource::System,
+            actor: $actor,
+            payload: ['keyDateId' => $keyDate->getKey(), 'name' => $keyDate->name],
+            teamId: $keyDate->team_id,
+            deal: $deal,
+        );
+
+        $this->automations->cancelFor($keyDate);
+    }
+
+    /**
+     * Queue what the reschedule raised, after the write has committed.
+     *
+     * The boundary `AdvanceWorkflow::dispatchRaised()` established, and the
+     * same two rules: only `pending` rows go — one that opened in
+     * `awaiting_approval` is released by `ApproveMessage` and by nothing else,
+     * and dispatching it here would send the message F5.7's queue exists to
+     * hold — and nothing is dispatched from inside a transaction, because a
+     * worker that picks the job up before the commit lands finds no row.
+     *
+     * @param  list<ActionInstance>  $raised
+     */
+    private function dispatch(array $raised): void
+    {
+        foreach ($raised as $instance) {
+            if ($instance->state === AutomationState::Pending) {
+                dispatch((new RunAutomation($instance->getKey()))->forTeam($instance->team_id));
+            }
+        }
+    }
+
+    /**
+     * Read one edit onto a row, deciding derivation as it goes.
+     *
+     * ## Typing a date over a derived one detaches it
+     *
+     * #106: *"a derived date that has been manually overridden stops following
+     * its anchor, and says so."* Detaching is the **absence** of an anchor in
+     * the payload plus the presence of a date — a form that submits both is
+     * saying "derive it" and wins, because that is the only reading under
+     * which an editor can re-attach a date it previously detached.
+     *
+     * The anchor and the offset are kept on the row when it detaches. Clearing
+     * them would lose the *and says so*: S18 can only tell somebody this date
+     * used to be ten days after mutual acceptance if the row still remembers.
+     *
+     * @param  array<string, mixed>  $attributes
+     *
+     * @throws AnchorWouldLoop
+     */
+    private function applyAttributes(KeyDate $date, array $attributes, KeyDateGraph $graph): void
+    {
+        if (array_key_exists('name', $attributes)) {
+            $date->name = trim((string) $attributes['name']);
+        }
+
+        if (array_key_exists('is_critical', $attributes)) {
+            $date->is_critical = (bool) $attributes['is_critical'];
+        }
+
+        if (array_key_exists('notes', $attributes)) {
+            $notes = $attributes['notes'];
+
+            $date->notes = is_string($notes) && trim($notes) !== '' ? trim($notes) : null;
+        }
+
+        if (array_key_exists('reminder_offsets', $attributes)) {
+            $date->reminder_offsets = $this->reminderOffsets($attributes['reminder_offsets']);
+        }
+
+        $anchorId = array_key_exists('anchor_key_date_id', $attributes)
+            ? ($attributes['anchor_key_date_id'] === null ? null : (string) $attributes['anchor_key_date_id'])
+            : null;
+
+        if ($anchorId !== null) {
+            $anchor = $graph->find($anchorId);
+
+            if ($graph->wouldLoop($date, $anchorId)) {
+                throw AnchorWouldLoop::at($anchor instanceof KeyDate ? $anchor->name : 'that date');
+            }
+
+            if ($anchor instanceof KeyDate) {
+                $basis = OffsetBasis::tryFrom((string) ($attributes['offset_basis'] ?? ''))
+                    ?? OffsetBasis::Calendar;
+
+                $date->offset_days = (int) ($attributes['offset_days'] ?? 0);
+                $date->offset_basis = $basis;
+
+                /*
+                 * `forceFill`, because `date` and `detached_at` are casts and
+                 * the values here are days rather than instants — assigning
+                 * through the magic property would put a `CarbonImmutable`
+                 * where the cast expects to do the conversion, and the two
+                 * disagree about the time of day.
+                 */
+                $date->forceFill([
+                    'anchor_key_date_id' => $anchorId,
+                    'is_derived' => true,
+                    'detached_at' => null,
+                    'date' => $date->derivedFrom($anchor->date)->toDateString(),
+                ]);
+
+                return;
+            }
+        }
+
+        if (array_key_exists('date', $attributes) && $attributes['date'] !== null) {
+            /*
+             * A date typed onto a row that was following an anchor stops it
+             * following. `wasDetached()` is what S18 reads to say so, and
+             * `detached_at` is when.
+             */
+            $detaching = $date->is_derived
+                ? ['is_derived' => false, 'detached_at' => now()]
+                : [];
+
+            $date->forceFill([
+                ...$detaching,
+                'date' => $this->day($attributes['date'])->toDateString(),
+            ]);
+        }
+    }
+
+    /**
+     * @param  list<DateChange>  $moved
+     */
+    private function recordEdit(KeyDate $keyDate, CarbonInterface $before, array $moved, ?Person $actor): void
+    {
+        $deal = $keyDate->deal;
+
+        if ($before->toDateString() !== $keyDate->date->toDateString()) {
+            $this->activity->record(
+                subject: $keyDate,
+                eventType: 'key_date.moved',
+                summary: $keyDate->name.' moved from '.Format::date($before).' to '.Format::date($keyDate->date),
+                source: ActivitySource::System,
+                actor: $actor,
+                payload: [
+                    'keyDateId' => $keyDate->getKey(),
+                    'from' => $before->toDateString(),
+                    'to' => $keyDate->date->toDateString(),
+                ],
+                teamId: $keyDate->team_id,
+                deal: $deal,
+            );
+        }
+
+        if ($moved === []) {
+            return;
+        }
+
+        /*
+         * **One entry for the whole cascade, not one per date.**
+         *
+         * The lesson `NotificationFeed` records about folding, arriving at a
+         * second table: eleven rows on a deal timeline for one edit is eleven
+         * rows nobody reads, and the fact somebody wants six weeks later is
+         * *"moving closing moved eleven dates"* — which is a single sentence.
+         * The dates themselves are in the payload for anything that needs the
+         * detail.
+         */
+        $this->activity->record(
+            subject: $keyDate,
+            eventType: 'key_date.cascaded',
+            summary: count($moved) === 1
+                ? '1 other date moved with '.$keyDate->name
+                : count($moved).' other dates moved with '.$keyDate->name,
+            source: ActivitySource::System,
+            actor: $actor,
+            payload: [
+                'keyDateId' => $keyDate->getKey(),
+                'moved' => array_map(static fn (DateChange $c): array => $c->toArray(), $moved),
+            ],
+            teamId: $keyDate->team_id,
+            deal: $deal,
+        );
+    }
+
+    /**
+     * A whole day, whatever the caller handed over.
+     *
+     * `startOfDay()` because a `date` column that is fed an instant is a day
+     * that changes meaning when somebody reads it in another timezone — the
+     * defect `offers` records under its `_on` naming rule.
+     */
+    private function day(mixed $value): CarbonInterface
+    {
+        if ($value instanceof CarbonInterface) {
+            return $value->startOfDay();
+        }
+
+        return CarbonImmutable::parse((string) $value)->startOfDay();
+    }
+
+    /**
+     * @return list<int>|null
+     */
+    private function reminderOffsets(mixed $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $days = [];
+
+        foreach ($value as $day) {
+            if (is_numeric($day) && (int) $day >= 0) {
+                $days[] = (int) $day;
+            }
+        }
+
+        $days = array_values(array_unique($days));
+
+        rsort($days);
+
+        return $days;
+    }
+}
