@@ -316,10 +316,14 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'that row\'s own team, so the board query is scoped exactly as any screen\'s is. '.
             'The second is the membership subquery inside that same lookup, and it narrows '.
             'rather than widens: a feed keeps working only while its person is still on the '.
-            'team, which is what stops a colleague who left in March fetching the whole '.
-            'calendar from a URL nobody remembers exists. It has to lift the scope for the '.
-            'same reason the lookup does — it runs before any team is established, and it is '.
-            'correlated to the feed\'s own team_id, so it can match nothing else.',
+            'team **and still holds calendar.view** (#194) — the key EventPolicy::viewAny() '.
+            'gates the screen on, so a URL cannot outlive the screen it came from. That '.
+            'stops both a colleague who left in March and one moved onto a role composed '.
+            'without the calendar from fetching the whole thing from a URL nobody remembers '.
+            'exists. It has to lift the scope for the same reason the lookup does — it runs '.
+            'before any team is established, and it is correlated to the feed\'s own '.
+            'team_id, so a person holding the key at one agency cannot keep a feed alive at '.
+            'another.',
     ],
 
     'Console/Commands/IssueStatusPageLinkCommand.php' => [

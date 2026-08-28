@@ -246,6 +246,48 @@ class TeamMembership extends Model
     }
 
     /**
+     * `hasPermission()`, asked of a query rather than of a loaded row.
+     *
+     * The same walk the model does — roles, then their permissions, then the
+     * key — for a caller that cannot load a membership to ask it of.
+     * `ChecksTeamPermissions::allows()` is the shape being mirrored, revoked
+     * check included: `hasPermission()` returns false for a revoked membership
+     * before it looks at a single role, and a scope that left that out would
+     * answer *yes* for somebody who left in March.
+     *
+     * *Mirrors the walk*, deliberately, rather than *"gives the same answer as
+     * a policy"* — that would be a claim about two things this method does not
+     * control. A policy has a resolved tenant and this has whatever the caller
+     * narrowed to (below), and the two run the traversal through different
+     * machinery, so an absolute parity claim is one nothing checks. What is
+     * asserted is the part that can be: the same three steps and the same
+     * revoked check.
+     *
+     * Note this is a **specific key**, not `carryingAccess()`'s *"any key on
+     * the team surface"*. The two are different questions and the difference
+     * is the whole of #194: a person can hold a composed role that reaches the
+     * app and does not reach the calendar.
+     *
+     * What it does **not** decide is *which team is being asked about*. A
+     * policy knows, because `TeamContext` resolved one; a caller reaching for
+     * this scope usually has not, which is why it exists. So narrowing to the
+     * right membership is the caller's, and a caller that skips it asks
+     * whether the person holds the key **anywhere** — which for somebody
+     * working at two agencies is a permission granted by one team answering
+     * for another. `ManageCalendarFeeds::findByToken()` correlates on
+     * `calendar_feeds.team_id`, and `CalendarFeedsTest` fails if it stops.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeHoldingPermission(Builder $query, string $key): Builder
+    {
+        return $query
+            ->whereNull('team_memberships.revoked_at')
+            ->whereHas('roles', self::holdsOneOf([$key]));
+    }
+
+    /**
      * Does this membership let somebody *act* in the team, or merely describe
      * somebody the team knows?
      *
@@ -378,10 +420,26 @@ class TeamMembership extends Model
      */
     private static function holdsATeamSurfacePermission(): Closure
     {
+        return self::holdsOneOf(Permissions::teamSurfaceKeys());
+    }
+
+    /**
+     * The walk itself: a role holding at least one of these permission keys.
+     *
+     * Shared by `carryingAccess()`'s *"any key on the team surface"* and
+     * `holdingPermission()`'s *"this key"*, which are different questions over
+     * one traversal. Written twice in the round that added the second, until
+     * review pointed out that two copies of a permission walk is how the two
+     * start answering differently.
+     *
+     * @param  list<string>  $keys
+     * @return Closure(Builder<Role>): Builder<Role>
+     */
+    private static function holdsOneOf(array $keys): Closure
+    {
         return fn (Builder $roles): Builder => $roles->whereHas(
             'permissions',
-            fn (Builder $permissions): Builder => $permissions
-                ->whereIn('permissions.key', Permissions::teamSurfaceKeys()),
+            fn (Builder $permissions): Builder => $permissions->whereIn('permissions.key', $keys),
         );
     }
 

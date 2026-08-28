@@ -6,17 +6,21 @@ use App\Actions\Teams\ProvisionTeam;
 use App\Enums\DealSide;
 use App\Enums\EventType;
 use App\Enums\ParticipantRole;
+use App\Enums\SystemRole;
 use App\Models\CalendarFeed;
 use App\Models\Deal;
 use App\Models\DealType;
 use App\Models\Event;
 use App\Models\KeyDate;
+use App\Models\Permission;
 use App\Models\Property;
+use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Calendar\ManageCalendarFeeds;
 use App\Support\Deals\DealRoster;
 use App\Support\Deals\NameDeal;
+use App\Support\Permissions;
 use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
@@ -148,9 +152,13 @@ it('stops serving the moment the person is no longer on the team', function (): 
      * a URL nobody remembers exists — `live()` asks only whether the *feed*
      * was revoked.
      *
-     * Revocation only, matching `Notification::scopeForPerson()`: reading more
-     * strictly than the app writes would cut off somebody who still works
-     * there and holds a role composed without a team-surface permission.
+     * This is the *departure* half, and it is one of two predicates rather
+     * than the whole rule: #194 added `calendar.view` beside it, in the test
+     * below. Kept as two tests because they fail for different reasons, and
+     * one test covering both would pass while either was broken.
+     *
+     * (The decision record for *which* key, and why not `carryingAccess()`,
+     * is `findByToken()`'s docblock and PRD §15. It is not repeated here.)
      */
     Event::factory()->create([
         'team_id' => $this->team->getKey(),
@@ -172,6 +180,238 @@ it('stops serving the moment the person is no longer on the team', function (): 
     $this->asStranger();
 
     $this->get("/calendar/feeds/{$token}.ics")->assertNotFound();
+});
+
+it('stops serving the moment the person stops holding calendar.view', function (): void {
+    /*
+     * #194. The membership predicate above answers *"did they leave"*; this
+     * one answers *"can they still open the calendar"*, and until the decision
+     * on #194 nothing asked it. A person moved onto a narrower composed role
+     * (S75 makes that two clicks), or a departing agent whose roles are
+     * stripped while the membership is left in place for a handover, met a 403
+     * on the screen and kept a live `.ics` in Google delivering every showing,
+     * every closing date and every event title the team has.
+     *
+     * The composed role deliberately holds `deals.view` — a **team-surface**
+     * permission — so `carryingAccess()` is still true of this membership and
+     * the older predicate cannot be what produces the 404. The key is
+     * `calendar.view`, and nothing wider.
+     */
+    Event::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'title' => 'Open house',
+        'starts_at' => CarbonImmutable::now()->addDays(3),
+    ]);
+
+    $token = feedToken();
+
+    $this->asStranger();
+    $serving = $this->get("/calendar/feeds/{$token}.ics");
+
+    $serving->assertOk();
+
+    expect($serving->getContent())->toContain('Open house');
+
+    $membership = app(TeamContext::class)->runFor($this->team, function (): TeamMembership {
+        $membership = TeamMembership::query()
+            ->where('person_id', $this->member->getKey())
+            ->sole();
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only_calendar_feed',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_DEALS])->pluck('id')->all(),
+        );
+
+        $membership->roles()->sync([$role->getKey()]);
+
+        return $membership;
+    });
+
+    /*
+     * Asserted rather than asserted *about*: the paragraph above claims the
+     * older predicate cannot be what produces the 404, and this is the line
+     * that makes the claim checkable. Both of them still hold — the person is
+     * on the team and reaches the app — so `calendar.view` is the only thing
+     * that changed.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        expect(TeamMembership::query()
+            ->where('person_id', $this->member->getKey())
+            ->carryingAccess()
+            ->exists())->toBeTrue()
+            ->and(TeamMembership::query()
+                ->where('person_id', $this->member->getKey())
+                ->whereNull('revoked_at')
+                ->exists())->toBeTrue();
+    });
+
+    /*
+     * The control, and the reason this is the right key: the screen refuses
+     * them. A feed that outlives that refusal is the whole defect.
+     */
+    $this->actingAsPerson($this->member, $this->team);
+    $this->get('/calendar')->assertForbidden();
+
+    $this->asStranger();
+    $this->get("/calendar/feeds/{$token}.ics")->assertNotFound();
+
+    /*
+     * And it **gates rather than revokes**. Nothing was written to
+     * `calendar_feeds`, so restoring the permission restores the subscription
+     * already sitting in somebody's calendar — a role edited by mistake costs
+     * a fetch interval, not every URL the team has issued. Revoking is still
+     * the deliberate act on S60, and still immediate, which the test above
+     * holds.
+     */
+    app(TeamContext::class)->runFor($this->team, function () use ($membership): void {
+        $membership->roles()->sync([
+            Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole()->getKey(),
+        ]);
+    });
+
+    $this->asStranger();
+    $again = $this->get("/calendar/feeds/{$token}.ics");
+
+    $again->assertOk();
+
+    expect($again->getContent())->toContain('Open house');
+});
+
+it('refuses at the agency where the permission is missing, and serves at the one where it is not', function (): void {
+    /*
+     * The predicate is correlated — `team_memberships.team_id` to
+     * `calendar_feeds.team_id` — and review found nothing exercised that
+     * correlation: delete the `whereColumn` and every test still passed.
+     *
+     * Not for want of a second membership. *'lets somebody who works for two
+     * agencies subscribe to both'* above gives this person two, and the
+     * correlation still makes no difference there, because **both shipped
+     * roles carry `calendar.view`**: `teamWithMember()` attaches Team Member
+     * in the first team, `attachOwner()` attaches Team Owner in the second,
+     * and `Permissions::forSystemRoles()` builds `$teamOwner` by spreading
+     * `$teamMember`. A predicate cannot be caught looking at the wrong row
+     * while both rows answer the same. Exercising it needs the two
+     * memberships to *disagree*, which is what this fixture is for and the
+     * only thing it adds.
+     *
+     * That is the condition to watch, and it is narrower than two branches:
+     * `$teamOwner` **spreads** `$teamMember`, so there is only one list.
+     * Taking `VIEW_CALENDAR` out of it takes the key off both shipped roles
+     * at once, which this test would announce rather than absorb — `$permitted`
+     * would stop serving and the run would go red. Making the two roles
+     * *disagree* takes two edits (remove it there, grant it to Team Owner on
+     * its own), and that is the change that would quietly hand the older
+     * fixture a job it was not written for.
+     *
+     * A stager, a broker or an assistant working for two agencies is one
+     * person with two memberships, and the roles are composed per team. So
+     * without the correlation, holding `calendar.view` at the *first* agency
+     * would keep a feed alive at the *second* — a live `.ics` delivering one
+     * team\'s whole calendar on the strength of a permission granted by
+     * somebody else entirely. That is the cross-tenant shape ADR 0002 exists
+     * for, and it is the one this test makes falsifiable.
+     */
+    Event::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'title' => 'Open house',
+        'starts_at' => CarbonImmutable::now()->addDays(3),
+    ]);
+
+    // Where they can see the calendar: the shipped Team Member role.
+    $permitted = feedToken();
+
+    $second = Team::factory()->create();
+
+    $refused = app(TeamContext::class)->runFor($second, function () use ($second): string {
+        Event::factory()->create([
+            'team_id' => $second->getKey(),
+            'title' => 'Second agency showing',
+            'starts_at' => CarbonImmutable::now()->addDays(4),
+        ]);
+
+        $membership = TeamMembership::query()->create([
+            'team_id' => $second->getKey(),
+            'person_id' => $this->member->getKey(),
+            'first_name' => 'Same',
+            'last_name' => 'Person',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $second->getKey(),
+            'key' => 'deals_only_second_agency',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_DEALS])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+
+        return app(ManageCalendarFeeds::class)
+            ->generate($second, $this->member, null, 'The other shop')
+            ->token;
+    });
+
+    /*
+     * Refused at the agency where they cannot open the calendar, **while**
+     * holding the permission at the other one. Both feeds belong to the same
+     * person, so the only thing separating the two answers is which
+     * membership the predicate looked at.
+     */
+    $this->asStranger();
+    $this->get("/calendar/feeds/{$refused}.ics")->assertNotFound();
+
+    $this->asStranger();
+    $serving = $this->get("/calendar/feeds/{$permitted}.ics");
+
+    $serving->assertOk();
+
+    expect($serving->getContent())->toContain('Open house')
+        ->and($serving->getContent())->not->toContain('Second agency showing');
+
+    /*
+     * The positive control, and without it this test proves less than it
+     * reads: a 404 is also what a mistyped token, an unsaved fixture or an
+     * event outside the window produces, so *"refused"* means nothing until
+     * the same URL is shown to serve. Granting the second agency's role the
+     * one key it lacked is the smallest possible difference — nothing else
+     * about the fixture moves — which is the discipline
+     * `clientSurfaceAccessibility.test.ts` keeps by asserting a deliberately
+     * broken fixture *does* produce a violation.
+     */
+    app(TeamContext::class)->runFor($second, function () use ($second): void {
+        /*
+         * Scoped to the team, because `roles` has no global scope — CLAUDE.md's
+         * *"a shared table's key is a shared namespace"*. Matching on key alone
+         * works only while no other team and no system row has picked the same
+         * one, which is a property of the fixture rather than of the query.
+         */
+        $role = Role::query()
+            ->where('team_id', $second->getKey())
+            ->where('key', 'deals_only_second_agency')
+            ->sole();
+
+        $role->permissions()->sync(
+            Permission::query()
+                ->whereIn('key', [Permissions::VIEW_DEALS, Permissions::VIEW_CALENDAR])
+                ->pluck('id')
+                ->all(),
+        );
+    });
+
+    $this->asStranger();
+    $restored = $this->get("/calendar/feeds/{$refused}.ics");
+
+    $restored->assertOk();
+
+    expect($restored->getContent())->toContain('Second agency showing');
 });
 
 it('leaves the street off a single-deal feed, where it says nothing', function (): void {

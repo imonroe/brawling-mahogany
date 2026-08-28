@@ -10,6 +10,7 @@ use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
+use App\Support\Permissions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -148,25 +149,90 @@ final class ManageCalendarFeeds
             ->where('token_hash', CalendarFeed::hashToken($token))
             ->live()
             /*
-             * **And the person still has to be on the team.** `live()` asks
-             * only whether the *feed* was revoked, so without this a colleague
-             * who left in March goes on fetching the team's whole calendar —
-             * every showing, every closing date, every deal name — from a URL
-             * nobody remembers exists, and revoking their membership does
-             * nothing about it. Whoever removes somebody's access is not going
-             * to think of their calendar subscription; the subscription has to
-             * think of them.
+             * **And the person still has to be able to open the calendar.**
+             * `live()` asks only whether the *feed* was revoked, so without a
+             * predicate here a colleague who left in March goes on fetching
+             * the team's whole calendar — every showing, every closing date,
+             * every deal name — from a URL nobody remembers exists. Whoever
+             * removes somebody's access is not going to think of their
+             * calendar subscription; the subscription has to think of them.
              *
-             * The same predicate `Notification::scopeForPerson()` uses, and
-             * deliberately the same: **revocation only**, not
-             * `carryingAccess()`. Reading more strictly than the app writes
-             * would kill the feed of somebody who still works there and holds
-             * a role composed without a team-surface permission.
+             * ## Which question, decided (#194)
+             *
+             * Round 1 of #193's review added revocation only, matching
+             * `Notification::scopeForPerson()`, and argued against
+             * `carryingAccess()` — correctly, because *"holds any key on the
+             * team surface"* reads more strictly than the app writes and would
+             * cut off somebody who still works there.
+             *
+             * That argument is about a different key. The question this feed
+             * turns on is the one `EventPolicy::viewAny()` asks about the
+             * screen — **`calendar.view`, and nothing wider** — and it was
+             * never asked here at all. So a person moved onto a narrower
+             * composed role (S75 makes that two clicks), or a departing agent
+             * whose roles are stripped while the membership is left in place
+             * for a handover, met a 403 on the calendar and kept a live `.ics`
+             * in Google delivering the same events. It is the same question
+             * the screen already answers, asked once more where the token is
+             * resolved.
+             *
+             * ## It gates; it does not revoke
+             *
+             * Editing a role writes nothing to `calendar_feeds`. The row stays
+             * live and the next fetch simply matches nothing, so restoring the
+             * permission restores the subscription already in somebody's
+             * calendar — a role edited by mistake costs a fetch interval, not
+             * every URL the team has issued. Revoking is still the deliberate
+             * act, on S60, and still immediate.
+             *
+             * Nothing tells the subscriber: a person without `calendar.view`
+             * is refused S57, and S60 is a modal over it, so no **calendar**
+             * surface can say so. Not *"nothing can"* — the notification panel
+             * is keyed on membership and revocation, not on this permission
+             * (`Notification::scopeForPerson()`), so the product could tell
+             * them and simply does not. The
+             * feed going quiet is the only signal available, which is the
+             * argument for the permission being the *screen's* key rather than
+             * a second one invented here.
+             *
+             * The cost of that is real and is written down rather than
+             * discovered: while the gate is closed **nothing reaches Revoke on
+             * this feed**, and the reason differs by who is asking.
+             *
+             * For the **holder** it is the permission *and* the list.
+             * `destroy()` opens with `authorize('viewAny', Event::class)` —
+             * `calendar.view`, the key they have just lost — before it asks
+             * whose feed it is, so the route refuses them even given the URL.
+             * An earlier round of this change said *"not a missing permission,
+             * a missing list"*, which is true of an owner and false of exactly
+             * the person the paragraph is about.
+             *
+             * For an **owner** it is the list alone: they hold `calendar.view`
+             * and pass `can('update', $team)`, so the route would let them
+             * revoke a colleague's feed — but `feedsFor()` is that person's
+             * own feeds only, by #108's deliberate choice, so no screen ever
+             * names the row.
+             *
+             * Either way a URL sitting in a third party's calendar is re-armed
+             * by a later role edit rather than ended by one, and #206 is what
+             * would let somebody end it.
+             *
+             * ## Revocation is asked once, inside the scope
+             *
+             * `holdingPermission()` mirrors `hasPermission()`, which is false
+             * for a revoked membership before it looks at a single role. An
+             * earlier round of this change also spelled `whereNull('revoked_at')`
+             * here, arguing the duplicate was the copy whose loss would be
+             * silent. Review found that neither copy was: with two of them,
+             * deleting *either* left the suite green, so the argument was true
+             * of a guard nothing could falsify. One definition, and *'stops
+             * serving the moment the person is no longer on the team'* fails
+             * if it goes.
              */
             ->whereIn('person_id', TeamMembership::withoutTeamScope()
-                ->select('person_id')
+                ->select('team_memberships.person_id')
                 ->whereColumn('team_memberships.team_id', 'calendar_feeds.team_id')
-                ->whereNull('revoked_at'))
+                ->holdingPermission(Permissions::VIEW_CALENDAR))
             ->with('team')
             ->first();
 

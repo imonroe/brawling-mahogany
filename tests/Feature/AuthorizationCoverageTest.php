@@ -154,8 +154,12 @@ const UNGATED_ROUTES = [
      * `CalendarFeedsTest` asserts what stands in for a policy: a revoked token
      * is a 404 rather than a 403 (a calendar client cannot read a refusal, and
      * the difference is what would confirm a token had once been real), an
-     * unknown one is the same 404, and the document a live token produces is
-     * scoped to that feed's own team and — for a per-deal feed — to that deal.
+     * unknown one is the same 404, the document a live token produces is
+     * scoped to that feed's own team and — for a per-deal feed — to that deal,
+     * and **the permission is asked here too** (#194): the token stops
+     * resolving when its person leaves the team or stops holding
+     * `calendar.view`, asked of the membership in the feed's own team, so this
+     * route is not a way around `EventPolicy::viewAny()`.
      *
      * Its two writing siblings, `calendar.feeds.store` and `.destroy`, are
      * **not** on this list: they are the team app and they authorise.
