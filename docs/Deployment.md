@@ -26,8 +26,9 @@ version: 1.0
 > drill, which has not been performed.
 >
 > One consequence of the SES account reaching production access is called out in
-> §4a: **the sandbox is no longer the backstop it was**, and `MAIL_REDIRECT_TO`
-> is now the only thing standing between staging and a real inbox.
+> §4a: **the SES sandbox is no longer the backstop it was**, leaving
+> `MAIL_REDIRECT_TO` as the only guard that covers *every* message the product
+> sends.
 
 ---
 
@@ -244,9 +245,23 @@ access (#12), it does not hold at all: staging can put mail in any inbox on the
 internet.
 
 What remains is `MAIL_REDIRECT_TO`, read in `AppServiceProvider::configureMailGuardrail()`
-and applied as `Mail::alwaysTo()`. It is a good guard and it is now the *only*
-one. Two properties of it are worth stating plainly, because they were
-acceptable when it was the inner guard of two and are not acceptable now:
+and applied as `Mail::alwaysTo()`. It is a good guard, and it is now the only
+one that covers **every** message the product sends.
+
+Be precise about what is left, because the count matters. F5.9's per-team
+`sandbox_mode` defaults to `true` and rewrites automated recipients to the team
+owner (`SendRails`), and the migration that added it cites this very PRD clause.
+So on the *automation* path there are still two guards. It is not a
+substitute for the one that went, on three counts: it is **per team**, so a team
+created tomorrow is only as safe as its own row; it is **switchable** from
+`/settings/sending`; and it covers only automated sends — the invitation, the
+password reset and every notification email go nowhere near it. It also
+*redirects* rather than withholds, and on staging the team owner is a real
+person.
+
+Two properties of `MAIL_REDIRECT_TO` are worth stating plainly, because they
+were acceptable when it was the inner guard of two global ones and are not
+acceptable now:
 
 - **It fails open.** An unset or empty value returns early and mail goes
   wherever it was addressed. Nothing warns; there is no staging-side equivalent
@@ -259,8 +274,8 @@ acceptable when it was the inner guard of two and are not acceptable now:
 
 So: **check it on the droplet before putting anything resembling real client
 data on staging**, and treat a seeded demo team as real client data the moment
-Emily's actual deals are in it. Tracked as its own issue rather than a line
-here, because a guard that fails open deserves a code change, not a note in a
+Emily's actual deals are in it. Tracked as **#196** rather than a line here,
+because a guard that fails open deserves a code change, not a note in a
 runbook.
 
 ---

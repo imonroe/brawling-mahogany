@@ -192,12 +192,17 @@ Locally the value stays empty: nothing sends through SES, so nothing bounces.
 
 PRD §8.6, restated because both protect somebody else's client:
 
-1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` is set on staging, and
-   `AppServiceProvider` rewrites every recipient to it. The application
-   **refuses to boot in production** with that value set, so the guardrail
-   cannot be left on by accident either. This is ours and it does not depend on
-   SES's own sandbox — which is the point, since the same SES account now
-   serves both environments.
+1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` **must be** set on
+   staging, and `AppServiceProvider` then rewrites every recipient to it. The
+   application **refuses to boot in production** with that value set, so the
+   guardrail cannot be left on by accident either. This is ours and it does not
+   depend on SES's own sandbox — which is now the whole point, since that
+   sandbox stopped refusing anything when the account reached production access
+   (#12) and the same SES account serves both environments.
+
+   *Must be*, not *is*: nothing here can check it. The value lives in the
+   droplet's `.env`, an empty one **fails open** silently, and no test, CI run
+   or review can observe it. See [[Deployment]] §4a and #196.
 2. **A separate AI provider key with its own budget cap.** Staging never
    spends against the production budget, and a runaway loop in a test costs a
    small, capped amount rather than a large, uncapped one.

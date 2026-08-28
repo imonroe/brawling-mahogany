@@ -47,8 +47,8 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 > real mail (confirmed 2026-08-28) — so what #36 stays open for is the deploy
 > automation, the nightly backup and the restore drill, rather than the box
 > itself. The drill has certainly not happened; the other two are open questions
-> answerable only from the droplet. Slice 1 starts from a stack that runs and a pipeline
-> that gates — the gating needs `scripts/protect-branches.sh` run once by an
+> answerable only from the droplet. Slice 1 starts from a stack that runs and
+> a pipeline that gates — the gating needs `scripts/protect-branches.sh` run once by an
 > admin, because branch protection lives in repository settings and cannot be
 > committed.
 
@@ -145,7 +145,7 @@ Three tracks can proceed independently of the critical path, and should:
 
 | Track | Issues | Why it is independent |
 |---|---|---|
-| **Long-lead externals** | #12 SES production access, #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 3, 5, and 7 |
+| **Long-lead externals** | ~~#12 SES production access~~ (done, 2026-08-28), #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 3, 5, and 7. #13 is now the only one with weeks of lead time left, and it gates Slice 5 entirely |
 | **Research spikes** | #14 extraction corpus, #19 iPhone web push, #16 Tailwind Plus | Answer questions whose answers change the build. All three are throwaway code or conversations |
 | **Design ahead of build** | Empty states (#33), mobile collapse (#31), S16 prototype (#76) | Design System §15 lists the first two as gaps; the S16 prototype comes from the Screen Inventory's sequencing recommendation. Designing them while Slice 1 is being built keeps Slice 2 unblocked |
 | **Decisions that gate a slice** | #10 partner or customer, #18 person records | Neither is code. Both have to be settled before the slice they gate starts — #18 before the first slice 1 migration, #10 before slice 2 |
