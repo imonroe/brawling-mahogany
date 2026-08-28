@@ -112,7 +112,7 @@ They were the same key until round 2 of review on #12 found teams sending
 from it: **before pinning a display string to an existing config value, check
 what else derives from that value.** Here, four keyspaces did.
 
-### The sending identity, and the two things it is not
+### The sending identity, what it is not, and what it now is
 
 SES is configured and `monroedigitalconsulting.com` is a verified sending
 domain (#12). Every message this product sends leaves as
@@ -126,8 +126,7 @@ waiting on the naming decision in #15 — and it is worth revisiting before ther
 are enough customers for the reputation to be worth anything.
 
 **It is production access**, confirmed 2026-08-28 (#12): the account is out of
-the SES sandbox, and mail sends from the staging environment to recipients who
-were never separately verified.
+the SES sandbox, and staging sends real mail through it.
 
 That distinction was worth chasing, and is worth keeping written down for
 whoever stands up the next environment. A verified *domain identity* and a

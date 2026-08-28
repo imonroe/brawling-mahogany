@@ -63,8 +63,9 @@ suite stands in for. Staging makes it runnable.
 running the stack and sending real mail. That is what turns the three things a
 test suite cannot reach from deferred into *runnable* — #19's iPhone push,
 #112's screen-reader pass, and the restore drill PRD §9 requires before launch.
-What is still open on #36 is the deploy automation, the nightly backup, and that
-drill.
+What #36 stays open for is the deploy automation, the nightly backup and that
+drill — the drill certainly has not happened, and the other two are answerable
+only from the droplet.
 
 **Mail is configured and sending** (#12, closed 2026-08-28): SES over SMTP in
 **production access**, verified domain `monroedigitalconsulting.com`, everything
@@ -177,6 +178,7 @@ named — treat that test as the authority, not this summary.
   - **A gate belongs in `ExecuteAction::handle()` ahead of the `match`, not inside one branch.** `SendRails`'s ownership check only covered `send_email`; `create_task` had none, so a cancelled automation could still create the task.
   - **A rail's own refusal is a write, so check ownership of the row before writing a reason.** `SendRails::decide()` must confirm the row is still `pending`/unclaimed before stamping an `error` — otherwise it overwrites a cancellation reason or writes onto an already-delivered message.
   - **A rail with no UI is a rule nobody can pull.** F5.9's kill switch needed its own screen (`/settings/sending`) — a panel buried elsewhere isn't reachable fast enough during an incident.
+  - **A safety net named in a document may be two guards, and losing one is silent** (#196). PRD §8.6 calls the staging net *"SES runs in sandbox mode with all mail redirected"* — the sandbox refused unverified recipients **at the API, outside this application**, so it held even when the application was misconfigured. #12 reaching production access removed it, leaving `MAIL_REDIRECT_TO` as the only thing between staging and a real client's inbox. That one **fails open**: `configureMailGuardrail()` returns early on an empty value, so a typo in the variable name is indistinguishable from a decision. Note which direction got the alarm — production with the redirect *set* (every client update silently stops) throws at boot, while staging with it *unset* (mail reaches real people) says nothing. The cheaper failure got the louder check. And because it lives in the droplet's `.env`, no test, no CI run and no review can observe it.
   - **An alert hung off one failure path is hung off none of them.** S91 fired from `ExecuteAction::fail()` and never fired for the outage it was written about — a transport exception is caught in `send()` and re-thrown, never reaching `fail()`. `automations:alert-on-failures` reads `state` instead: a row is `failed` however it got there, so a branch a later slice adds cannot bypass it. Ask what the failure *is*, not where it is announced.
   - **A high-water mark must point at a boundary, not at a row.** `executed_at` is `timestamp(0)`, so a burst shares a second — a mark set to a reported row's timestamp silences every sibling that landed in that second after the `SELECT`, permanently. The sweep picks its own boundary and reports `[mark, boundary)`. **A frozen clock cannot see this defect**, which is why it survived a review round green.
   - **A boundary at `now()` walks over rows that were never visible to it.** `executed_at` is stamped in PHP and becomes visible at COMMIT, and `onOneServer` pins the *scheduler*, not the writers — so the boundary sits a minute behind the sweep. Gross clock skew still defeats it, and the code says so rather than implying otherwise.

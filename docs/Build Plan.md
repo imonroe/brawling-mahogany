@@ -44,9 +44,10 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 > it are deliberately still open, and both are named in the pull request rather
 > than quietly carried: **the `AppLayout` review with Heather**, and **staging**.
 > The droplet now exists — public internet, TLS, running the stack and sending
-> real mail (confirmed 2026-08-28) — so what is left of #36 is the deploy
-> automation, the nightly backup, and the restore drill, rather than the box
-> itself. Slice 1 starts from a stack that runs and a pipeline
+> real mail (confirmed 2026-08-28) — so what #36 stays open for is the deploy
+> automation, the nightly backup and the restore drill, rather than the box
+> itself. The drill has certainly not happened; the other two are open questions
+> answerable only from the droplet. Slice 1 starts from a stack that runs and a pipeline
 > that gates — the gating needs `scripts/protect-branches.sh` run once by an
 > admin, because branch protection lives in repository settings and cannot be
 > committed.
