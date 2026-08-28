@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * S41, S42, S43 — the workflow template editor, and the stage and gate
- * editors under it (PRD F4.1 · issues #85, #86).
+ * editors under it (PRD F4.1 · issues #85, #86, #87).
  *
  * ## Editing this cannot reach a deal already running
  *
@@ -17,17 +17,34 @@
  * disabled, per §7.3 and the rule Frontend conventions §4 records — and the
  * way to change one is to take a copy from the index.
  *
+ * ## Everything is editable in place now, and that is #87's whole point
+ *
+ * Stages, gates and tasks were add-and-remove only, and three columns a
+ * seeded pack needs had no control at all: a task's `owner_role`, its
+ * `description`, and a stage's `owner_role`. #11's markup pass over #154's
+ * ninety-item checklist — who owns each task, when it is due, whether it
+ * gates an advance — was therefore something to do in a GitHub comment rather
+ * than in the running product, which is the wrong way round: the person who
+ * can answer those questions is looking at this screen.
+ *
+ * Correcting one flag on one task used to mean deleting the task and adding
+ * it back, at the end of the list. So the inline add-forms became dialogs
+ * that do both — the shape `AutomationDialog` already set on this page, and
+ * the one Frontend conventions §2 rule 6 asks for once a pattern is used
+ * three times.
+ *
  * ## Reordering has no drag library
  *
  * Design System §13.2's note, decided in S38: explicit move controls, and the
- * whole order sent at once because a reorder is one intention.
+ * whole order sent at once because a reorder is one intention. The arithmetic
+ * is `lib/reorder.ts` rather than three copies here — `calendarNavigation`'s
+ * finding, which is that a copy stays green after the original is fixed.
  */
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { ChevronDown, ChevronUp } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/app/AppButton.vue';
 import AppInput from '@/components/app/AppInput.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
 import AutomationDialog from '@/components/app/AutomationDialog.vue';
 import type {
     AutomationShape,
@@ -35,33 +52,20 @@ import type {
 } from '@/components/app/AutomationDialog.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
+import GateTemplateDialog from '@/components/app/GateTemplateDialog.vue';
+import type { GateTemplateValues } from '@/components/app/GateTemplateDialog.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
+import StageTemplateDialog from '@/components/app/StageTemplateDialog.vue';
+import type { StageTemplateValues } from '@/components/app/StageTemplateDialog.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
+import TaskTemplateDialog from '@/components/app/TaskTemplateDialog.vue';
+import type { TaskTemplateValues } from '@/components/app/TaskTemplateDialog.vue';
+import { moveWithin } from '@/lib/reorder';
 
-type Gate = {
-    id: string;
-    gateType: string;
-    label: string;
-    isBlocking: boolean;
-};
-
-type TaskRow = {
-    id: string;
-    title: string;
-    isRequired: boolean;
-    dueOffsetDays: number | null;
-};
-
-type Stage = {
-    id: string;
-    name: string;
-    description: string | null;
+type Stage = StageTemplateValues & {
     sortOrder: number;
-    expectedDurationDays: number | null;
-    isMilestone: boolean;
-    clientFacingLabel: string | null;
-    gates: Gate[];
-    tasks: TaskRow[];
+    gates: GateTemplateValues[];
+    tasks: TaskTemplateValues[];
     automations: AutomationValues[];
 };
 
@@ -111,59 +115,98 @@ const inUseLabel = computed(() =>
         : `${props.template.inUse} deals running on it`,
 );
 
-const stageForm = useForm({ name: '' });
-const addingTo = ref<string | null>(null);
-const gateForm = useForm({
-    /*
-     * The first key the registry offers, rather than a literal. `EVALUATORS`
-     * is ordered with the four that work today first, so the default is one
-     * that can actually clear — and a reordering there changes this without
-     * anybody having to remember the page exists.
-     */
-    gate_type: Object.keys(props.gateTypes)[0] ?? '',
-    label: '',
-    /*
-     * `date_reached`'s whole configuration (#109), and the first thing this
-     * editor asks for beyond a label. Nested under `config` because that is
-     * where `gate_templates` keeps it, and named rather than picked because a
-     * template has never met the deal it will run on.
-     */
-    config: { keyDateName: '' },
-});
-
-/** Whether the chosen type needs a date named before it can be saved. */
-const gateNeedsKeyDate = computed(() => gateForm.gate_type === 'date_reached');
-const taskForm = useForm({ title: '', is_required: true });
 /*
- * One form, one stage open at a time — the same pattern `addingTo` uses for
- * gates, and for a reason the gate form found first: `useForm` is a single
- * reactive object, so a form rendered once per stage put the same typed title
- * into every stage's box at once. A form per stage would be the alternative
- * and is worse: four stages is four watchers and four dirty states, for a
- * control somebody uses one at a time.
+ * One dialog of each kind for the whole screen, rather than one per stage.
+ *
+ * Which stage it is working on travels in a ref beside the record being
+ * edited — the shape `AutomationDialog` set here first. A dialog per stage
+ * would be four mounted modals holding four dirty forms for a control
+ * somebody uses one at a time, and `useForm` is a single reactive object, so
+ * the inline form this replaced put one typed title into every stage's box.
  */
-const addingTaskTo = ref<string | null>(null);
+const stageOpen = ref(false);
+const editingStage = ref<StageTemplateValues | null>(null);
 
-function addStage(): void {
-    stageForm.post(`${base}/stages`, {
-        preserveScroll: true,
-        onSuccess: () => stageForm.reset(),
-    });
+const gateOpen = ref(false);
+const gateStage = ref<Stage | null>(null);
+const editingGate = ref<GateTemplateValues | null>(null);
+
+const taskOpen = ref(false);
+const taskStage = ref<Stage | null>(null);
+const editingTask = ref<TaskTemplateValues | null>(null);
+
+const automationStage = ref<Stage | null>(null);
+const editingAutomation = ref<AutomationValues | null>(null);
+const automationOpen = ref(false);
+
+function openStage(stage: StageTemplateValues | null): void {
+    editingStage.value = stage;
+    stageOpen.value = true;
 }
 
-function move(index: number, by: number): void {
-    const next = index + by;
+function openGate(stage: Stage, gate: GateTemplateValues | null): void {
+    gateStage.value = stage;
+    editingGate.value = gate;
+    gateOpen.value = true;
+}
 
-    if (next < 0 || next >= props.template.stages.length) {
+function openTask(stage: Stage, task: TaskTemplateValues | null): void {
+    taskStage.value = stage;
+    editingTask.value = task;
+    taskOpen.value = true;
+}
+
+function openAutomation(
+    stage: Stage,
+    automation: AutomationValues | null,
+): void {
+    automationStage.value = stage;
+    editingAutomation.value = automation;
+    automationOpen.value = true;
+}
+
+/**
+ * Send a whole new order, or do nothing when the move runs off the end.
+ *
+ * `moveWithin` returns null rather than the unchanged list precisely so this
+ * cannot post a no-op — the buttons at the ends are disabled, and a keyboard
+ * or a stale render still reaches here.
+ */
+function reorder(url: string, ids: string[], index: number, by: number): void {
+    const moved = moveWithin(ids, index, by);
+
+    if (moved === null) {
         return;
     }
 
-    const ids = props.template.stages.map((stage) => stage.id);
-    const [moved] = ids.splice(index, 1);
+    router.patch(url, { ids: moved }, { preserveScroll: true });
+}
 
-    ids.splice(next, 0, moved);
+function moveStage(index: number, by: number): void {
+    reorder(
+        `${base}/stages`,
+        props.template.stages.map((stage) => stage.id),
+        index,
+        by,
+    );
+}
 
-    router.patch(`${base}/stages`, { ids }, { preserveScroll: true });
+function moveGate(stage: Stage, index: number, by: number): void {
+    reorder(
+        `${base}/stages/${stage.id}/gates`,
+        stage.gates.map((gate) => gate.id),
+        index,
+        by,
+    );
+}
+
+function moveTask(stage: Stage, index: number, by: number): void {
+    reorder(
+        `${base}/stages/${stage.id}/tasks`,
+        stage.tasks.map((task) => task.id),
+        index,
+        by,
+    );
 }
 
 function removeStage(stage: Stage): void {
@@ -180,59 +223,16 @@ function removeStage(stage: Stage): void {
     router.delete(`${base}/stages/${stage.id}`, { preserveScroll: true });
 }
 
-function addGate(stage: Stage): void {
-    gateForm.post(`${base}/stages/${stage.id}/gates`, {
-        preserveScroll: true,
-        onSuccess: () => {
-            gateForm.reset();
-            addingTo.value = null;
-        },
-    });
-}
-
-function removeGate(stage: Stage, gate: Gate): void {
+function removeGate(stage: Stage, gate: GateTemplateValues): void {
     router.delete(`${base}/stages/${stage.id}/gates/${gate.id}`, {
         preserveScroll: true,
     });
 }
 
-function addTask(stage: Stage): void {
-    taskForm.post(`${base}/stages/${stage.id}/tasks`, {
-        preserveScroll: true,
-        /*
-         * The form stays **open**, unlike the gate one, and the difference is
-         * deliberate rather than an oversight: a stage gets one or two gates
-         * and four or five tasks, so the common act here is adding several in
-         * a row and the common act there is not.
-         */
-        onSuccess: () => taskForm.reset(),
-    });
-}
-
-function removeTask(stage: Stage, task: TaskRow): void {
+function removeTask(stage: Stage, task: TaskTemplateValues): void {
     router.delete(`${base}/stages/${stage.id}/tasks/${task.id}`, {
         preserveScroll: true,
     });
-}
-
-/*
- * S44 — one dialog for the whole screen rather than one per stage.
- *
- * Which stage it is adding to travels in `automationStage`, the same way
- * `addingTo` carries it for gates. A dialog per stage would be four mounted
- * modals holding four dirty forms for a control somebody uses one at a time.
- */
-const automationStage = ref<Stage | null>(null);
-const editingAutomation = ref<AutomationValues | null>(null);
-const automationOpen = ref(false);
-
-function openAutomation(
-    stage: Stage,
-    automation: AutomationValues | null,
-): void {
-    automationStage.value = stage;
-    editingAutomation.value = automation;
-    automationOpen.value = true;
 }
 
 function removeAutomation(stage: Stage, automation: AutomationValues): void {
@@ -248,6 +248,62 @@ function removeAutomation(stage: Stage, automation: AutomationValues): void {
     router.delete(`${base}/stages/${stage.id}/automations/${automation.id}`, {
         preserveScroll: true,
     });
+}
+
+/**
+ * What a stage says about itself under its name.
+ *
+ * Composed here rather than in the markup so the three optional parts do not
+ * become three conditional spans with their own separators — and so a stage
+ * that is a milestone with no client-facing label reads as one rather than as
+ * "Milestone · " with nothing after it. That case is not cosmetic:
+ * `ClientStatus` **omits** a stage with no label from the client's page
+ * rather than inventing words for it.
+ */
+function stageDetail(stage: Stage): string {
+    const parts: string[] = [];
+
+    if (stage.ownerRole) {
+        parts.push(stage.ownerRole);
+    }
+
+    if (stage.isMilestone) {
+        parts.push(
+            stage.clientFacingLabel
+                ? `Milestone · ${stage.clientFacingLabel}`
+                : 'Milestone · no client-facing wording yet',
+        );
+    }
+
+    return parts.join(' · ');
+}
+
+/**
+ * What a task says about itself, on the same principle.
+ *
+ * The offset is spelled out rather than shown as a signed number: "-3" on a
+ * row means nothing without the sentence that explains the sign, and the
+ * sentence does not fit on the row.
+ */
+function taskDetail(task: TaskTemplateValues): string {
+    const parts: string[] = [];
+
+    if (task.ownerRole) {
+        parts.push(task.ownerRole);
+    }
+
+    if (task.dueOffsetDays !== null) {
+        const days = Math.abs(task.dueOffsetDays);
+        const unit = days === 1 ? 'day' : 'days';
+
+        parts.push(
+            task.dueOffsetDays < 0
+                ? `${days} ${unit} before the stage starts`
+                : `${days} ${unit} in`,
+        );
+    }
+
+    return parts.join(' · ');
 }
 
 /*
@@ -383,9 +439,9 @@ function remove(): void {
                                 stage.name
                             }}</span>
                             <span
-                                v-if="stage.isMilestone"
-                                class="text-[11px] text-muted-foreground"
-                                >Milestone · {{ stage.clientFacingLabel }}</span
+                                v-if="stageDetail(stage)"
+                                class="truncate text-[11px] text-muted-foreground"
+                                >{{ stageDetail(stage) }}</span
                             >
                         </span>
 
@@ -394,8 +450,8 @@ function remove(): void {
                                 variant="ghost"
                                 size="compact"
                                 :disabled="index === 0 || undefined"
-                                aria-label="Move up"
-                                @click="move(index, -1)"
+                                :aria-label="`Move ${stage.name} up`"
+                                @click="moveStage(index, -1)"
                             >
                                 <ChevronUp
                                     class="size-3.5"
@@ -409,8 +465,8 @@ function remove(): void {
                                     index === template.stages.length - 1 ||
                                     undefined
                                 "
-                                aria-label="Move down"
-                                @click="move(index, 1)"
+                                :aria-label="`Move ${stage.name} down`"
+                                @click="moveStage(index, 1)"
                             >
                                 <ChevronDown
                                     class="size-3.5"
@@ -420,103 +476,155 @@ function remove(): void {
                             <AppButton
                                 variant="ghost"
                                 size="compact"
+                                @click="openStage(stage)"
+                                >Edit</AppButton
+                            >
+                            <AppButton
+                                variant="ghost"
+                                size="compact"
                                 @click="removeStage(stage)"
                                 >Remove</AppButton
                             >
                         </template>
                     </div>
 
-                    <div class="flex flex-wrap items-center gap-1.5">
-                        <StatusBadge
-                            v-for="gate in stage.gates"
-                            :key="gate.id"
-                            :tone="gate.isBlocking ? 'warning' : 'neutral'"
-                            :label="`${gate.label} · ${gateTypeLabels[gate.gateType] ?? gate.gateType}`"
-                            dotless
-                        />
-                        <AppButton
-                            v-for="gate in can.update ? stage.gates : []"
-                            :key="`remove-${gate.id}`"
-                            variant="ghost"
-                            size="compact"
-                            :aria-label="`Remove ${gate.label}`"
-                            @click="removeGate(stage, gate)"
-                            >×</AppButton
-                        >
-                        <AppButton
-                            v-if="can.update"
-                            variant="ghost"
-                            size="compact"
-                            @click="
-                                addingTo =
-                                    addingTo === stage.id ? null : stage.id
-                            "
-                            >Add gate</AppButton
-                        >
-                    </div>
-
-                    <form
-                        v-if="addingTo === stage.id"
-                        class="flex flex-wrap items-end gap-2"
-                        @submit.prevent="addGate(stage)"
+                    <!--
+                        Gates as rows rather than a row of badges, because
+                        every one of them now has an Edit beside it. The badge
+                        carries the type, which is what decides the evaluator.
+                    -->
+                    <ul
+                        v-if="stage.gates.length > 0"
+                        class="flex flex-col gap-1"
                     >
-                        <!--
-                            The type decides which evaluator answers the gate,
-                            so it is a choice rather than a hidden default:
-                            every gate added before this picker existed was a
-                            manual confirmation whether or not that is what
-                            somebody meant.
-                        -->
-                        <AppSelect
-                            v-model="gateForm.gate_type"
-                            :options="gateTypes"
-                            size="filter"
-                            class="w-48"
-                        />
-                        <AppInput
-                            v-model="gateForm.label"
-                            size="filter"
-                            placeholder="Survey received"
-                            class="w-56"
-                        />
-                        <!--
-                            Only for the one type that needs it. A field that
-                            is always on screen and usually meaningless is a
-                            field people fill in anyway.
-                        -->
-                        <AppInput
-                            v-if="gateNeedsKeyDate"
-                            v-model="gateForm.config.keyDateName"
-                            size="filter"
-                            placeholder="Inspection objection"
-                            class="w-56"
-                        />
-                        <AppButton size="compact" @click="addGate(stage)"
-                            >Add</AppButton
+                        <li
+                            v-for="(gate, gateIndex) in stage.gates"
+                            :key="gate.id"
+                            class="flex items-center gap-2 text-xs text-muted-foreground"
                         >
-                    </form>
+                            <StatusBadge
+                                :tone="gate.isBlocking ? 'warning' : 'neutral'"
+                                :label="`${gate.label} · ${gateTypeLabels[gate.gateType] ?? gate.gateType}`"
+                                dotless
+                            />
+                            <span class="min-w-0 flex-1"></span>
+                            <template v-if="can.update">
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :disabled="gateIndex === 0 || undefined"
+                                    :aria-label="`Move ${gate.label} up`"
+                                    @click="moveGate(stage, gateIndex, -1)"
+                                >
+                                    <ChevronUp
+                                        class="size-3.5"
+                                        aria-hidden="true"
+                                    />
+                                </AppButton>
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :disabled="
+                                        gateIndex === stage.gates.length - 1 ||
+                                        undefined
+                                    "
+                                    :aria-label="`Move ${gate.label} down`"
+                                    @click="moveGate(stage, gateIndex, 1)"
+                                >
+                                    <ChevronDown
+                                        class="size-3.5"
+                                        aria-hidden="true"
+                                    />
+                                </AppButton>
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :aria-label="`Edit ${gate.label}`"
+                                    @click="openGate(stage, gate)"
+                                    >Edit</AppButton
+                                >
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :aria-label="`Remove ${gate.label}`"
+                                    @click="removeGate(stage, gate)"
+                                    >×</AppButton
+                                >
+                            </template>
+                        </li>
+                    </ul>
 
                     <ul
                         v-if="stage.tasks.length > 0"
                         class="flex flex-col gap-1"
                     >
                         <li
-                            v-for="task in stage.tasks"
+                            v-for="(task, taskIndex) in stage.tasks"
                             :key="task.id"
                             class="flex items-center gap-2 text-xs text-muted-foreground"
                         >
-                            <span class="min-w-0 flex-1 truncate">{{
-                                task.title
-                            }}</span>
-                            <span v-if="task.isRequired">Required</span>
-                            <AppButton
-                                v-if="can.update"
-                                variant="ghost"
-                                size="compact"
-                                :aria-label="`Remove ${task.title}`"
-                                @click="removeTask(stage, task)"
-                                >×</AppButton
-                            >
+                            <span class="flex min-w-0 flex-1 flex-col">
+                                <span class="truncate">{{ task.title }}</span>
+                                <span
+                                    v-if="taskDetail(task)"
+                                    class="truncate text-[11px]"
+                                    >{{ taskDetail(task) }}</span
+                                >
+                            </span>
+                            <!--
+                                What makes the task gate an advance, so it is
+                                a badge rather than a word: it is the one
+                                thing on this row with a consequence.
+                            -->
+                            <StatusBadge
+                                v-if="task.isRequired"
+                                tone="warning"
+                                label="Required"
+                                dotless
+                            />
+                            <template v-if="can.update">
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :disabled="taskIndex === 0 || undefined"
+                                    :aria-label="`Move ${task.title} up`"
+                                    @click="moveTask(stage, taskIndex, -1)"
+                                >
+                                    <ChevronUp
+                                        class="size-3.5"
+                                        aria-hidden="true"
+                                    />
+                                </AppButton>
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :disabled="
+                                        taskIndex === stage.tasks.length - 1 ||
+                                        undefined
+                                    "
+                                    :aria-label="`Move ${task.title} down`"
+                                    @click="moveTask(stage, taskIndex, 1)"
+                                >
+                                    <ChevronDown
+                                        class="size-3.5"
+                                        aria-hidden="true"
+                                    />
+                                </AppButton>
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :aria-label="`Edit ${task.title}`"
+                                    @click="openTask(stage, task)"
+                                    >Edit</AppButton
+                                >
+                                <AppButton
+                                    variant="ghost"
+                                    size="compact"
+                                    :aria-label="`Remove ${task.title}`"
+                                    @click="removeTask(stage, task)"
+                                    >×</AppButton
+                                >
+                            </template>
                         </li>
                     </ul>
 
@@ -590,66 +698,58 @@ function remove(): void {
                         </li>
                     </ul>
 
-                    <div class="flex flex-wrap gap-2">
+                    <div v-if="can.update" class="flex flex-wrap gap-2">
                         <AppButton
-                            v-if="can.update && addingTaskTo !== stage.id"
                             variant="ghost"
                             size="compact"
-                            @click="addingTaskTo = stage.id"
+                            @click="openGate(stage, null)"
+                            >Add gate</AppButton
+                        >
+                        <AppButton
+                            variant="ghost"
+                            size="compact"
+                            @click="openTask(stage, null)"
                             >Add task</AppButton
                         >
                         <AppButton
-                            v-if="can.update"
                             variant="ghost"
                             size="compact"
                             @click="openAutomation(stage, null)"
                             >Add automation</AppButton
                         >
                     </div>
-
-                    <form
-                        v-if="can.update && addingTaskTo === stage.id"
-                        class="flex flex-wrap items-end gap-2"
-                        @submit.prevent="addTask(stage)"
-                    >
-                        <AppInput
-                            v-model="taskForm.title"
-                            size="filter"
-                            placeholder="Order the survey"
-                            class="w-64"
-                        />
-                        <AppButton size="compact" @click="addTask(stage)"
-                            >Add</AppButton
-                        >
-                        <AppButton
-                            variant="ghost"
-                            size="compact"
-                            @click="
-                                addingTaskTo = null;
-                                taskForm.reset();
-                            "
-                            >Cancel</AppButton
-                        >
-                    </form>
                 </li>
             </ul>
 
-            <form
-                v-if="can.update"
-                class="flex flex-wrap items-end gap-2 border-t px-4 py-3"
-                @submit.prevent="addStage"
-            >
-                <AppInput
-                    v-model="stageForm.name"
-                    size="filter"
-                    placeholder="Under Contract"
-                    class="w-64"
-                />
-                <AppButton size="compact" @click="addStage"
+            <div v-if="can.update" class="border-t px-4 py-3">
+                <AppButton size="compact" @click="openStage(null)"
                     >Add stage</AppButton
                 >
-            </form>
+            </div>
         </Card>
+
+        <StageTemplateDialog
+            v-model:open="stageOpen"
+            :template-id="template.id"
+            :stage="editingStage"
+        />
+
+        <GateTemplateDialog
+            v-if="gateStage"
+            v-model:open="gateOpen"
+            :template-id="template.id"
+            :stage-template-id="gateStage.id"
+            :gate="editingGate"
+            :gate-types="gateTypes"
+        />
+
+        <TaskTemplateDialog
+            v-if="taskStage"
+            v-model:open="taskOpen"
+            :template-id="template.id"
+            :stage-template-id="taskStage.id"
+            :task="editingTask"
+        />
 
         <AutomationDialog
             v-if="automationStage"
