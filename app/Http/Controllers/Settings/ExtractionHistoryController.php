@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
+use App\Models\Extraction;
 use App\Queries\ExtractionHistory;
 use App\Support\Tenancy\TeamContext;
 use Inertia\Inertia;
@@ -58,7 +59,7 @@ class ExtractionHistoryController extends Controller
     {
         $team = $teams->get();
 
-        $this->authorize('update', $team);
+        $this->authorize('viewHistory', [Extraction::class, $team]);
 
         $edits = $history->edits($team);
         $attempts = $history->attempts($team);

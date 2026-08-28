@@ -113,16 +113,6 @@ final class SpendLedger
     }
 
     /**
-     * Every extraction this deal has paid for — PRD §12.3's *under $2 per deal*.
-     */
-    public function dealSpend(string $dealId): int
-    {
-        return (int) Extraction::query()
-            ->where('deal_id', $dealId)
-            ->sum('cost_micros');
-    }
-
-    /**
      * When the current month's budget resets, so a screen can say so.
      */
     public function resetsAt(?CarbonInterface $at = null): CarbonImmutable

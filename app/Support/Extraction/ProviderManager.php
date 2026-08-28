@@ -60,10 +60,4 @@ final class ProviderManager
     {
         return $this->provider()->isConfigured();
     }
-
-    /** @return list<string> */
-    public static function drivers(): array
-    {
-        return array_keys(self::PROVIDERS);
-    }
 }

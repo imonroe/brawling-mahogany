@@ -104,17 +104,22 @@ return new class extends Migration
             $table->foreignUlid('requested_by')->nullable()
                 ->constrained('people')->nullOnDelete();
 
-            /* S68 reads per team, newest first; the sweep reads per month. */
+            /*
+             * S68 reads per team newest-first, and the **cap query reads the
+             * same index**: `SpendLedger::sum()` filters `team_id` and a
+             * `created_at` month range, in that order.
+             *
+             * Keyed on `created_at` rather than `completed_at`, and the
+             * ledger's own docblock argues why — a row created on the 31st and
+             * completed on the 1st spent last month's budget from the queue's
+             * point of view, and a row still `processing` at the boundary would
+             * count against neither month. An index on `completed_at` was here
+             * for one round, described as the cap query's, and was not the one
+             * the cap query uses. An index that disagrees with the query that
+             * maintains it is the trap `calendar_feeds` recorded one slice ago.
+             */
             $table->index(['team_id', 'created_at']);
             $table->index(['deal_id', 'created_at']);
-
-            /*
-             * The cap query: sum `cost_micros` over a month. Partial on the
-             * states that actually spent money, because `queued` and `blocked`
-             * rows are zero-cost noise in the one query that runs before every
-             * extraction.
-             */
-            $table->index(['team_id', 'completed_at']);
         });
 
         DB::statement(sprintf(

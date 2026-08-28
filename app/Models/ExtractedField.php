@@ -10,7 +10,6 @@ use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use Database\Factories\ExtractedFieldFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -107,20 +106,6 @@ class ExtractedField extends Model
     }
 
     /**
-     * Did a human accept this into the record?
-     *
-     * `confirmed` and `edited` both did — the difference is only whether the
-     * value they accepted was the one proposed. `rejected` did not, and neither
-     * did `pending`. Reading this rather than testing the enum in six places is
-     * what stops the fifth one forgetting `edited`.
-     */
-    public function wasAccepted(): bool
-    {
-        return $this->review_state === ExtractedFieldReviewState::Confirmed
-            || $this->review_state === ExtractedFieldReviewState::Edited;
-    }
-
-    /**
      * The value that stands: what the human settled on, or the proposal.
      *
      * Never a place to decide anything. A pending row has no accepted value and
@@ -135,16 +120,5 @@ class ExtractedField extends Model
     public function confidenceValue(): ?float
     {
         return $this->confidence === null ? null : (float) $this->confidence;
-    }
-
-    /**
-     * Rows still waiting on somebody.
-     *
-     * @param  Builder<ExtractedField>  $query
-     * @return Builder<ExtractedField>
-     */
-    public function scopePending(Builder $query): Builder
-    {
-        return $query->where('review_state', ExtractedFieldReviewState::Pending->value);
     }
 }

@@ -45,16 +45,4 @@ enum ExtractionState: string implements HasLabel
             self::Blocked => 'Stopped',
         };
     }
-
-    /** Nothing more will happen to this row on its own. */
-    public function isFinished(): bool
-    {
-        return $this === self::Complete || $this === self::Failed || $this === self::Blocked;
-    }
-
-    /** A row a worker may still pick up, or is holding right now. */
-    public function isRunning(): bool
-    {
-        return $this === self::Queued || $this === self::Processing;
-    }
 }

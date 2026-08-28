@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\ExtractedFieldReviewState;
 use App\Enums\ExtractionKind;
 use App\Enums\ExtractionState;
 use App\Models\Concerns\BelongsToTeam;
 use App\Models\Concerns\HasProductDefaults;
 use Database\Factories\ExtractionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -109,39 +107,5 @@ class Extraction extends Model
     public function fields(): HasMany
     {
         return $this->hasMany(ExtractedField::class);
-    }
-
-    /**
-     * Is there anything left for a human to do here?
-     *
-     * S65's "ready to review" and the deal chrome's badge both read this, and
-     * it is deliberately a question about the *fields* rather than about the
-     * extraction's own state: a complete extraction every field of which has
-     * been confirmed or rejected is finished, and an extraction that produced
-     * nothing at all never needed reviewing in the first place.
-     */
-    public function awaitsReview(): bool
-    {
-        return $this->state === ExtractionState::Complete
-            && $this->fields->contains(
-                static fn (ExtractedField $field): bool => $field->review_state === ExtractedFieldReviewState::Pending,
-            );
-    }
-
-    /**
-     * The rows that actually spent money.
-     *
-     * The cap query and S68's cost column both read this. `queued` and
-     * `blocked` rows carry a zero cost and would only dilute the average that
-     * PRD §12.3's *"under $2 per deal"* is measured from — and a `failed` row
-     * emphatically does count, because a call that failed after the provider
-     * answered was still billed.
-     *
-     * @param  Builder<Extraction>  $query
-     * @return Builder<Extraction>
-     */
-    public function scopeBilled(Builder $query): Builder
-    {
-        return $query->where('cost_micros', '>', 0);
     }
 }

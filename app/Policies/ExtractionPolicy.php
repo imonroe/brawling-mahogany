@@ -7,6 +7,7 @@ namespace App\Policies;
 use App\Models\Deal;
 use App\Models\Extraction;
 use App\Models\Person;
+use App\Models\Team;
 use App\Policies\Concerns\ChecksTeamPermissions;
 use App\Support\Permissions;
 
@@ -33,6 +34,26 @@ use App\Support\Permissions;
 class ExtractionPolicy
 {
     use ChecksTeamPermissions;
+
+    /**
+     * Read the team's extraction history, spend and audit (S68 · #118).
+     *
+     * Takes a `Team` where every other ability here takes a `Deal`, because
+     * S68 is a question about the *installation's bill and the team's audit*
+     * rather than about any one transaction.
+     *
+     * It exists rather than reusing `TeamPolicy::update` — which carries the
+     * same permission — because the verb would be a lie: this screen writes
+     * nothing, and a reader working out who can see a team's spend should not
+     * have to know that "update" was the nearest ability to hand. `TeamPolicy::view`
+     * was not an option in the other direction: that is any live membership,
+     * far too wide for spend and audit.
+     */
+    public function viewHistory(Person $person, Team $team): bool
+    {
+        return $this->belongsToCurrentTeam($team)
+            && $this->allows($person, Permissions::MANAGE_SETTINGS);
+    }
 
     public function viewAny(Person $person, Deal $deal): bool
     {
