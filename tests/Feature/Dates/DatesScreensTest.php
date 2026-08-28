@@ -17,6 +17,26 @@ use Inertia\Testing\AssertableInertia;
  * the decision — and it is the kind of regression a reviewer reads past.
  */
 beforeEach(function (): void {
+    /*
+     * Pinned, and the hour is the load-bearing part (issue #198).
+     *
+     * Every fixture below builds its day from `now()` in **UTC**, while
+     * `DateListController` buckets by the **team's** day —
+     * `CarbonImmutable::now($board->timezone())`, and `TeamFactory` is
+     * `America/Denver`. Those agree for eighteen hours out of twenty-four and
+     * disagree for the other six: between 00:00 and 06:00 UTC the team's today
+     * is still yesterday, so a fixture at `addDays(-1)` lands *on* the team's
+     * today instead of before it and drops out of the overdue window. Two
+     * tests here counted three overdue rows and got two, on any run started in
+     * that window — which is to say, nightly.
+     *
+     * Midday is the same calendar day in every timezone this product supports,
+     * so pinning here makes every offset in the file mean what it says. Do not
+     * replace this with a date-only value: midnight UTC reintroduces exactly
+     * the bug.
+     */
+    $this->travelTo('2026-09-15 12:00:00');
+
     [$this->team, $this->member] = $this->teamWithMember();
     $this->actingAsPerson($this->member, $this->team);
 

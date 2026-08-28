@@ -115,9 +115,16 @@ class AppServiceProvider extends ServiceProvider
      * MAIL_REDIRECT_TO is set.
      *
      * This is the safety net behind the whole of Slice 3 (PRD §8.6): staging
-     * runs SES in sandbox mode with mail redirected, so no test ever reaches a
-     * real client. An email to the wrong client cannot be recalled, which is
-     * why this lives in the framework boot rather than in a mailer somewhere.
+     * **must** redirect all mail, so that no test reaches a real client. An email to the
+     * wrong client cannot be recalled, which is why this lives in the framework
+     * boot rather than in a mailer somewhere.
+     *
+     * PRD §8.6 used to pair that redirect with SES's own sandbox, which refused
+     * unverified recipients at the API — outside this application, so it held
+     * even when this was misconfigured. The account reached production access
+     * on 2026-08-28 (#12) and that guard is gone. Note what the early return
+     * below does now: an unset value **fails open**, silently, and this is the
+     * only guard left that covers every message the product sends. See #196.
      */
     protected function configureMailGuardrail(): void
     {

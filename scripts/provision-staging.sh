@@ -553,7 +553,9 @@ Three things left, none of which this script should do for you:
      MAIL_HOST/PORT/USERNAME/ MAIL_REDIRECT_TO   <- set this before anything
        PASSWORD/FROM_ADDRESS     can send; blank means NO redirection, and
      SENTRY_LARAVEL_DSN          every message goes to its real recipient
-     AWS_* (Spaces bucket)
+     SES_SNS_TOPIC_ARN        <- without it /webhooks/ses refuses everything,
+     AWS_* (Spaces bucket)       so bounces go unrecorded and suppression
+                                 never fires
      VAPID_* (web push)
      HORIZON_AUTHORIZED_EMAILS
      the AI provider key and its budget cap

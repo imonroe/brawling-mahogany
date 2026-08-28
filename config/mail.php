@@ -118,9 +118,14 @@ return [
     |--------------------------------------------------------------------------
     |
     | When set, every outbound message is rewritten to this address. Staging
-    | sets it so that no test message can reach a real client (PRD §8.6);
+    | must set it so that no test message can reach a real client (PRD §8.6);
     | production must leave it empty, and the application refuses to boot in
     | production if it is set.
+    |
+    | Since #12 put the SES account into production access, SES's own sandbox no
+    | longer refuses unverified recipients — so this is the only guard covering
+    | every message the product sends, and an unset value fails open silently.
+    | See docs/Deployment.md §4a and #196.
     |
     */
 

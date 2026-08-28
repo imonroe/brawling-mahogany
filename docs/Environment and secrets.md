@@ -42,11 +42,11 @@ the container which uses them transparently."*
 | `APP_KEY` | generated | generated per run | real, unique | real, unique |
 | `DB_PASSWORD` | developer's choice | fixed, throwaway | real, unique | real, unique |
 | `REDIS_PASSWORD` | none | none | real | real |
-| `MAIL_*` | Mailpit, no credentials | array driver | **SES, every recipient redirected** | SES |
+| `MAIL_*` | Mailpit, no credentials | array driver | **SES; every recipient redirected, but only because `MAIL_REDIRECT_TO` below says so** | SES |
 | `APP_NAME` | `Brawling Mahogany` | same | same | same |
 | `APP_PRODUCT_NAME` | `Goldieflow` | same | same | same |
 | `MAIL_FROM_ADDRESS` | anything | `.env.example`'s value — **used**, not unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
-| `MAIL_REDIRECT_TO` | optional | unset | **set — every message redirected** | **must be empty** |
+| `MAIL_REDIRECT_TO` | optional | unset | **must be set — every message redirected, and it fails open when it is not (#196)** | **must be empty** |
 | `SES_SNS_TOPIC_ARN` | empty | empty | the staging topic | the production topic — **required**, see below |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
@@ -112,7 +112,7 @@ They were the same key until round 2 of review on #12 found teams sending
 from it: **before pinning a display string to an existing config value, check
 what else derives from that value.** Here, four keyspaces did.
 
-### The sending identity, and the two things it is not
+### The sending identity, what it is not, and what it now is
 
 SES is configured and `monroedigitalconsulting.com` is a verified sending
 domain (#12). Every message this product sends leaves as
@@ -125,15 +125,27 @@ other. That is a deliberate trade to get Slice 3 sending — the alternative was
 waiting on the naming decision in #15 — and it is worth revisiting before there
 are enough customers for the reputation to be worth anything.
 
-**It is not necessarily production access.** A verified *domain identity* and a
+**It is production access**, confirmed 2026-08-28 (#12): the account is out of
+the SES sandbox, and staging sends real mail through it.
+
+That distinction was worth chasing, and is worth keeping written down for
+whoever stands up the next environment. A verified *domain identity* and a
 production *account* are two different grants: in the SES sandbox an account
 may only send to addresses it has also verified, so a message to a real
 client's inbox is rejected at the API rather than delivered. Both look
 identical from inside this application right up to the moment a client is
-supposed to receive something. Before the first real send, check the account's
-sending status in the SES console — and note that S91's alert (#97) now
-surfaces exactly this failure on the message queue rather than letting it go
-quiet.
+supposed to receive something.
+
+Two things follow from that, for any new environment:
+
+- **Production access is granted per region.** An account can be out of the
+  sandbox in one region and still in it in the region `MAIL_HOST` actually
+  points at. Check the region you are sending from, not the account in general.
+- **S91's alert (#97) makes the failure loud, but only on the message queue.**
+  `automations:alert-on-failures` reads `action_instances.state`, so a rejected
+  *automated* send is `failed` however it got there rather than going quiet.
+  Nothing surfaces the same rejection for an invitation, a password reset or a
+  notification — those never reach `SendRails`. Do not read this as coverage.
 
 **A team's own address never goes in `From`.** It rides in `Reply-To`, which
 needs no DNS and no verification. A `From` SES is not authorised to send as is
@@ -182,25 +194,31 @@ Locally the value stays empty: nothing sends through SES, so nothing bounces.
 
 PRD §8.6, restated because both protect somebody else's client:
 
-1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` is set on staging, and
-   `AppServiceProvider` rewrites every recipient to it. The application
-   **refuses to boot in production** with that value set, so the guardrail
-   cannot be left on by accident either. This is ours and it does not depend on
-   SES's own sandbox — which is the point, since the same SES account now
-   serves both environments.
+1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` **must be** set on
+   staging, and `AppServiceProvider` then rewrites every recipient to it. The
+   application **refuses to boot in production** with that value set, so the
+   guardrail cannot be left on by accident either. This is ours and it does not
+   depend on SES's own sandbox — which is now the whole point, since that
+   sandbox stopped refusing anything when the account reached production access
+   (#12) and the same SES account serves both environments.
+
+   *Must be*, not *is*: nothing here can check it. The value lives in the
+   droplet's `.env`, an empty one **fails open** silently, and no test, CI run
+   or review can observe it. See [[Deployment]] §4a and #196.
 2. **A separate AI provider key with its own budget cap.** Staging never
    spends against the production budget, and a runaway loop in a test costs a
    small, capped amount rather than a large, uncapped one.
 
 ### What that means for anything you have to *act on*
 
-Both guardrails above make staging mail undeliverable on purpose, and local
+The redirect above makes staging mail undeliverable on purpose — **when it is
+set** — and local
 mail never leaves the machine. [[adr/0003-no-email-only-flows|ADR 0003]] is the
 rule that keeps this from being a dead end: **no user flow depends on email
 alone**, so nothing in the product is unreachable because a message went to
 Mailpit or was redirected to an ops mailbox.
 
-In practice, for the two flows that exist today:
+In practice, for the two flows an operator most often has to unblock by hand (`App\Support\Mail\EmailIndependence::FLOWS` is the full list, and carries six):
 
 | Flow | Without the message |
 |---|---|
