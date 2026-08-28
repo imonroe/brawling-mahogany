@@ -152,18 +152,13 @@ it('stops serving the moment the person is no longer on the team', function (): 
      * a URL nobody remembers exists — `live()` asks only whether the *feed*
      * was revoked.
      *
-     * This is the *departure* half, and it is now one of two predicates
-     * rather than the whole rule: #194 added `calendar.view` beside it, in
-     * the test below. The sentence that used to stand here — *"revocation
-     * only, because reading more strictly than the app writes would cut off
-     * somebody who still works there"* — was written when the alternative on
-     * the table was `carryingAccess()`, and it does not survive the key that
-     * replaced it: `calendar.view` is what the screen itself is gated on, so
-     * refusing the feed to somebody the screen refuses is reading exactly as
-     * strictly as the app writes, not more.
+     * This is the *departure* half, and it is one of two predicates rather
+     * than the whole rule: #194 added `calendar.view` beside it, in the test
+     * below. Kept as two tests because they fail for different reasons, and
+     * one test covering both would pass while either was broken.
      *
-     * Kept as its own test because the two fail for different reasons and a
-     * single test covering both would pass while either was broken.
+     * (The decision record for *which* key, and why not `carryingAccess()`,
+     * is `findByToken()`'s docblock and PRD §15. It is not repeated here.)
      */
     Event::factory()->create([
         'team_id' => $this->team->getKey(),
@@ -295,11 +290,20 @@ it('refuses at the agency where the permission is missing, and serves at the one
      *
      * Not for want of a second membership. *'lets somebody who works for two
      * agencies subscribe to both'* above gives this person two, and the
-     * correlation still makes no difference there, because `attachOwner()`
-     * makes them a Team Owner in **both** — and a predicate cannot be caught
-     * looking at the wrong row while both rows answer the same. Exercising it
-     * needs the two memberships to *disagree*, which is what this fixture is
-     * for and the only thing it adds.
+     * correlation still makes no difference there, because **both shipped
+     * roles carry `calendar.view`**: `teamWithMember()` attaches Team Member
+     * in the first team, `attachOwner()` attaches Team Owner in the second,
+     * and `Permissions::forSystemRoles()` builds `$teamOwner` by spreading
+     * `$teamMember`. A predicate cannot be caught looking at the wrong row
+     * while both rows answer the same. Exercising it needs the two
+     * memberships to *disagree*, which is what this fixture is for and the
+     * only thing it adds.
+     *
+     * That is the condition to watch, and it is why the reason is written
+     * down rather than left as *"there are two memberships now"*: moving
+     * `VIEW_CALENDAR` off the Team Member list would make the older fixture
+     * start exercising this by accident, and moving it off both would stop
+     * this one exercising it at all.
      *
      * A stager, a broker or an assistant working for two agencies is one
      * person with two memberships, and the roles are composed per team. So

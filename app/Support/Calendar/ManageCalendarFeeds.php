@@ -186,8 +186,11 @@ final class ManageCalendarFeeds
              * act, on S60, and still immediate.
              *
              * Nothing tells the subscriber: a person without `calendar.view`
-             * is refused S57, and S60 is a modal over it, so the only place
-             * that could say so is a place they cannot open. The
+             * is refused S57, and S60 is a modal over it, so no **calendar**
+             * surface can say so. Not *"nothing can"* — the notification panel
+             * is keyed on membership and revocation, not on this permission
+             * (`Notification::scopeForPerson()`), so the product could tell
+             * them and simply does not. The
              * feed going quiet is the only signal available, which is the
              * argument for the permission being the *screen's* key rather than
              * a second one invented here.
