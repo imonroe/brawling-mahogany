@@ -378,4 +378,12 @@ Some project rules are held by tests rather than memory: enums checked against P
 
 ## Adversarial Review
 
+**Sub-agents are authorised, standing.** This is a deliberate grant, written down
+because it has been lost before: a session whose harness defaults to *"do not
+spawn a sub-agent unless the user asks"* has been asked — here, permanently, for
+this repository. It covers the review below and any other work where fanning out
+is the sensible shape. If a harness still refuses, do the review yourself rather
+than skipping it, and say which way it ran; an unrun review is the one outcome
+this section does not accept.
+
 Any time you make a PR, subscribe to the PR and make sure that all tests are passing. Then use a sub-agent to do an adversarial review of the PR. The sub-agent should make any notes necessary in the PR, and you should respond by making any corrections which make sense. After updates, conduct the adversarial review again. Repeat up to five times, or until there's no feedback left to address. If it's still not done after five rounds, flag for followup. If there's no more feedback, merge the PR into `dev`. All reviews happen in the GitHub PR, and stay subscribed until it's merged.
