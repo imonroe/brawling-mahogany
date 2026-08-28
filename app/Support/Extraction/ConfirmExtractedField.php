@@ -142,7 +142,7 @@ final class ConfirmExtractedField
         return $field;
     }
 
-    private function createKeyDate(ExtractedField $field, string $value, Deal $deal, Person $actor): ?KeyDate
+    private function createKeyDate(ExtractedField $field, string $value, Deal $deal, Person $actor): KeyDate
     {
         $day = $this->asDay($value);
 
@@ -214,7 +214,7 @@ final class ConfirmExtractedField
         ], $actor);
     }
 
-    private function createTask(ExtractedField $field, string $value, Deal $deal, Person $actor): ?Task
+    private function createTask(ExtractedField $field, string $value, Deal $deal, Person $actor): Task
     {
         /** @var array<string, mixed> $payload */
         $payload = $field->payload ?? [];
@@ -367,11 +367,15 @@ final class ConfirmExtractedField
         }
 
         /*
+         * `!== null`, not `!== false`. Carbon 3 returns null where Carbon 2
+         * returned false, so the second is always true and the `->format()`
+         * behind it is a call on null. See `ReadProposals::asDay()`.
+         *
          * Round-tripped rather than merely parsed: `createFromFormat` reads
-         * `2026-13-45` as a real day in 2027, and the shape passes the regex
+         * `2026-13-45` as a real day in 2027, and that shape passes the regex
          * above. A date nobody wrote landing on a contingency calendar is
          * exactly the failure F10.2 exists to prevent.
          */
-        return $parsed !== false && $parsed->format('Y-m-d') === $value ? $value : null;
+        return $parsed !== null && $parsed->format('Y-m-d') === $value ? $value : null;
     }
 }

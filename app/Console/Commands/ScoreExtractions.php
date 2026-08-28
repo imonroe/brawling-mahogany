@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Enums\ExtractionKind;
+use App\Support\Extraction\PromptRegistry;
 use App\Support\Extraction\ProviderFailed;
 use App\Support\Extraction\ProviderManager;
-use App\Support\Extraction\PromptRegistry;
 use App\Support\Extraction\ReadProposals;
 use App\Support\Extraction\Redaction\Redactor;
 use App\Support\Extraction\Scoring\CorpusCase;

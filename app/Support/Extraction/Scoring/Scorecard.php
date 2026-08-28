@@ -120,7 +120,7 @@ final class Scorecard
     {
         $truth = $this->truthCount();
 
-        return $truth === 0 ? 0.0 : $this->sum('exact') / $truth;
+        return $truth === 0 ? 0.0 : $this->sum(static fn (array $row): int => $row['exact']) / $truth;
     }
 
     public function criticalMissedCount(): int
@@ -141,7 +141,9 @@ final class Scorecard
 
     public function averageCostMicros(): int
     {
-        return $this->rows === [] ? 0 : (int) round($this->sum('cost') / count($this->rows));
+        return $this->rows === []
+            ? 0
+            : (int) round($this->sum(static fn (array $row): int => $row['cost']) / count($this->rows));
     }
 
     /**
@@ -272,11 +274,18 @@ final class Scorecard
         ));
     }
 
-    private function sum(string $key): int
+    /**
+     * Add up one column of the rows.
+     *
+     * Takes a closure rather than a key, because a shaped array indexed by a
+     * *variable* string is a value PHPStan cannot narrow — it sees the union
+     * of every field, including the `CorpusCase`, and refuses the cast. The
+     * closure names the field at the call site, where its type is known.
+     *
+     * @param  callable(array{case: CorpusCase, matched: int, exact: int, missed: list<string>, criticalMissed: list<string>, cost: int}): int  $of
+     */
+    private function sum(callable $of): int
     {
-        return array_sum(array_map(
-            static fn (array $row): int => (int) $row[$key],
-            $this->rows,
-        ));
+        return array_sum(array_map($of, $this->rows));
     }
 }

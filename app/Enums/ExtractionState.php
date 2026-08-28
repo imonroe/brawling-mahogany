@@ -45,4 +45,17 @@ enum ExtractionState: string implements HasLabel
             self::Blocked => 'Stopped',
         };
     }
+
+    /**
+     * Nothing more will happen to this row on its own.
+     *
+     * One reader, and it is the one that matters: `RunDocumentExtraction::failed()`
+     * stands down rather than overwriting an outcome a later attempt already
+     * recorded. "Not mine" and "broken" are different refusals — the rule
+     * `SendDecision::standDown()` records one subsystem over.
+     */
+    public function isFinal(): bool
+    {
+        return $this === self::Complete || $this === self::Failed || $this === self::Blocked;
+    }
 }

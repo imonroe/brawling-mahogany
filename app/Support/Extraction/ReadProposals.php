@@ -390,13 +390,22 @@ final class ReadProposals
             }
 
             /*
-             * Round-tripped, not merely parsed. `createFromFormat` is lenient
-             * about overflow: `2026-13-45` parses to a real day in 2027, which
-             * would put a confident-looking date on the review screen that is
-             * nowhere in the contract. Re-formatting and comparing is what
-             * refuses it.
+             * `!== null`, not `!== false`, and the difference is a fatal.
+             *
+             * Carbon 2's `createFromFormat` returned `false` on a value that
+             * did not match; Carbon 3 returns **null** and throws on a bad
+             * format. A `!== false` guard is therefore always true, and the
+             * `->format()` behind it is a method call on null — reached by the
+             * ordinary input this method exists for, a model that wrote
+             * something that is not a date. PHPStan caught it; `php -l` could
+             * not, and neither could a test that only ever passed real dates.
+             *
+             * Round-tripped, not merely parsed: `createFromFormat` is lenient
+             * about overflow, so `2026-13-45` parses to a real day in 2027 —
+             * a confident-looking date on the review screen that is nowhere in
+             * the contract. Re-formatting and comparing is what refuses it.
              */
-            if ($parsed !== false && $parsed->format($format) === $value) {
+            if ($parsed !== null && $parsed->format($format) === $value) {
                 return $parsed->format('Y-m-d');
             }
         }

@@ -86,11 +86,16 @@ final class DealExtraction
          */
         $existing = KeyDate::query()->where('deal_id', $deal->getKey())->get();
 
-        return $extraction->fields
+        /*
+         * `array_values` around the collection's own `all()`: a collection
+         * preserves keys through `map()`, and `values()` before it is not
+         * something PHPStan can carry through to the return type. The wrapper
+         * is what makes the `list<>` promise true rather than merely intended.
+         */
+        return array_values($extraction->fields
             ->sortBy('sort_order')
-            ->values()
             ->map(fn (ExtractedField $field): array => $this->row($field, $existing, $deal))
-            ->all();
+            ->all());
     }
 
     /**

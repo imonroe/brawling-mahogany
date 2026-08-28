@@ -134,6 +134,7 @@ final class Redactor
      * Conclusive on its own — the symbols exist nowhere else — so this needs
      * no label and takes the whole run between and around them rather than
      * trying to work out which digits are which.
+     * @param  array<string, int>  $counts
      */
     private function maskMicrLines(string $text, array &$counts): string
     {
@@ -142,8 +143,20 @@ final class Redactor
             self::MICR_SYMBOLS,
         ));
 
+        /*
+         * Anchored on the symbols, and the run either side may not begin or
+         * end on a bare digit reached across a line break.
+         *
+         * The first version was `[\d\s⑆⑈⑇⑉]*` on both sides, which starts at
+         * the beginning of *any* run of digits or whitespace before the first
+         * symbol — so a line ending in digits directly above a MICR line lost
+         * those digits into the placeholder, and `edgeWhitespace()` restores
+         * only whitespace. Found in review against the corpus. Keeping the run
+         * on one line is what makes "the whole run between and around them"
+         * true rather than approximately true.
+         */
         return $this->replace(
-            '/[\d\s'.$symbols.']*['.$symbols.'][\d\s'.$symbols.']*/u',
+            '/[\d ]*['.$symbols.'][\d '.$symbols.']*/u',
             $text,
             'micr_line',
             $counts,
@@ -159,6 +172,7 @@ final class Redactor
      * parcel number in an American contract is punctuated that way. A bare
      * `123456789` is not, and only becomes one beside the words, which is what
      * the `government_id` label rule covers.
+     * @param  array<string, int>  $counts
      */
     private function maskSocialSecurityNumbers(string $text, array &$counts): string
     {
@@ -181,6 +195,7 @@ final class Redactor
      * substitutions.
      *
      * @param  list<string>  $labels
+     * @param  array<string, int>  $counts
      */
     private function maskLabelledNumbers(string $text, string $rule, array $labels, array &$counts): string
     {
@@ -214,6 +229,7 @@ final class Redactor
      * The residual risk is a genuine 13- or 14-digit card written without
      * grouping, which is a card format effectively out of use — and one the
      * labelled `account_number` rule still catches when it is captioned.
+     * @param  array<string, int>  $counts
      */
     private function maskCardNumbers(string $text, array &$counts): string
     {
@@ -293,8 +309,16 @@ final class Redactor
      * reached something it had no business reaching:
      *
      * - **The window stops at a blank line.** A caption belongs to the block it
-     *   is in. Reaching across a paragraph break is how an *Account Number*
-     *   heading claimed the escrow file reference in the next clause.
+     *   is in, so it may not reach across a paragraph break.
+     *
+     *   This does **not** fix every case of a caption over-reaching, and the
+     *   docblock said it did for one round — corpus case `0009` puts an
+     *   *Account Number* caption and an escrow file reference on consecutive
+     *   lines *inside one block*, and the reference is still masked. It fails
+     *   closed: a field arrives at the model deleted rather than a number
+     *   leaving. Narrowing further costs the wrapped `Routing\n  Number` case
+     *   below, which is the wire instruction this whole rule exists for, so
+     *   this is the trade as it stands rather than a problem left unnoticed.
      * - **The match is on word boundaries.** See {@see self::LABELS}.
      *
      * @param  list<string>  $labels
@@ -379,6 +403,8 @@ final class Redactor
      * byte offset: correct for the ASCII a digit run is surrounded by in
      * practice, and wrong only by a few characters of window in text that is
      * not, which is a margin this window has by design.
+     *
+     * @param  array<string, int>  $counts
      */
     private function replace(string $pattern, string $subject, string $rule, array &$counts, callable $decide): string
     {
@@ -386,6 +412,16 @@ final class Redactor
 
         $result = preg_replace_callback(
             $pattern,
+            /**
+             * `PREG_OFFSET_CAPTURE` makes every group a `[string, int]` pair,
+             * and PHPStan's stub for `preg_replace_callback` does not model
+             * the flags argument — it types `$matches[0]` as a plain string
+             * and reports the destructuring as an error. The annotation says
+             * what the flag actually produces; it is a stub limitation rather
+             * than a claim the analyser can be argued out of.
+             *
+             * @param  array<int, array{0: string, 1: int}>  $matches
+             */
             function (array $matches) use ($subject, $rule, $decide, &$taken): string {
                 [$match, $offset] = $matches[0];
 

@@ -36,7 +36,12 @@ use Illuminate\Support\Str;
  * with two composite keys out of it that means the parents have to be built
  * **inside the team the row is going into**. The closures below read
  * `$attributes['team_id']`, which Laravel has already expanded by the time they
- * run — so passing a team is enough, and passing nothing still works.
+ * run, so naming the team is enough and the deal and the document follow it.
+ *
+ * Like every factory in this directory, that still assumes a resolved
+ * `TeamContext` — `BelongsToTeam` refuses a write aimed at another team, and
+ * `DealTypeFactory` fills its own tenant from the context rather than carrying
+ * one. A test says which team; the factory works out the rest.
  *
  * @extends Factory<Extraction>
  */

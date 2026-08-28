@@ -6,10 +6,13 @@ namespace App\Jobs;
 
 use App\Jobs\Concerns\RunsForTeam;
 use App\Models\Extraction;
+use App\Models\Team;
 use App\Support\Extraction\PerformExtraction;
+use App\Support\Extraction\ProviderFailed;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Throwable;
 
 /**
  * Read one document (PRD §8.4 · issue #115).
@@ -50,6 +53,60 @@ class RunDocumentExtraction implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return $this->extractionId;
+    }
+
+    /**
+     * The attempts are spent, so say so — once.
+     *
+     * ## This method is the other half of a rule stated in `PerformExtraction`
+     *
+     * That class deliberately writes **no notification** on a retryable
+     * failure: four attempts at one provider blip would be four emails about
+     * one outage, which is how a notification type earns a filter rule and
+     * stops being read. It puts the row back to `queued` and re-throws, and its
+     * docblock says the team is told once, here, when the queue gives up.
+     *
+     * It was written before this method existed, which made it exactly the
+     * thing CLAUDE.md warns about — *a rule stated in a docblock is not a rule
+     * the code follows*. Without this handler a provider outage that burned all
+     * four attempts left the row **`queued` forever**, carrying an error string
+     * that no screen treats as final and that nobody was told about. Found in
+     * review, and it is worth noting how: not by a test of this class, but by
+     * somebody reading the two docblocks against each other.
+     *
+     * `$this->teamId` is set by `forTeam()` at dispatch and survives
+     * serialisation, so the team context is re-established the same way
+     * `handle()` does it.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        $this->withinTeam(function (Team $team) use ($exception): void {
+            $extraction = Extraction::query()->find($this->extractionId);
+
+            if (! $extraction instanceof Extraction || $extraction->state->isFinal()) {
+                /*
+                 * Purged, or a later attempt already recorded an outcome.
+                 * Stand down silently rather than overwriting it — the
+                 * `SendDecision::standDown()` rule one subsystem over: "not
+                 * mine" and "broken" are different refusals.
+                 */
+                return;
+            }
+
+            app(PerformExtraction::class)->fail(
+                $extraction,
+                $team,
+                $exception instanceof ProviderFailed ? $exception->reasonCode : 'extraction_gave_up',
+                /*
+                 * The row's own message when it has one — the sentence the
+                 * last attempt wrote for a person — and a plain one otherwise.
+                 * An exception's message is never used: it is written for a
+                 * log and can carry anything the provider put in a response.
+                 */
+                $extraction->error ?? 'This document could not be read after several attempts. '
+                    .'Its dates and tasks will need entering by hand.',
+            );
+        });
     }
 
     public function handle(PerformExtraction $extractions): void

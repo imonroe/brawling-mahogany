@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\ExtractionKind;
 use App\Support\Extraction\Contracts\ExtractionPrompt;
 use App\Support\Extraction\PromptRegistry;
 
@@ -75,7 +76,7 @@ it('gives every kind a prompt', function (): void {
      * worker, which surfaces as a failed extraction with a stack trace where a
      * sentence should be.
      */
-    foreach (\App\Enums\ExtractionKind::cases() as $kind) {
+    foreach (ExtractionKind::cases() as $kind) {
         $prompt = (new PromptRegistry)->for($kind);
 
         expect($prompt->kind())->toBe($kind)

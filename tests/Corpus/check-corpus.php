@@ -131,7 +131,7 @@ $groundTruthFiles = array_values(array_filter(
 ));
 
 if ($groundTruthFiles === []) {
-    fwrite(STDERR, "No ground-truth files found in ".CORPUS_DIR."\n");
+    fwrite(STDERR, 'No ground-truth files found in '.CORPUS_DIR."\n");
     exit(1);
 }
 
@@ -361,7 +361,7 @@ $rendered = json_encode($index, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSO
 
 if ($write) {
     file_put_contents($indexPath, $rendered);
-    echo "Wrote ".count($manifest)." contracts to contracts/index.json\n";
+    echo 'Wrote '.count($manifest)." contracts to contracts/index.json\n";
 } elseif (! is_file($indexPath)) {
     $problems[] = 'contracts/index.json does not exist — run with --write';
 } elseif (file_get_contents($indexPath) !== $rendered) {
