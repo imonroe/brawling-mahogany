@@ -221,7 +221,7 @@ tags:
 |---|---|---|---|---|---|---|---|
 | S47 | Message approval queue | `/messages` | Team | Empty, needs review, **held by a rail**, **handed over and never confirmed**, did not go out. **Built.** Failures and held messages are each their own query rather than a filter over recent sends, and every list says when it is truncated. No bulk approve, deliberately — see the note below | F5.7 | 3 | M |
 | S48 | Message preview and edit | `/messages/{message}` | Team | Rendered with real merge data, missing field, editing before send. **Built**, as a page rather than a modal — see the note below | F5.6 | 3 | M |
-| S49 | Automation failure detail | `/messages/{message}` | Team | Provider error, resolved to nobody, stopped by a person, sandbox redirect. **Built.** Bounces and complaints are #95 | F5.8 | 3 | S |
+| S49 | Automation failure detail | `/messages/{message}` | Team | Provider error, resolved to nobody, stopped by a person, sandbox redirect, and the delivery history from bounces and complaints. **Built** (#95) | F5.8 | 3 | S |
 
 > [!note] S47 has no bulk approve, and the absence is the feature
 > The row above listed *bulk approve* as a key state, and it is not built and
@@ -389,7 +389,7 @@ Real design work, and easy to forget in an inventory. These are what the client 
 | S88 | Deadline reminder | email | Team | Single date, several dates, critical styling. **Built** (#109) as a notification rather than a mailable of its own, so S86's layout and F12.4's quiet hours both apply without a second path. **One digest per person per morning however many dates are in it** — a reminder that arrives five times is a reminder somebody filters. A critical date **today** is the exception and its own notification, because it is the one type that bypasses quiet hours | F8.4 | 4 | S |
 | S89 | Magic link | email | Client | Link, expiry note, "you did not request this". ADR 0003 applies: the agent must be able to hand the client a link without the message. **Built** (#110), with two second doors rather than one — **Copy link** on the deal's People tab hands the agent the URL to pass on by whatever channel the client actually answers, and `status-page:link` prints one from the console | F7.1 | 4 | S |
 | S90 | Team invitation | email | Team | Inviter name, team name, expiry. **Never the only way in** — see S04, S09, S74, S83 and ADR 0003. **Built** in Slice 1; reframed in S86's layout in Slice 3 | F1.3 | 1 | S |
-| S91 | Internal alert | email | Team | Automation failed, bounce, extraction failed. **Built** (#97) for the first of the three; a bounce is #95 and an extraction failure is Slice 5 | F5.8 | 3 | S |
+| S91 | Internal alert | email | Team | Automation failed, bounce, extraction failed. **Built** (#97, with bounces added by #95); an extraction failure is Slice 5 | F5.8 | 3 | S |
 
 > [!note] S87 is a frame, not a second mailable
 > The obvious reading of "milestone notification" is a `MilestoneNotificationMail` of its own. That would be a second path to a client's inbox, past F5.7's approval queue and F5.9's three rails — a second front door cut into the feature PRD §4.5 calls the highest-blast-radius in the product, for the sake of a layout.

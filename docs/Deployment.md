@@ -235,7 +235,7 @@ issue rather than a line in this document. It is performed on staging:
 PRD §8.6 **used to** read *"Staging runs SES in sandbox mode with all mail
 redirected, so no test ever reaches a real client"* — the sentence
 `AppServiceProvider::configureMailGuardrail()` glosses as *"the safety net behind
-the whole of Slice 3."* (§8.6 was narrowed on 2026-08-28; see #196.)
+the whole of Slice 3"*. (§8.6 was narrowed on 2026-08-28; see #196.)
 
 That was **two** guards, and only one of them is left.
 
@@ -256,7 +256,10 @@ So on the *automation* path there are still two guards. It is not a
 substitute for the one that went, on three counts: it is **per team**, so a team
 created tomorrow is only as safe as its own row; it is **switchable** from
 `/settings/sending`; and it covers only automated sends — the invitation, the
-password reset and every notification email go nowhere near it. It also
+password reset, every notification email, and the client's own status-page magic
+link (`DispatchStatusPageLink`) all go nowhere near it. That last one is the
+example worth holding on to, because it is the one addressed to a **client**
+rather than a colleague. It also
 *redirects* rather than withholds, and on staging the team owner is a real
 person.
 

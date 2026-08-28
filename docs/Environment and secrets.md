@@ -218,7 +218,7 @@ rule that keeps this from being a dead end: **no user flow depends on email
 alone**, so nothing in the product is unreachable because a message went to
 Mailpit or was redirected to an ops mailbox.
 
-In practice, for the two flows a stranger is most likely to hit (`App\Support\Mail\EmailIndependence::FLOWS` is the full list, and carries six):
+In practice, for the two flows an operator most often has to unblock by hand (`App\Support\Mail\EmailIndependence::FLOWS` is the full list, and carries six):
 
 | Flow | Without the message |
 |---|---|
