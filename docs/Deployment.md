@@ -14,13 +14,20 @@ version: 1.0
 > should be able to follow it at 2am.
 
 > [!warning] What is written here and what exists
-> The pipeline, the compose stack, the provisioning script, and the runbook
-> below are built and reviewable. **The staging droplet itself is not
-> provisioned** — creating it and pointing DNS at it need an account and a
-> domain, neither of which lives in this repository. Everything after those two
-> steps is `scripts/provision-staging.sh` (§6). The deploy workflow is inert
-> until the repository variable `STAGING_ENABLED` is set to `true`, so nothing
-> fails while the infrastructure catches up.
+> **Staging is provisioned** (confirmed 2026-08-28): a droplet on the public
+> internet, TLS working, running the stack and sending real mail through SES.
+> The pipeline, the compose stack, the provisioning script and the runbook below
+> are built and reviewable.
+>
+> What is **not** yet confirmed on that box, and is what #36 stays open for:
+> whether the deploy workflow is actually driving it (it is inert until the
+> repository variable `STAGING_ENABLED` is set to `true`, so the droplet may be
+> being updated by hand), whether the nightly backup runs, and the restore
+> drill, which has not been performed.
+>
+> One consequence of the SES account reaching production access is called out in
+> §4a: **the sandbox is no longer the backstop it was**, and `MAIL_REDIRECT_TO`
+> is now the only thing standing between staging and a real inbox.
 
 ---
 
@@ -222,6 +229,42 @@ issue rather than a line in this document. It is performed on staging:
 
 ---
 
+## 4a. The safety net that changed under us
+
+PRD §8.6 names the staging guardrail as *"SES runs in sandbox mode with all mail
+redirected, so no test ever reaches a real client. This is the safety net behind
+the whole of Slice 3."*
+
+That was **two** guards, and only one of them is left.
+
+The SES sandbox refuses, at the API, any message to an address the account has
+not separately verified. It was the outer guard, and it was free — it held even
+if the application was misconfigured. Now that the account is in production
+access (#12), it does not hold at all: staging can put mail in any inbox on the
+internet.
+
+What remains is `MAIL_REDIRECT_TO`, read in `AppServiceProvider::configureMailGuardrail()`
+and applied as `Mail::alwaysTo()`. It is a good guard and it is now the *only*
+one. Two properties of it are worth stating plainly, because they were
+acceptable when it was the inner guard of two and are not acceptable now:
+
+- **It fails open.** An unset or empty value returns early and mail goes
+  wherever it was addressed. Nothing warns; there is no staging-side equivalent
+  of the production check one branch below, which throws at boot if the value
+  *is* set. A typo in the variable name is indistinguishable from a deliberate
+  decision.
+- **It is environment state, not repository state.** It lives in the droplet's
+  own `.env`, so nothing in CI, no test and no review can tell you it is
+  present. The only way to know is to look at the box.
+
+So: **check it on the droplet before putting anything resembling real client
+data on staging**, and treat a seeded demo team as real client data the moment
+Emily's actual deals are in it. Tracked as its own issue rather than a line
+here, because a guard that fails open deserves a code change, not a note in a
+runbook.
+
+---
+
 ## 5. Observability in a deployed environment
 
 - **Sentry** for both server and browser errors, with no PII attached
@@ -376,7 +419,7 @@ it is set every message goes to its real recipient. §2 of
 
 The remainder — the parts that need a decision or another account:
 - [ ] Postgres: managed instance or the compose service, matching production's choice
-- [ ] SES in sandbox, `MAIL_REDIRECT_TO` set — and note that a redirected invitation still reaches nobody: use the **Get link** action in `/admin`, or `php artisan invitation:link <email>`, to onboard staging's first team owner ([[adr/0003-no-email-only-flows|ADR 0003]])
+- [ ] **`MAIL_REDIRECT_TO` set — now load-bearing on its own.** The SES account is in production access (#12), so the sandbox no longer refuses mail to an unverified recipient; this variable is the whole guardrail. See §4a. And note that a redirected invitation still reaches nobody: use the **Get link** action in `/admin`, or `php artisan invitation:link <email>`, to onboard staging's first team owner ([[adr/0003-no-email-only-flows|ADR 0003]])
 - [ ] A separate AI provider key with its own budget cap
 - [ ] Sentry staging project, DSN in `.env`
 - [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`, and `STAGING_SSH_PORT` if the droplet does not listen on 22

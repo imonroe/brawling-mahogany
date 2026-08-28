@@ -39,9 +39,11 @@ internal alert. Then delivery tracking and suppression (#95), the documents
 module and its guardrails (#98–#100, #104), notifications and their panel
 (#101), and the mobile layer — the PWA shell and web push (#102, #103).
 
-**Slice 3 is now code-complete.** What is left in the epic cannot be closed by
-a commit: #19 (web push confirmed on a real iPhone) and #12's console half are
-both console, DNS and device work. Two application halves wait on decisions
+**Slice 3 is now code-complete**, and #12 closed with it — SES is in production
+access and mail is flowing. What is left in the epic is one device check, #19
+(web push confirmed on a real iPhone), and it is now *runnable* rather than
+deferred: iOS delivers push only to an installed PWA over HTTPS, which is
+exactly what staging now provides. Two application halves wait on decisions
 rather than on code — #94's per-team sending identity is gated on #15's naming
 decision, and #87's seeded template packs are gated on #11's content.
 
@@ -55,18 +57,22 @@ and its documents (#111), and the WCAG 2.1 AA audit of the client surface
 slice came before it. One thing is deliberately open and cannot be closed by a
 commit: #112's **manual screen-reader pass** on real iOS and Android devices —
 the automated audit is real, and VoiceOver on a phone is not something a test
-suite stands in for.
+suite stands in for. Staging makes it runnable.
 
-**Mail is configured** (#12): SES over SMTP, verified domain
-`monroedigitalconsulting.com`, everything leaving as
-`goldieflow@monroedigitalconsulting.com`. Two things that are *not* settled —
-whether the account has SES **production access** (a verified domain and a
-production account are different grants, and in the sandbox a message to a real
-client is rejected rather than delivered), and the dedicated sending subdomain
-PRD §8.5 asks for, which #15's naming decision still gates. See
-[`Environment and secrets.md`](docs/Environment%20and%20secrets.md) §2. Both of
-those are console and DNS work, so **#12 cannot be closed by a commit** any more
-than #19 can — the application half of it is done.
+**Staging is live** (#36): a droplet on the public internet, TLS working,
+running the stack and sending real mail. That is what turns the three things a
+test suite cannot reach from deferred into *runnable* — #19's iPhone push,
+#112's screen-reader pass, and the restore drill PRD §9 requires before launch.
+What is still open on #36 is the deploy automation, the nightly backup, and that
+drill.
+
+**Mail is configured and sending** (#12, closed 2026-08-28): SES over SMTP in
+**production access**, verified domain `monroedigitalconsulting.com`, everything
+leaving as `goldieflow@monroedigitalconsulting.com`. One thing is still not
+settled: the dedicated sending subdomain PRD §8.5 asks for, which #15's naming
+decision gates — so the product's reputation is currently mixed with whatever
+else that domain sends. See
+[`Environment and secrets.md`](docs/Environment%20and%20secrets.md) §2.
 
 Before making architectural decisions or writing code, read
 [`docs/Product Requirements Document.md`](docs/Product%20Requirements%20Document.md)

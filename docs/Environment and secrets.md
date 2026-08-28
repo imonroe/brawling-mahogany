@@ -125,15 +125,26 @@ other. That is a deliberate trade to get Slice 3 sending — the alternative was
 waiting on the naming decision in #15 — and it is worth revisiting before there
 are enough customers for the reputation to be worth anything.
 
-**It is not necessarily production access.** A verified *domain identity* and a
+**It is production access**, confirmed 2026-08-28 (#12): the account is out of
+the SES sandbox, and mail sends from the staging environment to recipients who
+were never separately verified.
+
+That distinction was worth chasing, and is worth keeping written down for
+whoever stands up the next environment. A verified *domain identity* and a
 production *account* are two different grants: in the SES sandbox an account
 may only send to addresses it has also verified, so a message to a real
 client's inbox is rejected at the API rather than delivered. Both look
 identical from inside this application right up to the moment a client is
-supposed to receive something. Before the first real send, check the account's
-sending status in the SES console — and note that S91's alert (#97) now
-surfaces exactly this failure on the message queue rather than letting it go
-quiet.
+supposed to receive something.
+
+Two things follow from that, for any new environment:
+
+- **Production access is granted per region.** An account can be out of the
+  sandbox in one region and still in it in the region `MAIL_HOST` actually
+  points at. Check the region you are sending from, not the account in general.
+- **S91's alert (#97) is what makes the failure loud.** `automations:alert-on-failures`
+  reads `state`, so a rejected send is `failed` however it got there rather than
+  going quiet.
 
 **A team's own address never goes in `From`.** It rides in `Reply-To`, which
 needs no DNS and no verification. A `From` SES is not authorised to send as is
