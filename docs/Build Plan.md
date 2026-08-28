@@ -40,17 +40,28 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 
 > [!success] Slice 0 has landed
 > The application skeleton, the container stack, the CI pipeline, the design
-> system foundations, and the two ADRs are built and merged. Two things inside
-> it are deliberately still open, and both are named in the pull request rather
-> than quietly carried: **the `AppLayout` review with Heather**, and **staging**.
-> The droplet now exists — public internet, TLS, running the stack and sending
-> real mail (confirmed 2026-08-28) — so what #36 stays open for is the deploy
-> automation, the nightly backup and the restore drill, rather than the box
-> itself. The drill has certainly not happened; the other two are open questions
-> answerable only from the droplet. Slice 1 starts from a stack that runs and
-> a pipeline that gates — the gating needs `scripts/protect-branches.sh` run
-> once by an admin, because branch protection lives in repository settings and
-> cannot be committed.
+> system foundations, and the two ADRs are built and merged. **The `AppLayout`
+> review with Heather happened on 2026-08-21 and she approved it** — that was
+> the gate on the other seventy screens, and #31 closed on it. This document
+> and epic #1 both went on calling it outstanding for a week afterwards, which
+> is what a backlog audit on 2026-08-28 found.
+>
+> What is still open is **staging** (#36) and **observability's account
+> configuration** (#37). The droplet now exists — public internet, TLS, running
+> the stack and sending real mail (confirmed 2026-08-28) — so #36 stays open
+> for three things rather than for the box: whether `dev` actually deploys to
+> it (`STAGING_ENABLED`), the nightly offsite backup, **which nothing in this
+> repository implements**, and the restore drill PRD §9 requires before launch,
+> which has certainly not happened.
+>
+> One thing got worse rather than better when the droplet arrived, and it is
+> tracked in #196: production access removed the SES sandbox, so
+> `MAIL_REDIRECT_TO` is now the only guard covering **every** message the product
+> sends — and it fails open when unset, from a `.env` no test can observe.
+>
+> Slice 1 starts from a stack that runs and a pipeline that gates — the gating
+> needs `scripts/protect-branches.sh` run once by an admin, because branch
+> protection lives in repository settings and cannot be committed.
 
 > [!success] Slice 4 has landed
 > All eight issues are built: `key_dates` with the derived-date cascade (#106),
@@ -120,7 +131,7 @@ Seeded template packs   ← blocked on Emily's lists (#87 ← #11)
 
 Three things on that path are worth naming.
 
-**`AppLayout` (#31) is the highest-leverage single piece of work in the project.** Seventy screens inherit its decisions about density, type scale, and mobile collapse. The Design System requires a review with Heather before anything else is built. A week there saves a month.
+**`AppLayout` (#31) is the highest-leverage single piece of work in the project.** Seventy screens inherit its decisions about density, type scale, and mobile collapse. The Design System required a review with Heather before anything else was built; that review happened on 2026-08-21 and she approved it, which is what unblocked S10, S11, S13, S15 and S16.
 
 **`AdvanceWorkflow` (#68) is the architectural keystone.** Every workflow mutation goes through it. If a controller ever writes `stages.state` directly, the audit trail, the automation dispatch, and the gate guarantees all become optional — and nobody notices until something has been silently skipped.
 

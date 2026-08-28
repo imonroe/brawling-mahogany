@@ -1504,16 +1504,16 @@ resources/js/
 ### 13.3 Build order
 
 1. ~~Tokens and the Tailwind theme, including the `state-*` utilities and `text-13`~~ — **done**
-2. ~~`AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.~~ — **built; the review with Heather is still outstanding**
+2. ~~`AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.~~ — **done**, and reviewed with Heather on 2026-08-21
 3. ~~`StatusBadge`, since it appears on nearly every screen~~ — **done**
 4. ~~`PageHeader`, `FilterBar`, `EmptyState`, which unlock every P1 list page~~ — **done**, along with `Card`, `Table`, `DealRow`, `TaskItem`, `ActivityItem`, `DateChip`, `IconButton`, and `Tab`
 5. ~~One real list screen end to end (S13), to prove the density spec at 20 rows~~ — done in #78; §4.3 carries the measured budget
 6. Then the bespoke work, starting with the stage rail (S16) — Slice 2
 
-> [!warning] Step 2 still owes its review
-> `AppLayout` is built to the measurements in section 8 and renders in both themes, but **it has not been reviewed with Heather.** Seventy screens inherit its decisions about density, type scale, and mobile collapse, so that review happens before any product screen is built — not after.
+> [!success] Step 2's review happened
+> `AppLayout` is built to the measurements in section 8, renders in both themes, and **was reviewed with Heather on 2026-08-21, who approved it** (#31). Seventy screens inherit its decisions about density, type scale and mobile collapse, which is why that review had to come before any product screen rather than after — and it did.
 >
-> Every component in steps 1 to 4 renders in the gallery at `/design-system`, in both themes, which is what the review should be run against.
+> Every component in steps 1 to 4 renders in the gallery at `/design-system`, in both themes. The review itself was run against **screenshots of the running shell** at three breakpoints plus dark mode, deliberately — #31's own thread says it *"does not need a meeting, a dev environment, or a running stack"*, which is what made it answerable between appointments. The gallery is what a *future* review would use.
 
 ---
 
@@ -1592,7 +1592,7 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 - [x] Write the token block, both light and dark, plus the `state-*` and `text-13` theme entries ✅ 2026-08-21
 - [x] Measure contrast on the warning and success badge pairs at 11px ✅ 2026-08-21 — all pairs pass 4.5:1; now a test, see §11
 - [x] Build `AppLayout` plus the sidebar (section 8) ✅ 2026-08-21
-- [ ] **Review `AppLayout` with Heather before any product screen is built** 📅 2026-08-31
+- [x] **Review `AppLayout` with Heather before any product screen is built** ✅ 2026-08-21 — approved; #31 closed on it
 - [x] Build `StatusBadge` against the section 2.4 table ✅ 2026-08-21
 - [x] Build S13 end to end and confirm 20 rows is the honest desktop number ✅ 2026-08-24 — #78; §4.3 now carries the measured budget rather than the estimate
 - [x] Design the mobile collapse for the shell before the PWA slice ✅ 2026-08-21 — built; still to be judged on a real phone

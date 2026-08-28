@@ -64,8 +64,19 @@ running the stack and sending real mail. That is what turns the three things a
 test suite cannot reach from deferred into *runnable* — #19's iPhone push,
 #112's screen-reader pass, and the restore drill PRD §9 requires before launch.
 What #36 stays open for is the deploy automation, the nightly backup and that
-drill — the drill certainly has not happened, and the other two are answerable
-only from the droplet.
+drill — the drill certainly has not happened, **nothing in this repository
+implements the backup at all** (there is no `pg_dump` anywhere in `.github/` or
+`scripts/`), and whether `dev` deploys automatically depends on
+`STAGING_ENABLED`, which is repository configuration.
+
+**And one thing got worse rather than better the same week** (#196) — caused by
+#12's production access, not by the droplet, though the droplet is what makes
+it reachable. Production access removed the SES sandbox, so `MAIL_REDIRECT_TO`
+is now the only guard covering **every** message the product sends, it fails
+open when unset, and it lives in a `.env` no test, no CI run and no review can
+observe. #196 was closed as completed on 2026-08-28 when only its
+*documentation* had landed; a backlog audit the same day reopened it. Read it
+before sending anything from that box.
 
 **Mail is configured and sending** (#12, closed 2026-08-28): SES over SMTP in
 **production access**, verified domain `monroedigitalconsulting.com`, everything
