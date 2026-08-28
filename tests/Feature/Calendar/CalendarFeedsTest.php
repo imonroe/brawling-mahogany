@@ -299,11 +299,14 @@ it('refuses at the agency where the permission is missing, and serves at the one
      * memberships to *disagree*, which is what this fixture is for and the
      * only thing it adds.
      *
-     * That is the condition to watch, and it is why the reason is written
-     * down rather than left as *"there are two memberships now"*: moving
-     * `VIEW_CALENDAR` off the Team Member list would make the older fixture
-     * start exercising this by accident, and moving it off both would stop
-     * this one exercising it at all.
+     * That is the condition to watch, and it is narrower than two branches:
+     * `$teamOwner` **spreads** `$teamMember`, so there is only one list.
+     * Taking `VIEW_CALENDAR` out of it takes the key off both shipped roles
+     * at once, which this test would announce rather than absorb — `$permitted`
+     * would stop serving and the run would go red. Making the two roles
+     * *disagree* takes two edits (remove it there, grant it to Team Owner on
+     * its own), and that is the change that would quietly hand the older
+     * fixture a job it was not written for.
      *
      * A stager, a broker or an assistant working for two agencies is one
      * person with two memberships, and the roles are composed per team. So
