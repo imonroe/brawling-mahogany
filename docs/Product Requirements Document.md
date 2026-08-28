@@ -635,6 +635,8 @@ can be enforced by an index instead of by an application check on a string.
 | Document category | Inspection report, Disclosure, Marketing, Photo, Receipt, Correspondence, Other |
 | **Restricted (refused) categories** | Earnest money instrument, Lending packet, Bank statement, Government ID |
 | Message channel | Email, Push, SMS |
+| Extraction kind | Contract, Inspection report |
+| Extracted field type | Date, Provision, Task |
 
 ---
 

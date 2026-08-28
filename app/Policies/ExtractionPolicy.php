@@ -1,0 +1,66 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Policies;
+
+use App\Models\Deal;
+use App\Models\Extraction;
+use App\Models\Person;
+use App\Policies\Concerns\ChecksTeamPermissions;
+use App\Support\Permissions;
+
+/**
+ * Who may read a document, and who may put its dates on the calendar.
+ *
+ * Two permissions, not one, and the split is the point. Reading is
+ * `deals.manage` — starting an extraction spends the team's money and sends a
+ * document to a third party, which is not something a read-only role does.
+ * **Confirming** is `extraction.confirm`, its own key, already in the catalogue
+ * (`Permissions::CONFIRM_EXTRACTION`) since Slice 1 with the description
+ * *"Confirm an extracted date or task into the record."*
+ *
+ * That separation is what makes S66's promise operable rather than rhetorical.
+ * Screen Inventory calls it the only thing standing between a model's output
+ * and a live contingency calendar; a team that wants that decision to sit with
+ * one person can now compose a role that says so, and the ability to *start* an
+ * extraction does not carry the ability to accept what comes back.
+ *
+ * Viewing is `deals.view`, deliberately wider than either: the whole argument
+ * for the review screen is that a human looks at it, and a role that can see
+ * the deal but not the proposals cannot be asked to check anybody's work.
+ */
+class ExtractionPolicy
+{
+    use ChecksTeamPermissions;
+
+    public function viewAny(Person $person, Deal $deal): bool
+    {
+        return $this->belongsToCurrentTeam($deal)
+            && $this->allows($person, Permissions::VIEW_DEALS);
+    }
+
+    public function view(Person $person, Extraction $extraction): bool
+    {
+        return $this->belongsToCurrentTeam($extraction)
+            && $this->allows($person, Permissions::VIEW_DEALS);
+    }
+
+    public function create(Person $person, Deal $deal): bool
+    {
+        return $this->belongsToCurrentTeam($deal)
+            && $this->allows($person, Permissions::MANAGE_DEALS);
+    }
+
+    /**
+     * Accept a proposal into `key_dates`, `tasks`, or the timeline.
+     *
+     * The one action in this file with legal consequence behind it, and the
+     * only one that needs its own key.
+     */
+    public function confirm(Person $person, Extraction $extraction): bool
+    {
+        return $this->belongsToCurrentTeam($extraction)
+            && $this->allows($person, Permissions::CONFIRM_EXTRACTION);
+    }
+}

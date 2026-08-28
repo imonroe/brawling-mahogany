@@ -23,6 +23,7 @@ export type StateDomain =
     | 'automation'
     | 'delivery'
     | 'extractedField'
+    | 'extraction'
     | 'document';
 
 export interface StateDescriptor {
@@ -199,6 +200,29 @@ const extractedField: StateTable = {
     rejected: { label: 'Rejected', tone: 'neutral', clientLabel: null },
 };
 
+/**
+ * How far one attempt at reading a document got (#115 · IA §8).
+ *
+ * A different question from `extractedField` beside it, and the two are on the
+ * same screen at the same time — this one is about the *attempt*, that one
+ * about a *proposal*. Keeping them separate domains is what stops a
+ * `Needs Review` badge and a `Reading` badge sharing a vocabulary they do not
+ * share a meaning with.
+ *
+ * `blocked` is not a kind of failure and does not wear `danger`. It means a
+ * monthly spending limit stopped this before the model was called — nothing
+ * went wrong, and nothing will go right until somebody raises the limit or the
+ * month turns over (#113). Drawing it in red would send an operator looking for
+ * a broken thing that is working as designed.
+ */
+const extraction: StateTable = {
+    queued: { label: 'Queued', tone: 'neutral', clientLabel: null },
+    processing: { label: 'Reading', tone: 'info', clientLabel: null },
+    complete: { label: 'Ready to Review', tone: 'success', clientLabel: null },
+    failed: { label: 'Failed', tone: 'danger', clientLabel: null },
+    blocked: { label: 'Stopped', tone: 'warning', clientLabel: null },
+};
+
 const document: StateTable = {
     // Design System §2.4 carries exactly one document state: a file the scan
     // refused. A stored document has no badge — it is simply a document.
@@ -217,6 +241,7 @@ export const STATES: Record<StateDomain, StateTable> = {
     automation,
     delivery,
     extractedField,
+    extraction,
     document,
 };
 

@@ -1,6 +1,6 @@
 {
     "slug": "0007-rental-placement-sparse",
-    "description": "A rental placement, not a purchase. It carries no purchase-contract deadline at all, so criticalCount is zero — the case that catches a harness assuming every document has five critical dates and reporting a hundred percent miss rate on a document that has none.",
+    "description": "A rental placement, not a purchase. It carries no purchase-contract deadline at all, so criticalCount is zero — the case that catches a harness assuming every document has five critical dates and reporting a hundred percent miss rate on a document that has none. Mutual Acceptance is the execution of the lease.",
     "traits": [
         "native",
         "sparse",
@@ -18,13 +18,18 @@
             "critical": false
         },
         {
+            "label": "Lease Commencement Date",
+            "value": "2026-05-01",
+            "critical": false
+        },
+        {
             "label": "Move-In Inspection Deadline",
             "value": "2026-05-03",
             "critical": false
         },
         {
-            "label": "Lease Commencement Date",
-            "value": "2026-05-01",
+            "label": "Lease Expiration Date",
+            "value": "2027-04-30",
             "critical": false
         },
         {

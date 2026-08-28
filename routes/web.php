@@ -26,6 +26,7 @@ use App\Http\Controllers\Deals\StatusPageAccessController;
 use App\Http\Controllers\Deals\TaskController;
 use App\Http\Controllers\Deals\WorkflowAttachmentController;
 use App\Http\Controllers\Documents\DocumentController;
+use App\Http\Controllers\Extraction\DealExtractionController;
 use App\Http\Controllers\HelpController;
 use App\Http\Controllers\Messages\MessageQueueController;
 use App\Http\Controllers\Messages\MessageTemplateController;
@@ -594,6 +595,41 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('deals.dates.update');
         Route::delete('deals/{deal}/dates/{keyDate}', [DealDateController::class, 'destroy'])
             ->name('deals.dates.destroy');
+
+        /*
+         * S65, S66 and S67 — reading a document (F10.1–F10.3 · #115–#117).
+         *
+         * **One route for two screens.** Screen Inventory gives S66 (dates) and
+         * S67 (tasks) the same URL, discriminated by `extractions.kind`. Saying
+         * that here as well as in the controller is what stops somebody
+         * building two.
+         *
+         * The throttles carry a **key**, and CLAUDE.md records why in as many
+         * words: `throttle:n,m` with no third argument is one bucket for the
+         * whole application, so the effective limit anywhere is the tightest
+         * number that person touched this minute. A reviewer working down
+         * eleven dates would otherwise be refused by whatever else they had
+         * pressed.
+         *
+         * `extraction-start` is tight because each press spends money and sends
+         * a document to a third party; `extraction-review` is loose because
+         * eleven confirmations in five minutes is the *target* (PRD §12.3), not
+         * abuse.
+         */
+        Route::post('deals/{deal}/extractions', [DealExtractionController::class, 'store'])
+            ->middleware('throttle:10,1,extraction-start')
+            ->name('deals.extractions.store');
+        Route::get('deals/{deal}/extractions/{extraction}', [DealExtractionController::class, 'show'])
+            ->name('deals.extractions.show');
+        Route::post('deals/{deal}/extractions/{extraction}/fields', [DealExtractionController::class, 'accept'])
+            ->middleware('throttle:30,1,extraction-review')
+            ->name('deals.extractions.accept');
+        Route::post('deals/{deal}/extractions/{extraction}/fields/{field}', [DealExtractionController::class, 'confirm'])
+            ->middleware('throttle:120,1,extraction-review')
+            ->name('deals.extractions.confirm');
+        Route::delete('deals/{deal}/extractions/{extraction}/fields/{field}', [DealExtractionController::class, 'reject'])
+            ->middleware('throttle:120,1,extraction-review')
+            ->name('deals.extractions.reject');
 
         Route::get('deals/{deal}/tasks', [TaskController::class, 'index'])
             ->name('deals.tasks.index');

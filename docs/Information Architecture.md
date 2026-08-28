@@ -386,6 +386,22 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 
 `pending` → Needs Review · `confirmed` → Confirmed · `edited` → Edited · `rejected` → Rejected
 
+### Extraction
+
+`queued` → Queued · `processing` → Reading · `complete` → Ready to Review · `failed` → Failed · `blocked` → Stopped
+
+A different question from *Extracted field* above, and the two appear on the
+same screen at once: this one is about the **attempt**, that one about a
+**proposal**.
+
+Two of the labels are deliberate. *Reading* rather than "Processing", because
+what a person is waiting for is a document being read and Processing is what a
+progress bar says when nobody thought about it. And *Stopped* rather than
+"Blocked" or "Failed" — a monthly spending limit halted this before the model
+was called, so nothing went wrong and nothing will go right until somebody
+raises the limit or the month turns over. Calling that a failure sends an
+operator looking for a broken thing that is working as designed.
+
 ---
 
 ## 9. Client-facing language rules

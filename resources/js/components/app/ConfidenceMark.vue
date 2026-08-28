@@ -43,6 +43,18 @@
  * A null is its own band. "No confidence reported" is a fact about the
  * extraction, and drawing it as low would be inventing a number the model
  * never gave.
+ *
+ * ## The visible words are the accessible name
+ *
+ * "High confidence", read in the flow, says which vocabulary this belongs to;
+ * an `aria-label` over a bare icon would have to repeat it and could drift
+ * from what is drawn. No `role`, no pill, no background — §2.5.
+ *
+ * The commentary lives up here rather than above the template's root element
+ * for a mechanical reason worth knowing: a comment node beside the root makes
+ * the component a **fragment**, attributes stop being inherited, and
+ * `wrapper.attributes('data-slot')` reads `undefined` — which is how the test
+ * asserting this is not a badge found it.
  */
 import { Signal, SignalHigh, SignalLow, SignalMedium } from '@lucide/vue';
 import type { Component } from 'vue';
@@ -118,12 +130,6 @@ const exact = computed((): string | undefined =>
 </script>
 
 <template>
-    <!--
-        The visible words *are* the accessible name: "High confidence" read in
-        the flow says which vocabulary this belongs to, where an `aria-label`
-        over a bare icon would have to repeat it and could drift from what is
-        drawn. No `role`, no pill, no background — §2.5.
-    -->
     <span
         class="inline-flex items-center gap-1"
         data-slot="confidence-mark"

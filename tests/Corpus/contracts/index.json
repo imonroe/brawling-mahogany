@@ -1,0 +1,212 @@
+{
+    "contracts": [
+        {
+            "slug": "0001-golden-native",
+            "traits": [
+                "native",
+                "complete",
+                "money"
+            ],
+            "dateCount": 16,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0002-boulder-conventional",
+            "traits": [
+                "native",
+                "complete",
+                "money"
+            ],
+            "dateCount": 20,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0003-fort-collins-offsets",
+            "traits": [
+                "native",
+                "complete",
+                "derived-only"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0004-springs-va-loan",
+            "traits": [
+                "native",
+                "complete",
+                "synonym-wording"
+            ],
+            "dateCount": 16,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0005-littleton-two-formats",
+            "traits": [
+                "native",
+                "complete",
+                "two-date-formats"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0006-cash-purchase-sparse",
+            "traits": [
+                "native",
+                "sparse"
+            ],
+            "dateCount": 11,
+            "criticalCount": 3
+        },
+        {
+            "slug": "0007-rental-placement-sparse",
+            "traits": [
+                "native",
+                "sparse",
+                "rental"
+            ],
+            "dateCount": 6,
+            "criticalCount": 0
+        },
+        {
+            "slug": "0008-amended-closing",
+            "traits": [
+                "native",
+                "complete",
+                "handwritten-amendment",
+                "amended"
+            ],
+            "dateCount": 16,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0009-arvada-identifiers",
+            "traits": [
+                "native",
+                "complete",
+                "has-identifiers",
+                "money"
+            ],
+            "dateCount": 16,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0010-golden-ambiguous",
+            "traits": [
+                "native",
+                "complete",
+                "ambiguous-dates"
+            ],
+            "dateCount": 16,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0011-lakewood-money",
+            "traits": [
+                "native",
+                "complete",
+                "money"
+            ],
+            "dateCount": 16,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0012-pueblo-fha",
+            "traits": [
+                "native",
+                "complete",
+                "synonym-wording"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0013-scanned-aurora",
+            "traits": [
+                "scanned",
+                "complete",
+                "money"
+            ],
+            "dateCount": 16,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0014-scanned-westminster-offsets",
+            "traits": [
+                "scanned",
+                "complete",
+                "derived-only"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0015-scanned-handwritten-amendment",
+            "traits": [
+                "scanned",
+                "complete",
+                "handwritten-amendment",
+                "amended"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0016-scanned-thornton-two-formats",
+            "traits": [
+                "scanned",
+                "complete",
+                "two-date-formats"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0017-scanned-identifiers-wire",
+            "traits": [
+                "scanned",
+                "complete",
+                "has-identifiers",
+                "money"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0018-scanned-ssn-disclosure",
+            "traits": [
+                "scanned",
+                "complete",
+                "has-identifiers"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        },
+        {
+            "slug": "0019-scanned-castle-rock-sparse",
+            "traits": [
+                "scanned",
+                "sparse"
+            ],
+            "dateCount": 10,
+            "criticalCount": 3
+        },
+        {
+            "slug": "0020-scanned-greeley-offsets-ambiguous",
+            "traits": [
+                "scanned",
+                "complete",
+                "derived-only",
+                "ambiguous-dates"
+            ],
+            "dateCount": 15,
+            "criticalCount": 5
+        }
+    ],
+    "totals": {
+        "contracts": 20,
+        "dates": 294,
+        "criticalDates": 91
+    }
+}

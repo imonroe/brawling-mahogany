@@ -1,6 +1,6 @@
 {
     "slug": "0020-scanned-greeley-offsets-ambiguous",
-    "description": "The worst case the corpus holds: OCR noise over a table that states its deadlines as offsets from MEC, with two of them also stated in words in the prose and one offset written with a damaged digit. If a harness scores well here and badly on a real contract, the difference is the noise model, not the reading.",
+    "description": "The worst case the corpus holds: OCR noise over a table that states its deadlines as offsets from MEC, two of them restated in words in the prose, and one offset whose digit has been read back as a lowercase letter (MEC + l3 days) — recoverable by a person and not by a strict parser. If a harness scores well here and badly on a real contract, the difference is the noise model, not the reading.",
     "traits": [
         "scanned",
         "complete",

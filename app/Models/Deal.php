@@ -348,6 +348,20 @@ class Deal extends Model
     }
 
     /**
+     * Every attempt at reading a document on this deal (#115).
+     *
+     * Here so `Route::scopeBindings()` can hold `/deals/{deal}/extractions/{extraction}`
+     * to this deal — which is the layer that refuses the team's *other* deal's
+     * extraction, a case the team scope alone happily allows.
+     *
+     * @return HasMany<Extraction, $this>
+     */
+    public function extractions(): HasMany
+    {
+        return $this->hasMany(Extraction::class);
+    }
+
+    /**
      * @return HasMany<Task, $this>
      */
     public function tasks(): HasMany

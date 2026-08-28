@@ -174,6 +174,7 @@ const DOMAINS: Array<{
         ia: 'Extracted field',
         designSystem: 'Extracted field',
     },
+    { domain: 'extraction', ia: 'Extraction', designSystem: 'Extraction' },
 ];
 
 describe('the state table matches the documents', () => {
