@@ -375,8 +375,27 @@ final class ReadProposals
         }
 
         foreach (['Y-n-j', 'n/j/Y', 'm/d/Y', 'F j, Y', 'j F Y', 'M j, Y'] as $format) {
-            $parsed = CarbonImmutable::createFromFormat($format, $value);
+            try {
+                $parsed = CarbonImmutable::createFromFormat($format, $value);
+            } catch (Throwable) {
+                /*
+                 * Carbon 3 **throws** on a value that does not match, where
+                 * Carbon 2 returned false. Both are handled, because the
+                 * difference is a fatal in a queue worker on the ordinary
+                 * input — a model that wrote "ten days after closing" — and
+                 * the failure would surface as a stack trace where a proposal
+                 * should be.
+                 */
+                continue;
+            }
 
+            /*
+             * Round-tripped, not merely parsed. `createFromFormat` is lenient
+             * about overflow: `2026-13-45` parses to a real day in 2027, which
+             * would put a confident-looking date on the review screen that is
+             * nowhere in the contract. Re-formatting and comparing is what
+             * refuses it.
+             */
             if ($parsed !== false && $parsed->format($format) === $value) {
                 return $parsed->format('Y-m-d');
             }

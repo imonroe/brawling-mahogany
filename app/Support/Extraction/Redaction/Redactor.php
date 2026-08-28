@@ -59,11 +59,33 @@ final class Redactor
      * Wide enough to cross `Account\nNumber:` and a table cell boundary,
      * narrow enough that the word "account" in the previous paragraph does not
      * claim a number two sentences later.
+     *
+     * Measured against the corpus (#14), in both directions, and the number is
+     * a compromise the corpus itself settled.
+     *
+     * Narrowing it to 32 fixed an *Account Number* caption that was claiming an
+     * escrow file reference two lines down — and broke a wire instruction where
+     * the caption is wrapped: `Routing\n    Number  . . . . .  987654321` puts
+     * the word "Routing" 34 characters back, so a 32-character window began
+     * mid-word and matched nothing. **A guardrail that fails the wire
+     * instruction is the guardrail failing the one document it was written
+     * about.**
+     *
+     * So the window stays wide and the *paragraph break* does the narrowing
+     * instead — see {@see self::hasLabelNear()}. That is the rule that actually
+     * describes what a caption reaches: the block it is in.
      */
     private const LABEL_WINDOW = 48;
 
     /**
      * Words that make a nearby number an identifier rather than a quantity.
+     *
+     * **Matched on word boundaries, not as substrings**, and the corpus is why
+     * (#14). `tin` — for taxpayer identification number — is inside `lighting`,
+     * `listing` and `existing`, and every Colorado contract has an inclusions
+     * clause. A schedule number beside the word `lighting` was being masked as
+     * a government ID, which is exactly the *"damage to extractable content"*
+     * #114 asks the corpus to measure.
      *
      * @var array<string, list<string>>
      */
@@ -173,19 +195,30 @@ final class Redactor
     }
 
     /**
-     * A payment card number: 13 to 19 digits that satisfy Luhn.
+     * A payment card number: a card-shaped run of digits that satisfies Luhn.
      *
      * The one rule here that fires without a label, because Luhn is a real
-     * check rather than a shape: a random run of sixteen digits passes it one
-     * time in ten, and a *contract* has very few sixteen-digit runs to begin
-     * with. {@see self::isProtected()} still gets the veto, because the digits
-     * of `$1,250,000.00` with the punctuation stripped are exactly the kind of
-     * thing that would otherwise get through on a coincidence.
+     * check rather than a shape.
+     *
+     * ## What the corpus corrected (#14)
+     *
+     * The first version took any 13-to-19 digit run that passed Luhn, and a
+     * Colorado county **schedule number** — `6318-04-031-0310` — is thirteen
+     * digits and passes it. That defeated this class's own argument: the
+     * docblock above says words are what tell a parcel number from a card, and
+     * then this rule ignored words entirely on a shape a parcel number has.
+     *
+     * So the shape is narrowed to the ones cards actually take: 15, 16 or 19
+     * digits, either contiguous or grouped in fours. A schedule number grouped
+     * 4-2-3-4 no longer matches, and neither does a thirteen-digit anything.
+     * The residual risk is a genuine 13- or 14-digit card written without
+     * grouping, which is a card format effectively out of use — and one the
+     * labelled `account_number` rule still catches when it is captioned.
      */
     private function maskCardNumbers(string $text, array &$counts): string
     {
         return $this->replace(
-            '/\b(?:\d[ -]?){12,18}\d\b/u',
+            '/\b(?:\d{4}[ -]){3}\d{3,4}\b|\b\d{15,16}\b|\b\d{19}\b/u',
             $text,
             'card_number',
             $counts,
@@ -254,6 +287,16 @@ final class Redactor
     }
 
     /**
+     * Is one of these captions close enough to claim this number?
+     *
+     * Two narrowings the corpus argued for, both of them cases where a caption
+     * reached something it had no business reaching:
+     *
+     * - **The window stops at a blank line.** A caption belongs to the block it
+     *   is in. Reaching across a paragraph break is how an *Account Number*
+     *   heading claimed the escrow file reference in the next clause.
+     * - **The match is on word boundaries.** See {@see self::LABELS}.
+     *
      * @param  list<string>  $labels
      */
     private function hasLabelNear(string $subject, int $offset, int $length, array $labels): bool
@@ -262,13 +305,35 @@ final class Redactor
         $before = mb_strtolower(mb_substr($subject, $start, $offset - $start));
         $after = mb_strtolower(mb_substr($subject, $offset + $length, self::LABEL_WINDOW));
 
+        // Keep only the side of a paragraph break the candidate is on.
+        $before = (string) preg_replace('/^.*\R\s*\R/su', '', $before);
+        $after = (string) preg_replace('/\R\s*\R.*$/su', '', $after);
+
         foreach ($labels as $label) {
-            if (str_contains($before, $label) || str_contains($after, $label)) {
+            if ($this->contains($before, $label) || $this->contains($after, $label)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * A whole-word match, tolerant of a label that ends in punctuation.
+     *
+     * `\b` after `account #` would never fire, because `#` is not a word
+     * character and there is no boundary between it and a space. So the
+     * trailing boundary is only asserted when the label ends in one.
+     */
+    private function contains(string $haystack, string $label): bool
+    {
+        $pattern = '/\b'.preg_quote($label, '/');
+
+        if (preg_match('/[a-z0-9]$/', $label) === 1) {
+            $pattern .= '\b';
+        }
+
+        return preg_match($pattern.'/u', $haystack) === 1;
     }
 
     /**

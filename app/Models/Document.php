@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Carbon;
 
@@ -104,5 +105,20 @@ class Document extends Model
     public function uploader(): BelongsTo
     {
         return $this->belongsTo(Person::class, 'uploaded_by');
+    }
+
+    /**
+     * Every attempt at reading this document (#115).
+     *
+     * `hasMany` rather than `hasOne`, even though the documents list only ever
+     * draws the latest: PRD §6.2 is explicit that `extractions` is **one row
+     * per attempt**, and a `hasOne` would quietly make a retry look like an
+     * overwrite of the thing it was retrying.
+     *
+     * @return HasMany<Extraction, $this>
+     */
+    public function extractions(): HasMany
+    {
+        return $this->hasMany(Extraction::class)->latest('created_at')->latest('id');
     }
 }

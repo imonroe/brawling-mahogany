@@ -209,7 +209,7 @@ final class ExtractionHistory
 
         $outcomes = $this->outcomesByVersion();
 
-        return $attempts->map(function (object $row) use ($outcomes): array {
+        return array_values($attempts->map(function (object $row) use ($outcomes): array {
             $key = $this->versionKey(
                 $this->text($row->model),
                 $this->text($row->model_version),
@@ -237,7 +237,7 @@ final class ExtractionHistory
                 'confirmedWithoutEdit' => $this->rate($outcome['confirmed'], $outcome['reviewed']),
                 'lastUsedAt' => $this->instant($row->last_used),
             ];
-        })->all();
+        })->all());
     }
 
     /**
@@ -260,7 +260,7 @@ final class ExtractionHistory
 
         $total = (clone $query)->count();
 
-        $rows = $query
+        $rows = array_values($query
             ->with(['extraction.deal', 'extraction.document', 'reviewer'])
             ->latest('reviewed_at')
             ->limit(self::EDIT_LIMIT)
@@ -289,7 +289,7 @@ final class ExtractionHistory
                 'model' => $field->extraction->model,
                 'url' => $this->reviewUrl($field->extraction),
             ])
-            ->all();
+            ->all());
 
         return ['rows' => $rows, 'total' => $total];
     }
@@ -310,7 +310,7 @@ final class ExtractionHistory
     {
         $total = Extraction::query()->count();
 
-        $rows = Extraction::query()
+        $rows = array_values(Extraction::query()
             ->with(['deal', 'document', 'requestedBy'])
             /*
              * Counted in the same statement as the rows, which is the whole
@@ -347,7 +347,7 @@ final class ExtractionHistory
                 'error' => $extraction->error,
                 'url' => $this->reviewUrl($extraction),
             ])
-            ->all();
+            ->all());
 
         return ['rows' => $rows, 'total' => $total];
     }
@@ -359,7 +359,6 @@ final class ExtractionHistory
      */
     private function confirmedWithoutEdit(): array
     {
-        /** @var \Illuminate\Support\Collection<string, int> $counts */
         $counts = ExtractedField::query()
             ->where('field_type', ExtractedFieldType::KeyDate->value)
             ->toBase()

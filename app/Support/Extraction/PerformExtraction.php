@@ -71,20 +71,30 @@ final class PerformExtraction
         try {
             $this->run($extraction, $team);
         } catch (ProviderFailed $failure) {
-            $this->fail($extraction, $team, $failure->reasonCode, $failure->getMessage());
-
             if ($failure->isRetryable) {
                 /*
-                 * Back to `queued` and re-thrown, so the queue's own attempts
-                 * do the retrying. The row keeps the error in the meantime,
-                 * which is what S65 shows while the next attempt is pending —
-                 * a screen saying nothing during a provider outage is the same
-                 * screen as one saying nothing during a bug.
+                 * Back to `queued` and re-thrown, so the queue's own four
+                 * attempts do the retrying.
+                 *
+                 * **No notification here**, and that is the whole reason this
+                 * branch is separate. Telling the team on every attempt would
+                 * send four emails about one provider blip, which is how a
+                 * notification type earns a filter rule and stops being read.
+                 * The row keeps the error so S65 can say what is happening
+                 * while the next attempt is pending, and the team is told once
+                 * — by `RunDocumentExtraction::failed()`, when the attempts are
+                 * actually exhausted.
                  */
-                $extraction->forceFill(['state' => ExtractionState::Queued->value])->save();
+                $extraction->forceFill([
+                    'state' => ExtractionState::Queued->value,
+                    'error' => $failure->getMessage(),
+                    'error_code' => $failure->reasonCode,
+                ])->save();
 
                 throw $failure;
             }
+
+            $this->fail($extraction, $team, $failure->reasonCode, $failure->getMessage());
         } catch (RedactionFailed $failure) {
             /*
              * Nothing left. `Redactor` throws rather than returning what it
@@ -254,7 +264,14 @@ final class PerformExtraction
         );
     }
 
-    private function fail(Extraction $extraction, Team $team, string $code, string $message): void
+    /**
+     * Record a permanent failure and tell the people who can act on it.
+     *
+     * Public because `RunDocumentExtraction::failed()` calls it: a retryable
+     * failure is recorded but not announced until the queue has given up, and
+     * the only place that knows the attempts are exhausted is the job.
+     */
+    public function fail(Extraction $extraction, Team $team, string $code, string $message): void
     {
         $extraction->forceFill([
             'state' => ExtractionState::Failed->value,

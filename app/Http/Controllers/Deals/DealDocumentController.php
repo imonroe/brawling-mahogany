@@ -9,12 +9,16 @@ use App\Enums\DocumentVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\Document;
+use App\Models\Extraction;
 use App\Models\Person;
 use App\Support\Audit\AuditLogger;
 use App\Support\Deals\DealHeader;
 use App\Support\Documents\DocumentStorage;
 use App\Support\Documents\RefusedDocument;
 use App\Support\Documents\UnsupportedDocument;
+use App\Support\Extraction\Money;
+use App\Support\Extraction\ProviderManager;
+use App\Support\Extraction\SpendLedger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -47,14 +51,25 @@ use Symfony\Component\HttpFoundation\HeaderUtils;
  */
 class DealDocumentController extends Controller
 {
-    public function index(Deal $deal): Response
+    public function index(Deal $deal, ProviderManager $providers, SpendLedger $ledger): Response
     {
         $this->authorize('view', $deal);
 
         $documents = Document::query()
             ->where('documentable_type', $deal->getMorphClass())
             ->where('documentable_id', $deal->getKey())
-            ->with('uploader')
+            ->with([
+                'uploader',
+                /*
+                 * The **latest** attempt only, and its fields, because the row
+                 * needs a pending count. An eager-load is a claim that a row
+                 * needs the relation, and this one is true of every row on the
+                 * screen: each document either has an extraction to link to or
+                 * has none, and finding out per row is a query per document.
+                 */
+                'extractions' => fn ($query) => $query->latest('created_at')->latest('id')->limit(1),
+                'extractions.fields',
+            ])
             ->latest('created_at')
             /*
              * `created_at` is `timestamp(0)`, so a bulk upload shares a second
@@ -80,8 +95,16 @@ class DealDocumentController extends Controller
              * screen until they have read it.
              */
             'refusal' => session('refusal'),
+            /*
+             * S65's dialog needs three things a document row cannot carry: is
+             * extraction switched on at all, what has this team spent, and when
+             * does that reset. All three are facts about the *team*, so they are
+             * shipped once rather than repeated on every row.
+             */
+            'extract' => self::extractProps($deal, $providers, $ledger),
             'can' => [
                 'upload' => $deal->exists && request()->user()?->can('update', $deal),
+                'extract' => request()->user()?->can('create', [Extraction::class, $deal]) ?? false,
             ],
         ]);
     }
@@ -290,6 +313,79 @@ class DealDocumentController extends Controller
              * photograph of a cheque would be believed.
              */
             'scanState' => $document->scan_state,
+            /*
+             * S65's entry point, and what the row says about it (#115).
+             *
+             * `null` means nothing has been read from this document. Anything
+             * else is the most recent attempt, so the row can offer *Review*
+             * rather than *Extract* once there is something to look at — and so
+             * a second press cannot queue a second read of the same file while
+             * the first is still running.
+             */
+            'extraction' => self::extractionRow($document),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function extractProps(Deal $deal, ProviderManager $providers, SpendLedger $ledger): array
+    {
+        $decision = $ledger->decide($deal->team);
+        $available = $providers->isAvailable();
+
+        return [
+            'available' => $available,
+            /*
+             * Two reasons a person can meet, and they need different sentences.
+             * *Not switched on* is an installation that has never had a
+             * provider — PRD §10's four preconditions, which are not code. *Cap
+             * reached* is a team that has spent its month. Collapsing them into
+             * "unavailable" would send somebody to their owner about a limit
+             * their owner cannot move, or to a vendor about a limit they can.
+             */
+            'unavailableReason' => match (true) {
+                ! $available => 'Reading documents is not switched on for this installation yet.',
+                ! $decision->allowed => $decision->message,
+                default => null,
+            },
+            'spend' => [
+                'used' => Money::words($decision->spentMicros),
+                'cap' => Money::words($decision->capMicros),
+                'percent' => $decision->percentUsed(),
+                'warn' => $decision->shouldWarn,
+                /*
+                 * UTC, and the screen says so. Every other date in this product
+                 * is in the team's timezone; a spend cap cannot be, because a
+                 * platform-wide ceiling that rolled over at thirty different
+                 * instants would not be a ceiling. See `SpendLedger`.
+                 */
+                'resetsAt' => $ledger->resetsAt()->toIso8601String(),
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function extractionRow(Document $document): ?array
+    {
+        $extraction = $document->relationLoaded('extractions')
+            ? $document->extractions->first()
+            : null;
+
+        if (! $extraction instanceof Extraction) {
+            return null;
+        }
+
+        return [
+            'id' => $extraction->getKey(),
+            'state' => $extraction->state->value,
+            'kind' => $extraction->kind->value,
+            'url' => "/deals/{$extraction->deal_id}/extractions/{$extraction->getKey()}",
+            'pending' => $extraction->fields->filter(
+                static fn ($field): bool => $field->isPending(),
+            )->count(),
         ];
     }
 }

@@ -73,7 +73,18 @@ function render(overrides: Record<string, unknown> = {}) {
             },
             maxBytes: 15 * 1024 * 1024,
             refusal: null,
-            can: { upload: true },
+            extract: {
+                available: true,
+                unavailableReason: null,
+                spend: {
+                    used: '$4.80',
+                    cap: '$50.00',
+                    percent: 10,
+                    warn: false,
+                    resetsAt: '2026-09-01T00:00:00+00:00',
+                },
+            },
+            can: { upload: true, extract: true },
             ...overrides,
         },
         global: {

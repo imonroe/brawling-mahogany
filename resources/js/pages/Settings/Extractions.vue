@@ -63,7 +63,7 @@ import type { Tone } from '@/lib/states';
 
 type Verdict = boolean | null;
 
-export type TargetRow = {
+type TargetRow = {
     label: string;
     /** The measured figure, already in words. Null when nothing is measurable. */
     value: string | null;
@@ -408,16 +408,18 @@ function versionName(version: (typeof props.versions)[number]): string {
                 </dl>
 
                 <p :class="['text-xs', 'text-muted-foreground']">
-                    <template v-if="edit.dealName">{{ edit.dealName }} · </template>
+                    <template v-if="edit.dealName"
+                        >{{ edit.dealName }} ·
+                    </template>
                     <template v-if="edit.reviewedByName"
-                        >{{ edit.reviewedByName }} · </template
-                    >
+                        >{{ edit.reviewedByName }} ·
+                    </template>
                     <template v-if="edit.reviewedAt"
-                        >{{ formatDateTime(edit.reviewedAt) }} · </template
-                    >
+                        >{{ formatDateTime(edit.reviewedAt) }} ·
+                    </template>
                     <template v-if="edit.sourcePage"
-                        >page {{ edit.sourcePage }} · </template
-                    >
+                        >page {{ edit.sourcePage }} ·
+                    </template>
                     {{ edit.promptVersion ?? 'no prompt version recorded' }}
                 </p>
 
@@ -491,8 +493,15 @@ function versionName(version: (typeof props.versions)[number]): string {
                     roll over part-way through your last day.
                 </p>
 
+                <!--
+                    All time, and it says so. The card is titled "This month"
+                    and this is the one line in it that is not — a total
+                    sitting unlabelled under a monthly figure would be read as
+                    the month's.
+                -->
                 <p :class="['text-xs', 'text-muted-foreground']">
-                    {{ scorecard.costPerDeal.total }} spent in total, across
+                    {{ scorecard.costPerDeal.total }} spent since this team
+                    started extracting, across
                     {{ formatCount(scorecard.costPerDeal.deals, 'deal') }}.
                 </p>
             </div>
@@ -544,7 +553,9 @@ function versionName(version: (typeof props.versions)[number]): string {
 
                 <p :class="['text-xs', 'text-muted-foreground']">
                     {{ formatCount(version.attempts, 'extraction') }}
-                    <template v-if="version.cost"> · {{ version.cost }}</template>
+                    <template v-if="version.cost">
+                        · {{ version.cost }}</template
+                    >
                     <template v-if="version.lastUsedAt">
                         · last used {{ formatDateTime(version.lastUsedAt) }}
                     </template>
@@ -595,7 +606,9 @@ function versionName(version: (typeof props.versions)[number]): string {
                         was free", which is a different claim from "nothing has
                         been charged for this yet".
                     -->
-                    <template v-if="attempt.cost"> · {{ attempt.cost }}</template>
+                    <template v-if="attempt.cost">
+                        · {{ attempt.cost }}</template
+                    >
                 </p>
 
                 <p :class="['text-xs', 'text-muted-foreground']">

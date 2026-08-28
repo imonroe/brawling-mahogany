@@ -19,6 +19,7 @@ use App\Support\Dates\SaveKeyDate;
 use App\Support\Deals\DealTasks;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * The one door from a proposal into the record (PRD §6.2, §7.16 · #116, #117).
@@ -358,8 +359,19 @@ final class ConfirmExtractedField
             return null;
         }
 
-        $parsed = CarbonImmutable::createFromFormat('Y-m-d', $value);
+        try {
+            $parsed = CarbonImmutable::createFromFormat('Y-m-d', $value);
+        } catch (Throwable) {
+            // Carbon 3 throws where Carbon 2 returned false. See `ReadProposals`.
+            return null;
+        }
 
+        /*
+         * Round-tripped rather than merely parsed: `createFromFormat` reads
+         * `2026-13-45` as a real day in 2027, and the shape passes the regex
+         * above. A date nobody wrote landing on a contingency calendar is
+         * exactly the failure F10.2 exists to prevent.
+         */
         return $parsed !== false && $parsed->format('Y-m-d') === $value ? $value : null;
     }
 }
