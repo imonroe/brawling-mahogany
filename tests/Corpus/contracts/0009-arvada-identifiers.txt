@@ -55,8 +55,8 @@ printed on this page to confirm before sending funds.
 
     Beneficiary Bank: Clear Creek Valley Bank, Arvada, Colorado
     Routing Number (ABA): 123456789
-    Account Number: 0004567891
     Beneficiary Name: Ralston Creek Title and Escrow LLC, Trust Account
+    Account Number: 0004567891
     Reference: File 2026-08814, Robb Court
 
 5. FINANCING CONDITIONS AND OBLIGATIONS. Buyer will apply for a conventional

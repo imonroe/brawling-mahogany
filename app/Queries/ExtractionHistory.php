@@ -269,6 +269,14 @@ final class ExtractionHistory
                 'id' => $field->getKey(),
                 'label' => $field->label,
                 'fieldTypeLabel' => $field->field_type->label(),
+                /*
+                 * Every row in this list is `edited` by construction, and the
+                 * badge is still drawn from the row rather than hard-coded.
+                 * A literal in the template is a second statement of the
+                 * query's `where`, and the day the list widens to carry
+                 * rejections the badge is the half nobody remembers.
+                 */
+                'reviewState' => $field->review_state->value,
                 'proposedValue' => $field->proposed_value,
                 'finalValue' => $field->final_value,
                 'confidence' => $field->confidenceValue(),

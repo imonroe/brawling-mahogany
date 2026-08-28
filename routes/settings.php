@@ -6,6 +6,7 @@ use App\Http\Controllers\Notifications\NotificationPreferenceController;
 use App\Http\Controllers\Push\PushSubscriptionController;
 use App\Http\Controllers\Settings\DataExportController;
 use App\Http\Controllers\Settings\DealTypeController;
+use App\Http\Controllers\Settings\ExtractionHistoryController;
 use App\Http\Controllers\Settings\MemberController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
@@ -105,6 +106,20 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
      */
     Route::get('settings/sending', [SendSafetyController::class, 'edit'])->name('team.send-safety.edit');
     Route::patch('settings/sending', [SendSafetyController::class, 'update'])->name('team.send-safety.update');
+
+    /*
+     * S68 — extraction history (#118).
+     *
+     * Under Sending rather than beside Deal types, because it is the second
+     * screen in Settings that reports on **spend and what left the building**
+     * — and, like Sending, it is opened because a question has been asked
+     * rather than because something needs configuring. There is no `POST` of
+     * any kind: everything on it is a read, and a settings screen that could
+     * re-run a model would be a way to spend the team's money from the page
+     * that exists to report what has been spent.
+     */
+    Route::get('settings/extractions', [ExtractionHistoryController::class, 'index'])
+        ->name('extractions.index');
 
     // S79 — team data export.
     /*

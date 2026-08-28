@@ -562,3 +562,134 @@ describe('the per-field writes', () => {
         }
     });
 });
+
+/**
+ * S65 — the disclosure, which is a compliance control and not a nicety.
+ *
+ * PRD §4.10's danger note (*"F10.5 narrows the exposure. It does not
+ * eliminate it"*) and §14.3 (*"do not let marketing copy claim more than
+ * section 8.4 actually delivers"*) are the two sentences this dialog has to
+ * survive. So this block asserts both directions: that the mechanism is named
+ * plainly, **and** that the reassuring words nobody is entitled to use are
+ * absent. A test for only the first would pass over "sent securely and
+ * anonymously to our AI partner", which is the failure that matters.
+ */
+describe('S65 — what leaves the account, said plainly', () => {
+    async function dialog(overrides: Record<string, unknown> = {}) {
+        const ExtractDocumentDialog = (
+            await import('@/components/app/ExtractDocumentDialog.vue')
+        ).default;
+
+        return mount(ExtractDocumentDialog, {
+            props: {
+                open: true,
+                documentId: 'doc-1',
+                documentName: 'Executed contract.pdf',
+                dealUrl: '/deals/deal-1',
+                available: true,
+                unavailableReason: null,
+                spend: {
+                    used: '$4.80',
+                    cap: '$25.00',
+                    percent: 19,
+                    warn: false,
+                    resetsAt: 'Sep 1',
+                },
+                ...overrides,
+            },
+            global: {
+                // The shadcn dialog teleports to `body`; unstubbed, every
+                // assertion below would pass by looking at nothing.
+                stubs: {
+                    Dialog: { template: '<div><slot /></div>' },
+                    DialogContent: { template: '<div><slot /></div>' },
+                    DialogHeader: { template: '<div><slot /></div>' },
+                    DialogFooter: { template: '<div><slot /></div>' },
+                    DialogTitle: { template: '<h2><slot /></h2>' },
+                    DialogDescription: { template: '<p><slot /></p>' },
+                },
+            },
+        });
+    }
+
+    it('names the mechanism rather than describing a safeguard', async () => {
+        const text = (await dialog()).text().toLowerCase();
+
+        expect(text).toContain('leave your account');
+        expect(text).toContain('masked');
+        expect(text).toContain('outside model');
+    });
+
+    it('does not claim more than F10.5 delivers', async () => {
+        const text = (await dialog()).text().toLowerCase();
+
+        // The exposure is narrowed, not removed, and the copy has to say the
+        // second thing rather than the first.
+        expect(text).toMatch(/does not remove it|not remove/);
+
+        for (const overclaim of [
+            'anonymis',
+            'anonymiz',
+            'never leaves',
+            'completely secure',
+            'fully redacted',
+        ]) {
+            expect(text, overclaim).not.toContain(overclaim);
+        }
+    });
+
+    it('carries the spend position as a state rather than a footnote', async () => {
+        const near = await dialog({
+            spend: {
+                used: '$23.10',
+                cap: '$25.00',
+                percent: 92,
+                warn: true,
+                resetsAt: 'Sep 1',
+            },
+        });
+
+        expect(near.find('[data-slot="extraction-spend"]').text()).toContain(
+            '$23.10 of $25.00',
+        );
+        expect(near.text().toLowerCase()).toContain('close to the cap');
+    });
+
+    it('says why, rather than only disabling, when extraction is unavailable', async () => {
+        const wrapper = await dialog({
+            available: false,
+            unavailableReason:
+                'No extraction provider is configured for this environment.',
+        });
+
+        expect(
+            wrapper.find('[data-slot="extraction-unavailable"]').text(),
+        ).toBe('No extraction provider is configured for this environment.');
+
+        const start = wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Extract');
+
+        expect(start?.attributes('disabled')).toBeDefined();
+    });
+
+    it('starts nothing until the button is pressed, and posts the chosen kind', async () => {
+        const wrapper = await dialog();
+
+        expect(post).not.toHaveBeenCalled();
+
+        await wrapper.findAll('input[type="radio"]')[1].setValue();
+        await wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Extract')
+            ?.trigger('click');
+
+        expect(post).toHaveBeenCalledWith(
+            '/deals/deal-1/extractions',
+            expect.objectContaining({
+                documentId: 'doc-1',
+                kind: 'inspection',
+            }),
+        );
+    });
+});

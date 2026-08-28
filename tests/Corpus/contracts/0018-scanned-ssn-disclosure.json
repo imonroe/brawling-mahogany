@@ -1,13 +1,13 @@
 {
     "slug": "0018-scanned-ssn-disclosure",
-    "description": "Carries a labelled social security number on an attached seller certification, read back with OCR noise. The government_id rule should take it and nothing else on the page; the parcel number and the MLS reference beside it are nine-digit runs that must survive.",
+    "description": "Carries a labelled social security number on an attached seller certification, read back with OCR noise. The social_security_number rule should take it and nothing else on the page; the parcel number and the MLS reference beside it are nine-digit runs that must survive.",
     "traits": [
         "scanned",
         "complete",
         "has-identifiers"
     ],
     "identifiers": [
-        "government_id"
+        "social_security_number"
     ],
     "dates": [
         {

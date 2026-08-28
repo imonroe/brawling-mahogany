@@ -50,10 +50,55 @@ the container which uses them transparently."*
 | `SES_SNS_TOPIC_ARN` | empty | empty | the staging topic | the production topic — **required**, see below |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
-| `AI_API_KEY` | unset | unset | **separate key, own budget cap** | real, production cap |
+| `EXTRACTION_DRIVER` | `null` — refuses | `null` | `anthropic`, once §10's four exist | `anthropic` |
+| `ANTHROPIC_API_KEY` | unset | unset | **separate key, own budget cap** | real, production cap |
+| `EXTRACTION_*_MONTHLY_CAP` | the defaults | the defaults | **lower than production's** | the commercial number |
 | `VAPID_*` | generated locally | unset | real | real |
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
 | `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
+
+### The extraction driver defaults to refusing, and that is the control
+
+`EXTRACTION_DRIVER=null` refuses every call and says why. It is the default in
+`config/extraction.php` and in `.env.example`, and it should stay the default
+in every environment that has not deliberately been switched on.
+
+The reason is PRD §10, which lists four things that must exist before F10 ships
+— a signed data processing agreement, a provider contractually barred from
+training on submitted content, a retention position, and disclosure language in
+the team's own listing agreement (#13). **None of them is a code change, and
+none of them can be checked from inside the application.** A default that
+reached a live provider would make the absence of that decision into a
+decision: somebody's contract goes to a third party because a key was never
+set.
+
+Note the direction, because it is the opposite of `MAIL_REDIRECT_TO`'s and the
+contrast is instructive. That one **fails open** — unset means every message
+reaches real people, and #196 is open about how expensive that is. This one
+fails closed: unset means nothing leaves, and the failure is a screen telling
+somebody the feature is not switched on. The cheap failure got the loud
+behaviour, which is the arrangement #196 says the mail guardrail should have
+had.
+
+### The staging key is a different key with a lower cap, not the same key
+
+PRD §8.6 asks staging to run *"a separate AI provider key with its own budget
+cap"*, and there are two caps to set rather than one:
+
+- The **provider's own** cap, set in the provider's console against the staging
+  key. This is the one that holds when the application is wrong.
+- `EXTRACTION_TEAM_MONTHLY_CAP` and `EXTRACTION_PLATFORM_MONTHLY_CAP`, which
+  are the application's own ceilings.
+
+Set both. The application's cap is the one a person meets, with a sentence and
+a screen; the provider's is the one that holds if the application's is
+misconfigured or bypassed — and a staging environment exists precisely to be
+the place where something is misconfigured.
+
+The values are in **micros** — millionths of a dollar — which is the unit
+`extractions.cost_micros` uses, because a page of contract costs a fraction of
+a cent and a cap in cents cannot express the figures it caps. `50000000` is
+$50.
 
 ### `VAPID_*` is generated once and never rotated
 
@@ -431,12 +476,19 @@ work. Do not reverse these.
 There is no re-encryption step and nothing to migrate, so unlike `APP_KEY` this
 one has no reason to wait for a scheduled window.
 
-### SES, Spaces, Sentry, AI provider
+### SES, Spaces, Sentry, the extraction provider
 
 Create the new credential alongside the old one, update `.env`, restart,
 confirm traffic on the new credential, then revoke the old one. Never revoke
 first: a revoked SES credential means client email stops, and client email
 stopping is the failure this product exists to prevent.
+
+The extraction key is the one exception to the "never revoke first" rule, and
+only in one direction: if a key is believed compromised, setting
+`EXTRACTION_DRIVER=null` stops every call immediately and costs nothing but the
+feature. Documents stay where they are, dates already confirmed stay confirmed,
+and somebody meets a sentence saying reading is not switched on. That is a
+much better failure than any of the others on this page.
 
 ### After any rotation
 

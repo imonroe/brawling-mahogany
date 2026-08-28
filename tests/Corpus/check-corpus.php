@@ -92,7 +92,7 @@ const CANONICAL_LABELS = [
 ];
 
 /** The rule keys `App\Support\Extraction\Redaction\Redactor` actually has. */
-const REDACTION_RULES = ['routing_number', 'account_number', 'government_id', 'card_number'];
+const REDACTION_RULES = ['routing_number', 'account_number', 'government_id', 'social_security_number', 'card_number'];
 
 /**
  * How many fixtures carry a financial identifier, exactly.
