@@ -22,8 +22,11 @@ version: 1.0
 > What is **not** yet confirmed on that box, and is what #36 stays open for:
 > whether the deploy workflow is actually driving it (it is inert until the
 > repository variable `STAGING_ENABLED` is set to `true`, so the droplet may be
-> being updated by hand), whether the nightly backup runs, and the restore
-> drill, which has not been performed.
+> being updated by hand), the nightly backup — which is not merely unconfirmed
+> but **unbuilt**, see §4 — and the restore drill, which has not been
+> performed. The drill does not strictly wait on the backup job: a manual
+> `pg_dump` gives it something to restore from, and running it that way would
+> at least establish the RTO.
 >
 > One consequence of the SES account reaching production access is called out in
 > §4a: **the SES sandbox is no longer the backstop it was**, leaving
@@ -206,7 +209,15 @@ every boot until Let's Encrypt rate-limits the domain.
 
 ## 4. Backups
 
-PRD §9: nightly, 30-day retention, **offsite**. RPO 24 hours, RTO 4 hours.
+> [!warning] This section is a specification, not a description
+> **Nothing in this repository implements any of it.** There is no `pg_dump`
+> in `.github/` or `scripts/`, no backup service in any compose file, and no
+> scheduled job. A backlog audit on 2026-08-28 found this section written in
+> the present tense, which reads as though the mechanism exists and only needs
+> switching on. It does not exist. Tracked in #36.
+
+PRD §9: nightly, 30-day retention, **offsite**. RPO 24 hours, RTO 4 hours. What
+that requires, once somebody builds it:
 
 - `pg_dump` nightly, compressed, encrypted at rest, written to object storage
   in a different region from the droplet.
@@ -451,7 +462,7 @@ The remainder — the parts that need a decision or another account:
 - [ ] Repository variable `STAGING_ENABLED=true`
 - [ ] Repository variable `UPTIME_STAGING_URL` (and `UPTIME_PRODUCTION_URL` at launch), which turn the uptime workflow on — note these are variables, while `STAGING_URL` is a secret
 - [ ] `SES_SNS_TOPIC_ARN` set, with the SNS topic and its subscription created — `POST /webhooks/ses` refuses everything while it is empty, so bounces go unrecorded and suppression never fires (#95)
-- [ ] Nightly backup job and its offsite target
+- [ ] Nightly backup job and its offsite target — **not built; nothing in this repository implements it** (§4)
 - [ ] Restore drill performed and its duration recorded
 
 ---

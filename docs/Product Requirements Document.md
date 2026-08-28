@@ -1120,6 +1120,6 @@ Still open, ordered by how much the answer changes the build.
 - [ ] Verify web push on a real iPhone before committing to the PWA plan 📅 2026-09-03
 - [x] Decide shared-versus-duplicated person records (Q7) ✅ 2026-08-22
 - [ ] Rebuild [[Rough data model.canvas]] as v2 reflecting section 6 and the Deal/Stage terminology 📅 2026-08-31
-- [ ] Design the app shell (S06) and review with Heather before any other screen 📅 2026-08-31
+- [x] Design the app shell (S06) and review with Heather before any other screen ✅ 2026-08-21 — approved; #31
 - [ ] Buy or reject Tailwind Plus, the design estimate swings ~80 days on it 📅 2026-08-27
 - [x] Request SES production access, lead time is unpredictable ✅ 2026-08-28

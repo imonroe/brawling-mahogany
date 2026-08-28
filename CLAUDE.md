@@ -69,12 +69,14 @@ implements the backup at all** (there is no `pg_dump` anywhere in `.github/` or
 `scripts/`), and whether `dev` deploys automatically depends on
 `STAGING_ENABLED`, which is repository configuration.
 
-**And the droplet made one thing worse rather than better** (#196). Production
-access removed the SES sandbox, so `MAIL_REDIRECT_TO` is now the only guard
-covering every message the product sends, it fails open when unset, and it
-lives in a `.env` no test, no CI run and no review can observe. #196 was closed
-as completed on 2026-08-28 when only its *documentation* had landed; a backlog
-audit the same day reopened it. Read it before sending anything from that box.
+**And one thing got worse rather than better the same week** (#196) — caused by
+#12's production access, not by the droplet, though the droplet is what makes
+it reachable. Production access removed the SES sandbox, so `MAIL_REDIRECT_TO`
+is now the only guard covering **every** message the product sends, it fails
+open when unset, and it lives in a `.env` no test, no CI run and no review can
+observe. #196 was closed as completed on 2026-08-28 when only its
+*documentation* had landed; a backlog audit the same day reopened it. Read it
+before sending anything from that box.
 
 **Mail is configured and sending** (#12, closed 2026-08-28): SES over SMTP in
 **production access**, verified domain `monroedigitalconsulting.com`, everything

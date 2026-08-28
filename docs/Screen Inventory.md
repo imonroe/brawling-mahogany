@@ -487,7 +487,7 @@ Then S16, because the stage timeline is the one interaction with no obvious prec
 
 ## Next actions
 
-- [ ] Design S06 (app shell) and review it with Heather before anything else 📅 2026-08-31
+- [x] Design S06 (app shell) and review it with Heather before anything else ✅ 2026-08-21 — approved; #31
 - [ ] Prototype S16 (deal timeline), the one interaction with no clear precedent 📅 2026-09-07
 - [ ] Buy or reject Tailwind Plus, since the estimate swings by ~80 days on it 📅 2026-08-27
 - [ ] Ask Emily whether she needs printable deal summaries 📅 2026-08-27
