@@ -25,8 +25,9 @@ version: 1.0
 > being updated by hand), the nightly backup — which is not merely unconfirmed
 > but **unbuilt**, see §4 — and the restore drill, which has not been
 > performed. The drill does not strictly wait on the backup job: a manual
-> `pg_dump` gives it something to restore from, and running it that way would
-> at least establish the RTO.
+> `pg_dump` gives it something to restore from. That measures a **floor**, not
+> the RTO: a local dump skips retrieval from the offsite target, which is the
+> part of a real recovery most likely to be slow or to fail.
 >
 > One consequence of the SES account reaching production access is called out in
 > §4a: **the SES sandbox is no longer the backstop it was**, leaving

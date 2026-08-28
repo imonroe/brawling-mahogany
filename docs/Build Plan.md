@@ -56,7 +56,7 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 >
 > One thing got worse rather than better when the droplet arrived, and it is
 > tracked in #196: production access removed the SES sandbox, so
-> `MAIL_REDIRECT_TO` is now the *only* guard covering every message the product
+> `MAIL_REDIRECT_TO` is now the only guard covering **every** message the product
 > sends — and it fails open when unset, from a `.env` no test can observe.
 >
 > Slice 1 starts from a stack that runs and a pipeline that gates — the gating

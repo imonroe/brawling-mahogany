@@ -1513,7 +1513,7 @@ resources/js/
 > [!success] Step 2's review happened
 > `AppLayout` is built to the measurements in section 8, renders in both themes, and **was reviewed with Heather on 2026-08-21, who approved it** (#31). Seventy screens inherit its decisions about density, type scale and mobile collapse, which is why that review had to come before any product screen rather than after — and it did.
 >
-> Every component in steps 1 to 4 renders in the gallery at `/design-system`, in both themes, which is what the review was run against.
+> Every component in steps 1 to 4 renders in the gallery at `/design-system`, in both themes. The review itself was run against **screenshots of the running shell** at three breakpoints plus dark mode, deliberately — #31's own thread says it *"does not need a meeting, a dev environment, or a running stack"*, which is what made it answerable between appointments. The gallery is what a *future* review would use.
 
 ---
 
