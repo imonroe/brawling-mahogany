@@ -190,19 +190,31 @@ final class ManageCalendarFeeds
              * feed going quiet is the only signal available, which is the
              * argument for the permission being the *screen's* key rather than
              * a second one invented here.
+             *
+             * The cost of that is real and is written down rather than
+             * discovered: while the gate is closed **nobody can press Revoke
+             * on this feed either**, because the only screen listing it is the
+             * one its holder can no longer open, and `feedsFor()` shows a
+             * person their own feeds only. So a URL sitting in a third party's
+             * calendar is re-armed by a later role edit rather than ended by
+             * one. Ending it deliberately is `revoke()`, and reaching that
+             * button needs a screen that does not yet exist — #206.
+             *
+             * ## Revocation is asked once, inside the scope
+             *
+             * `holdingPermission()` mirrors `hasPermission()`, which is false
+             * for a revoked membership before it looks at a single role. An
+             * earlier round of this change also spelled `whereNull('revoked_at')`
+             * here, arguing the duplicate was the copy whose loss would be
+             * silent. Review found that neither copy was: with two of them,
+             * deleting *either* left the suite green, so the argument was true
+             * of a guard nothing could falsify. One definition, and *'stops
+             * serving the moment the person is no longer on the team'* fails
+             * if it goes.
              */
             ->whereIn('person_id', TeamMembership::withoutTeamScope()
                 ->select('person_id')
                 ->whereColumn('team_memberships.team_id', 'calendar_feeds.team_id')
-                /*
-                 * Stated here as well as inside the scope. `hasPermission()`
-                 * is false for a revoked membership and `holdingPermission()`
-                 * mirrors that, so this line is redundant today — and it is
-                 * the line whose loss would be silent, because a feed serving
-                 * a former colleague looks exactly like a feed serving a
-                 * current one.
-                 */
-                ->whereNull('team_memberships.revoked_at')
                 ->holdingPermission(Permissions::VIEW_CALENDAR))
             ->with('team')
             ->first();

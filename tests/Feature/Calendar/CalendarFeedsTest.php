@@ -278,6 +278,82 @@ it('stops serving the moment the person stops holding calendar.view', function (
     expect($again->getContent())->toContain('Open house');
 });
 
+it('asks the permission of the membership in the feed\'s own team', function (): void {
+    /*
+     * The predicate is correlated — `team_memberships.team_id` to
+     * `calendar_feeds.team_id` — and review found nothing exercised that
+     * correlation: delete the `whereColumn` and every test still passed,
+     * because the subject held exactly one membership.
+     *
+     * A stager, a broker or an assistant working for two agencies is one
+     * person with two memberships, and the roles are composed per team. So
+     * without the correlation, holding `calendar.view` at the *first* agency
+     * would keep a feed alive at the *second* — a live `.ics` delivering one
+     * team\'s whole calendar on the strength of a permission granted by
+     * somebody else entirely. That is the cross-tenant shape ADR 0002 exists
+     * for, and it is the one this test makes falsifiable.
+     */
+    Event::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'title' => 'Open house',
+        'starts_at' => CarbonImmutable::now()->addDays(3),
+    ]);
+
+    // Where they can see the calendar: the shipped Team Member role.
+    $permitted = feedToken();
+
+    $second = Team::factory()->create();
+
+    $refused = app(TeamContext::class)->runFor($second, function () use ($second): string {
+        Event::factory()->create([
+            'team_id' => $second->getKey(),
+            'title' => 'Second agency showing',
+            'starts_at' => CarbonImmutable::now()->addDays(4),
+        ]);
+
+        $membership = TeamMembership::query()->create([
+            'team_id' => $second->getKey(),
+            'person_id' => $this->member->getKey(),
+            'first_name' => 'Same',
+            'last_name' => 'Person',
+            'joined_at' => now(),
+        ]);
+
+        $role = Role::factory()->create([
+            'team_id' => $second->getKey(),
+            'key' => 'deals_only_second_agency',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_DEALS])->pluck('id')->all(),
+        );
+
+        $membership->roles()->attach($role->getKey());
+
+        return app(ManageCalendarFeeds::class)
+            ->generate($second, $this->member, null, 'The other shop')
+            ->token;
+    });
+
+    /*
+     * Refused at the agency where they cannot open the calendar, **while**
+     * holding the permission at the other one. Both feeds belong to the same
+     * person, so the only thing separating the two answers is which
+     * membership the predicate looked at.
+     */
+    $this->asStranger();
+    $this->get("/calendar/feeds/{$refused}.ics")->assertNotFound();
+
+    $this->asStranger();
+    $serving = $this->get("/calendar/feeds/{$permitted}.ics");
+
+    $serving->assertOk();
+
+    expect($serving->getContent())->toContain('Open house')
+        ->and($serving->getContent())->not->toContain('Second agency showing');
+});
+
 it('leaves the street off a single-deal feed, where it says nothing', function (): void {
     /*
      * The suffix exists so *"Deadline: Closing"* says which house on a feed

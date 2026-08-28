@@ -260,18 +260,23 @@ class TeamMembership extends Model
      * is the whole of #194: a person can hold a composed role that reaches the
      * app and does not reach the calendar.
      *
+     * What it does **not** decide is *which team is being asked about*. A
+     * policy knows, because `TeamContext` resolved one; a caller reaching for
+     * this scope usually has not, which is why it exists. So narrowing to the
+     * right membership is the caller's, and a caller that skips it asks
+     * whether the person holds the key **anywhere** — which for somebody
+     * working at two agencies is a permission granted by one team answering
+     * for another. `ManageCalendarFeeds::findByToken()` correlates on
+     * `calendar_feeds.team_id`, and `CalendarFeedsTest` fails if it stops.
+     *
      * @param  Builder<self>  $query
      * @return Builder<self>
      */
     public function scopeHoldingPermission(Builder $query, string $key): Builder
     {
-        return $query->whereNull('team_memberships.revoked_at')->whereHas(
-            'roles',
-            fn ($roles) => $roles->whereHas(
-                'permissions',
-                fn ($permissions) => $permissions->where('permissions.key', $key),
-            ),
-        );
+        return $query
+            ->whereNull('team_memberships.revoked_at')
+            ->whereHas('roles', self::holdsOneOf([$key]));
     }
 
     /**
@@ -407,10 +412,26 @@ class TeamMembership extends Model
      */
     private static function holdsATeamSurfacePermission(): Closure
     {
+        return self::holdsOneOf(Permissions::teamSurfaceKeys());
+    }
+
+    /**
+     * The walk itself: a role holding at least one of these permission keys.
+     *
+     * Shared by `carryingAccess()`'s *"any key on the team surface"* and
+     * `holdingPermission()`'s *"this key"*, which are different questions over
+     * one traversal. Written twice in the round that added the second, until
+     * review pointed out that two copies of a permission walk is how the two
+     * start answering differently.
+     *
+     * @param  list<string>  $keys
+     * @return Closure(Builder<Role>): Builder<Role>
+     */
+    private static function holdsOneOf(array $keys): Closure
+    {
         return fn (Builder $roles): Builder => $roles->whereHas(
             'permissions',
-            fn (Builder $permissions): Builder => $permissions
-                ->whereIn('permissions.key', Permissions::teamSurfaceKeys()),
+            fn (Builder $permissions): Builder => $permissions->whereIn('permissions.key', $keys),
         );
     }
 
