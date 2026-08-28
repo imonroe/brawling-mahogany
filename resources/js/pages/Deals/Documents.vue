@@ -277,9 +277,16 @@ const canUpload = computed(() => props.can.upload);
                 of description somebody's eye slides past on the way to the
                 button.
 
-                It names the five refused categories rather than saying
+                It names the four refused categories rather than saying
                 "sensitive documents", because the whole failure mode is
                 somebody believing their file is the exception.
+
+                Four, not five: the executed contract left this list in #209.
+                Every case that remains is a **financial or identity**
+                document, which is a property of the bytes. A signed contract
+                is neither — it was refused on a different argument, that this
+                product is not its system of record, and F10.1 exists to read
+                exactly that document.
             -->
             <div
                 class="text-state-warning-fg flex gap-2 rounded-md bg-state-warning-bg p-3"
@@ -293,10 +300,10 @@ const canUpload = computed(() => props.can.upload);
                         Do not upload financial or identity documents.
                     </p>
                     <p class="mt-1">
-                        Executed contracts, earnest money instruments, lending
-                        packets, bank statements and government IDs are refused
-                        — this product is not the system of record for them.
-                        Files are checked before they are stored.
+                        Earnest money instruments, lending packets, bank
+                        statements and government IDs are refused — this
+                        product is not the system of record for them. Files are
+                        checked before they are stored.
                     </p>
                 </div>
             </div>

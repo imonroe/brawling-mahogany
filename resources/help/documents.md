@@ -41,10 +41,9 @@ both directions are recorded.
 
 ## What will be refused
 
-Five kinds of document are **refused outright** rather than accepted with a
+Four kinds of document are **refused outright** rather than accepted with a
 warning:
 
-- executed contracts
 - earnest money instruments
 - lending packets
 - bank statements
@@ -52,9 +51,24 @@ warning:
 
 That is not caution for its own sake. Those documents carry the kind of
 personal and financial information that makes a breach a different sort of
-event, and this app is not the system of record for any of them — your
-e-signature platform and your lender already hold them, under arrangements
-built for it.
+event, and this app is not the system of record for any of them — your lender
+and your brokerage already hold them, under arrangements built for it.
+
+## Contracts are accepted, and the signed one is still not the record
+
+A purchase contract goes through, signed or not. That is a change: it used to
+be refused alongside the four above.
+
+The reason it changed is that reading the dates out of a contract is the
+single most useful thing this app can do with a document, and it cannot read
+one it refuses to accept. So the contract is accepted, read, and kept with the
+rest of the deal's paperwork.
+
+What has **not** changed is where the record lives. Your e-signature platform
+holds the authoritative executed contract — the one with the signature
+certificate attached, the one that matters if anybody ever asks. What is here
+is a working copy, held so the deadlines in it can be pulled out and put on a
+calendar. This app is not a compliance archive and does not want to be one.
 
 The check reads the file, not its name — a bank statement saved as `notes.pdf`
 is still read as one. It is not perfect at it: what a PDF gives up depends on

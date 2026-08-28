@@ -51,6 +51,36 @@ enum NotificationType: string implements HasLabel
     case CriticalDateToday = 'critical_date_today';
 
     case AutomationFailed = 'automation_failed';
+
+    /**
+     * A document could not be read (#115 · PRD §4.10).
+     *
+     * Its own type rather than a second use of {@see self::AutomationFailed},
+     * and the difference is who is told and what they can do. An automation
+     * failure is a message that did not reach a client and is somebody's
+     * problem right now; an extraction failure is a contract still waiting to
+     * have its dates entered, which is a task rather than an incident.
+     *
+     * `automations:alert-on-failures` reserved this slot in its own docblock,
+     * which is worth honouring rather than folding: the sweep asks *"what state
+     * is this row in"* and would happily count an extraction as a message that
+     * may have reached somebody's client.
+     */
+    case ExtractionFailed = 'extraction_failed';
+
+    /**
+     * A monthly spending limit stopped extraction (#113 · PRD §14.3).
+     *
+     * §9 asks for *"AI spend alerting against a monthly cap"*, and #113 for a
+     * cap that *"stops extraction and tells the user plainly — it does not
+     * silently degrade."* This is the telling. It is separate from the failure
+     * above because the action is different and knowable: an owner raises the
+     * limit, or waits for the month to turn over. Reporting it as a failure
+     * would send somebody looking for a broken thing that is working exactly
+     * as designed.
+     */
+    case ExtractionCapReached = 'extraction_cap_reached';
+
     case Announcement = 'announcement';
 
     public function label(): string
@@ -62,6 +92,8 @@ enum NotificationType: string implements HasLabel
             self::GateOverridden => 'Somebody overrides a requirement',
             self::CriticalDateToday => 'A critical deadline is today',
             self::AutomationFailed => 'An automation fails',
+            self::ExtractionFailed => 'Extract cannot read a document',
+            self::ExtractionCapReached => 'Extract reaches its monthly limit',
             self::Announcement => 'Somebody posts a note to the team',
         };
     }
@@ -85,6 +117,8 @@ enum NotificationType: string implements HasLabel
             self::GateOverridden => 'When somebody advances a stage over a requirement that was not met. This one is worth knowing about: an override is recorded permanently and creates a follow-up task.',
             self::CriticalDateToday => 'When a deadline marked critical on one of the team’s deals falls today. This one ignores quiet hours: PRD §12.3 calls a missed inspection deadline a legal problem, and there is nothing to be done about it tomorrow.',
             self::AutomationFailed => 'When an automated message does not go out. The team already gets one email about this; the notification is so it is on your list too.',
+            self::ExtractionFailed => 'When Extract could not read a contract or an inspection report, so its dates and tasks still need entering by hand.',
+            self::ExtractionCapReached => 'When this month’s limit on Extract is reached, and no further documents are read until it is raised or the month turns over.',
             self::Announcement => 'When an automation is set up to post a note to the team at a point in a workflow.',
         };
     }
@@ -117,6 +151,8 @@ enum NotificationType: string implements HasLabel
             self::GateOverridden => 'Requirement overridden',
             self::CriticalDateToday => 'Deadline today',
             self::AutomationFailed => 'An automation needs looking at',
+            self::ExtractionFailed => 'A document was not read',
+            self::ExtractionCapReached => 'Extract has stopped',
             self::Announcement => 'Note for the team',
         };
     }
@@ -135,6 +171,8 @@ enum NotificationType: string implements HasLabel
             self::GateOverridden => 'A stage advanced over a requirement that was not met.',
             self::CriticalDateToday => 'A critical deadline on this deal is today.',
             self::AutomationFailed => 'Open it to see what happened.',
+            self::ExtractionFailed => 'Its dates still need entering by hand.',
+            self::ExtractionCapReached => 'A monthly limit was reached.',
             self::Announcement => 'An automation posted a note to the team.',
         };
     }
@@ -171,6 +209,22 @@ enum NotificationType: string implements HasLabel
                 NotificationChannel::Email,
                 NotificationChannel::Push,
             ],
+            /*
+             * Email as well as the panel, for both, and for the same reason:
+             * these are the two notifications about work that has silently
+             * *stopped*. PRD §9 asks for *"AI spend alerting against a monthly
+             * cap"*, and an alert that waits for somebody to open the app is
+             * not alerting — a team that hit its limit on Friday would find
+             * out on Monday, having spent the weekend assuming their contracts
+             * were being read.
+             *
+             * Push is deliberately not on. Neither is urgent enough to be worth
+             * a lock screen: a document that was not read is a task for the
+             * morning, and F12.4's *"nobody wants a 6am push"* is exactly the
+             * judgement being made here.
+             */
+            self::ExtractionFailed,
+            self::ExtractionCapReached => [NotificationChannel::InApp, NotificationChannel::Email],
             default => [NotificationChannel::InApp],
         };
     }
@@ -247,6 +301,8 @@ enum NotificationType: string implements HasLabel
             self::GateOverridden => $count.' requirements were overridden',
             self::CriticalDateToday => $count.' critical deadlines are today',
             self::AutomationFailed => $count.' automations failed',
+            self::ExtractionFailed => $count.' documents could not be read',
+            self::ExtractionCapReached => $count.' times Extract reached its limit',
             self::Announcement => $count.' notes were posted',
         };
     }

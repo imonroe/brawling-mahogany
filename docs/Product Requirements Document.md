@@ -4,7 +4,7 @@ modified: 2026-08-28
 project: Goldieflow
 type: prd
 status: draft
-version: 0.5
+version: 0.6
 tags:
   - monroe-digital
   - prd
@@ -290,7 +290,14 @@ Each gate is independently **blocking** or **advisory**.
 
 ### 4.6 Documents
 
-Materially narrowed in v0.2. Executed contracts live in CTM. This product holds working documents, and it must actively discourage anything else.
+Materially narrowed in v0.2. This product holds working documents, and it must actively discourage financial and identity material.
+
+> [!note] What changed in v0.6 (#209)
+> The **executed contract left the refusal list.** It was there on a different argument from the other four — not that the bytes are dangerous, but that CTM is the system of record. That argument stands and is unchanged. What could not stand was refusing the document *before storage*, because F10.1 exists to read exactly that document and §5.3 walks Heather through uploading it: the guardrail was discarding the input to slice 5 before it could be stored.
+>
+> The position now: this product holds a **working copy read for its dates**, and CTM holds the record. That is a sentence in the terms and in the manual, not a byte pattern — and it is the honest version, because a refusal that the flagship feature has to route around is a control nobody is following.
+>
+> The four that remain — earnest money instruments, lending packets, bank statements, government IDs — are each a *financial or identity* document, which **is** a property of the bytes. That is now the whole of the list, and it is a cleaner rule than the one it replaces.
 
 | ID | Feature | Description | Priority |
 |---|---|---|---|
@@ -299,7 +306,7 @@ Materially narrowed in v0.2. Executed contracts live in CTM. This product holds 
 | F6.3 | Visibility scope | Internal by default. Client-visible is explicit. | Must |
 | F6.4 | Private storage, signed URLs | No public buckets. Every download authorized and short-lived. | Must |
 | F6.5 | Property photo galleries | Ordered, captioned, with a primary image. | Should |
-| F6.6 | **PII upload guardrails** | **New in v0.2.** A prominent, unmissable warning at every upload point instructing users not to upload financial instruments or lending packets. Executed contracts belong in CTM. | Must |
+| F6.6 | **PII upload guardrails** | **New in v0.2.** A prominent, unmissable warning at every upload point instructing users not to upload financial instruments or lending packets. Names every refused category rather than saying "sensitive documents". | Must |
 | F6.7 | **Sensitive content detection** | **New in v0.2.** Heuristic detection of bank routing and account number patterns, MICR lines, and check-like layouts, with the upload quarantined and refused. | Should |
 
 > [!warning] The circularity Ian raised, and how it resolves
@@ -626,7 +633,7 @@ can be enforced by an index instead of by an application check on a string.
 | Contact type | Phone call, Email, Text, Meeting, Showing, Other |
 | Participant role | Seller, Buyer, Co-Agent, Opposing Agent, Lender, Title/Escrow, Inspector, Appraiser, Stager, Photographer, Contractor, Attorney, Other |
 | Document category | Inspection report, Disclosure, Marketing, Photo, Receipt, Correspondence, Other |
-| **Restricted (refused) categories** | Executed contract, Earnest money instrument, Lending packet, Bank statement, Government ID |
+| **Restricted (refused) categories** | Earnest money instrument, Lending packet, Bank statement, Government ID |
 | Message channel | Email, Push, SMS |
 
 ---
@@ -828,7 +835,7 @@ Not legal advice, and worth a real conversation with a lawyer before taking payi
 | Area | Consideration |
 |---|---|
 | **MLS and IDX data** | The sharpest constraint. MLS listing data is licensed, and storing, displaying, or redistributing it generally requires an IDX, VOW, or broker back-office agreement per MLS. **v1 stores links only, never ingested listing content.** Emily's complaint that the competitor makes you upload an MLS sheet is a symptom of the same constraint, not a solvable product gap. |
-| **CTM eContracts as system of record** | Confirmed in the 2026-08-20 session. Executed contracts and signatures live in CTM, an MRI Software product, and the security obligation lives there with them. Goldieflow must say so explicitly in its own terms rather than inviting users to treat it as an archive. A data-sharing integration with a vendor of MRI's size is not a realistic near-term path. |
+| **CTM eContracts as system of record** | Confirmed in the 2026-08-20 session. Executed contracts and signatures live in CTM, an MRI Software product, and the security obligation lives there with them. Goldieflow must say so explicitly in its own terms rather than inviting users to treat it as an archive. A data-sharing integration with a vendor of MRI's size is not a realistic near-term path. **Amended v0.6 (#209):** Goldieflow now *accepts* a contract, because F10.1 cannot read a document it refuses. It holds a working copy read for its dates; CTM still holds the record. The terms must say which of the two a team is looking at, and must not offer retention, versioning, or anything else that would read as an archive. |
 | **Brokerage disclosure clause** | **New in v0.2.** Emily noted her listing agreements now carry a clause disclosing who has access to client information. Any team using this product needs that clause to cover us and, once F10 ships, the AI provider too. Ship template language teams can paste into their own agreements. |
 | **Uploaded financial instruments** | The highest-risk item in the product. An earnest money check image carries a routing and account number. Mitigations in F6.6, F6.7, and section 8.4 reduce exposure but cannot eliminate it. Describe them accurately and do not oversell. |
 | **AI processing of client documents** | **New in v0.2.** Sending a contract to a third-party model is a processing activity requiring a DPA, a no-training commitment, disclosure to the client, and a retention position. Do not ship F10 without all four. |
@@ -1095,6 +1102,7 @@ Still open, ordered by how much the answer changes the build.
 | 2026-08-26 | **The cold-start floor is anchored on a team's first sweep, not re-derived on every one** | Slice 3, issue [#97](https://github.com/imonroe/brawling-mahogany/issues/97). Round 4 of review, and the same shape ADR 0002 records: a rule written into one caller is a rule the second caller is written without. The mark is deliberately not *advanced* over an empty window — that would write every team's row every five minutes to record that nothing happened — but it has to be **anchored once**, because a null column falls back to a floor relative to `now()`, and that floor slides forward with every sweep. The no-audience branch had the anchor; the empty-window branch, which every healthy team takes on every run, did not. A team that had never had a failure silently lost any failure older than the floor the moment the sweep stopped for that long — and `withoutOverlapping()`'s own default mutex expiry is 1440 minutes, exactly `COLD_START_HOURS`, so the margin against a framework default was zero |
 | 2026-08-26 | **S48 draws S87's frame above the words, because putting a value in the payload is not showing it to anybody** | Slice 3, issue [#97](https://github.com/imonroe/brawling-mahogany/issues/97). Snapshotting the announcement made it *part of* what an approver approves and nothing rendered it, so a client received a headline, an address and a *"View the listing"* button that no reviewer had seen — F5.7's promise half-kept, with `automation.md` telling a user in as many words that what they approve is what the client gets. The preview reads it from the payload through the same suppression the mailable uses, and never re-resolves it: a preview resolving it live would show one address and send another |
 | 2026-08-26 | **A failure's words are derived from the action type, and the alert's headline asserts nothing about delivery** | Slice 3, issue [#97](https://github.com/imonroe/brawling-mahogany/issues/97). *"An automated message did not go out"* was the sentence for every branch, including the four that never involved a message — a `create_task` with no title told a team on the deal's timeline that a client had not been emailed when nothing was ever going to email them. And over the top of `automations:reap-unconfirmed`'s deliberately ambiguous *"it may have reached the recipient"*, it is the self-contradiction `ExecuteAction::fail()` already carries a comment about. The alert quotes the row's own `error`, because each of those strings was written for its own case |
+| 2026-08-28 | **The executed contract leaves the refusal list, and CTM stays the record** | Slice 5, issue [#209](https://github.com/imonroe/brawling-mahogany/issues/209). §4.6 refused an executed contract before storage and §4.10's F10.1 exists to read one; §5.3 walks Heather through uploading the document §4.6 discards. Both sections were load-bearing and neither was written loosely, so this is a decision rather than a patch. **The refusal goes.** The four categories that remain are each a *financial or identity* document — a property of the bytes, which is what a byte scanner can honestly decide. "This product is not the system of record for an executed contract" is a true and separate claim, and it is not a claim about bytes: it survives as language in the terms and in the manual, where §10 already asks for it. Note which way the failure ran before the decision — the control was not being softened for being annoying, it was refusing the flagship feature's only input, and #14's corpus would have measured perfectly against a path that refused all twenty. A guardrail the product has to route around protects nothing, and a second upload path built to route around it would have been two doors to the same bytes with one set of rails |
 
 ---
 

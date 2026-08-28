@@ -108,41 +108,6 @@ final class SensitiveContent
     ];
 
     /**
-     * A contract that has been **signed**, which is the part that matters.
-     *
-     * Round 1 of review: this category was named in S51's warning and in the
-     * help article, `alternative()` had a branch for it, and nothing could
-     * ever produce one. A refusal list with a category no detector reaches is
-     * a promise the product does not keep.
-     *
-     * Signature evidence rather than contract vocabulary, and the distinction
-     * is the whole rule. Every purchase agreement a team handles says
-     * "purchase agreement"; PRD §1.1 puts this product *alongside* the
-     * e-signature platform rather than in front of it, so the unexecuted draft
-     * somebody is negotiating is exactly the document they should be able to
-     * keep here. What belongs in CTM is the one that has been signed.
-     */
-    private const EXECUTION_PHRASES = [
-        'docusign envelope id',
-        'dotloop verified',
-        'electronically signed by',
-        'digitally signed by',
-        'signature certificate',
-        'certificate of completion',
-        'audit trail',
-        '/s/',
-    ];
-
-    private const CONTRACT_PHRASES = [
-        'purchase agreement',
-        'purchase and sale agreement',
-        'residential sale contract',
-        'in witness whereof',
-        'buyer signature',
-        'seller signature',
-    ];
-
-    /**
      * Two of these make an identity document.
      *
      * The British spellings are here because this product's own copy uses
@@ -254,18 +219,21 @@ final class SensitiveContent
         }
 
         /*
-         * Signature evidence **beside** contract vocabulary. Either alone is
-         * wrong: "audit trail" appears in this product's own documentation,
-         * and "purchase agreement" is what the draft somebody is negotiating
-         * is called. Together they are a document that has been executed.
+         * There is deliberately no rule here for a signed contract (#209).
+         *
+         * One existed, matching signature evidence beside contract
+         * vocabulary, and it worked: a DocuSigned purchase agreement tripped
+         * it every time. That turned out to be the problem rather than the
+         * proof — F10.1 exists to read exactly that document, so the rule
+         * refused the input to the whole extraction slice before it could be
+         * stored.
+         *
+         * What this scanner refuses is **financial and identity** material,
+         * which is a property of the bytes. Whether a contract belongs in
+         * somebody's e-signature platform is a question about the *record*,
+         * and the answer is still yes — it is just not a question a byte
+         * scanner should be answering by discarding the file.
          */
-        if (self::countOfEither($haystack, $squashed, self::EXECUTION_PHRASES) > 0
-            && self::countOfEither($haystack, $squashed, self::CONTRACT_PHRASES) > 0) {
-            return ScanOutcome::refused(
-                RestrictedDocumentCategory::ExecutedContract,
-                'execution_evidence_in_contract',
-            );
-        }
 
         if (self::countOfEither($haystack, $squashed, self::STATEMENT_PHRASES) >= 2) {
             return ScanOutcome::refused(

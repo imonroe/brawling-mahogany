@@ -65,6 +65,57 @@ final class SaveKeyDate
      */
     public function add(Deal $deal, array $attributes, ?Person $actor = null): KeyDate
     {
+        return $this->create($deal, $attributes, $actor, KeyDateSource::Manual, null);
+    }
+
+    /**
+     * Add a date a person confirmed out of a document (#115, #116 · PRD §6.2).
+     *
+     * A second entry point rather than a `source` argument on {@see self::add()},
+     * and the difference is not cosmetic. This one **requires the confirming
+     * person**, because PRD §6.2's rule — *"nothing reaches `key_dates` or
+     * `tasks` except through a confirmed row"* — is only enforceable if there
+     * is no way to write an extracted date without saying who agreed to it.
+     * An optional parameter would have made the rule optional.
+     *
+     * ## `confirmed_at` is stamped here, so `isPending()` is false for every
+     * row this writes — and that is correct
+     *
+     * #106 shipped `source`/`confirmed_by`/`confirmed_at` on `key_dates`
+     * ahead of this slice, and `KeyDate::isPending()` reads the pair. Under
+     * PRD §6.2 as written, a proposal lives in `extracted_fields` and a
+     * `key_dates` row is only ever created *by* a confirmation — so a pending
+     * extracted key date is a state this product cannot produce.
+     *
+     * That is worth saying plainly rather than leaving somebody to discover
+     * it: `isPending()` and `scopeConfirmed()` are defence in depth against a
+     * later path that writes one, not descriptions of a state you will find in
+     * the table. CLAUDE.md's *"a row nothing can reach is a rule nobody is
+     * following"* cuts the other way here — the alternative reading, writing
+     * pending rows and confirming them in place, would put unreviewed model
+     * output in `key_dates`, which is the single thing §6.2 exists to forbid.
+     *
+     * @param  array<string, mixed>  $attributes
+     *
+     * @throws AnchorWouldLoop
+     */
+    public function addConfirmedExtraction(Deal $deal, array $attributes, Person $confirmedBy): KeyDate
+    {
+        return $this->create($deal, $attributes, $confirmedBy, KeyDateSource::Extracted, $confirmedBy);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     *
+     * @throws AnchorWouldLoop
+     */
+    private function create(
+        Deal $deal,
+        array $attributes,
+        ?Person $actor,
+        KeyDateSource $source,
+        ?Person $confirmedBy,
+    ): KeyDate {
         $graph = KeyDateGraph::forDeal($deal);
 
         $keyDate = new KeyDate;
@@ -72,7 +123,9 @@ final class SaveKeyDate
         $keyDate->forceFill([
             'team_id' => $deal->team_id,
             'deal_id' => $deal->getKey(),
-            'source' => KeyDateSource::Manual->value,
+            'source' => $source->value,
+            'confirmed_by' => $confirmedBy?->getKey(),
+            'confirmed_at' => $confirmedBy === null ? null : now(),
         ]);
 
         $this->applyAttributes($keyDate, $attributes, $graph);

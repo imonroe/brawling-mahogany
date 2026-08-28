@@ -1,0 +1,91 @@
+{
+    "slug": "0015-scanned-handwritten-amendment",
+    "description": "A scanned contract with a handwritten margin note extending the Inspection Objection Deadline and the Closing Date, initialled by both parties. The typed dates are still on the page and are no longer the answer; the handwriting is, and OCR renders handwriting worst of all.",
+    "traits": [
+        "scanned",
+        "complete",
+        "handwritten-amendment",
+        "amended"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-01-12",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-01-16",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-01-21",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-01-26",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-01-31",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-01-17",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-02-07",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-02-09",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-02-13",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-01-29",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-01-31",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-02-03",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-01-29",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-03-05",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-03-05",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Inspection objection period extended by agreement to allow a sewer scope by a second contractor.",
+        "Seller to leave the ping pong table and the basement freezer."
+    ]
+}

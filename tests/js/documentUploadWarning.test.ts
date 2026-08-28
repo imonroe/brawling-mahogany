@@ -103,10 +103,15 @@ describe('S51 — the upload warning', () => {
 
     it('names every category that will be refused', async () => {
         /*
-         * All five, by name. "Sensitive documents" would be softer and would
+         * Every one, by name. "Sensitive documents" would be softer and would
          * fail the only thing that matters here: the failure mode is somebody
          * believing their file is the exception, and a category they can match
          * against their own file is what prevents that.
+         *
+         * Four since #209 removed the executed contract. What remains is
+         * every case of `RestrictedDocumentCategory`, and the panel has to
+         * name all of them — a category the scanner refuses and the warning
+         * does not mention is somebody finding out after the upload.
          */
         const wrapper = render();
 
@@ -115,7 +120,6 @@ describe('S51 — the upload warning', () => {
         const text = wrapper.text().toLowerCase();
 
         for (const category of [
-            'executed contract',
             'earnest money',
             'lending packet',
             'bank statement',

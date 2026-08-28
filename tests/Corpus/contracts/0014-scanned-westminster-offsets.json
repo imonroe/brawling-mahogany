@@ -1,0 +1,90 @@
+{
+    "slug": "0014-scanned-westminster-offsets",
+    "description": "Offsets from MEC, read back through OCR noise, so the arithmetic has to survive a document where the digits themselves are the thing most likely to be misread. The resolved calendar dates are the ground truth.",
+    "traits": [
+        "scanned",
+        "complete",
+        "derived-only"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-06-15",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-06-20",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-06-27",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-07-03",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-07-08",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-06-21",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-07-15",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-07-15",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-07-20",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-06-29",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-07-01",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-07-04",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-07-06",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-08-06",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-08-06",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Seller to transfer the irrigation ditch shares appurtenant to the property at Closing.",
+        "Buyer to accept the fence line as built and to make no claim on the encroachment shown."
+    ]
+}

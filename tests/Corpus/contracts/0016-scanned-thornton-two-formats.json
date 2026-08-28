@@ -1,0 +1,90 @@
+{
+    "slug": "0016-scanned-thornton-two-formats",
+    "description": "Two date formats in one scanned document — a numeric table and long-form prose — with the noise sitting on top. The two renderings agree; a harness that reports both as separate deadlines has doubled the contingency calendar.",
+    "traits": [
+        "scanned",
+        "complete",
+        "two-date-formats"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-07-06",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-07-10",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-07-16",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-07-22",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-07-27",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-07-11",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-08-02",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-08-02",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-08-07",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-07-19",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-07-21",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-07-24",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-07-26",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-08-24",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-08-24",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Seller to repair the sprinkler zone that does not operate, or credit Buyer four hundred dollars at Closing.",
+        "Buyer acknowledges receipt of the metropolitan district disclosure and the current mill levy."
+    ]
+}

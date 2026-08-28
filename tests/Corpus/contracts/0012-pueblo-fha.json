@@ -1,0 +1,90 @@
+{
+    "slug": "0012-pueblo-fha",
+    "description": "An FHA purchase written on an older form, so the financing row is headed Loan Objection Deadline rather than New Loan Terms Deadline. The ground truth records the canonical label, which is the corpus asking whether extraction resolves a synonym or reports a deadline nobody has a field for.",
+    "traits": [
+        "native",
+        "complete",
+        "synonym-wording"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-05-04",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-05-07",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-05-14",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-05-19",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-05-24",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-05-08",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-06-01",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-06-03",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-06-07",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-05-14",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-05-16",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-05-19",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-05-21",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-06-23",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-06-23",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Seller to complete the FHA-required handrail installation on the front steps before the final inspection.",
+        "Buyer to pay the up-front mortgage insurance premium by financing it into the loan amount."
+    ]
+}

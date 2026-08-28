@@ -1,0 +1,91 @@
+{
+    "slug": "0020-scanned-greeley-offsets-ambiguous",
+    "description": "The worst case the corpus holds: OCR noise over a table that states its deadlines as offsets from MEC, with two of them also stated in words in the prose and one offset written with a damaged digit. If a harness scores well here and badly on a real contract, the difference is the noise model, not the reading.",
+    "traits": [
+        "scanned",
+        "complete",
+        "derived-only",
+        "ambiguous-dates"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-06-22",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-06-27",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-07-03",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-07-09",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-07-14",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-06-28",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-07-21",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-07-21",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-07-26",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-07-05",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-07-07",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-07-10",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-07-12",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-08-12",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-08-12",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Seller to provide the most recent well test and to remedy any coliform result before Closing.",
+        "Buyer to accept the property subject to the recorded oil and gas lease of record."
+    ]
+}

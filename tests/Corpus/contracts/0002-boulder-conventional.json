@@ -1,0 +1,115 @@
+{
+    "slug": "0002-boulder-conventional",
+    "description": "A native buy-side contract with the optional survey and off-record title rows filled in, so the deadline table is longer than the common case. Tests that a harness reads the whole table rather than the fifteen rows it saw first.",
+    "traits": [
+        "native",
+        "complete",
+        "money"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-04-06",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-04-09",
+            "critical": false
+        },
+        {
+            "label": "Due Diligence Documents Delivery Deadline",
+            "value": "2026-04-15",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-04-18",
+            "critical": false
+        },
+        {
+            "label": "Off-Record Title Deadline",
+            "value": "2026-04-18",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-04-23",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-04-28",
+            "critical": false
+        },
+        {
+            "label": "New ILC or New Survey Deadline",
+            "value": "2026-05-01",
+            "critical": false
+        },
+        {
+            "label": "New ILC or New Survey Objection Deadline",
+            "value": "2026-05-06",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-04-10",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-05-04",
+            "critical": true
+        },
+        {
+            "label": "New Loan Availability Deadline",
+            "value": "2026-05-09",
+            "critical": false
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-05-04",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-05-08",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-04-18",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-04-20",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-04-23",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-04-24",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-05-28",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-05-28",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Buyer to be named as an additional insured on the homeowners association master policy at Closing.",
+        "Seller to provide a copy of the most recent radon mitigation system service record within five days of MEC."
+    ]
+}

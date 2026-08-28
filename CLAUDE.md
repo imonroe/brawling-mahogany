@@ -283,10 +283,11 @@ named — treat that test as the authority, not this summary.
 
 ## Data handling and security
 
-- PII (client financial info, uploaded documents) is the single highest-risk surface. Certain document categories (executed contracts, earnest money instruments, lending packets, bank statements, government IDs) are **refused outright**, not just flagged — see PRD §4.6 and §10.
+- PII (client financial info, uploaded documents) is the single highest-risk surface. Four document categories (earnest money instruments, lending packets, bank statements, government IDs) are **refused outright**, not just flagged — see PRD §4.6 and §10. Each is a **financial or identity** document, which is a property of the bytes; that is the whole rule and the whole list.
 - Anything routed to a third-party AI/LLM provider must be redacted first, logged with model/version/cost, and never write into a live record (`key_dates`, `tasks`) without explicit human confirmation. See PRD §4.10 and §8.4.
 - No PII in logs, ever. Audit log is append-only and must cover auth, permission changes, gate overrides, document access, extraction reviews, and super-admin impersonation.
 - This product is explicitly **not** the system of record for executed contracts/signatures (that's the customer's existing e-signature platform) and does not ingest MLS/IDX listing data — only links to it. Don't build features that assume otherwise without checking PRD §10 (Compliance and Legal Considerations) first.
+  - **That is a claim about the record, not about the bytes, and it was being enforced as though it were both** (#209). `SensitiveContent` refused a signed contract before storage — correctly, by its own rule — while F10.1 exists to read exactly that document and PRD §5.3 walks Heather through uploading it. The scanner was discarding the input to the whole extraction slice, and #14's twenty-contract corpus would have scored perfectly against a path that refused all twenty, because it measures offline. The refusal is gone; the compliance position is unchanged and now lives where it can actually be true — in the terms and in the manual, saying that what is held here is a **working copy read for its dates**. Ask of any new guardrail which of the two questions it is answering, because a control the flagship feature has to route around protects nothing.
 
 ## Basic principles for working in this project
 
