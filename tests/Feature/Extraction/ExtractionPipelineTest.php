@@ -71,13 +71,16 @@ beforeEach(function (): void {
  * fixture whose content can change under a test is a fixture that will one day
  * make the test pass for a reason nobody chose.
  */
-const PIPELINE_CONTRACT = "CONTRACT TO BUY AND SELL REAL ESTATE\n\n"
-    ."Purchase Price ................................. \$726,500.00\n"
-    ."Earnest Money .................................. \$ 15,000.00\n\n"
-    ."Inspection Objection Deadline                    July 25, 2026\n"
-    ."Closing Date                                     August 28, 2026\n\n"
-    ."Wire instructions for the earnest money deposit.\n"
-    ."Routing Number: 123456789\n";
+function pipelineContract(): string
+{
+    return "CONTRACT TO BUY AND SELL REAL ESTATE\n\n"
+        ."Purchase Price ................................. \$726,500.00\n"
+        ."Earnest Money .................................. \$ 15,000.00\n\n"
+        ."Inspection Objection Deadline                    July 25, 2026\n"
+        ."Closing Date                                     August 28, 2026\n\n"
+        ."Wire instructions for the earnest money deposit.\n"
+        .'Routing Number: 123456789'."\n";
+}
 
 /** A readable document, bytes and all, hanging off the deal. */
 function documentOn(Deal $deal, string $text, string $mimeType = 'text/plain', string $name = 'contract.txt'): Document
@@ -162,7 +165,7 @@ function contractAnswer(): array
 it('reads a contract into a set of proposals a person can review', function (): void {
     anthropicAnswering(contractAnswer());
 
-    $document = documentOn($this->deal, PIPELINE_CONTRACT);
+    $document = documentOn($this->deal, pipelineContract());
 
     $extraction = app(StartExtraction::class)
         ->start($document, $this->deal, ExtractionKind::Contract, $this->member)
@@ -216,7 +219,7 @@ it('sends the provider a redacted document and nothing else', function (): void 
      */
     anthropicAnswering(contractAnswer());
 
-    $document = documentOn($this->deal, PIPELINE_CONTRACT);
+    $document = documentOn($this->deal, pipelineContract());
 
     app(StartExtraction::class)->start($document, $this->deal, ExtractionKind::Contract, $this->member);
 
@@ -261,7 +264,7 @@ it('records what was sent before it sends it', function (): void {
     $extraction = Extraction::factory()->queued()->create([
         'team_id' => $this->team->getKey(),
         'deal_id' => $this->deal->getKey(),
-        'document_id' => documentOn($this->deal, PIPELINE_CONTRACT)->getKey(),
+        'document_id' => documentOn($this->deal, pipelineContract())->getKey(),
     ]);
 
     try {
@@ -300,7 +303,7 @@ it('records what the call cost and which model made it', function (): void {
      */
     anthropicAnswering(contractAnswer());
 
-    $document = documentOn($this->deal, PIPELINE_CONTRACT);
+    $document = documentOn($this->deal, pipelineContract());
 
     $extraction = app(StartExtraction::class)
         ->start($document, $this->deal, ExtractionKind::Contract, $this->member)
@@ -335,7 +338,7 @@ it('leaves a row a provider outage can be retried from', function (): void {
     $extraction = Extraction::factory()->queued()->create([
         'team_id' => $this->team->getKey(),
         'deal_id' => $this->deal->getKey(),
-        'document_id' => documentOn($this->deal, PIPELINE_CONTRACT)->getKey(),
+        'document_id' => documentOn($this->deal, pipelineContract())->getKey(),
     ]);
 
     expect(fn () => app(PerformExtraction::class)->perform($extraction, $this->team))
@@ -364,7 +367,7 @@ it('stops on a refusal another attempt would reproduce', function (): void {
     $extraction = Extraction::factory()->queued()->create([
         'team_id' => $this->team->getKey(),
         'deal_id' => $this->deal->getKey(),
-        'document_id' => documentOn($this->deal, PIPELINE_CONTRACT)->getKey(),
+        'document_id' => documentOn($this->deal, pipelineContract())->getKey(),
     ]);
 
     app(PerformExtraction::class)->perform($extraction, $this->team);
@@ -393,7 +396,7 @@ it('refuses to start at all when nobody has said which provider', function (): v
      */
     config(['extraction.driver' => 'null']);
 
-    $document = documentOn($this->deal, PIPELINE_CONTRACT);
+    $document = documentOn($this->deal, pipelineContract());
 
     try {
         app(StartExtraction::class)->start($document, $this->deal, ExtractionKind::Contract, $this->member);
@@ -425,13 +428,20 @@ it('lets only one worker read a document', function (): void {
     $extraction = Extraction::factory()->queued()->create([
         'team_id' => $this->team->getKey(),
         'deal_id' => $this->deal->getKey(),
-        'document_id' => documentOn($this->deal, PIPELINE_CONTRACT)->getKey(),
+        'document_id' => documentOn($this->deal, pipelineContract())->getKey(),
     ]);
 
+    /*
+     * The second worker's copy is read **before** the first one runs, which is
+     * the whole shape of the race: both hold a row that said `queued` when they
+     * looked at it. Re-reading afterwards would hand the second worker a
+     * `complete` row and prove only that Eloquent noticed.
+     */
     $worker = app(PerformExtraction::class);
+    $secondWorkersCopy = Extraction::query()->whereKey($extraction->getKey())->sole();
 
     $worker->perform($extraction, $this->team);
-    $worker->perform(Extraction::query()->whereKey($extraction->getKey())->sole(), $this->team);
+    $worker->perform($secondWorkersCopy, $this->team);
 
     Http::assertSentCount(1);
 
@@ -479,7 +489,7 @@ it('will not start a second reading of a document already being read', function 
      * state the guard exists for — a `complete` row is allowed a second reading,
      * because that is what a retry after a bad answer is.
      */
-    $document = documentOn($this->deal, PIPELINE_CONTRACT);
+    $document = documentOn($this->deal, pipelineContract());
 
     Extraction::factory()->processing()->create([
         'team_id' => $this->team->getKey(),
@@ -524,7 +534,7 @@ it('tells the team once the queue has given up, and not on every attempt', funct
     $extraction = Extraction::factory()->queued()->create([
         'team_id' => $this->team->getKey(),
         'deal_id' => $this->deal->getKey(),
-        'document_id' => documentOn($this->deal, PIPELINE_CONTRACT)->getKey(),
+        'document_id' => documentOn($this->deal, pipelineContract())->getKey(),
     ]);
 
     $job = (new RunDocumentExtraction($extraction->getKey()))->forTeam($this->team->getKey());
