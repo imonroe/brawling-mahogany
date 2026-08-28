@@ -192,13 +192,15 @@ final class ManageCalendarFeeds
              * a second one invented here.
              *
              * The cost of that is real and is written down rather than
-             * discovered: while the gate is closed **nobody can press Revoke
-             * on this feed either**, because the only screen listing it is the
-             * one its holder can no longer open, and `feedsFor()` shows a
-             * person their own feeds only. So a URL sitting in a third party's
-             * calendar is re-armed by a later role edit rather than ended by
-             * one. Ending it deliberately is `revoke()`, and reaching that
-             * button needs a screen that does not yet exist — #206.
+             * discovered: while the gate is closed **no screen lists this feed
+             * to anybody**, so there is no Revoke button to reach. Not a
+             * missing permission — `destroy()` already authorises the holder
+             * *or* somebody who can update the team — a missing list:
+             * `feedsFor()` shows a person their own feeds only, and it rides
+             * in the props of the screen the holder can no longer open. So a
+             * URL sitting in a third party's calendar is re-armed by a later
+             * role edit rather than ended by one, and the screen that would
+             * let somebody end it is #206.
              *
              * ## Revocation is asked once, inside the scope
              *

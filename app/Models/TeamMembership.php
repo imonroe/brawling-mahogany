@@ -249,11 +249,19 @@ class TeamMembership extends Model
      * `hasPermission()`, asked of a query rather than of a loaded row.
      *
      * The same walk the model does — roles, then their permissions, then the
-     * key — so a caller that cannot load a membership gets the same answer a
-     * policy would. `ChecksTeamPermissions::allows()` is the shape being
-     * mirrored, revoked check included: `hasPermission()` returns false for a
-     * revoked membership before it looks at a single role, and a scope that
-     * left that out would answer *yes* for somebody who left in March.
+     * key — for a caller that cannot load a membership to ask it of.
+     * `ChecksTeamPermissions::allows()` is the shape being mirrored, revoked
+     * check included: `hasPermission()` returns false for a revoked membership
+     * before it looks at a single role, and a scope that left that out would
+     * answer *yes* for somebody who left in March.
+     *
+     * *Mirrors the walk*, deliberately, rather than *"gives the same answer as
+     * a policy"* — that would be a claim about two things this method does not
+     * control. A policy has a resolved tenant and this has whatever the caller
+     * narrowed to (below), and the two run the traversal through different
+     * machinery, so an absolute parity claim is one nothing checks. What is
+     * asserted is the part that can be: the same three steps and the same
+     * revoked check.
      *
      * Note this is a **specific key**, not `carryingAccess()`'s *"any key on
      * the team surface"*. The two are different questions and the difference

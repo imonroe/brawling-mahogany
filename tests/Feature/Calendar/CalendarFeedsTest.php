@@ -278,7 +278,7 @@ it('stops serving the moment the person stops holding calendar.view', function (
     expect($again->getContent())->toContain('Open house');
 });
 
-it('asks the permission of the membership in the feed\'s own team', function (): void {
+it('refuses at the agency where the permission is missing, and serves at the one where it is not', function (): void {
     /*
      * The predicate is correlated — `team_memberships.team_id` to
      * `calendar_feeds.team_id` — and review found nothing exercised that
@@ -352,6 +352,34 @@ it('asks the permission of the membership in the feed\'s own team', function ():
 
     expect($serving->getContent())->toContain('Open house')
         ->and($serving->getContent())->not->toContain('Second agency showing');
+
+    /*
+     * The positive control, and without it this test proves less than it
+     * reads: a 404 is also what a mistyped token, an unsaved fixture or an
+     * event outside the window produces, so *"refused"* means nothing until
+     * the same URL is shown to serve. Granting the second agency's role the
+     * one key it lacked is the smallest possible difference — nothing else
+     * about the fixture moves — which is the discipline
+     * `clientSurfaceAccessibility.test.ts` keeps by asserting a deliberately
+     * broken fixture *does* produce a violation.
+     */
+    app(TeamContext::class)->runFor($second, function (): void {
+        $role = Role::query()->where('key', 'deals_only_second_agency')->sole();
+
+        $role->permissions()->sync(
+            Permission::query()
+                ->whereIn('key', [Permissions::VIEW_DEALS, Permissions::VIEW_CALENDAR])
+                ->pluck('id')
+                ->all(),
+        );
+    });
+
+    $this->asStranger();
+    $restored = $this->get("/calendar/feeds/{$refused}.ics");
+
+    $restored->assertOk();
+
+    expect($restored->getContent())->toContain('Second agency showing');
 });
 
 it('leaves the street off a single-deal feed, where it says nothing', function (): void {
