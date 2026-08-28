@@ -46,7 +46,7 @@ the container which uses them transparently."*
 | `APP_NAME` | `Brawling Mahogany` | same | same | same |
 | `APP_PRODUCT_NAME` | `Goldieflow` | same | same | same |
 | `MAIL_FROM_ADDRESS` | anything | `.env.example`'s value — **used**, not unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
-| `MAIL_REDIRECT_TO` | optional | unset | **set — every message redirected** | **must be empty** |
+| `MAIL_REDIRECT_TO` | optional | unset | **must be set — every message redirected, and it fails open when it is not (#196)** | **must be empty** |
 | `SES_SNS_TOPIC_ARN` | empty | empty | the staging topic | the production topic — **required**, see below |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
@@ -141,9 +141,11 @@ Two things follow from that, for any new environment:
 - **Production access is granted per region.** An account can be out of the
   sandbox in one region and still in it in the region `MAIL_HOST` actually
   points at. Check the region you are sending from, not the account in general.
-- **S91's alert (#97) is what makes the failure loud.** `automations:alert-on-failures`
-  reads `state`, so a rejected send is `failed` however it got there rather than
-  going quiet.
+- **S91's alert (#97) makes the failure loud, but only on the message queue.**
+  `automations:alert-on-failures` reads `action_instances.state`, so a rejected
+  *automated* send is `failed` however it got there rather than going quiet.
+  Nothing surfaces the same rejection for an invitation, a password reset or a
+  notification — those never reach `SendRails`. Do not read this as coverage.
 
 **A team's own address never goes in `From`.** It rides in `Reply-To`, which
 needs no DNS and no verification. A `From` SES is not authorised to send as is

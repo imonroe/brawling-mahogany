@@ -232,9 +232,11 @@ issue rather than a line in this document. It is performed on staging:
 
 ## 4a. The safety net that changed under us
 
-PRD §8.6 names the staging guardrail as *"SES runs in sandbox mode with all mail
-redirected, so no test ever reaches a real client. This is the safety net behind
-the whole of Slice 3."*
+PRD §8.6 **used to** name the staging guardrail as *"SES runs in sandbox mode
+with all mail redirected, so no test ever reaches a real client"* — the sentence
+`AppServiceProvider::configureMailGuardrail()` glosses as *"the safety net behind
+the whole of Slice 3."* (§8.6 now says something narrower; this PR is what
+changed it.)
 
 That was **two** guards, and only one of them is left.
 
@@ -271,6 +273,12 @@ acceptable now:
 - **It is environment state, not repository state.** It lives in the droplet's
   own `.env`, so nothing in CI, no test and no review can tell you it is
   present. The only way to know is to look at the box.
+
+One boundary on "every message", since this section is about being precise:
+`Mail::alwaysTo()` binds the **default** mailer. Nothing today reaches for a
+named one, so the claim holds — but a future `Mail::mailer('ses')->to(...)`
+would route around this guard without touching it, and would look like ordinary
+code in review.
 
 So: **check it on the droplet before putting anything resembling real client
 data on staging**, and treat a seeded demo team as real client data the moment
@@ -434,7 +442,7 @@ it is set every message goes to its real recipient. §2 of
 
 The remainder — the parts that need a decision or another account:
 - [ ] Postgres: managed instance or the compose service, matching production's choice
-- [ ] **`MAIL_REDIRECT_TO` set — now load-bearing on its own.** The SES account is in production access (#12), so the sandbox no longer refuses mail to an unverified recipient; this variable is the whole guardrail. See §4a. And note that a redirected invitation still reaches nobody: use the **Get link** action in `/admin`, or `php artisan invitation:link <email>`, to onboard staging's first team owner ([[adr/0003-no-email-only-flows|ADR 0003]])
+- [ ] **`MAIL_REDIRECT_TO` set — now load-bearing on its own.** The SES account is in production access (#12), so the **SES** sandbox no longer refuses mail to an unverified recipient; this variable is the only guardrail covering every message, and it fails open when unset. See §4a for what F5.9's per-team `sandbox_mode` does and does not still cover. And note that a redirected invitation still reaches nobody: use the **Get link** action in `/admin`, or `php artisan invitation:link <email>`, to onboard staging's first team owner ([[adr/0003-no-email-only-flows|ADR 0003]])
 - [ ] A separate AI provider key with its own budget cap
 - [ ] Sentry staging project, DSN in `.env`
 - [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`, and `STAGING_SSH_PORT` if the droplet does not listen on 22

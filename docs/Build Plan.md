@@ -145,7 +145,7 @@ Three tracks can proceed independently of the critical path, and should:
 
 | Track | Issues | Why it is independent |
 |---|---|---|
-| **Long-lead externals** | ~~#12 SES production access~~ (done, 2026-08-28), #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 3, 5, and 7. #13 is now the only one with weeks of lead time left, and it gates Slice 5 entirely |
+| **Long-lead externals** | ~~#12 SES production access~~ (done, 2026-08-28), #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 5 and 7 — Slice 3's gate was #12 and it has cleared. #13 (a provider DPA) and #17 (outside counsel) are the two with weeks of external lead time left, and #13 gates Slice 5 entirely |
 | **Research spikes** | #14 extraction corpus, #19 iPhone web push, #16 Tailwind Plus | Answer questions whose answers change the build. All three are throwaway code or conversations |
 | **Design ahead of build** | Empty states (#33), mobile collapse (#31), S16 prototype (#76) | Design System §15 lists the first two as gaps; the S16 prototype comes from the Screen Inventory's sequencing recommendation. Designing them while Slice 1 is being built keeps Slice 2 unblocked |
 | **Decisions that gate a slice** | #10 partner or customer, #18 person records | Neither is code. Both have to be settled before the slice they gate starts — #18 before the first slice 1 migration, #10 before slice 2 |
