@@ -6,17 +6,21 @@ use App\Actions\Teams\ProvisionTeam;
 use App\Enums\DealSide;
 use App\Enums\EventType;
 use App\Enums\ParticipantRole;
+use App\Enums\SystemRole;
 use App\Models\CalendarFeed;
 use App\Models\Deal;
 use App\Models\DealType;
 use App\Models\Event;
 use App\Models\KeyDate;
+use App\Models\Permission;
 use App\Models\Property;
+use App\Models\Role;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Calendar\ManageCalendarFeeds;
 use App\Support\Deals\DealRoster;
 use App\Support\Deals\NameDeal;
+use App\Support\Permissions;
 use App\Support\Properties\PropertyDeals;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
@@ -172,6 +176,106 @@ it('stops serving the moment the person is no longer on the team', function (): 
     $this->asStranger();
 
     $this->get("/calendar/feeds/{$token}.ics")->assertNotFound();
+});
+
+it('stops serving the moment the person stops holding calendar.view', function (): void {
+    /*
+     * #194. The membership predicate above answers *"did they leave"*; this
+     * one answers *"can they still open the calendar"*, and until the decision
+     * on #194 nothing asked it. A person moved onto a narrower composed role
+     * (S75 makes that two clicks), or a departing agent whose roles are
+     * stripped while the membership is left in place for a handover, met a 403
+     * on the screen and kept a live `.ics` in Google delivering every showing,
+     * every closing date and every event title the team has.
+     *
+     * The composed role deliberately holds `deals.view` — a **team-surface**
+     * permission — so `carryingAccess()` is still true of this membership and
+     * the older predicate cannot be what produces the 404. The key is
+     * `calendar.view`, and nothing wider.
+     */
+    Event::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'title' => 'Open house',
+        'starts_at' => CarbonImmutable::now()->addDays(3),
+    ]);
+
+    $token = feedToken();
+
+    $this->asStranger();
+    $serving = $this->get("/calendar/feeds/{$token}.ics");
+
+    $serving->assertOk();
+
+    expect($serving->getContent())->toContain('Open house');
+
+    $membership = app(TeamContext::class)->runFor($this->team, function (): TeamMembership {
+        $membership = TeamMembership::query()
+            ->where('person_id', $this->member->getKey())
+            ->sole();
+
+        $role = Role::factory()->create([
+            'team_id' => $this->team->getKey(),
+            'key' => 'deals_only_calendar_feed',
+            'name' => 'Deals Only',
+        ]);
+
+        $role->permissions()->sync(
+            Permission::query()->whereIn('key', [Permissions::VIEW_DEALS])->pluck('id')->all(),
+        );
+
+        $membership->roles()->sync([$role->getKey()]);
+
+        return $membership;
+    });
+
+    /*
+     * Asserted rather than asserted *about*: the paragraph above claims the
+     * older predicate cannot be what produces the 404, and this is the line
+     * that makes the claim checkable. Both of them still hold — the person is
+     * on the team and reaches the app — so `calendar.view` is the only thing
+     * that changed.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        expect(TeamMembership::query()
+            ->where('person_id', $this->member->getKey())
+            ->carryingAccess()
+            ->exists())->toBeTrue()
+            ->and(TeamMembership::query()
+                ->where('person_id', $this->member->getKey())
+                ->whereNull('revoked_at')
+                ->exists())->toBeTrue();
+    });
+
+    /*
+     * The control, and the reason this is the right key: the screen refuses
+     * them. A feed that outlives that refusal is the whole defect.
+     */
+    $this->actingAsPerson($this->member, $this->team);
+    $this->get('/calendar')->assertForbidden();
+
+    $this->asStranger();
+    $this->get("/calendar/feeds/{$token}.ics")->assertNotFound();
+
+    /*
+     * And it **gates rather than revokes**. Nothing was written to
+     * `calendar_feeds`, so restoring the permission restores the subscription
+     * already sitting in somebody's calendar — a role edited by mistake costs
+     * a fetch interval, not every URL the team has issued. Revoking is still
+     * the deliberate act on S60, and still immediate, which the test above
+     * holds.
+     */
+    app(TeamContext::class)->runFor($this->team, function () use ($membership): void {
+        $membership->roles()->sync([
+            Role::query()->whereNull('team_id')->where('key', SystemRole::TeamMember->value)->sole()->getKey(),
+        ]);
+    });
+
+    $this->asStranger();
+    $again = $this->get("/calendar/feeds/{$token}.ics");
+
+    $again->assertOk();
+
+    expect($again->getContent())->toContain('Open house');
 });
 
 it('leaves the street off a single-deal feed, where it says nothing', function (): void {

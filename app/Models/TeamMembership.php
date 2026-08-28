@@ -246,6 +246,35 @@ class TeamMembership extends Model
     }
 
     /**
+     * `hasPermission()`, asked of a query rather than of a loaded row.
+     *
+     * The same walk the model does — roles, then their permissions, then the
+     * key — so a caller that cannot load a membership gets the same answer a
+     * policy would. `ChecksTeamPermissions::allows()` is the shape being
+     * mirrored, revoked check included: `hasPermission()` returns false for a
+     * revoked membership before it looks at a single role, and a scope that
+     * left that out would answer *yes* for somebody who left in March.
+     *
+     * Note this is a **specific key**, not `carryingAccess()`'s *"any key on
+     * the team surface"*. The two are different questions and the difference
+     * is the whole of #194: a person can hold a composed role that reaches the
+     * app and does not reach the calendar.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeHoldingPermission(Builder $query, string $key): Builder
+    {
+        return $query->whereNull('team_memberships.revoked_at')->whereHas(
+            'roles',
+            fn ($roles) => $roles->whereHas(
+                'permissions',
+                fn ($permissions) => $permissions->where('permissions.key', $key),
+            ),
+        );
+    }
+
+    /**
      * Does this membership let somebody *act* in the team, or merely describe
      * somebody the team knows?
      *

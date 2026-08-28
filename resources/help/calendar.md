@@ -66,6 +66,14 @@ You can have one feed for everything, or a feed for a single deal — useful if
 you want to share one deal's dates with somebody without giving them the rest
 of your week.
 
+**A feed only works while you can open the calendar here.** If your role
+changes and it no longer includes calendar access, your feeds go quiet at the
+next refresh — the same access, asked in both places, so a URL cannot outlive
+the screen it came from. Nothing is destroyed: restore the access and the
+subscription already sitting in the calendar app starts working again. That is
+what makes it different from **Revoke**, which is deliberate and permanent for
+that URL.
+
 The feed carries titles, days, times and locations, and — on a feed that covers
 everything — the street of the property each entry belongs to, so that
 "Deadline: Closing" says which house. That is the whole list. No attendee
