@@ -23,10 +23,11 @@ That worked in exactly one environment. Everywhere else it failed silently:
   `http://localhost:8025`. Anybody working outside the container, or with the
   mail service down, gets an invitation with no delivery and no error.
 - **Staging is required to redirect every message** — and when the variable is
-  unset it simply does not, silently (#196, added 2026-08-28 once SES production
-  access removed the sandbox that used to back this up). `MAIL_REDIRECT_TO` is a deliberate
-  guardrail (`docs/Environment and secrets.md`), and it means a staging
-  invitation never reaches the address it names.
+  unset it simply does not, silently (#196, added 2026-08-28 once SES
+  production access removed the sandbox that used to back this up).
+  `MAIL_REDIRECT_TO` is a deliberate guardrail (`docs/Environment and
+  secrets.md`), and **when it is set** it means a staging invitation never
+  reaches the address it names.
 - **Production is not immune either.** Relays drop messages, spam filters
   swallow them, shared mailboxes go unread, and people typo their own address.
 

@@ -115,7 +115,7 @@ class AppServiceProvider extends ServiceProvider
      * MAIL_REDIRECT_TO is set.
      *
      * This is the safety net behind the whole of Slice 3 (PRD §8.6): staging
-     * redirects all mail, so no test reaches a real client. An email to the
+     * **must** redirect all mail, so that no test reaches a real client. An email to the
      * wrong client cannot be recalled, which is why this lives in the framework
      * boot rather than in a mailer somewhere.
      *

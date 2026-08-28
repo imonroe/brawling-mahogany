@@ -42,7 +42,7 @@ the container which uses them transparently."*
 | `APP_KEY` | generated | generated per run | real, unique | real, unique |
 | `DB_PASSWORD` | developer's choice | fixed, throwaway | real, unique | real, unique |
 | `REDIS_PASSWORD` | none | none | real | real |
-| `MAIL_*` | Mailpit, no credentials | array driver | **SES, every recipient redirected** | SES |
+| `MAIL_*` | Mailpit, no credentials | array driver | **SES; every recipient redirected, but only because `MAIL_REDIRECT_TO` below says so** | SES |
 | `APP_NAME` | `Brawling Mahogany` | same | same | same |
 | `APP_PRODUCT_NAME` | `Goldieflow` | same | same | same |
 | `MAIL_FROM_ADDRESS` | anything | `.env.example`'s value — **used**, not unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |

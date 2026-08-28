@@ -784,7 +784,7 @@ Underrated, and it will bite. Required at launch: a dedicated sending subdomain,
 
 **Every flow the product initiates by email carries a second way to start it or answer it that does not involve email.** See [[adr/0003-no-email-only-flows|ADR 0003]].
 
-Email is a channel this product does not control. A message can be dropped by a relay, filed as spam, sent to a shared mailbox nobody reads, or — in every local environment, and in staging by design (§8.6) — never sent at all. Slice 1 shipped exactly one email-only flow and it was the invitation in F1.3, which is also the whole of onboarding in §5.1 step 1: a fresh install could provision a team and then had no path at all to somebody who could sign in to it.
+Email is a channel this product does not control. A message can be dropped by a relay, filed as spam, sent to a shared mailbox nobody reads, or — in every local environment, and in staging whenever §8.6's redirect is in force — never delivered to the address it names. Slice 1 shipped exactly one email-only flow and it was the invitation in F1.3, which is also the whole of onboarding in §5.1 step 1: a fresh install could provision a team and then had no path at all to somebody who could sign in to it.
 
 The second door need not be equally convenient, and often should not be. Three shapes satisfy the rule, in order of preference: the recipient answers it **in the application**; somebody who already controls the flow **hands the artifact over**; or an operator **issues it from the console**. Each ships in every environment, on the same code path, with the same audit trail — a path that exists only in staging is a path nobody tests and nobody reviews with production eyes.
 

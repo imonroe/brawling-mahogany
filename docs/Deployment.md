@@ -259,9 +259,8 @@ created tomorrow is only as safe as its own row; it is **switchable** from
 password reset, every notification email, and the client's own status-page magic
 link (`DispatchStatusPageLink`) all go nowhere near it. That last one is the
 example worth holding on to, because it is the one addressed to a **client**
-rather than a colleague. It also
-*redirects* rather than withholds, and on staging the team owner is a real
-person.
+rather than a colleague. It also *redirects* rather than withholds, and on
+staging the team owner is a real person.
 
 Two properties of `MAIL_REDIRECT_TO` are worth stating plainly, because they
 were acceptable when it was the inner guard of two global ones and are not
@@ -451,6 +450,7 @@ The remainder — the parts that need a decision or another account:
 - [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`, and `STAGING_SSH_PORT` if the droplet does not listen on 22
 - [ ] Repository variable `STAGING_ENABLED=true`
 - [ ] Repository variable `UPTIME_STAGING_URL` (and `UPTIME_PRODUCTION_URL` at launch), which turn the uptime workflow on — note these are variables, while `STAGING_URL` is a secret
+- [ ] `SES_SNS_TOPIC_ARN` set, with the SNS topic and its subscription created — `POST /webhooks/ses` refuses everything while it is empty, so bounces go unrecorded and suppression never fires (#95)
 - [ ] Nightly backup job and its offsite target
 - [ ] Restore drill performed and its duration recorded
 
