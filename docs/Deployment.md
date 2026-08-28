@@ -232,11 +232,10 @@ issue rather than a line in this document. It is performed on staging:
 
 ## 4a. The safety net that changed under us
 
-PRD §8.6 **used to** name the staging guardrail as *"SES runs in sandbox mode
-with all mail redirected, so no test ever reaches a real client"* — the sentence
+PRD §8.6 **used to** read *"Staging runs SES in sandbox mode with all mail
+redirected, so no test ever reaches a real client"* — the sentence
 `AppServiceProvider::configureMailGuardrail()` glosses as *"the safety net behind
-the whole of Slice 3."* (§8.6 now says something narrower; this PR is what
-changed it.)
+the whole of Slice 3."* (§8.6 was narrowed on 2026-08-28; see #196.)
 
 That was **two** guards, and only one of them is left.
 
@@ -350,7 +349,8 @@ them, and a suspended sender means no client hears anything.
 ## 6. Standing up the staging droplet
 
 Two things have to happen outside this repository first, because nothing in it
-can do them: **create the droplet**, and **point DNS at it**. Caddy requests a
+can do them: **create the droplet**, and **point DNS at it**. (Both are done for
+staging — this section is the procedure for a new environment.) Caddy requests a
 certificate on first boot and ACME's challenge arrives over public DNS, so the
 hostname must already resolve.
 

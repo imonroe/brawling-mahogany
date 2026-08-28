@@ -211,13 +211,14 @@ PRD §8.6, restated because both protect somebody else's client:
 
 ### What that means for anything you have to *act on*
 
-Both guardrails above make staging mail undeliverable on purpose, and local
+The redirect above makes staging mail undeliverable on purpose — **when it is
+set** — and local
 mail never leaves the machine. [[adr/0003-no-email-only-flows|ADR 0003]] is the
 rule that keeps this from being a dead end: **no user flow depends on email
 alone**, so nothing in the product is unreachable because a message went to
 Mailpit or was redirected to an ops mailbox.
 
-In practice, for the two flows that exist today:
+In practice, for the two flows a stranger is most likely to hit (`App\Support\Mail\EmailIndependence::FLOWS` is the full list, and carries six):
 
 | Flow | Without the message |
 |---|---|
