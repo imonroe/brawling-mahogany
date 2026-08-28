@@ -185,22 +185,34 @@ final class ManageCalendarFeeds
              * every URL the team has issued. Revoking is still the deliberate
              * act, on S60, and still immediate.
              *
-             * Nothing tells the subscriber, and nothing can: a person without
-             * `calendar.view` is refused S57, and S60 is a modal over it. The
+             * Nothing tells the subscriber: a person without `calendar.view`
+             * is refused S57, and S60 is a modal over it, so the only place
+             * that could say so is a place they cannot open. The
              * feed going quiet is the only signal available, which is the
              * argument for the permission being the *screen's* key rather than
              * a second one invented here.
              *
              * The cost of that is real and is written down rather than
-             * discovered: while the gate is closed **no screen lists this feed
-             * to anybody**, so there is no Revoke button to reach. Not a
-             * missing permission — `destroy()` already authorises the holder
-             * *or* somebody who can update the team — a missing list:
-             * `feedsFor()` shows a person their own feeds only, and it rides
-             * in the props of the screen the holder can no longer open. So a
-             * URL sitting in a third party's calendar is re-armed by a later
-             * role edit rather than ended by one, and the screen that would
-             * let somebody end it is #206.
+             * discovered: while the gate is closed **nothing reaches Revoke on
+             * this feed**, and the reason differs by who is asking.
+             *
+             * For the **holder** it is the permission *and* the list.
+             * `destroy()` opens with `authorize('viewAny', Event::class)` —
+             * `calendar.view`, the key they have just lost — before it asks
+             * whose feed it is, so the route refuses them even given the URL.
+             * An earlier round of this change said *"not a missing permission,
+             * a missing list"*, which is true of an owner and false of exactly
+             * the person the paragraph is about.
+             *
+             * For an **owner** it is the list alone: they hold `calendar.view`
+             * and pass `can('update', $team)`, so the route would let them
+             * revoke a colleague's feed — but `feedsFor()` is that person's
+             * own feeds only, by #108's deliberate choice, so no screen ever
+             * names the row.
+             *
+             * Either way a URL sitting in a third party's calendar is re-armed
+             * by a later role edit rather than ended by one, and #206 is what
+             * would let somebody end it.
              *
              * ## Revocation is asked once, inside the scope
              *
@@ -215,7 +227,7 @@ final class ManageCalendarFeeds
              * if it goes.
              */
             ->whereIn('person_id', TeamMembership::withoutTeamScope()
-                ->select('person_id')
+                ->select('team_memberships.person_id')
                 ->whereColumn('team_memberships.team_id', 'calendar_feeds.team_id')
                 ->holdingPermission(Permissions::VIEW_CALENDAR))
             ->with('team')

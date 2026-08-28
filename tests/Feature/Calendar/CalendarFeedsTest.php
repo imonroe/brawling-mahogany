@@ -152,9 +152,18 @@ it('stops serving the moment the person is no longer on the team', function (): 
      * a URL nobody remembers exists — `live()` asks only whether the *feed*
      * was revoked.
      *
-     * Revocation only, matching `Notification::scopeForPerson()`: reading more
-     * strictly than the app writes would cut off somebody who still works
-     * there and holds a role composed without a team-surface permission.
+     * This is the *departure* half, and it is now one of two predicates
+     * rather than the whole rule: #194 added `calendar.view` beside it, in
+     * the test below. The sentence that used to stand here — *"revocation
+     * only, because reading more strictly than the app writes would cut off
+     * somebody who still works there"* — was written when the alternative on
+     * the table was `carryingAccess()`, and it does not survive the key that
+     * replaced it: `calendar.view` is what the screen itself is gated on, so
+     * refusing the feed to somebody the screen refuses is reading exactly as
+     * strictly as the app writes, not more.
+     *
+     * Kept as its own test because the two fail for different reasons and a
+     * single test covering both would pass while either was broken.
      */
     Event::factory()->create([
         'team_id' => $this->team->getKey(),
@@ -282,8 +291,15 @@ it('refuses at the agency where the permission is missing, and serves at the one
     /*
      * The predicate is correlated — `team_memberships.team_id` to
      * `calendar_feeds.team_id` — and review found nothing exercised that
-     * correlation: delete the `whereColumn` and every test still passed,
-     * because the subject held exactly one membership.
+     * correlation: delete the `whereColumn` and every test still passed.
+     *
+     * Not for want of a second membership. *'lets somebody who works for two
+     * agencies subscribe to both'* above gives this person two, and the
+     * correlation still makes no difference there, because `attachOwner()`
+     * makes them a Team Owner in **both** — and a predicate cannot be caught
+     * looking at the wrong row while both rows answer the same. Exercising it
+     * needs the two memberships to *disagree*, which is what this fixture is
+     * for and the only thing it adds.
      *
      * A stager, a broker or an assistant working for two agencies is one
      * person with two memberships, and the roles are composed per team. So
@@ -363,8 +379,17 @@ it('refuses at the agency where the permission is missing, and serves at the one
      * `clientSurfaceAccessibility.test.ts` keeps by asserting a deliberately
      * broken fixture *does* produce a violation.
      */
-    app(TeamContext::class)->runFor($second, function (): void {
-        $role = Role::query()->where('key', 'deals_only_second_agency')->sole();
+    app(TeamContext::class)->runFor($second, function () use ($second): void {
+        /*
+         * Scoped to the team, because `roles` has no global scope — CLAUDE.md's
+         * *"a shared table's key is a shared namespace"*. Matching on key alone
+         * works only while no other team and no system row has picked the same
+         * one, which is a property of the fixture rather than of the query.
+         */
+        $role = Role::query()
+            ->where('team_id', $second->getKey())
+            ->where('key', 'deals_only_second_agency')
+            ->sole();
 
         $role->permissions()->sync(
             Permission::query()

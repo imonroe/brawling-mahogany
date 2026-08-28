@@ -73,10 +73,15 @@ the screen it came from. Nothing is destroyed: restore the access and the
 subscription already sitting in the calendar app starts working again.
 
 That last part cuts both ways, so it is worth being plain about: losing
-calendar access **pauses** a feed, it does not end one. If a URL has got out,
-or somebody is leaving and you want the link in their calendar dead for good,
-press **Revoke** — that is the deliberate, permanent one, and it is the only
-thing that stops the same URL coming back when access is restored.
+calendar access **pauses** a feed, it does not end one. **Revoke** is the
+permanent one, and it is the only thing that stops the same URL working again
+if the access comes back.
+
+Which means the order matters when somebody is leaving. Have them press
+**Revoke first**, while they can still open the calendar — once their access
+is gone the feed goes quiet, but nobody can end it, including them: the list
+it appears on is part of the calendar screen they can no longer reach. A link
+paused that way starts working again the day somebody restores their role.
 
 The feed carries titles, days, times and locations, and — on a feed that covers
 everything — the street of the property each entry belongs to, so that
