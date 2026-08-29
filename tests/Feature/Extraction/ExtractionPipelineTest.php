@@ -699,7 +699,23 @@ it('ends the row on a failure it has no name for, rather than leaving it claimed
      * Asserted by running the job again and proving it changes nothing, since
      * the `fail()` call itself is the queue's business rather than the row's.
      */
-    $before = $extraction->only(['state', 'error', 'error_code', 'completed_at']);
+    /*
+     * Snapshotted as **scalars**, not with `only()`.
+     *
+     * `toBe()` is `assertSame`, which compares an array's members with `===` —
+     * so a `CarbonImmutable` in the snapshot is compared by object identity,
+     * and a re-read row can never equal its own earlier state however unchanged
+     * it is. The assertion would have failed against correct code, which is the
+     * kind of test that gets weakened rather than fixed.
+     */
+    $snapshot = static fn (?Extraction $row): array => [
+        'state' => $row?->state->value,
+        'error' => $row?->error,
+        'error_code' => $row?->error_code,
+        'completed_at' => $row?->completed_at?->toIso8601String(),
+    ];
+
+    $before = $snapshot($extraction);
 
     $threwAgain = false;
 
@@ -710,7 +726,7 @@ it('ends the row on a failure it has no name for, rather than leaving it claimed
     }
 
     expect($threwAgain)->toBeFalse('a claimed, ended row must not be picked up again')
-        ->and($extraction->fresh()?->only(['state', 'error', 'error_code', 'completed_at']))->toBe($before);
+        ->and($snapshot($extraction->fresh()))->toBe($before);
 
     expect($extraction->state)->toBe(ExtractionState::Failed)
         ->and($extraction->state->isFinal())->toBeTrue()
