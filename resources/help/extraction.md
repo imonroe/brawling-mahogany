@@ -101,8 +101,16 @@ let you accept eleven dates without looking at them.
 
 There is a monthly limit on how much reading a team does, because each document
 costs real money to read. If it is reached, extraction stops and says so — it
-does not quietly get worse. An owner can raise it under **Settings →
-Extractions**, or it resets at the start of the next month.
+does not quietly get worse. It resets at the start of the next month, and if
+you need it raised before then, ask support: the limit is set for your team
+rather than by it.
+
+**Settings → Extractions** shows how much of the month's allowance has been
+used and when it resets, so nobody has to find out by being stopped.
+
+If an extraction fails, or stops because of the limit, the document is not
+stuck — the **Documents** tab shows what happened and offers **Try again**
+beside it.
 
 ## Where the dates end up
 

@@ -9,10 +9,25 @@ namespace App\Support\Extraction;
  *
  * #113: *"Hitting the cap stops extraction and tells the user plainly — it does
  * not silently degrade."* The refusal therefore carries the sentence a person
- * reads, and the sentence differs by which ceiling was hit — a team cap is
- * something their own administrator can raise, and a platform cap is not.
- * Telling somebody to "contact your administrator" about a limit their
- * administrator cannot move is worse than telling them nothing.
+ * reads, and the sentence differs by which ceiling was hit.
+ *
+ * ## Neither sentence names a control the reader has
+ *
+ * The team-cap message read *"An owner can raise it in Settings"* for a round,
+ * and review was right that it was a promise with nothing behind it:
+ * `teams.extraction_monthly_cap_micros` had a reader and no writer anywhere in
+ * the application. The fix is not to add the screen. `SpendLedger` calls the
+ * team cap *"a commercial limit"* and the migration describes the column as
+ * what an **operator** sets *"for the one team that needs stopping now"* — a
+ * commercial limit the customer can raise for themselves is not a limit, and a
+ * ceiling somebody sets on a team that is spending too fast is not one that
+ * team should be able to lift.
+ *
+ * So it goes the way `mail:suppression` goes, and for the same reason stated
+ * there: *"every team is affected — it is deliberately not something a team can
+ * do to itself."* `extraction:cap` is the writer, it is audited, and both
+ * sentences here now name only what the reader can actually do — wait for the
+ * month, or ask the person who runs the installation.
  */
 final readonly class SpendDecision
 {
@@ -36,7 +51,7 @@ final readonly class SpendDecision
             false,
             'team_spend_cap_reached',
             'This team has reached its monthly limit for reading documents. '
-                .'An owner can raise it in Settings, or it resets at the start of next month.',
+                .'It resets at the start of next month, or whoever runs this installation can raise it.',
             $spentMicros,
             $capMicros,
             false,

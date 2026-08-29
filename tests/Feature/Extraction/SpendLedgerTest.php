@@ -82,12 +82,20 @@ it('stops a team that has spent its month', function (): void {
     /*
      * #113: hitting the cap *"stops extraction and tells the user plainly — it
      * does not silently degrade"*. So the refusal carries a sentence, and the
-     * sentence names the two things this person can actually do about it: ask an
-     * owner, or wait for the month to turn over.
+     * sentence names only what this person can actually do about it: wait for
+     * the month to turn over, or ask whoever runs the installation.
+     *
+     * It said *"an owner can raise it in Settings"* for a round, over a column
+     * with no writer anywhere in the application. The rule this assertion holds
+     * is the general one rather than the wording: **a refusal must not name a
+     * control the reader does not have.** `extraction:cap` is the writer, and
+     * it is deliberately not a screen — `SpendLedger` calls this ceiling a
+     * commercial limit, and one the customer can lift is not one.
      */
     expect($decision->allowed)->toBeFalse()
         ->and($decision->reasonCode)->toBe('team_spend_cap_reached')
-        ->and($decision->message)->toContain('Settings')
+        ->and($decision->message)->not->toContain('Settings')
+        ->and($decision->message)->toContain('resets at the start of next month')
         ->and($decision->spentMicros)->toBe(1_000_000)
         ->and($decision->capMicros)->toBe(1_000_000)
         ->and($decision->percentUsed())->toBe(100);
@@ -95,11 +103,12 @@ it('stops a team that has spent its month', function (): void {
 
 it('says something different when it is the platform that has stopped', function (): void {
     /*
-     * Two ceilings, and they fail differently. A team cap is something the
-     * team's own administrator can raise; a platform cap is not — and
-     * `SpendDecision` says so in as many words: *"telling somebody to 'contact
-     * your administrator' about a limit their administrator cannot move is worse
-     * than telling them nothing."*
+     * Two ceilings, and they fail differently. A team cap resets with the
+     * month; a platform one is paused until somebody reviews it, and nothing
+     * the reader does brings it back. Neither sentence names a control the
+     * reader has, which is the rule `SpendDecision` states — but they are not
+     * interchangeable, and a person told the wrong one waits for the wrong
+     * thing.
      *
      * The spend is put in **another** team, which is the other half of what
      * makes this the platform ceiling rather than the team one: the asking team
@@ -116,7 +125,7 @@ it('says something different when it is the platform that has stopped', function
     expect($this->ledger->teamSpentThisMonth($this->team))->toBe(0)
         ->and($decision->allowed)->toBeFalse()
         ->and($decision->reasonCode)->toBe('platform_spend_cap_reached')
-        ->and($decision->message)->not->toContain('Settings')
+        ->and($decision->message)->not->toContain('next month')
         ->and($decision->message)->toContain('Nothing has been lost');
 });
 
