@@ -40,10 +40,23 @@ return new class extends Migration
 
             /*
              * The document is the subject and the deal is where a team looks
-             * for it — the same split `activity_events` makes, for the same
-             * reason. The deal is not derivable from the document: a document
+             * for it. The deal is not derivable from the document: a document
              * hangs off a property as readily as off a deal, and S66 lives at
              * `/deals/{deal}/extractions/{extraction}`.
+             *
+             * This cited `activity_events` as the precedent for a round, and
+             * review was right that the analogy runs the other way. ADR 0002
+             * singles that column out as the one FK the purge must **detach**,
+             * because there `deal_id` means *context*: a contact logged against
+             * a person happened whether or not the deal survives, and cascading
+             * would delete a record of something a person did.
+             *
+             * An extraction is not that. It is a reading of one document for
+             * one deal, and it has no meaning once the deal is gone —
+             * `extracted_fields` beneath it are proposals about that deal's
+             * dates and tasks. So this is an ordinary cascading
+             * `teamScopedForeign()` on purpose, and deleting a deal takes its
+             * extraction history with it.
              */
             $table->teamScopedForeign('document_id', 'documents');
             $table->teamScopedForeign('deal_id', 'deals');

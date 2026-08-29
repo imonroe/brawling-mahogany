@@ -432,11 +432,37 @@ final class ExtractionHistory
      */
     private function costPerDeal(): array
     {
+        /*
+         * **Deals that spent, not deals that have a row.**
+         *
+         * A `blocked` row is a refusal rather than an attempt: nothing was
+         * called and nothing was charged, and `StartExtraction` writes one on
+         * every press while a team is capped. So a team that pressed Extract
+         * twenty times against a reached ceiling added twenty rows costing
+         * nothing, and a deal whose extractions were *all* refusals became a
+         * deal in this denominator with `$0.00` against it — dragging the
+         * reported average **down**.
+         *
+         * That is the expensive direction for this particular figure. PRD
+         * §12.3's *"AI cost per deal, under $2"* is the number that says
+         * whether the product is profitable at a flat price, and a metric that
+         * looks better the more often the safety rails fire is one somebody
+         * later builds a pricing assumption on.
+         *
+         * `having` rather than a `where` on the rows, because the question is
+         * about the **deal**: a deal with one real extraction and twenty
+         * refusals is one deal that spent what the one extraction cost, and
+         * filtering the rows first would give the same answer the long way
+         * round. A null `deal_id` is excluded for the same reason — there is no
+         * deal to divide by.
+         */
         $perDeal = Extraction::query()
             ->toBase()
             ->select('deal_id')
             ->selectRaw('sum(cost_micros) as total')
-            ->groupBy('deal_id');
+            ->whereNotNull('deal_id')
+            ->groupBy('deal_id')
+            ->havingRaw('sum(cost_micros) > 0');
 
         /*
          * Interpolated rather than bound, and safe because it is an integer

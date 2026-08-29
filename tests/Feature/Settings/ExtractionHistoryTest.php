@@ -233,3 +233,53 @@ it('draws no ceiling when there genuinely is not one', function (): void {
                 ->and($spend['monthToDate'])->not->toBeNull();
         });
 });
+
+it('counts a deal in the cost average only if the deal actually spent', function (): void {
+    /*
+     * PRD §12.3's *"AI cost per deal, under $2"* is the figure that says
+     * whether this product is profitable at a flat price, so the direction its
+     * defects fall in matters more than usual.
+     *
+     * A `blocked` row is a refusal rather than an attempt — nothing called,
+     * nothing charged — and `StartExtraction` writes one on **every press**
+     * while a team is capped. So a deal whose extractions were all refusals
+     * became a deal in this denominator with `$0.00` against it, and the
+     * reported average went **down** every time a safety rail fired. A metric
+     * that looks better the more often extraction is refused is one somebody
+     * later builds a pricing assumption on.
+     *
+     * Two deals, one of them spending $2.40 and one of them refused twice. The
+     * average must be $2.40, not $1.20.
+     */
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $spent = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+        $refused = Deal::factory()->create(['team_id' => $this->team->getKey()]);
+
+        extractionOn($spent, 2_400_000);
+
+        Extraction::factory()->blocked()->count(2)->create([
+            'team_id' => $this->team->getKey(),
+            'deal_id' => $refused->getKey(),
+        ]);
+    });
+
+    $this->actingAsPerson($this->owner, $this->team);
+
+    $this->get('/settings/extractions')
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $cost = $page->toArray()['props']['scorecard']['costPerDeal'];
+
+            expect($cost['deals'])->toBe(1)
+                ->and($cost['average'])->toBe('$2.40')
+                ->and($cost['total'])->toBe('$2.40')
+                /*
+                 * And the target verdict follows the corrected number rather
+                 * than the diluted one: $2.40 is over $2, and a denominator
+                 * padded with refusals is exactly how that would have read as
+                 * on target.
+                 */
+                ->and($cost['overTarget'])->toBe(1)
+                ->and($cost['meetsTarget'])->toBeFalse();
+        });
+});
