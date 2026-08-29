@@ -9,12 +9,17 @@ use App\Enums\DocumentVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\Document;
+use App\Models\Extraction;
 use App\Models\Person;
 use App\Support\Audit\AuditLogger;
 use App\Support\Deals\DealHeader;
 use App\Support\Documents\DocumentStorage;
 use App\Support\Documents\RefusedDocument;
 use App\Support\Documents\UnsupportedDocument;
+use App\Support\Extraction\Money;
+use App\Support\Extraction\ProviderManager;
+use App\Support\Extraction\SpendDecision;
+use App\Support\Extraction\SpendLedger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -47,14 +52,25 @@ use Symfony\Component\HttpFoundation\HeaderUtils;
  */
 class DealDocumentController extends Controller
 {
-    public function index(Deal $deal): Response
+    public function index(Deal $deal, ProviderManager $providers, SpendLedger $ledger): Response
     {
         $this->authorize('view', $deal);
 
         $documents = Document::query()
             ->where('documentable_type', $deal->getMorphClass())
             ->where('documentable_id', $deal->getKey())
-            ->with('uploader')
+            ->with([
+                'uploader',
+                /*
+                 * The **latest** attempt only, and its fields, because the row
+                 * needs a pending count. An eager-load is a claim that a row
+                 * needs the relation, and this one is true of every row on the
+                 * screen: each document either has an extraction to link to or
+                 * has none, and finding out per row is a query per document.
+                 */
+                'extractions' => fn ($query) => $query->latest('created_at')->latest('id')->limit(1),
+                'extractions.fields',
+            ])
             ->latest('created_at')
             /*
              * `created_at` is `timestamp(0)`, so a bulk upload shares a second
@@ -80,8 +96,16 @@ class DealDocumentController extends Controller
              * screen until they have read it.
              */
             'refusal' => session('refusal'),
+            /*
+             * S65's dialog needs three things a document row cannot carry: is
+             * extraction switched on at all, what has this team spent, and when
+             * does that reset. All three are facts about the *team*, so they are
+             * shipped once rather than repeated on every row.
+             */
+            'extract' => self::extractProps($deal, $providers, $ledger),
             'can' => [
                 'upload' => $deal->exists && request()->user()?->can('update', $deal),
+                'extract' => request()->user()?->can('create', [Extraction::class, $deal]) ?? false,
             ],
         ]);
     }
@@ -290,6 +314,151 @@ class DealDocumentController extends Controller
              * photograph of a cheque would be believed.
              */
             'scanState' => $document->scan_state,
+            /*
+             * S65's entry point, and what the row says about it (#115).
+             *
+             * `null` means nothing has been read from this document. Anything
+             * else is the most recent attempt, so the row can offer *Review*
+             * rather than *Extract* once there is something to look at — and so
+             * a second press cannot queue a second read of the same file while
+             * the first is still running.
+             */
+            'extraction' => self::extractionRow($document),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function extractProps(Deal $deal, ProviderManager $providers, SpendLedger $ledger): array
+    {
+        $decision = $ledger->decide($deal->team);
+        $available = $providers->isAvailable();
+
+        /*
+         * Off the decision rather than out of the ledger a second time.
+         *
+         * `decide()` computes both on every path now, so asking again was an
+         * extra aggregate on every load of this page — a **fixed** cost, which
+         * is the kind no query-count budget can see (CLAUDE.md's own note about
+         * `DealsIndexBudgetTest`).
+         */
+        $teamSpent = $decision->teamSpentMicros;
+        $teamCap = $decision->teamCapMicros;
+
+        return [
+            'available' => $available,
+            /*
+             * The second refusal, shipped as its own flag rather than left for
+             * the client to infer. The dialog gates both the sentence and the
+             * button on `available && allowed`; it asked only `available` for
+             * two rounds, so a capped team met an enabled Extract with no
+             * explanation and produced a `blocked` row per press.
+             */
+            'allowed' => $decision->allowed,
+            /*
+             * Two reasons a person can meet, and they need different sentences.
+             * *Not switched on* is an installation that has never had a
+             * provider — PRD §10's four preconditions, which are not code. *Cap
+             * reached* is a team that has spent its month. Collapsing them into
+             * "unavailable" would send somebody to their owner about a limit
+             * their owner cannot move, or to a vendor about a limit they can.
+             */
+            'unavailableReason' => match (true) {
+                ! $available => 'Extraction is not switched on for this installation yet.',
+                ! $decision->allowed => $decision->message,
+                default => null,
+            },
+            /*
+             * **The team's own figures, whichever ceiling did the refusing.**
+             *
+             * `SpendLedger::decide()` answers the *platform* question first and
+             * returns platform numbers in the decision when that is what
+             * stopped things — correctly, since the refusal is about the
+             * platform. Shipping `$decision->spentMicros` here read those
+             * numbers as this team's: from the moment the platform ceiling was
+             * reached, **every** team's Extract dialog drew the installation's
+             * total under a comment reading *"Where this team stands against
+             * its own cap"*, with an `aria-label` saying the same.
+             *
+             * That is one team learning another team's numbers, which ADR 0002
+             * and CLAUDE.md state as its own rule — *the count is scoped even
+             * when the row is not*. It also undid the argument
+             * `platformSpentThisMonth()` is allowlisted on: *"a fact about the
+             * installation's bill rather than about anybody's data"* is true of
+             * the query and was false of where the answer went. And the figure
+             * was simply wrong for the reader, with nothing to tell them so.
+             *
+             * S68 was never affected — `ExtractionHistory::spend()` reads
+             * `capFor()` and `teamSpentThisMonth()` directly — which is what
+             * made the two screens disagree about one team on one day.
+             *
+             * So the panel is composed from the team's own ledger, and the
+             * decision is used only for what it is about: whether this may
+             * proceed, what to say, and whether to warn.
+             */
+            'spend' => [
+                'used' => Money::words($teamSpent),
+                /*
+                 * **A negative cap is the absence of a ceiling; zero is a
+                 * ceiling of zero.** `SpendLedger::decide()` draws the line
+                 * there and `App\Queries\ExtractionHistory::spend()` sends the
+                 * same shape to S68, so this dialog cannot send a different
+                 * one — two screens describing the same number differently is
+                 * how somebody learns to trust neither.
+                 *
+                 * It sent `Money::words()` unconditionally for two rounds,
+                 * which on an installation configured with no ceiling drew a
+                 * **negative dollar amount** as the cap and a bar against it.
+                 */
+                'cap' => $teamCap >= 0 ? Money::words($teamCap) : null,
+                /*
+                 * `SpendDecision::percentOf()` rather than a third statement of
+                 * the rule. This was an inline `match` using `round()` where
+                 * `percentUsed()` uses `floor()`, so S65 and S68 could differ by
+                 * a point about one team on one day.
+                 */
+                'percent' => SpendDecision::percentOf($teamSpent, $teamCap),
+                /*
+                 * The **team's** warn, not the decision's. `shouldWarn` is
+                 * about whether to warn *instead of stopping*, so it is false
+                 * on every refusal — and this panel drew a team at exactly its
+                 * ceiling with a full bar in the untroubled colour while S68
+                 * drew the same team amber.
+                 */
+                'warn' => $decision->teamShouldWarn,
+                /*
+                 * UTC, and the screen says so. Every other date in this product
+                 * is in the team's timezone; a spend cap cannot be, because a
+                 * platform-wide ceiling that rolled over at thirty different
+                 * instants would not be a ceiling. See `SpendLedger`.
+                 */
+                'resetsAt' => $ledger->resetsAt()->toIso8601String(),
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function extractionRow(Document $document): ?array
+    {
+        $extraction = $document->relationLoaded('extractions')
+            ? $document->extractions->first()
+            : null;
+
+        if (! $extraction instanceof Extraction) {
+            return null;
+        }
+
+        return [
+            'id' => $extraction->getKey(),
+            'state' => $extraction->state->value,
+            'kind' => $extraction->kind->value,
+            'url' => "/deals/{$extraction->deal_id}/extractions/{$extraction->getKey()}",
+            'pending' => $extraction->fields->filter(
+                static fn ($field): bool => $field->isPending(),
+            )->count(),
         ];
     }
 }

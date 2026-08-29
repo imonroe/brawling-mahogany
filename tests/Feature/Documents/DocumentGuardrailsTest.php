@@ -284,28 +284,38 @@ it('still refuses the form itself, on its own title', function (): void {
     ))->toThrow(RefusedDocument::class);
 });
 
-it('refuses a contract that has been signed, and keeps the one being negotiated', function (): void {
+it('keeps a contract that has been signed, because F10.1 exists to read one', function (): void {
     /*
-     * The distinction is the whole rule. PRD §1.1 puts this product
-     * *alongside* the e-signature platform rather than in front of it, so the
-     * unexecuted draft somebody is negotiating is exactly the document they
-     * should be able to keep here. What belongs in CTM is the one that has
-     * been signed.
+     * This assertion is inverted from what it used to be, and #209 is why.
      *
-     * Round 1 of review found this category named in S51's warning and in the
-     * help article with **no detector at all** — a refusal list with a
-     * category nothing reaches is a promise the product does not keep.
+     * A rule here refused a signed contract — signature evidence beside
+     * contract vocabulary — and it worked. That turned out to be the defect
+     * rather than the proof: PRD §4.10's F10.1 is *"upload an executed
+     * contract PDF"*, §5.3 walks Heather through doing exactly that, and #14's
+     * corpus is twenty of them. The scanner was discarding the input to the
+     * whole extraction slice before it could be stored.
+     *
+     * The compliance position in PRD §10 is unchanged and is not enforced
+     * here: the e-signature platform still holds the record, and this product
+     * holds a copy read for its dates. That is a sentence in the terms and in
+     * the manual, not a byte pattern.
+     *
+     * What this scanner still refuses is financial and identity material,
+     * which *is* a property of the bytes — and the assertions above and below
+     * this one are the ones that hold it.
      */
     $executed = 'RESIDENTIAL PURCHASE AGREEMENT. In witness whereof the parties have executed '
         ."this agreement.\nDocuSign Envelope ID: 9C41B7A2-33F0-4E19-9D2B-77A1C6E4B510\n"
         .'Electronically signed by Emily Bosart. Certificate of completion follows.';
 
-    expect(fn (): mixed => app(DocumentStorage::class)->store(
+    $document = app(DocumentStorage::class)->store(
         $this->deal,
         upload('contract.txt', $executed),
         $this->owner,
         DocumentCategory::Other,
-    ))->toThrow(RefusedDocument::class);
+    );
+
+    expect($document->scan_state)->toBe('clean');
 
     $draft = 'Draft residential purchase agreement for review. Buyer signature and seller '
         .'signature blocks are at the end. Emily — see paragraph 14, I have changed the '
@@ -319,6 +329,26 @@ it('refuses a contract that has been signed, and keeps the one being negotiated'
     );
 
     expect($document->scan_state)->toBe('clean');
+});
+
+it('still refuses a bank statement that arrives behind a contract', function (): void {
+    /*
+     * The other half of #209, and the one worth a test of its own: carving
+     * the contract out of the refusal list must not carve out what a contract
+     * can *carry*. A closing package with a signed contract on top and the
+     * borrower's bank statement stapled behind it is still refused, on the
+     * bank statement.
+     */
+    $bundle = 'RESIDENTIAL PURCHASE AGREEMENT. Electronically signed by Emily Bosart.'
+        ."\nAccount summary follows. Beginning balance 4,182.09. Ending balance 3,904.55."
+        .' Statement period 1 August through 31 August.';
+
+    expect(fn (): mixed => app(DocumentStorage::class)->store(
+        $this->deal,
+        upload('closing-package.txt', $bundle),
+        $this->owner,
+        DocumentCategory::Other,
+    ))->toThrow(RefusedDocument::class);
 });
 
 it('scans the shortest and most dangerous documents, whatever their length', function (string $label, string $content): void {

@@ -40,6 +40,7 @@ import AppSelect from '@/components/app/AppSelect.vue';
 import Card from '@/components/app/Card.vue';
 import type { DealHeaderProps } from '@/components/app/DealHeader.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
+import ExtractDocumentDialog from '@/components/app/ExtractDocumentDialog.vue';
 import UploadZone from '@/components/app/UploadZone.vue';
 import {
     Dialog,
@@ -60,6 +61,21 @@ type DocumentRow = {
     uploadedAt: string | null;
     uploadedBy: string | null;
     scanState: string | null;
+    /**
+     * The most recent attempt at reading this document, or null (#115).
+     *
+     * The row offers **Review** rather than **Extract** once there is something
+     * to look at, and neither while one is running — a second press on a queued
+     * document would spend the money twice and produce a review screen with
+     * every proposal on it twice.
+     */
+    extraction: {
+        id: string;
+        state: 'queued' | 'processing' | 'complete' | 'failed' | 'blocked';
+        kind: 'contract' | 'inspection';
+        url: string;
+        pending: number;
+    } | null;
 };
 
 type Refusal = {
@@ -76,8 +92,44 @@ const props = defineProps<{
     visibilities: Record<string, string>;
     maxBytes: number;
     refusal: Refusal | null;
-    can: { upload: boolean };
+    extract: {
+        available: boolean;
+        /** False when a spend ceiling has stopped this team — a second refusal. */
+        allowed: boolean;
+        unavailableReason: string | null;
+        spend: {
+            used: string;
+            /** Null when there is no ceiling at all; see `ExtractDocumentDialog`. */
+            cap: string | null;
+            percent: number | null;
+            warn: boolean;
+            resetsAt: string;
+        };
+    };
+    can: { upload: boolean; extract: boolean };
 }>();
+
+/*
+ * S65 opens against one document, so the dialog needs to know which — and it
+ * is one dialog rather than one per row, because a dialog per row is a mounted
+ * component per document on a screen that can hold a hundred.
+ */
+const extracting = ref<DocumentRow | null>(null);
+
+/**
+ * An attempt that ended and left nothing running.
+ *
+ * `StartExtraction` refuses a second attempt only while a sibling is `queued`
+ * or `processing`, so these two states are the ones a person may press again —
+ * a provider outage that has since passed, or a spend ceiling an owner has
+ * raised or a month has reset.
+ */
+function retryable(row: DocumentRow): boolean {
+    return (
+        row.extraction?.state === 'failed' ||
+        row.extraction?.state === 'blocked'
+    );
+}
 
 const uploadOpen = ref(false);
 const file = ref<File | null>(null);
@@ -139,6 +191,14 @@ function remove(row: DocumentRow): void {
  * disagree with the one that actually decides.
  */
 const canUpload = computed(() => props.can.upload);
+
+/*
+ * Two permissions, not one, and the split is deliberate (see
+ * `ExtractionPolicy`): starting an extraction spends the team's money and
+ * sends a document to a third party, so it is `deals.manage` — while
+ * *confirming* what comes back is its own key, which the review screen checks.
+ */
+const canExtract = computed(() => props.can.extract);
 </script>
 
 <template>
@@ -248,6 +308,143 @@ const canUpload = computed(() => props.can.upload);
                     Client-visible
                 </span>
 
+                <!--
+                    S65's entry point (#115).
+
+                    Four shapes, and which one shows is decided by the row's
+                    own most recent attempt rather than by a global flag: a
+                    document with something to review links to it, a document
+                    being read says so and offers nothing, a document with no
+                    attempt offers Extract, and a document whose attempt ended
+                    badly offers **both** — the reason it stopped, and a way to
+                    try again.
+
+                    That last pair is a chain the first version of this screen
+                    got wrong. `v-else-if="row.extraction"` swallowed `failed`
+                    and `blocked` before the Extract branch could be reached, so
+                    a provider outage or a month's spend ceiling took the button
+                    away permanently and the only route back was an upload of
+                    the same file. `StartExtraction` refuses only a `queued` or
+                    `processing` sibling — a finished-badly row is retryable
+                    server-side, and was, with nothing able to ask.
+
+                    IA §7: the verb is **Extract**. Never Scan, Parse or
+                    Analyze, and never AI.
+                -->
+                <a
+                    v-if="row.extraction && row.extraction.state === 'complete'"
+                    :href="row.extraction.url"
+                    :class="[
+                        'shrink-0',
+                        'rounded-md',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'font-medium',
+                        row.extraction.pending > 0
+                            ? 'text-state-warning-fg bg-state-warning-bg'
+                            : 'bg-muted text-muted-foreground',
+                    ]"
+                >
+                    {{
+                        row.extraction.pending > 0
+                            ? `Review ${row.extraction.pending}`
+                            : 'Reviewed'
+                    }}
+                </a>
+
+                <span
+                    v-else-if="
+                        row.extraction &&
+                        (row.extraction.state === 'queued' ||
+                            row.extraction.state === 'processing')
+                    "
+                    :class="[
+                        'shrink-0',
+                        'rounded-full',
+                        'bg-muted',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'text-muted-foreground',
+                    ]"
+                >
+                    Extracting…
+                </span>
+
+                <a
+                    v-else-if="row.extraction"
+                    :href="row.extraction.url"
+                    :class="[
+                        'shrink-0',
+                        'rounded-md',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'font-medium',
+                        'bg-state-danger-bg',
+                        'text-state-danger-fg',
+                    ]"
+                >
+                    {{
+                        row.extraction.state === 'blocked'
+                            ? 'Stopped'
+                            : 'Failed'
+                    }}
+                </a>
+
+                <button
+                    v-else-if="canExtract && row.scanState === 'clean'"
+                    type="button"
+                    :class="[
+                        'shrink-0',
+                        'rounded-md',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'font-medium',
+                        'text-primary',
+                        'hover:bg-muted',
+                        'focus-visible:ring-2',
+                        'focus-visible:ring-ring',
+                        'focus-visible:outline-none',
+                    ]"
+                    @click="extracting = row"
+                >
+                    Extract
+                </button>
+
+                <!--
+                    Deliberately a `v-if` of its own rather than another link in
+                    the chain above: the stopped badge and this button belong
+                    together. The badge says what happened and where to read it;
+                    without the button beside it the row is a dead end.
+                -->
+                <button
+                    v-if="
+                        canExtract &&
+                        row.scanState === 'clean' &&
+                        retryable(row)
+                    "
+                    type="button"
+                    :class="[
+                        'shrink-0',
+                        'rounded-md',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'font-medium',
+                        'text-primary',
+                        'hover:bg-muted',
+                        'focus-visible:ring-2',
+                        'focus-visible:ring-ring',
+                        'focus-visible:outline-none',
+                    ]"
+                    @click="extracting = row"
+                >
+                    Try again
+                </button>
+
                 <button
                     v-if="canUpload"
                     type="button"
@@ -277,9 +474,16 @@ const canUpload = computed(() => props.can.upload);
                 of description somebody's eye slides past on the way to the
                 button.
 
-                It names the five refused categories rather than saying
+                It names the four refused categories rather than saying
                 "sensitive documents", because the whole failure mode is
                 somebody believing their file is the exception.
+
+                Four, not five: the executed contract left this list in #209.
+                Every case that remains is a **financial or identity**
+                document, which is a property of the bytes. A signed contract
+                is neither — it was refused on a different argument, that this
+                product is not its system of record, and F10.1 exists to read
+                exactly that document.
             -->
             <div
                 class="text-state-warning-fg flex gap-2 rounded-md bg-state-warning-bg p-3"
@@ -293,10 +497,10 @@ const canUpload = computed(() => props.can.upload);
                         Do not upload financial or identity documents.
                     </p>
                     <p class="mt-1">
-                        Executed contracts, earnest money instruments, lending
-                        packets, bank statements and government IDs are refused
-                        — this product is not the system of record for them.
-                        Files are checked before they are stored.
+                        Earnest money instruments, lending packets, bank
+                        statements and government IDs are refused — this product
+                        is not the system of record for them. Files are checked
+                        before they are stored.
                     </p>
                 </div>
             </div>
@@ -393,4 +597,24 @@ const canUpload = computed(() => props.can.upload);
             </div>
         </DialogContent>
     </Dialog>
+
+    <!--
+            One dialog for the whole page rather than one per row — a hundred
+            documents would otherwise be a hundred mounted dialogs. It is bound
+            to whichever row was pressed.
+        -->
+    <ExtractDocumentDialog
+        v-if="extracting"
+        :open="extracting !== null"
+        :document-id="extracting.id"
+        :document-name="extracting.name"
+        :deal-url="dealUrl"
+        :available="extract.available"
+        :allowed="extract.allowed"
+        :unavailable-reason="extract.unavailableReason"
+        :spend="extract.spend"
+        @update:open="
+            (open: boolean) => (extracting = open ? extracting : null)
+        "
+    />
 </template>

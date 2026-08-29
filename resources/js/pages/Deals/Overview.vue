@@ -559,7 +559,7 @@ function advance(workflow: WorkflowCard): void {
                     <EmptyState
                         :icon="FileText"
                         title="Documents arrive with slice 3"
-                        description="Disclosures and inspection reports will live here, categorised, and the document-present gate will read from them. Executed contracts stay in your e-signature platform."
+                        description="Disclosures, contracts and inspection reports will live here, categorised, and the document-present gate will read from them. Financial and identity documents are refused."
                     />
                 </Card>
             </div>

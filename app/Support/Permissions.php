@@ -281,6 +281,29 @@ final class Permissions
             self::MANAGE_PROPERTIES,
             self::VIEW_CALENDAR,
             self::MANAGE_NURTURE,
+            /*
+             * Moved down from the owner's list in Slice 5 (#116), and the
+             * reason is who does the job.
+             *
+             * It was placed with the owner's permissions before the screen
+             * existed, on the sound instinct that accepting a model's date
+             * into a contingency calendar has legal consequence. Screen
+             * Inventory then settles who is standing there: S66's user column
+             * is **TC** — Heather — and PRD §5.3 walks her through uploading
+             * the contract and confirming eleven dates. A default that put the
+             * one control on the person who is not at the screen would make
+             * the flagship feature unusable by the person it was specified
+             * for, and the workaround would be making every coordinator an
+             * owner, which is worse for everything else.
+             *
+             * What it keeps is the ability to say otherwise. This stays a
+             * permission of its own rather than folding into `deals.manage`,
+             * so a team that wants confirmation to sit with one person composes
+             * a role that says so (S75). Starting an extraction is separately
+             * `deals.manage`, so a read-only role still cannot spend the
+             * team's money on one.
+             */
+            self::CONFIRM_EXTRACTION,
         ];
 
         $teamOwner = [
@@ -292,7 +315,6 @@ final class Permissions
             self::MANAGE_TEMPLATES,
             self::APPROVE_MESSAGE,
             self::VIEW_RESTRICTED_DOCUMENT,
-            self::CONFIRM_EXTRACTION,
             self::MANAGE_SETTINGS,
             self::MANAGE_TEAM_MEMBERS,
             self::MANAGE_ROLES,

@@ -61,7 +61,6 @@ final class RefusedDocument extends RuntimeException
     public function alternative(): string
     {
         return match ($this->category) {
-            RestrictedDocumentCategory::ExecutedContract => 'Keep it in your e-signature system, which is the system of record for executed contracts.',
             RestrictedDocumentCategory::EarnestMoneyInstrument,
             RestrictedDocumentCategory::LendingPacket,
             RestrictedDocumentCategory::BankStatement => 'Keep it wherever your transaction paperwork lives — your e-signature platform or your brokerage’s own system, both of which are built to hold it.',

@@ -10,6 +10,9 @@ use App\Enums\DealSide;
 use App\Enums\DealState;
 use App\Enums\DocumentCategory;
 use App\Enums\ExtractedFieldReviewState;
+use App\Enums\ExtractedFieldType;
+use App\Enums\ExtractionKind;
+use App\Enums\ExtractionState;
 use App\Enums\GateState;
 use App\Enums\MessageChannel;
 use App\Enums\ParticipantRole;
@@ -125,6 +128,8 @@ dataset('lookups', [
     'document category' => ['Document category', DocumentCategory::class],
     'restricted categories' => ['Restricted (refused) categories', RestrictedDocumentCategory::class],
     'message channel' => ['Message channel', MessageChannel::class],
+    'extraction kind' => ['Extraction kind', ExtractionKind::class],
+    'extracted field type' => ['Extracted field type', ExtractedFieldType::class],
 ]);
 
 it('matches the lookup values in PRD §6.3', function (string $lookup, string $enum): void {
@@ -140,6 +145,7 @@ dataset('state vocabularies', [
     'person' => ['Person lifecycle', PersonLifecycleState::class],
     'automation' => ['Automation / message', AutomationState::class],
     'extracted field' => ['Extracted field', ExtractedFieldReviewState::class],
+    'extraction' => ['Extraction', ExtractionState::class],
 ]);
 
 it('matches the state vocabulary in IA §8', function (string $heading, string $enum): void {
@@ -157,6 +163,7 @@ it('keeps every enum value in snake_case', function (): void {
         TaskSource::class, MessageChannel::class, RecipientRuleType::class,
         AutomationTrigger::class, AutomationActionType::class,
         RestrictedDocumentCategory::class,
+        ExtractionKind::class, ExtractionState::class, ExtractedFieldType::class,
     ];
 
     foreach ($enums as $enum) {

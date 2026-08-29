@@ -67,7 +67,42 @@ final readonly class DealTasks
      */
     public function add(Deal $deal, ?Stage $stage, array $attributes): Task
     {
-        return DB::transaction(function () use ($deal, $stage, $attributes): Task {
+        /*
+         * Typed by a person, and the column exists to be able to say so (see
+         * `TaskSource`). Slice 5 needed `extracted` to be tellable from this,
+         * and #69's follow-up carries `override` — a manual task and a task
+         * the machine proposed must never render alike.
+         */
+        return $this->create($deal, $stage, $attributes, TaskSource::Manual);
+    }
+
+    /**
+     * Add a task a person accepted off an inspection report (#117 · PRD §6.2).
+     *
+     * A second entry point rather than a `TaskSource` argument on
+     * {@see self::add()}, for the reason `SaveKeyDate::addConfirmedExtraction()`
+     * gives one table over: PRD §6.2's rule that nothing reaches `tasks` except
+     * through a confirmed `extracted_fields` row is only enforceable if the
+     * extracted path is a *named* door somebody has to walk through. A default
+     * argument would make it a thing you could forget rather than a thing you
+     * had to choose.
+     *
+     * `App\Support\Extraction\ConfirmExtractedField` is the only caller, held
+     * by `tests/Unit/ExtractionConfirmationPathTest.php`.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function addConfirmedExtraction(Deal $deal, ?Stage $stage, array $attributes): Task
+    {
+        return $this->create($deal, $stage, $attributes, TaskSource::Extracted);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function create(Deal $deal, ?Stage $stage, array $attributes, TaskSource $source): Task
+    {
+        return DB::transaction(function () use ($deal, $stage, $attributes, $source): Task {
             $task = new Task;
 
             $task->fill([
@@ -78,20 +113,16 @@ final readonly class DealTasks
             $task->deal()->associate($deal);
             $task->stage()->associate($stage);
 
-            /*
-             * Typed by a person, and the column exists to be able to say so
-             * (see `TaskSource`). Slice 5 needs `extracted` to be tellable
-             * from this, and #69's follow-up carries `override` — a manual
-             * task and a task the machine proposed must never render alike.
-             */
-            $task->source = TaskSource::Manual;
+            $task->source = $source;
 
             $task->save();
 
             $this->activity->record(
                 subject: $deal,
                 eventType: 'task.added',
-                summary: "Added task “{$task->title}”",
+                summary: $source === TaskSource::Extracted
+                    ? "Added task “{$task->title}” from Extract"
+                    : "Added task “{$task->title}”",
             );
 
             return $task;

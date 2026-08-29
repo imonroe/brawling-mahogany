@@ -224,6 +224,11 @@ One table, and it is the single source of truth for every badge in the product. 
 | | Confirmed | `success` | |
 | | Edited | `info` | |
 | | Rejected | `neutral` | |
+| **Extraction** | Queued | `neutral` | |
+| | Extracting | `info` | |
+| | Ready to Review | `success` | |
+| | Failed | `danger` | |
+| | Stopped | `warning` | A spending limit halted it before the model ran (#113). Not `danger`: nothing is broken |
 | **Document** | Refused by scan | `danger` | |
 | **Property** | Pre-listing | `neutral` | Not on the market yet |
 | | For Sale | `info` | On the market |

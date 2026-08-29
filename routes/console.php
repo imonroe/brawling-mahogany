@@ -7,6 +7,7 @@ use App\Console\Commands\DispatchDueAutomations;
 use App\Console\Commands\NotifyAboutDeadlines;
 use App\Console\Commands\NotifyAboutKeyDates;
 use App\Console\Commands\PurgeSoftDeletedRecords;
+use App\Console\Commands\ReapStrandedExtractions;
 use App\Console\Commands\ReapUnconfirmedSends;
 use App\Console\Commands\ReleaseHeldNotifications;
 use Illuminate\Foundation\Inspiring;
@@ -54,6 +55,21 @@ Schedule::command(DispatchDueAutomations::class)
  * window it exists to stay out of.
  */
 Schedule::command(ReapUnconfirmedSends::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * A read nobody came back from, and the document it holds hostage (#115).
+ *
+ * Hourly, and for `ReapUnconfirmedSends`'s reason rather than because there is
+ * anything urgent about it: the sweep decides at a distance from the claim,
+ * where no live worker can be contradicted, so running it often would put it
+ * back inside the window it exists to stay out of. The cost of waiting is a
+ * document that cannot be extracted again for a few hours; the cost of being
+ * hasty is failing a read that is still in flight and charging for a second.
+ */
+Schedule::command(ReapStrandedExtractions::class)
     ->hourly()
     ->withoutOverlapping()
     ->onOneServer();

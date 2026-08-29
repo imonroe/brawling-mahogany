@@ -1,0 +1,95 @@
+{
+    "slug": "0010-golden-ambiguous",
+    "description": "Deliberately awkward wording: one deadline stated in words rather than digits, one stated twice in two sections, one carrying a weekday that does not match its own date, and a Closing Date given both in the table and as an offset in the prose. The date wins over the weekday, and the ground truth says so.",
+    "traits": [
+        "native",
+        "complete",
+        "ambiguous-dates"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-03-09",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-03-13",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-03-19",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-03-24",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-03-29",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-03-14",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-04-03",
+            "critical": true
+        },
+        {
+            "label": "New Loan Availability Deadline",
+            "value": "2026-04-09",
+            "critical": false
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-04-03",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-04-08",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-03-22",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-03-24",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-03-27",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-03-29",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-04-23",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-04-23",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Seller to remove the shed on the east side of the lot before Possession.",
+        "Buyer waives the right to object to the location of the fence disclosed on the improvement location certificate."
+    ]
+}

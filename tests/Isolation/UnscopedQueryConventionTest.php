@@ -60,6 +60,19 @@ const SANCTIONED_UNSCOPED_QUERIES = [
         'reason' => 'The definition itself.',
     ],
 
+    'Support/Extraction/SpendLedger.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2 — a context with no tenant, and the one figure in the product '.
+            'that is deliberately not about a tenant at all. `platformSpentThisMonth()` '.
+            'answers "what has this installation spent on reading documents this month", '.
+            'which is the ceiling PRD §14.3 asks for so a defect — a retry loop, a runaway '.
+            'import — cannot spend the company\'s money overnight. Asking it inside one '.
+            'team\'s scope would answer a different question, and one that cannot stop '.
+            'anything: every team would be under the platform cap because every team is '.
+            'only part of it. The per-team figure beside it (`teamSpentThisMonth`) is '.
+            'ordinary scoped Eloquent, which is the pairing that makes this one legible.',
+    ],
+
     'Models/Person.php' => [
         // Three, down from four: `identityIsEditableBy()` went with the shared
         // identity columns it guarded (#140).
@@ -234,6 +247,17 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'inside runFor() on its own team, so the state write and the timeline entry '.
             'land under the right tenant — the unscoped part is only the question of '.
             'which rows exist.',
+    ],
+
+    'Console/Commands/ReapStrandedExtractions.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant, the same shape as the sweep above it: which '.
+            'extractions have stopped moving is a question across every team at once, and '.
+            'a scheduled run has no session to ask it in. Nothing is read from the row but '.
+            'its id, its state and its team, and each one is then handled inside runFor() '.
+            'on its own team so the failure write and the notification land under the right '.
+            'tenant. The re-dispatch carries the team id through forTeam(), where RunsForTeam '.
+            'throws rather than running unscoped.',
     ],
 
     'Console/Commands/DispatchDueAutomations.php' => [

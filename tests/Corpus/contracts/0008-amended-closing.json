@@ -1,0 +1,114 @@
+{
+    "slug": "0008-amended-closing",
+    "description": "A native contract followed by an executed Amend/Extend that moves the Closing Date, the Possession Date and the New Loan Terms Deadline. The ground truth records the amended dates, which is the hardest case in the corpus: both dates are stated in the same text, correctly, and only one of them is still true.",
+    "traits": [
+        "native",
+        "complete",
+        "handwritten-amendment",
+        "amended"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-03-02",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-03-06",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-03-12",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-03-17",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-03-22",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-03-07",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-04-04",
+            "critical": true
+        },
+        {
+            "label": "New Loan Availability Deadline",
+            "value": "2026-04-09",
+            "critical": false
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-04-01",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-04-05",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-03-14",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-03-16",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-03-19",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-03-21",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-05-05",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-05-05",
+            "critical": false
+        }
+    ],
+    "superseded": [
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-03-28"
+        },
+        {
+            "label": "New Loan Availability Deadline",
+            "value": "2026-04-02"
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-04-21"
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-04-21"
+        }
+    ],
+    "provisions": [
+        "Seller to credit Buyer two thousand dollars at Closing toward the sewer line repair identified in the inspection.",
+        "Closing extended by agreement of the parties on account of the lender underwriting delay."
+    ]
+}

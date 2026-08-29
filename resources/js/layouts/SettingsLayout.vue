@@ -57,6 +57,16 @@ const sidebarNavItems = computed<NavItem[]>(() => {
         items.push({ title: 'Sending', href: '/settings/sending' });
     }
 
+    /*
+     * S68 (#118). Below Sending rather than above it, because the three
+     * questions this screen answers — audit, cost, quality — are all asked
+     * deliberately rather than in a hurry, and Sending is the one somebody
+     * reaches for while a client is on the phone.
+     */
+    if (page.props.team && can('settings.manage')) {
+        items.push({ title: 'Extractions', href: '/settings/extractions' });
+    }
+
     if (page.props.team && can('team.export')) {
         items.push({ title: 'Export', href: '/settings/export' });
     }

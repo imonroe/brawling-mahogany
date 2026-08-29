@@ -1,0 +1,100 @@
+{
+    "slug": "0009-arvada-identifiers",
+    "description": "Carries earnest money wire instructions with a labelled routing number and account number, and a full price, earnest money and loan amount. Written for #114: the redactor must take the two identifiers and must leave every date and every figure below intact.",
+    "traits": [
+        "native",
+        "complete",
+        "has-identifiers",
+        "money"
+    ],
+    "identifiers": [
+        "routing_number",
+        "account_number"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-07-13",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-07-17",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-07-23",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-07-28",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-08-02",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-07-17",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-08-08",
+            "critical": true
+        },
+        {
+            "label": "New Loan Availability Deadline",
+            "value": "2026-08-13",
+            "critical": false
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-08-11",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-08-15",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-07-25",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-07-27",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-07-30",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-08-01",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-08-28",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-08-28",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Earnest money to be wired to the closing company rather than delivered by cheque.",
+        "Seller to convey the two garage door openers and both mailbox keys at Possession."
+    ]
+}

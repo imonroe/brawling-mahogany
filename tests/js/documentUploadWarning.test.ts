@@ -73,7 +73,19 @@ function render(overrides: Record<string, unknown> = {}) {
             },
             maxBytes: 15 * 1024 * 1024,
             refusal: null,
-            can: { upload: true },
+            extract: {
+                available: true,
+                allowed: true,
+                unavailableReason: null,
+                spend: {
+                    used: '$4.80',
+                    cap: '$50.00',
+                    percent: 10,
+                    warn: false,
+                    resetsAt: '2026-09-01T00:00:00+00:00',
+                },
+            },
+            can: { upload: true, extract: true },
             ...overrides,
         },
         global: {
@@ -103,10 +115,15 @@ describe('S51 — the upload warning', () => {
 
     it('names every category that will be refused', async () => {
         /*
-         * All five, by name. "Sensitive documents" would be softer and would
+         * Every one, by name. "Sensitive documents" would be softer and would
          * fail the only thing that matters here: the failure mode is somebody
          * believing their file is the exception, and a category they can match
          * against their own file is what prevents that.
+         *
+         * Four since #209 removed the executed contract. What remains is
+         * every case of `RestrictedDocumentCategory`, and the panel has to
+         * name all of them — a category the scanner refuses and the warning
+         * does not mention is somebody finding out after the upload.
          */
         const wrapper = render();
 
@@ -115,7 +132,6 @@ describe('S51 — the upload warning', () => {
         const text = wrapper.text().toLowerCase();
 
         for (const category of [
-            'executed contract',
             'earnest money',
             'lending packet',
             'bank statement',
@@ -159,5 +175,111 @@ describe('S53 — the refusal', () => {
 
     it('stays out of the way when there is nothing to refuse', () => {
         expect(render().text()).not.toContain('What to do instead');
+    });
+});
+
+describe('S65 — the row’s own extraction control (#115)', () => {
+    /*
+     * Round 2 of adversarial review found that a `failed` or `blocked` attempt
+     * took the Extract control away **permanently**: the branch rendering the
+     * stopped badge sat ahead of the branch rendering the button in one
+     * `v-if`/`v-else-if` chain, so the button could never be reached again for
+     * that document. The only route back was uploading the same file a second
+     * time.
+     *
+     * `StartExtraction` refuses a second attempt only while a sibling is
+     * `queued` or `processing`, so the server was willing the whole time and
+     * nothing could ask it. That gap is what these cases hold.
+     */
+    function documentWith(
+        extraction: Record<string, unknown> | null,
+    ): Record<string, unknown> {
+        return {
+            id: 'doc-1',
+            name: 'Contract to Buy and Sell.pdf',
+            caption: null,
+            category: 'contract',
+            categoryLabel: 'Contract',
+            visibility: 'internal',
+            sizeBytes: 240_000,
+            uploadedAt: '2026-08-20T12:00:00+00:00',
+            uploadedBy: 'Emily Bosart',
+            scanState: 'clean',
+            url: '/deals/deal-1/documents/doc-1',
+            extraction,
+        };
+    }
+
+    const stopped = {
+        id: 'ex-1',
+        state: 'failed',
+        kind: 'contract',
+        url: '/deals/deal-1/extractions/ex-1',
+        pending: 0,
+    };
+
+    it('offers a way back after an attempt that ended badly', () => {
+        const page = render({ documents: [documentWith(stopped)] });
+
+        const buttons = page
+            .findAll('button')
+            .map((button) => button.text().trim());
+
+        expect(buttons).toContain('Try again');
+
+        /*
+         * And the badge stays. The pair is the point: on its own the button
+         * hides why the last attempt stopped, and on its own the badge is a
+         * dead end.
+         */
+        expect(page.text()).toContain('Failed');
+    });
+
+    it('offers the same way back when the spend ceiling was what stopped it', () => {
+        /*
+         * `blocked` is a refusal rather than a fault, and it is the state most
+         * likely to be retried — an owner raises the cap, or the month turns
+         * over. Asserted separately because the first case would pass with a
+         * predicate that named only `failed`.
+         */
+        const page = render({
+            documents: [documentWith({ ...stopped, state: 'blocked' })],
+        });
+
+        expect(
+            page.findAll('button').map((button) => button.text().trim()),
+        ).toContain('Try again');
+        expect(page.text()).toContain('Stopped');
+    });
+
+    it('does not offer one while an attempt is still running', () => {
+        /*
+         * The negative half, and it is the one that makes the two above mean
+         * something: a component that rendered `Try again` unconditionally
+         * would pass both. `StartExtraction` refuses a second attempt here, so
+         * a button would be a press that can only produce an error.
+         */
+        const page = render({
+            documents: [documentWith({ ...stopped, state: 'processing' })],
+        });
+
+        const labels = page
+            .findAll('button')
+            .map((button) => button.text().trim());
+
+        expect(labels).not.toContain('Try again');
+        expect(labels).not.toContain('Extract');
+        expect(page.text()).toContain('Extracting');
+    });
+
+    it('does not offer one to somebody who may not extract', () => {
+        const page = render({
+            documents: [documentWith(stopped)],
+            can: { upload: true, extract: false },
+        });
+
+        expect(
+            page.findAll('button').map((button) => button.text().trim()),
+        ).not.toContain('Try again');
     });
 });

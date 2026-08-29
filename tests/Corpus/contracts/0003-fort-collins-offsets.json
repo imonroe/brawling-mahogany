@@ -1,0 +1,90 @@
+{
+    "slug": "0003-fort-collins-offsets",
+    "description": "Every deadline but Closing is written as an offset from MEC rather than as a calendar date. The ground truth records the resolved calendar date, which is the whole point: an offset read as a literal produces a key date of \"10\" and a contingency calendar nobody can use.",
+    "traits": [
+        "native",
+        "complete",
+        "derived-only"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-02-09",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-02-14",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-02-19",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-02-25",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-03-02",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-02-16",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-03-08",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-03-08",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-03-12",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-02-19",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-02-21",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-02-24",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-02-26",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-03-26",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-03-26",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Seller to leave all window coverings, including the plantation shutters in the front room.",
+        "Buyer to assume the existing solar lease, subject to lender approval."
+    ]
+}

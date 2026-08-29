@@ -1,0 +1,45 @@
+{
+    "slug": "0007-rental-placement-sparse",
+    "description": "A rental placement, not a purchase. It carries no purchase-contract deadline at all, so criticalCount is zero — the case that catches a harness assuming every document has five critical dates and reporting a hundred percent miss rate on a document that has none. Mutual Acceptance is the execution of the lease.",
+    "traits": [
+        "native",
+        "sparse",
+        "rental"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-04-20",
+            "critical": false
+        },
+        {
+            "label": "Security Deposit Deadline",
+            "value": "2026-04-23",
+            "critical": false
+        },
+        {
+            "label": "Lease Commencement Date",
+            "value": "2026-05-01",
+            "critical": false
+        },
+        {
+            "label": "Move-In Inspection Deadline",
+            "value": "2026-05-03",
+            "critical": false
+        },
+        {
+            "label": "Lease Expiration Date",
+            "value": "2027-04-30",
+            "critical": false
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-05-01",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "One cat under fifteen pounds permitted, with a non-refundable pet fee of four hundred dollars.",
+        "Landlord to service the swamp cooler before the commencement date and annually thereafter."
+    ]
+}

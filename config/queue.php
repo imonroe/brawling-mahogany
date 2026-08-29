@@ -70,7 +70,46 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            /*
+             * Above the longest job timeout in the application, which is
+             * `RunDocumentExtraction`'s — the provider's own 180 seconds plus
+             * its margin (#115).
+             *
+             * Laravel's rule is that `retry_after` must exceed every job's
+             * timeout, or Redis makes the message visible again while the
+             * worker is still holding it and a second worker picks it up. At
+             * the previous **90** an extraction was handed out again while the
+             * first read was still in flight. `PerformExtraction::claim()`
+             * happens to catch that one — a conditional `UPDATE … WHERE state
+             * = 'queued'` — so it cost a wasted worker rather than a second
+             * charge, which is the layer working, not the setting being right.
+             *
+             * `tests/Unit/Extraction/ExtractionTimeoutsTest.php` holds the
+             * ordering, because this file and the job are edited by different
+             * people for different reasons.
+             */
+            'retry_after' => (int) env(
+                'REDIS_QUEUE_RETRY_AFTER',
+                /*
+                 * **Derived, not a literal**, for the reason the job's own
+                 * timeout is derived: the invariant has to hold at every value
+                 * of `EXTRACTION_TIMEOUT`, not only at the default.
+                 *
+                 * A flat `300` held against the shipped 180 and inverted at any
+                 * `EXTRACTION_TIMEOUT >= 240` — well inside the range the
+                 * `.env.example` comment calls reasonable for *"several pages
+                 * of contract through a vision model"*. The place that value is
+                 * raised is a `.env` on the droplet, which is the one place no
+                 * test run and no review can observe (`MAIL_REDIRECT_TO`'s
+                 * lesson, #196), so the number has to follow it by itself.
+                 *
+                 * `+ 120` over the job's own `+ 60`: the margin is for the gap
+                 * between a worker being killed and Redis making the message
+                 * visible again, and it only has to be big enough that a live
+                 * worker is never overtaken.
+                 */
+                (int) env('EXTRACTION_TIMEOUT', 180) + 120,
+            ),
             'block_for' => null,
             'after_commit' => false,
         ],
