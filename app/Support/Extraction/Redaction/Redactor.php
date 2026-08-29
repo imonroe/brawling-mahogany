@@ -418,20 +418,22 @@ final class Redactor
             function (array $matches) use ($subject, $rule, $decide, &$taken): string {
                 /*
                  * `PREG_OFFSET_CAPTURE` makes every group a `[string, int]`
-                 * pair, and PHPStan's stub for `preg_replace_callback` does
-                 * not model the flags argument — it types `$matches[0]` as a
-                 * plain string and reports a destructuring of it as an error.
+                 * pair, and PHPStan's stub for `preg_replace_callback` does not
+                 * model the flags argument — it types `$matches[0]` as a plain
+                 * string, so destructuring it is an error and a `@var` saying
+                 * otherwise is *"not a subtype of the native type"*.
                  *
-                 * A `@param` on the closure does not override the stub, so the
-                 * narrowing goes on the assignment, where it does. This is a
-                 * stub limitation rather than a claim the analyser can be
-                 * argued out of: the runtime shape is what the flag documents,
-                 * and the corpus run exercises it on every contract.
+                 * A `@param` on the closure does not override the stub either.
+                 * The cast is what does: it is a no-op at runtime on a value
+                 * that is already an array, and it gives the analyser a shape
+                 * it will accept without either side asserting something false.
+                 * The explicit casts below are then honest about what the
+                 * analyser still cannot know.
                  */
-                /** @var array{0: string, 1: int} $captured */
-                $captured = $matches[0];
+                [$match, $offset] = array_values((array) $matches[0]);
 
-                [$match, $offset] = $captured;
+                $match = (string) $match;
+                $offset = (int) $offset;
 
                 if (! $decide($match, $subject, $offset)) {
                     return $match;

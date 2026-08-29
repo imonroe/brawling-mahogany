@@ -37,7 +37,6 @@ declare(strict_types=1);
  * have. Each of those produces a plausible number rather than an error, and a
  * plausible number is exactly what LIMITATIONS.md says not to trust.
  */
-
 const CORPUS_DIR = __DIR__.'/contracts';
 
 /**
@@ -120,7 +119,7 @@ $problems = [];
 $notes = [];
 
 $fail = static function (string $slug, string $message) use (&$problems): void {
-    $problems[] = "$slug: $message";
+    $problems[] = "{$slug}: {$message}";
 };
 
 $groundTruthFiles = glob(CORPUS_DIR.'/*.json');
@@ -154,7 +153,7 @@ foreach ($groundTruthFiles as $path) {
 
     foreach (['slug', 'description', 'traits', 'dates', 'provisions'] as $key) {
         if (! array_key_exists($key, $truth)) {
-            $fail($slug, "ground truth has no \"$key\" key");
+            $fail($slug, "ground truth has no \"{$key}\" key");
         }
     }
 
@@ -162,7 +161,7 @@ foreach ($groundTruthFiles as $path) {
         $fail($slug, 'the "slug" key does not match the file name');
     }
 
-    $textPath = CORPUS_DIR."/$slug.txt";
+    $textPath = CORPUS_DIR."/{$slug}.txt";
     if (! is_file($textPath)) {
         $fail($slug, 'has no matching .txt — every ground truth needs the text it was read from');
 
@@ -172,7 +171,7 @@ foreach ($groundTruthFiles as $path) {
     $text = (string) file_get_contents($textPath);
     $words = str_word_count(strip_tags($text));
     if ($words < MIN_WORDS) {
-        $fail($slug, "the text is $words words, under the ".MIN_WORDS.'-word floor');
+        $fail($slug, "the text is {$words} words, under the ".MIN_WORDS.'-word floor');
     }
 
     // Traits.
@@ -205,7 +204,7 @@ foreach ($groundTruthFiles as $path) {
         }
         foreach ($identifiers as $rule) {
             if (! in_array($rule, REDACTION_RULES, true)) {
-                $fail($slug, "names redaction rule \"$rule\", which Redactor does not have");
+                $fail($slug, "names redaction rule \"{$rule}\", which Redactor does not have");
             }
         }
     }
@@ -229,31 +228,31 @@ foreach ($groundTruthFiles as $path) {
             continue;
         }
         if (isset($seenLabels[$label])) {
-            $fail($slug, "records \"$label\" twice — one deadline, one row");
+            $fail($slug, "records \"{$label}\" twice — one deadline, one row");
         }
         $seenLabels[$label] = true;
 
         if (! is_string($value) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
-            $fail($slug, "\"$label\" has a value that is not an ISO date");
+            $fail($slug, "\"{$label}\" has a value that is not an ISO date");
 
             continue;
         }
         [$y, $m, $d] = array_map('intval', explode('-', $value));
         if (! checkdate($m, $d, $y)) {
-            $fail($slug, "\"$label\" is $value, which is not a day that exists");
+            $fail($slug, "\"{$label}\" is {$value}, which is not a day that exists");
 
             continue;
         }
         $isoByLabel[$label] = $value;
 
         if (! array_key_exists('critical', $date) || ! is_bool($date['critical'])) {
-            $fail($slug, "\"$label\" has no boolean \"critical\" flag");
+            $fail($slug, "\"{$label}\" has no boolean \"critical\" flag");
 
             continue;
         }
         $shouldBeCritical = in_array($label, CRITICAL_LABELS, true);
         if ($date['critical'] !== $shouldBeCritical) {
-            $fail($slug, "\"$label\" is marked ".($date['critical'] ? 'critical' : 'not critical').' and PRD §12.3 says otherwise');
+            $fail($slug, "\"{$label}\" is marked ".($date['critical'] ? 'critical' : 'not critical').' and PRD §12.3 says otherwise');
         }
     }
 
@@ -265,7 +264,7 @@ foreach ($groundTruthFiles as $path) {
     } else {
         foreach ($isoByLabel as $label => $iso) {
             if ($iso < $acceptance) {
-                $fail($slug, "\"$label\" ($iso) falls before Mutual Acceptance ($acceptance)");
+                $fail($slug, "\"{$label}\" ({$iso}) falls before Mutual Acceptance ({$acceptance})");
             }
         }
     }
@@ -276,7 +275,7 @@ foreach ($groundTruthFiles as $path) {
                 continue;
             }
             if ($iso > $closing) {
-                $fail($slug, "\"$label\" ($iso) falls after Closing ($closing)");
+                $fail($slug, "\"{$label}\" ({$iso}) falls after Closing ({$closing})");
             }
         }
     }
@@ -296,7 +295,7 @@ foreach ($groundTruthFiles as $path) {
         $found = textStates($text, $iso);
         $literal += $found ? 1 : 0;
         if (! $found && ! $derivedOnly && in_array($label, CRITICAL_LABELS, true)) {
-            $fail($slug, "\"$label\" is $iso and no rendering of that day appears in the text");
+            $fail($slug, "\"{$label}\" is {$iso} and no rendering of that day appears in the text");
         }
     }
     if ($isoByLabel !== []) {
@@ -334,8 +333,8 @@ foreach ($groundTruthFiles as $path) {
 // Every .txt needs its ground truth, not only the other way round.
 foreach (glob(CORPUS_DIR.'/*.txt') as $textPath) {
     $slug = basename($textPath, '.txt');
-    if (! is_file(CORPUS_DIR."/$slug.json")) {
-        $problems[] = "$slug: has a .txt with no ground truth beside it";
+    if (! is_file(CORPUS_DIR."/{$slug}.json")) {
+        $problems[] = "{$slug}: has a .txt with no ground truth beside it";
     }
 }
 
@@ -369,13 +368,13 @@ if ($write) {
 }
 
 foreach ($notes as $note) {
-    echo "  $note\n";
+    echo "  {$note}\n";
 }
 
 ksort($traitCounts);
 echo "\nTraits: ";
 echo implode(', ', array_map(
-    static fn (string $trait, int $count): string => "$trait=$count",
+    static fn (string $trait, int $count): string => "{$trait}={$count}",
     array_keys($traitCounts),
     $traitCounts,
 ));
@@ -389,7 +388,7 @@ echo sprintf(
 if ($problems !== []) {
     echo "\n".count($problems)." problem(s):\n";
     foreach ($problems as $problem) {
-        echo "  - $problem\n";
+        echo "  - {$problem}\n";
     }
     exit(1);
 }
