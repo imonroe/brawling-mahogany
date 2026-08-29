@@ -668,9 +668,20 @@ it('ends the row on a failure it has no name for, rather than leaving it claimed
         $threw = true;
     }
 
+    /*
+     * The failure is never lost, on either path — and the two paths are not the
+     * same, which is what this assertion is really pinning.
+     *
+     * Under a worker, `$this->fail($e)` records the exception, ends the
+     * attempts, and returning is correct. Invoked **directly**, as here,
+     * `InteractsWithQueue::fail()` is `$this->job?->fail($e)` with no job, so
+     * it is a no-op — and returning would swallow the failure completely: no
+     * `failed_jobs` row, no log line, nothing thrown. The job re-throws in that
+     * case, which is why this still holds after the retry fix.
+     */
     expect($threw)->toBeTrue(
-        'The failure must still reach the queue, Horizon and the log with its stack intact — '
-        .'swallowing it would trade a stranded row for a silent one.',
+        'A direct invocation has no queue job to mark, so the exception has to '
+        .'escape or the failure is lost entirely.',
     );
 
     $extraction->refresh();

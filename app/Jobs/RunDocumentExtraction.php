@@ -208,6 +208,24 @@ class RunDocumentExtraction implements ShouldBeUnique, ShouldQueue
                 if ($extraction->refresh()->state->isFinal()) {
                     $this->fail($failure);
 
+                    /*
+                     * `InteractsWithQueue::fail()` is `$this->job?->fail($e)`,
+                     * and `$this->job` is set only when a worker is running
+                     * this. Dispatched normally — including on the `sync`
+                     * connection, where `SyncJob` sets it — that call records
+                     * the exception and ends the attempts, and returning is
+                     * correct.
+                     *
+                     * Invoked **directly**, it is a no-op, so returning here
+                     * would swallow the failure completely: no `failed_jobs`
+                     * row, no log line, nothing thrown. Re-throwing is what
+                     * keeps *the failure is never lost* true of both paths
+                     * rather than of the one anybody looked at.
+                     */
+                    if ($this->job === null) {
+                        throw $failure;
+                    }
+
                     return;
                 }
 
