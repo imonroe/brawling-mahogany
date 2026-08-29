@@ -57,9 +57,15 @@ use Illuminate\Validation\ValidationException;
  * wrote. What it does **not** do is delete a workflow template the file no
  * longer names: `workflows.workflow_template_id` points at it, and a running
  * deal losing that pointer to a re-seed is a cost no file edit should be able
- * to impose silently. The row is left and reported — S39 already has
- * `is_active` for taking one out of circulation, which is the reversible
- * version of the same intention.
+ * to impose silently. The row is left and reported.
+ *
+ * The report says only that, deliberately. `workflow_templates.is_active`
+ * looks like the reversible retirement this wants and is **not one**: no
+ * screen writes it, and `WorkflowTemplatePolicy::update()` refuses a system
+ * row outright, so it is doubly unavailable for exactly the rows this note is
+ * printed about. Naming it would be a remedy an operator cannot carry out,
+ * mid-deploy — this codebase's *"a reader with no writer"*, in a console
+ * message.
  *
  * ## Order comes from position
  *
@@ -132,7 +138,9 @@ final class ImportPack
 
             foreach ($this->orphaned($pack, $names) as $left) {
                 $notes[] = "The pack still holds “{$left}”, which this file does not describe. "
-                    .'It was left alone — a running deal points at it. Deactivate it on the templates screen if it is finished with.';
+                    .'It was left alone, because a running deal points at it — and nothing in the product '
+                    .'retires a pack’s workflow, so it stays in the catalogue until a migration removes it. '
+                    .'Keep naming it in the file if it should stay current.';
             }
 
             return new ImportReport(pack: $pack->slug, templates: $names, notes: $notes);

@@ -176,5 +176,7 @@ whose slug collides with an unrelated pack updates that pack — the import says
 so when the slug already existed, and it is worth reading. It does **not** delete a workflow template the file stopped
 naming: `workflows.workflow_template_id` points at it, and a running deal
 losing that pointer to a re-seed is a cost no file edit should impose silently.
-It says so instead, and `is_active` on the templates screen is the reversible
-way to take one out of circulation.
+It says so instead. Nothing in the product retires a pack's workflow —
+`is_active` exists on the row and no screen writes it, and a pack's templates
+are read-only to every team — so a workflow that should really go needs a
+migration. Keep naming it in the file if it should stay current.

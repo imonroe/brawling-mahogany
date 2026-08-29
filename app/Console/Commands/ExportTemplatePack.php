@@ -166,9 +166,20 @@ class ExportTemplatePack extends Command
 
                 $name = is_string($stage['name'] ?? null) ? $stage['name'] : 'a stage';
 
-                $this->components->warn(
-                    "“{$name}” has two gates with the same label. An import will refuse this file: "
-                    .'an automation waiting on a gate names it by label. Rename one and export again.',
+                /*
+                 * The **error** output, not `components->warn()`.
+                 *
+                 * Laravel's components write to stdout, and stdout here is the
+                 * document — so the warning landed *inside* the JSON, and
+                 * `packs:export --template=… | jq` and `… > pack.json` both
+                 * stopped working. A warning written to save somebody a
+                 * confusing failure a week later caused a worse one
+                 * immediately, and this command's own docblock promises the
+                 * pipe.
+                 */
+                $this->output->getErrorStyle()->writeln(
+                    "<comment>“{$name}” has two gates with the same label. An import will refuse this file: "
+                    .'an automation waiting on a gate names it by label. Rename one and export again.</comment>',
                 );
             }
         }

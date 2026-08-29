@@ -61,6 +61,9 @@ configuring a condition, and on a deal the same thing is shown as a
 _requirement_, because "2 requirements not met" is what somebody looking at a
 stuck deal wants to read.
 
+Two gates on one stage cannot share a label — an automation that waits on one
+names it by that label, and two with one name cannot be told apart.
+
 Three kinds can be built today: _manual confirmation_, which somebody ticks;
 _required tasks complete_, which clears itself when the required tasks are
 done; and _date reached_, which waits for a date you name. The other kinds need
@@ -104,7 +107,9 @@ deal.
 should happen when the stage starts or completes: send a message, create a
 task, or prompt somebody to do it by hand.
 
-**Nothing sends yet.** You can write both and neither will reach anybody until
-the review queue and the safety rails around sending are built. The
-[Automated messages](/help/automation) article explains what is coming and why
-it is arriving as one piece rather than in parts.
+**These do send now**, and the rails around them are on by default: a new
+team's messages wait for somebody to approve them for the first thirty days,
+and until your team's sending is switched out of test mode every automated
+message goes to the team owner rather than to a client. The
+[Automated messages](/help/automation) article covers the approval queue, the
+test mode, and how to switch either one.

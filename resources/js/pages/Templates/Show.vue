@@ -342,13 +342,15 @@ function taskDetail(task: TaskTemplateValues): string {
     }
 
     if (task.dueOffsetDays !== null) {
-        const days = Math.abs(task.dueOffsetDays);
-        const unit = days === 1 ? 'day' : 'days';
+        // `formatCount`, not a hand-rolled plural — the rule this repo states
+        // as *"nothing formats a date, name, address, or amount itself"*, and
+        // `stageDetail` twenty lines up already calls it.
+        const days = formatCount(Math.abs(task.dueOffsetDays), 'day');
 
         parts.push(
             task.dueOffsetDays < 0
-                ? `${days} ${unit} before the stage starts`
-                : `${days} ${unit} in`,
+                ? `${days} before the stage starts`
+                : `${days} in`,
         );
     }
 

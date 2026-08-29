@@ -505,6 +505,20 @@ class StageTemplateController extends Controller
                 return;
             }
 
+            /*
+             * A row keeping its own label is never a collision.
+             *
+             * Two gates sharing a label was legal until this rule, so the rows
+             * exist — and without this an edit that changes only the *blocking
+             * flag* was refused for a label nobody had touched, leaving both
+             * gates permanently uneditable and the only exit deleting one.
+             * The export warns about such a pair (that is what it is for);
+             * making them unfixable is not the way to get them fixed.
+             */
+            if ($editing instanceof GateTemplate && mb_strtolower($value) === mb_strtolower($editing->label)) {
+                return;
+            }
+
             $taken = GateTemplate::query()
                 ->where('stage_template_id', $stage->getKey())
                 ->whereKeyNot($editing?->getKey() ?? '')

@@ -739,6 +739,66 @@ it('refuses a pairing of action and execution mode the queue would then refuse',
     }
 });
 
+it('refuses a configuration longer than the column it lands in', function (): void {
+    /*
+     * `ExecuteAction::createTask()` writes the title straight into
+     * `tasks.title`, a `varchar(255)`. Presence was mirrored from
+     * `SaveAutomationRequest` and the bounds were not, so a 300-character title
+     * imported cleanly and threw a `QueryException` **in the worker**, on every
+     * deal that reached the stage. A length over the column is not an absence,
+     * and it fails in the same place.
+     */
+    $original = PackFile::encodePack(seededPack());
+
+    foreach ([
+        'taskTitle' => ['create_task', ['taskTitle' => str_repeat('a', 201)]],
+        'instruction' => ['manual_prompt', ['instruction' => str_repeat('a', 501)]],
+        'taskDueOffsetDays' => ['create_task', ['taskTitle' => 'Order the survey', 'taskDueOffsetDays' => 400]],
+    ] as $key => [$action, $config]) {
+        $document = $original;
+
+        $document['workflows'][0]['stages'][0]['automations'] = [[
+            'trigger' => 'stage_start',
+            'actionType' => $action,
+            'config' => $config,
+            'isActive' => true,
+            'executionMode' => $action === 'manual_prompt' ? 'manual' : 'automatic',
+            'messageTemplate' => null,
+        ]];
+
+        try {
+            app(ImportPack::class)->asPack($document);
+
+            expect(false)->toBeTrue();
+        } catch (ValidationException $e) {
+            expect(array_keys($e->errors()))
+                ->toContain("workflows.0.stages.0.automations.0.config.{$key}");
+        }
+    }
+
+    // The control: the same shapes inside the bounds import cleanly, so a rule
+    // refusing everything would not pass the loop above.
+    $document = $original;
+
+    $document['workflows'][0]['stages'][0]['automations'] = [[
+        'trigger' => 'stage_start',
+        'actionType' => 'create_task',
+        'config' => ['taskTitle' => 'Order the survey', 'taskDueOffsetDays' => -3],
+        'isActive' => true,
+        'executionMode' => 'automatic',
+        'messageTemplate' => null,
+    ]];
+
+    app(ImportPack::class)->asPack($document);
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        expect(ActionDefinition::query()
+            ->whereIn('stage_template_id', StageTemplate::query()->where('name', 'Under Contract')->pluck('id'))
+            ->where('action_type', 'create_task')
+            ->count())->toBe(1);
+    });
+});
+
 it('refuses two gates on one stage with the same label', function (): void {
     /*
      * A `gate_cleared` automation names its gate **by label**, so two gates

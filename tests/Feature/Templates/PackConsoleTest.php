@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\ActionDefinition;
 use App\Models\AuditEntry;
+use App\Models\GateTemplate;
 use App\Models\MessageTemplate;
 use App\Models\StageTemplate;
 use App\Models\TaskTemplate;
@@ -11,6 +12,11 @@ use App\Models\TemplatePack;
 use App\Models\WorkflowTemplate;
 use App\Support\Templates\PackFile;
 use App\Support\Tenancy\TeamContext;
+use Illuminate\Support\Facades\Artisan;
+use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
+use Symfony\Component\Console\Output\ConsoleSectionOutput;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * `packs:export` and `packs:import` (#87 · ADR 0003's shape, one module over).
@@ -347,4 +353,75 @@ it('records the read, not only the write', function (): void {
     $this->artisan('packs:export', ['--pack' => 'no-such-pack'])->assertFailed();
 
     expect(AuditEntry::query()->where('action', 'templates.exported')->count())->toBe(1);
+});
+
+it('keeps a warning out of the document it is writing', function (): void {
+    /*
+     * The export warns when a stage has two gates sharing a label, because
+     * such a file is refused by any import. `components->warn()` writes to
+     * **stdout**, and stdout here is the document — so the warning landed
+     * inside the JSON and `packs:export --template=… | jq` stopped parsing,
+     * which is the usage this command's own docblock promises. A warning
+     * written to save somebody a confusing failure a week later caused a worse
+     * one immediately.
+     */
+    $template = exportableTemplate();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($template): void {
+        $stage = StageTemplate::query()->where('workflow_template_id', $template->getKey())->sole();
+
+        foreach ([0, 1] as $order) {
+            GateTemplate::factory()->create([
+                'stage_template_id' => $stage->getKey(),
+                'gate_type' => 'manual_confirmation',
+                'label' => 'Appraisal received',
+                'sort_order' => $order,
+            ]);
+        }
+    });
+
+    /*
+     * A console output with **two** buffers, because that is the only way to
+     * see the property.
+     *
+     * `Artisan::output()`'s default is a plain `BufferedOutput`, which is not a
+     * `ConsoleOutputInterface` — so Symfony's `getErrorStyle()` falls back to
+     * the same stream and the two are indistinguishable. A real terminal has
+     * them separate, which is exactly where the bug lived.
+     */
+    $out = new class extends BufferedOutput implements ConsoleOutputInterface
+    {
+        public BufferedOutput $errors;
+
+        public function __construct()
+        {
+            parent::__construct(decorated: false);
+
+            $this->errors = new BufferedOutput;
+        }
+
+        public function getErrorOutput(): OutputInterface
+        {
+            return $this->errors;
+        }
+
+        public function setErrorOutput(OutputInterface $error): void {}
+
+        public function section(): ConsoleSectionOutput
+        {
+            throw new RuntimeException('Not needed.');
+        }
+    };
+
+    expect(Artisan::call('packs:export', ['--template' => $template->getKey()], $out))->toBe(0);
+
+    /** @var array<string, mixed> $document */
+    $document = json_decode($out->fetch(), true, flags: JSON_THROW_ON_ERROR);
+
+    // Standard output is the document and nothing else…
+    expect($document['formatVersion'])->toBe(PackFile::VERSION)
+        ->and($document['workflows'][0]['name'])->toBe('Listing to Close');
+
+    // …and the warning was still said, on the stream meant for saying things.
+    expect($out->errors->fetch())->toContain('two gates with the same label');
 });

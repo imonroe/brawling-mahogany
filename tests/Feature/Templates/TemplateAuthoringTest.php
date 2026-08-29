@@ -453,7 +453,7 @@ it('drops a configuration the new type cannot read, and only then', function ():
     expect($gate->refresh()->config)->toBeNull();
 });
 
-it('refuses a second gate on a stage with the same label', function (): void {
+it('refuses a second gate on a stage with the same label, and nothing else', function (): void {
     /*
      * Refused where it is authored, because the consequence is a layer away
      * and a week later: a `gate_cleared` automation names its gate by label in
@@ -473,7 +473,12 @@ it('refuses a second gate on a stage with the same label', function (): void {
     $this->post($base, ['gate_type' => 'manual_confirmation', 'label' => 'appraisal RECEIVED'])
         ->assertSessionHasErrors('label');
 
-    expect(GateTemplate::query()->where('stage_template_id', $stage->getKey())->count())->toBe(1);
+    // And an ordinary add with a free label still works, which is the control:
+    // a rule refusing everything would satisfy the line above.
+    $this->post($base, ['gate_type' => 'manual_confirmation', 'label' => 'Survey received'])
+        ->assertSessionHasNoErrors();
+
+    expect(GateTemplate::query()->where('stage_template_id', $stage->getKey())->count())->toBe(2);
 
     // The same label on a *different* stage is fine: the ambiguity only exists
     // among siblings, which is the only place an automation can name one.
@@ -486,10 +491,21 @@ it('refuses a second gate on a stage with the same label', function (): void {
     $this->post("/templates/{$template->getKey()}/stages/{$other->getKey()}/gates", [
         'gate_type' => 'manual_confirmation',
         'label' => 'Appraisal received',
-    ])->assertRedirect();
+    ])->assertSessionHasNoErrors();
+
+    /*
+     * The count, not just the redirect. `assertRedirect()` is satisfied by a
+     * **validation failure**, so this half of the rule passed against a check
+     * with no stage scoping at all — the fourth round running in which a
+     * fix's own test could not fail for what it names.
+     */
+    expect(GateTemplate::query()->where('stage_template_id', $other->getKey())->count())->toBe(1);
 
     // And editing a gate does not collide with itself.
-    $gate = GateTemplate::query()->where('stage_template_id', $stage->getKey())->sole();
+    $gate = GateTemplate::query()
+        ->where('stage_template_id', $stage->getKey())
+        ->where('label', 'Appraisal received')
+        ->sole();
 
     $this->patch("{$base}/{$gate->getKey()}", [
         'gate_type' => 'manual_confirmation',
@@ -498,4 +514,55 @@ it('refuses a second gate on a stage with the same label', function (): void {
     ])->assertRedirect();
 
     expect($gate->refresh()->is_blocking)->toBeFalse();
+});
+
+it('lets a gate that shares a label with an older one still be edited', function (): void {
+    /*
+     * Two gates sharing a label was legal until #87's rule, so the rows exist.
+     * Refusing an edit that changes only the blocking flag — for a label
+     * nobody touched — left both of them permanently uneditable, with deleting
+     * one as the only exit. The export warns about such a pair, which is what
+     * it is for; making them unfixable is not how they get fixed.
+     */
+    $template = authoredTemplate();
+    $stage = soleStage($template);
+
+    [$first, $second] = app(TeamContext::class)->runFor($this->team, fn (): array => [
+        GateTemplate::factory()->create([
+            'stage_template_id' => $stage->getKey(),
+            'gate_type' => 'manual_confirmation',
+            'label' => 'Appraisal received',
+            'sort_order' => 0,
+        ]),
+        GateTemplate::factory()->create([
+            'stage_template_id' => $stage->getKey(),
+            'gate_type' => 'manual_confirmation',
+            'label' => 'Appraisal received',
+            'sort_order' => 1,
+        ]),
+    ]);
+
+    $base = "/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates";
+
+    $this->patch("{$base}/{$first->getKey()}", [
+        'gate_type' => 'manual_confirmation',
+        'label' => 'Appraisal received',
+        'is_blocking' => false,
+    ])->assertSessionHasNoErrors();
+
+    expect($first->refresh()->is_blocking)->toBeFalse();
+
+    // And renaming one to something free is how the pair gets resolved.
+    $this->patch("{$base}/{$second->getKey()}", [
+        'gate_type' => 'manual_confirmation',
+        'label' => 'Appraisal value confirmed',
+    ])->assertSessionHasNoErrors();
+
+    expect($second->refresh()->label)->toBe('Appraisal value confirmed');
+
+    // What is still refused: taking a label a *different* gate holds.
+    $this->patch("{$base}/{$second->getKey()}", [
+        'gate_type' => 'manual_confirmation',
+        'label' => 'Appraisal received',
+    ])->assertSessionHasErrors('label');
 });
