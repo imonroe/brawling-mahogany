@@ -286,11 +286,21 @@ final class ImportPack
             /** @var list<array<string, mixed>> $gates */
             $gates = $stage['gates'] ?? [];
 
+            // Label => id, for the automations below. A `gate_cleared`
+            // automation names its gate by label in a file, because the id it
+            // stores belongs to whichever database wrote it — see
+            // `PackFile::encodeConfig()`.
+            $gateIds = [];
+
             foreach ($gates as $order => $gate) {
-                (new GateTemplate)->forceFill(PackFile::gateColumns($gate) + [
+                $written = new GateTemplate;
+
+                $written->forceFill(PackFile::gateColumns($gate) + [
                     'stage_template_id' => $row->getKey(),
                     'sort_order' => $order,
                 ])->save();
+
+                $gateIds[(string) $written->label] = (string) $written->getKey();
             }
 
             /** @var list<array<string, mixed>> $tasks */
@@ -310,6 +320,7 @@ final class ImportPack
                 $key = $automation['messageTemplate'] ?? null;
 
                 (new ActionDefinition)->forceFill(PackFile::automationColumns($automation) + [
+                    'config' => $this->automationConfig($automation, $gateIds),
                     'stage_template_id' => $row->getKey(),
                     // Mirrors the parent template's, which is what the
                     // composite foreign key and the CHECK constraint both
@@ -320,6 +331,40 @@ final class ImportPack
                 ])->save();
             }
         }
+    }
+
+    /**
+     * An automation's configuration, with the gate label resolved back to an id.
+     *
+     * The inverse of `PackFile::encodeConfig()`. `gate_cleared` is the one
+     * trigger whose configuration names another row, and the row is on the
+     * automation's own stage — so the label is looked up among the gates this
+     * same stage just wrote. Validation has already refused a label that names
+     * none of them, which is why this can be a plain lookup.
+     *
+     * @param  array<string, mixed>  $automation
+     * @param  array<string, string>  $gateIds  gate label => new id
+     * @return array<string, mixed>|null
+     */
+    private function automationConfig(array $automation, array $gateIds): ?array
+    {
+        $config = $automation['config'] ?? null;
+
+        if (! is_array($config)) {
+            return null;
+        }
+
+        if (! array_key_exists('gateLabel', $config)) {
+            return $config;
+        }
+
+        $label = $config['gateLabel'];
+
+        unset($config['gateLabel']);
+
+        $config['gateTemplateId'] = is_string($label) ? ($gateIds[$label] ?? null) : null;
+
+        return $config;
     }
 
     /**
@@ -401,7 +446,7 @@ final class ImportPack
         $created = 0;
         $reused = [];
 
-        foreach ($this->rawMessages($document) as $stanza) {
+        foreach ($this->rawMessages($document) as $index => $stanza) {
             if (! is_array($stanza) || ! is_string($stanza['key'] ?? null)) {
                 continue;
             }
@@ -413,6 +458,32 @@ final class ImportPack
             $existing = $channel === null ? null : $this->liveTemplateNamed($name, $channel);
 
             if ($existing instanceof MessageTemplate) {
+                /*
+                 * Two stanzas in one file whose names fold together are one
+                 * template — and the consequence is not a duplicate row but a
+                 * **wrong-words send**: the second stanza finds the first
+                 * one's row, so the automation the file bound to the second
+                 * would send the first one's subject and body to a client.
+                 *
+                 * Caught here rather than by comparing the names up in
+                 * validation, and the difference is the whole finding: a fold
+                 * done in PHP is not the fold the unique index does
+                 * (`mb_strtolower('ΑΣ')` is `ας`, Postgres `lower()` gives
+                 * `ασ`), so a check written that way missed exactly the pairs
+                 * the database would collapse — which is the rule
+                 * `liveTemplateNamed()` two methods down already states. This
+                 * asks the database instead: *is the row I just found one I
+                 * wrote a moment ago?*
+                 */
+                if (in_array((string) $existing->getKey(), $written, strict: true)) {
+                    throw ValidationException::withMessages([
+                        "messageTemplates.{$index}.name" => __(
+                            'Two message templates in this file have the same name on the same channel. '
+                            .'A team may hold only one, so one of them would silently become the other.',
+                        ),
+                    ]);
+                }
+
                 $written[$stanza['key']] = (string) $existing->getKey();
                 $reused[] = $name;
 
@@ -622,8 +693,22 @@ final class ImportPack
             $stage.'.tasks.*.isRequired' => ['boolean'],
 
             $stage.'.automations' => ['nullable', 'array'],
-            $stage.'.automations.*.trigger' => ['required', Rule::in(array_column(AutomationTrigger::cases(), 'value'))],
-            $stage.'.automations.*.actionType' => ['required', Rule::in(array_column(AutomationActionType::cases(), 'value'))],
+            /*
+             * `selectableOptions()`, the same narrow lists
+             * `SaveAutomationRequest` uses — and unlike the gate split above,
+             * there is no argument for widening them.
+             *
+             * A gate type the editor cannot compose is one an evaluator can
+             * still answer if a file supplies its configuration. An **action**
+             * the build cannot carry out is different: `ExecuteAction`'s
+             * `default` arm fails it for every deal on every install and
+             * `automations:alert-on-failures` emails the team about each one.
+             * `post_closing_offset` is the same shape from the trigger end —
+             * a case the enum has and nothing raises, which is CLAUDE.md's own
+             * *"the enum case is not the same as the feature"*.
+             */
+            $stage.'.automations.*.trigger' => ['required', Rule::in(array_keys(AutomationTrigger::selectableOptions()))],
+            $stage.'.automations.*.actionType' => ['required', Rule::in(array_keys(AutomationActionType::selectableOptions()))],
             $stage.'.automations.*.executionMode' => ['nullable', Rule::in(['automatic', 'approval', 'manual'])],
             $stage.'.automations.*.isActive' => ['boolean'],
             $stage.'.automations.*.config' => ['nullable', 'array'],
@@ -733,8 +818,6 @@ final class ImportPack
      */
     private function checkMessageTemplates(mixed $validator, array $document): void
     {
-        $seen = [];
-
         foreach ($this->rawMessages($document) as $index => $stanza) {
             if (! is_array($stanza)) {
                 continue;
@@ -742,32 +825,6 @@ final class ImportPack
 
             $columns = PackFile::messageColumns($stanza);
 
-            /*
-             * Two stanzas whose names fold together are one template.
-             *
-             * `distinct` on `key` does not catch it, and the consequence was
-             * not a duplicate row — it was a **wrong-words send**: the second
-             * stanza found the first one's row through `liveTemplateNamed()`,
-             * so the automation the file bound to the second sent the first
-             * one's subject and body. And the note printed about it said the
-             * *team* already had the template, which was false and points the
-             * reader away from looking.
-             *
-             * Folded the way the unique index folds, so this refuses exactly
-             * what the database would have collapsed.
-             */
-            $fingerprint = mb_strtolower(trim((string) $columns['name'])).'|'.(string) $columns['channel'];
-
-            if (isset($seen[$fingerprint])) {
-                $validator->errors()->add("messageTemplates.{$index}.name", __(
-                    'Two message templates in this file have the same name on the same channel '
-                    .'(the first is :first). A team may only hold one, so one of them would '
-                    .'silently become the other.',
-                    ['first' => (string) $seen[$fingerprint]],
-                ));
-            }
-
-            $seen[$fingerprint] = $index;
             $channel = MessageChannel::tryFrom((string) ($columns['channel'] ?? ''));
 
             $inner = Validator::make(
@@ -864,12 +921,21 @@ final class ImportPack
                     continue;
                 }
 
+                $gateLabels = array_values(array_map(
+                    fn (mixed $gate): string => is_array($gate) && is_string($gate['label'] ?? null)
+                        ? $gate['label']
+                        : '',
+                    $this->listAt($stage, 'gates'),
+                ));
+
                 foreach ($this->listAt($stage, 'automations') as $a => $automation) {
                     if (! is_array($automation)) {
                         continue;
                     }
 
                     $field = "workflows.{$w}.stages.{$s}.automations.{$a}";
+
+                    $this->checkAutomationConfig($validator, $field, $automation, $gateLabels);
                     $key = $automation['messageTemplate'] ?? null;
                     $action = AutomationActionType::tryFrom((string) ($automation['actionType'] ?? ''));
 
@@ -930,6 +996,81 @@ final class ImportPack
         $messages = $document['messageTemplates'] ?? null;
 
         return is_array($messages) ? array_values($messages) : [];
+    }
+
+    /**
+     * The configuration an automation needs to be able to do anything.
+     *
+     * `config` was `nullable|array` and nothing more, so a file could ship a
+     * `create_task` with no title or a `gate_cleared` naming no gate — rows
+     * that fail per deal, or fire on nothing, on every install. The same
+     * argument `checkAutomations()` already makes about a shared automation
+     * that cannot send: *"a row nothing can reach, seeded"*.
+     *
+     * Mirrors `SaveAutomationRequest`'s config rules, which are written as
+     * closures over a request and cannot be shared as they stand. Kept to the
+     * keys whose absence is a failure rather than a default.
+     *
+     * @param  \Illuminate\Validation\Validator  $validator
+     * @param  array<string, mixed>  $automation
+     * @param  list<string>  $gateLabels  the labels this stage's own gates carry
+     */
+    private function checkAutomationConfig(
+        mixed $validator,
+        string $field,
+        array $automation,
+        array $gateLabels,
+    ): void {
+        $config = is_array($automation['config'] ?? null) ? $automation['config'] : [];
+        $action = AutomationActionType::tryFrom((string) ($automation['actionType'] ?? ''));
+        $trigger = AutomationTrigger::tryFrom((string) ($automation['trigger'] ?? ''));
+
+        $needs = [];
+
+        if ($action === AutomationActionType::CreateTask) {
+            $needs['taskTitle'] = __('An automation that creates a task needs a title for it.');
+        }
+
+        if ($action === AutomationActionType::ManualPrompt) {
+            $needs['instruction'] = __('An automation that prompts somebody needs to say what to do.');
+        }
+
+        if ($trigger?->needsKeyDate() === true) {
+            $needs['keyDateName'] = __('Name the date this counts from — the same name the deal uses for it.');
+        }
+
+        foreach ($needs as $key => $message) {
+            if (! is_string($config[$key] ?? null) || trim((string) $config[$key]) === '') {
+                $validator->errors()->add($field.'.config.'.$key, $message);
+            }
+        }
+
+        if ($trigger?->needsGate() !== true) {
+            return;
+        }
+
+        /*
+         * The gate travels as a **label**, not an id — see
+         * `PackFile::encodeConfig()`. Two checks, because both failures are
+         * silent at runtime: a label naming no gate on this stage produces an
+         * automation that fires on nothing, and a label naming two produces
+         * one bound to whichever the lookup reached first.
+         */
+        $label = $config['gateLabel'] ?? null;
+        $matches = is_string($label)
+            ? count(array_keys($gateLabels, $label, strict: true))
+            : 0;
+
+        if ($matches === 1) {
+            return;
+        }
+
+        $validator->errors()->add($field.'.config.gateLabel', $matches > 1
+            ? __('This stage has more than one gate called “:label”, so naming one is ambiguous.', ['label' => $label])
+            : __(
+                'Name the gate whose clearing starts this, exactly as it is labelled on this stage. '
+                .'A gate is named rather than numbered because the ids in a pack file mean nothing here.',
+            ));
     }
 
     /**

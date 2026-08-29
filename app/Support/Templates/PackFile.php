@@ -58,16 +58,18 @@ use Illuminate\Support\Str;
  * the message template it sends — travels as a `key`: a slug of the template's
  * name, stable across installs and editable by a person.
  *
- * `gate_templates.config` is the hole in that, and it is closed at the other
- * end. A gate's configuration is opaque JSON here, and exactly one gate type's
- * configuration **is** an id: `action_completed` stores an
- * `actionDefinitionId`. `ImportPack` refuses that type outright, because every
- * import rebuilds the automations with fresh ULIDs — so such a gate would
- * arrive pointing at nothing and stay that way, a blocking gate only an
- * override could pass, which is the state `GateRegistry::selectableOptions()`
- * exists to keep out of the product. The refusal lives with the importer
- * because that is where the consequence is; this note is here because that is
- * where the claim was.
+ * A **configuration** is opaque JSON, and two of them hold an id. They are
+ * handled differently, and the difference is what a pack has a use for:
+ *
+ *  - `action_completed`'s gate configuration is an `actionDefinitionId`, and
+ *    `ImportPack` **refuses** that gate type. Every import rebuilds the
+ *    automations with fresh ULIDs, so it would arrive pointing at nothing and
+ *    stay a blocking gate only an override could pass.
+ *  - a `gate_cleared` automation's `gateTemplateId` is **translated** to the
+ *    gate's label and back, by `encodeConfig()`. *"When Survey received
+ *    clears, create a task"* is an ordinary thing for a process to say, the
+ *    gate is on the automation's own stage, and a label re-resolves — the same
+ *    move `messageTemplate` makes with its key.
  *
  * @phpstan-type PackDocument array<string, mixed>
  */
@@ -152,7 +154,6 @@ final class PackFile
     private const AUTOMATION_FIELDS = [
         'trigger' => 'trigger',
         'actionType' => 'action_type',
-        'config' => 'config',
         'isActive' => 'is_active',
     ];
 
@@ -178,7 +179,26 @@ final class PackFile
              * it one. Whatever order the heap returns is not a diff anybody
              * wants to read twice.
              */
-            templates: array_values($pack->workflowTemplates->sortBy('name')->values()->all()),
+            /*
+             * `whereNull('team_id')` for the reason `orphaned()` gives about
+             * itself: this is the pack's own rows. Two of the three readers of
+             * this relation had the filter and this one did not — and it is
+             * the one that *emits*, so a team-owned row filed under a pack
+             * would have written that team's message subjects and bodies into
+             * a file bound for `database/packs/`.
+             *
+             * Nothing writes such a row today, which is why this is the
+             * asymmetry rather than the bug. `orphaned()`'s own note says why
+             * that is not a reason to leave it: *"an asymmetry that rests on
+             * another class's behaviour is one that decays."*
+             */
+            templates: array_values(
+                $pack->workflowTemplates
+                    ->filter(fn (WorkflowTemplate $each): bool => $each->isSystem())
+                    ->sortBy('name')
+                    ->values()
+                    ->all(),
+            ),
         );
     }
 
@@ -350,7 +370,11 @@ final class PackFile
                 ->values()
                 ->all(),
             'automations' => $stage->actionDefinitions
-                ->map(fn (ActionDefinition $automation): array => self::encodeAutomation($automation, $keys))
+                ->map(fn (ActionDefinition $automation): array => self::encodeAutomation(
+                    $automation,
+                    $keys,
+                    $stage->gateTemplates,
+                ))
                 ->values()
                 ->all(),
         ];
@@ -358,13 +382,20 @@ final class PackFile
 
     /**
      * @param  array<string, string>  $keys
+     * @param  \Illuminate\Support\Collection<int, GateTemplate>  $gates
      * @return array<string, mixed>
      */
-    private static function encodeAutomation(ActionDefinition $automation, array $keys): array
-    {
+    private static function encodeAutomation(
+        ActionDefinition $automation,
+        array $keys,
+        $gates,
+    ): array {
         $message = $automation->message_template_id;
 
         return self::read($automation, self::AUTOMATION_FIELDS) + [
+            // Not in the field map, because it is the one value this format
+            // rewrites rather than copies — see `encodeConfig()`.
+            'config' => self::sortedOrNull(self::encodeConfig($automation, $gates)),
             /*
              * `executionMode()` is the model's own answer to *"how is a human
              * put in the loop"*, and asking it here rather than reading the two
@@ -374,6 +405,47 @@ final class PackFile
             'executionMode' => $automation->executionMode(),
             'messageTemplate' => $message === null ? null : ($keys[$message] ?? null),
         ];
+    }
+
+    /**
+     * `config`, with the one id in it turned into the label it names.
+     *
+     * A `gate_cleared` automation stores `config.gateTemplateId` — a
+     * `gate_templates` ULID, read by `InstantiateWorkflow::gateSortOrder()`.
+     * That is the **second** identifier in this format, and it is worse than
+     * `action_completed`'s because a pack has a good reason to carry one:
+     * *"when Survey received clears, create a task"* is an ordinary thing for a
+     * process to say.
+     *
+     * So it is translated rather than refused. The gate is on the automation's
+     * own stage (`SaveAutomationRequest` allows no other), so it is in the same
+     * stanza, and a label re-resolves on the way in — which is the same move
+     * `messageTemplate` makes with its key, for the same reason.
+     *
+     * A row whose id resolves to nothing yields a null label, which the
+     * importer refuses: an automation that was already pointing at nothing
+     * should not import as one.
+     *
+     * @param  \Illuminate\Support\Collection<int, GateTemplate>  $gates
+     * @return array<string, mixed>|null
+     */
+    private static function encodeConfig(ActionDefinition $automation, $gates): ?array
+    {
+        $config = $automation->config;
+
+        if ($config === null || ! array_key_exists('gateTemplateId', $config)) {
+            return $config;
+        }
+
+        $named = $gates->first(
+            fn (GateTemplate $gate): bool => (string) $gate->getKey() === (string) $config['gateTemplateId'],
+        );
+
+        unset($config['gateTemplateId']);
+
+        $config['gateLabel'] = $named instanceof GateTemplate ? $named->label : null;
+
+        return $config;
     }
 
     /**
@@ -424,6 +496,15 @@ final class PackFile
         }
 
         return $out;
+    }
+
+    /**
+     * @param  array<array-key, mixed>|null  $value
+     * @return array<array-key, mixed>|null
+     */
+    private static function sortedOrNull(?array $value): ?array
+    {
+        return $value === null ? null : self::sorted($value);
     }
 
     /**
@@ -569,7 +650,6 @@ final class PackFile
     public static function automationColumns(array $stanza): array
     {
         return self::write($stanza, self::AUTOMATION_FIELDS, [
-            'config' => null,
             'isActive' => true,
         ]) + self::executionModeColumns($stanza['executionMode'] ?? 'automatic');
     }

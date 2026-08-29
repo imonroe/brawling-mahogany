@@ -335,6 +335,16 @@ class StageTemplateController extends Controller
                  * page rather than a broken request — so the screen reloads
                  * and the next move works.
                  */
+                /*
+                 * A toast as well as the error, because nothing on this screen
+                 * renders `errors` and a silent redraw is the failure IA §10
+                 * names: the row does not move, and no reason appears.
+                 */
+                Inertia::flash('toast', [
+                    'type' => 'error',
+                    'message' => __('This list had changed since the page was drawn, so nothing moved. It has been refreshed — try again.'),
+                ]);
+
                 throw ValidationException::withMessages([
                     'ids' => __('This list has changed since the page was drawn. It has been refreshed — try the move again.'),
                 ]);

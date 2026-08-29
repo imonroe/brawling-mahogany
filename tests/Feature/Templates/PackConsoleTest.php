@@ -225,8 +225,16 @@ it('exports a template whose automations send words', function (): void {
      * `TeamContext::runFor(...)`, and the one console export fixture had no
      * automations at all. CLAUDE.md's Slice 4 finding, one slice later — *"a
      * test helper that sets up more than the route does hides what the route
-     * fails to do"*. The `runWithoutScope` below is what makes this test run
-     * the line the way an operator does.
+     * fails to do"*.
+     *
+     * **`runFor(null)`, not `runWithoutScope()`**, and the first draft of this
+     * test used the wrong one — which made it unable to fail. The two are not
+     * the same state: `runWithoutScope` is the super-admin bypass and
+     * `TeamScope::apply()` returns before it ever asks `requireId()`, so the
+     * exception this test is named for could not be raised inside it. An
+     * operator at a console is `team = null, unscoped = false`, which is what
+     * `runFor(null)` sets. Reverting the fix in `ExportTemplatePack` fails
+     * this test now; under the old wrapper it did not.
      */
     $template = exportableTemplate();
 
@@ -243,7 +251,7 @@ it('exports a template whose automations send words', function (): void {
         ]);
     });
 
-    app(TeamContext::class)->runWithoutScope(function () use ($template): void {
+    app(TeamContext::class)->runFor(null, function () use ($template): void {
         $this->artisan('packs:export', [
             '--template' => $template->getKey(),
             '--output' => $this->path,
@@ -261,13 +269,15 @@ it('exports a template whose automations send words', function (): void {
 
 it('exports a pack with no team resolved at all', function (): void {
     // The other half of the same fix: a pack's rows belong to nobody, so
-    // `--pack` has no team to run as and must not need one.
+    // `--pack` has no team to run as and must not need one. `runFor(null)` for
+    // the reason the test above records — `runWithoutScope` is a state in
+    // which the scope asks nothing, so it can prove nothing.
     $template = exportableTemplate();
 
     $this->artisan('packs:export', ['--template' => $template->getKey(), '--output' => $this->path]);
     $this->artisan('packs:import', ['file' => $this->path, '--as-pack' => true])->assertSuccessful();
 
-    app(TeamContext::class)->runWithoutScope(function (): void {
+    app(TeamContext::class)->runFor(null, function (): void {
         $this->artisan('packs:export', ['--pack' => 'listing-to-close', '--output' => $this->path])
             ->assertSuccessful();
     });
@@ -276,4 +286,65 @@ it('exports a pack with no team resolved at all', function (): void {
     $document = json_decode((string) file_get_contents($this->path), true, flags: JSON_THROW_ON_ERROR);
 
     expect($document['pack']['slug'])->toBe('listing-to-close');
+});
+
+it('exports a template whose team is inside the purge window', function (): void {
+    /*
+     * Round 1's fix, one condition along, and the reason it needed a round 2:
+     * `workflow_templates.team_id` cascades on a **hard** delete only, so a
+     * template belonging to a team inside PRD §9's 30-day window is still here
+     * and still exportable — while `$template->team` returns null for it, and
+     * `runFor(null)` resolves nothing for the message templates to be scoped
+     * by. CLAUDE.md names the trap: *"A soft-deleted tenant must not decide a
+     * fact that is not the tenant's."*
+     */
+    $template = exportableTemplate();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($template): void {
+        $message = MessageTemplate::factory()->create(['name' => 'Under contract']);
+
+        ActionDefinition::factory()->sendingEmail()->create([
+            'team_id' => $this->team->getKey(),
+            'stage_template_id' => StageTemplate::query()
+                ->where('workflow_template_id', $template->getKey())->sole()->getKey(),
+            'message_template_id' => $message->getKey(),
+        ]);
+    });
+
+    $this->team->delete();
+
+    app(TeamContext::class)->runFor(null, function () use ($template): void {
+        $this->artisan('packs:export', [
+            '--template' => $template->getKey(),
+            '--output' => $this->path,
+        ])->assertSuccessful();
+    });
+
+    /** @var array<string, mixed> $document */
+    $document = json_decode((string) file_get_contents($this->path), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($document['messageTemplates'])->toHaveCount(1);
+});
+
+it('records the read, not only the write', function (): void {
+    /*
+     * `packs:import` was audited and this was not, which is the wrong way
+     * round: `fromTemplate()` deliberately reads the whole install rather than
+     * one team, and what it emits includes a team's message-template subjects
+     * and bodies.
+     */
+    $template = exportableTemplate();
+
+    $this->artisan('packs:export', ['--template' => $template->getKey(), '--output' => $this->path])
+        ->assertSuccessful();
+
+    $entry = AuditEntry::query()->where('action', 'templates.exported')->sole();
+
+    expect($entry->team_id)->toBe($this->team->getKey())
+        ->and($entry->after['target'])->toBe('template:'.$template->getKey());
+
+    // And nothing is recorded for a read that found nothing to read.
+    $this->artisan('packs:export', ['--pack' => 'no-such-pack'])->assertFailed();
+
+    expect(AuditEntry::query()->where('action', 'templates.exported')->count())->toBe(1);
 });

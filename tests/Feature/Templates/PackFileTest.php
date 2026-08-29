@@ -858,3 +858,121 @@ it('says when a pack with this slug was already here', function (): void {
     expect(implode(' ', app(ImportPack::class)->asPack($document)->notes))
         ->toContain('already had a pack');
 });
+
+it('carries a gate-cleared automation by the gate’s label, not its id', function (): void {
+    /*
+     * The second identifier in this format, and the one a pack has a real use
+     * for: *"when Survey received clears, create a task"*.
+     *
+     * `action_definitions.config.gateTemplateId` is a `gate_templates` ULID,
+     * read by `InstantiateWorkflow::gateSortOrder()`. Every import rebuilds the
+     * gates with fresh ids, so carrying it verbatim produced an automation that
+     * **never fires, on every deal, forever** — and nothing says so, because
+     * `isComplete()` only asks about message templates, so S41 shows no badge.
+     *
+     * Translated rather than refused, because the gate is on the automation's
+     * own stage and so is in the same stanza. The label re-resolves, the way
+     * `messageTemplate`'s key does.
+     */
+    $pack = seededPack();
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        $stage = StageTemplate::query()->where('name', 'Under Contract')->sole();
+        $gate = GateTemplate::query()->where('label', 'Appraisal received')->sole();
+
+        ActionDefinition::factory()->create([
+            'team_id' => null,
+            'stage_template_id' => $stage->getKey(),
+            'trigger' => AutomationTrigger::GateCleared,
+            'action_type' => AutomationActionType::CreateTask,
+            'config' => ['gateTemplateId' => $gate->getKey(), 'taskTitle' => 'Send the appraisal to the buyer'],
+            'sort_order' => 0,
+        ]);
+    });
+
+    $document = PackFile::encodePack($pack->refresh());
+    $config = $document['workflows'][0]['stages'][0]['automations'][0]['config'];
+
+    // No id in the file — a label, which is what a second install can read.
+    expect($config)->toBe(['gateLabel' => 'Appraisal received', 'taskTitle' => 'Send the appraisal to the buyer']);
+
+    app(ImportPack::class)->asPack($document);
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        $automation = ActionDefinition::query()->where('trigger', 'gate_cleared')->sole();
+        $gate = GateTemplate::query()
+            ->where('stage_template_id', $automation->stage_template_id)
+            ->where('label', 'Appraisal received')
+            ->sole();
+
+        // Re-resolved to the gate this import wrote, which is the whole point:
+        // the id it arrived with belonged to another database.
+        expect($automation->config['gateTemplateId'])->toBe($gate->getKey());
+    });
+
+    // And it survives a second pass, which is where the id version died: the
+    // seeder runs on every deploy.
+    app(ImportPack::class)->asPack($document);
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        $automation = ActionDefinition::query()->where('trigger', 'gate_cleared')->sole();
+
+        expect(GateTemplate::query()
+            ->where('stage_template_id', $automation->stage_template_id)
+            ->whereKey($automation->config['gateTemplateId'])
+            ->exists())->toBeTrue();
+    });
+});
+
+it('refuses an automation that could never do anything', function (): void {
+    /*
+     * `config` was `nullable|array` and nothing more, while
+     * `SaveAutomationRequest` — the other writer — checks each of these. A
+     * file could ship rows that fail per deal on every install and email the
+     * team about each one through `automations:alert-on-failures`. The same
+     * argument the shared-automation refusal already makes: *a row nothing can
+     * reach, seeded*.
+     */
+    $original = PackFile::encodePack(seededPack());
+
+    foreach ([
+        'workflows.0.stages.0.automations.0.config.taskTitle' => [
+            'trigger' => 'stage_start', 'actionType' => 'create_task', 'config' => [],
+        ],
+        'workflows.0.stages.0.automations.0.config.instruction' => [
+            'trigger' => 'stage_start', 'actionType' => 'manual_prompt', 'config' => [],
+        ],
+        'workflows.0.stages.0.automations.0.config.gateLabel' => [
+            'trigger' => 'gate_cleared', 'actionType' => 'create_task',
+            'config' => ['taskTitle' => 'Do it', 'gateLabel' => 'No gate is called this'],
+        ],
+        // An action this build cannot carry out reaches `ExecuteAction`'s
+        // `default` arm and fails for every deal — unlike a gate type, which
+        // an evaluator can still answer if a file supplies its configuration.
+        'workflows.0.stages.0.automations.0.actionType' => [
+            'trigger' => 'stage_start', 'actionType' => 'send_push_notification', 'config' => [],
+        ],
+        // A trigger the enum has and nothing raises (#121, Slice 6).
+        'workflows.0.stages.0.automations.0.trigger' => [
+            'trigger' => 'post_closing_offset', 'actionType' => 'create_task',
+            'config' => ['taskTitle' => 'Do it'],
+        ],
+    ] as $key => $automation) {
+        $document = $original;
+
+        $document['workflows'][0]['stages'][0]['automations'] = [[
+            ...$automation,
+            'isActive' => true,
+            'executionMode' => 'automatic',
+            'messageTemplate' => null,
+        ]];
+
+        try {
+            app(ImportPack::class)->asPack($document);
+
+            expect(false)->toBeTrue();
+        } catch (ValidationException $e) {
+            expect(array_keys($e->errors()))->toContain($key);
+        }
+    }
+});

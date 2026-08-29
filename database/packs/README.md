@@ -82,9 +82,12 @@ One file is one pack, and a pack holds one or more workflow templates.
           ],
           "automations": [
             {
-              "trigger": "stage_start",
+              "trigger": "gate_cleared",
               "actionType": "create_task",
-              "config": { "taskTitle": "Request the settlement statement" },
+              "config": {
+                "gateLabel": "Inspection objection has passed",
+                "taskTitle": "Request the settlement statement"
+              },
               "isActive": true,
               "executionMode": "manual",
               "messageTemplate": null
@@ -105,13 +108,24 @@ One file is one pack, and a pack holds one or more workflow templates.
 - **A shipped pack cannot carry an automation that sends words.**
   `message_templates` is team-scoped and `action_definitions` is not, so a
   CHECK constraint refuses a shared row that names a team's private template.
-  A pack may carry any action that supplies its own words — *create a task*,
-  *prompt somebody to do it*, *create a calendar event*. Any action that needs
-  a message template — email, push, an internal notification — is refused at
-  import, **whether or not the file names one**: a `send_email` with a null
-  template satisfies the constraint and would ship a permanently incomplete
-  automation to every install. Importing the same file `--team=<slug>` carries
-  the words fine.
+  A pack may carry an action that supplies its own words — *create a task*, or
+  *prompt somebody to do it*. Any action that needs a message template —
+  email, push, an internal notification — is refused at import, **whether or
+  not the file names one**: a `send_email` with a null template satisfies the
+  constraint and would ship a permanently incomplete automation to every
+  install. Importing the same file `--team=<slug>` carries the words fine.
+- **A trigger or an action the build cannot carry out is refused**, on the same
+  narrow lists the automation editor offers. Unlike a gate — where a file may
+  use any type the registry knows, because a file can supply the configuration
+  the editor has no field for — an action this build has not got reaches
+  `ExecuteAction`'s fallback and *fails* for every deal on every install.
+- **A `gate_cleared` automation names its gate by `gateLabel`**, matching a gate
+  on the same stage exactly. The stored value is an id, and ids do not travel;
+  the label is re-resolved on the way in. A label naming no gate, or two, is
+  refused — both would be silent at runtime.
+- **An automation is refused if its configuration could never let it do
+  anything**: a *create a task* with no title, a *prompt somebody* with no
+  instruction, a key-date trigger naming no date.
 - **An `action_completed` gate is refused on the way *in*.** Its configuration
   is an `actionDefinitionId` — an id from whichever database wrote the file —
   and every import rebuilds the automations with new ids, so the gate would
