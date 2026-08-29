@@ -94,7 +94,8 @@ final class Redactor
         'account_number' => ['account number', 'account no', 'account #', 'acct no', 'acct #', 'account:', 'iban', 'swift'],
         'government_id' => [
             'social security', 'ssn', 'taxpayer identification', 'tin',
-            'driver license', 'driver licence', "driver's license", "driver's licence",
+            'driver license', 'driver licence', 'drivers license', 'drivers licence',
+            "driver's license", "driver's licence",
             'passport', 'state id', 'identification number', 'alien registration',
         ],
     ];
@@ -190,11 +191,12 @@ final class Redactor
     /**
      * A run of digits with one of these words beside it.
      *
-     * The window is checked on the **original** text either side of the match,
-     * so a label already replaced by an earlier rule cannot claim a second
-     * number — and so the search is over words a human would recognise as a
-     * caption rather than over whatever happens to be adjacent after three
-     * substitutions.
+     * The window is searched for words a human would recognise as a caption
+     * rather than for whatever happens to be adjacent after three
+     * substitutions — which is a property {@see self::hasLabelNear()} has to
+     * *enforce* rather than one this class gets for free. Each rule runs over
+     * the previous rule's output, so the text here is the original document
+     * only for the first of the six.
      *
      * @param  list<string>  $labels
      * @param  array<string, int>  $counts
@@ -328,13 +330,45 @@ final class Redactor
      */
     private function hasLabelNear(string $subject, int $offset, int $length, array $labels): bool
     {
+        /*
+         * **Neutralised before the window is cut, not after.**
+         *
+         * The strip used to run on the already-sliced window, and its pattern
+         * needs *both* brackets — so a
+         * `[redacted: social security number]` cut by the 48-character
+         * boundary left a fragment that still said `social security` and no
+         * longer said `[redacted:`. Nothing was stripped and the fragment
+         * acted as exactly the caption the strip exists to remove.
+         *
+         * The bands are narrow, which is why one worked example missed them:
+         * 6–16 characters of gap in the `before` direction and 13–20 in the
+         * `after` one, with the fixture written for the fix sitting at 8 — the
+         * one place the old order still reached. `Ref 123-45-6789. See sched.
+         * Price 1250000 at closing.` destroys the price; delete the SSN and the
+         * same price survives.
+         *
+         * Replacing with **spaces of equal length** is what makes the order
+         * safe rather than merely earlier: `$offset` is a character offset into
+         * this string, so anything that changed its length would move the
+         * window off the candidate.
+         *
+         * `[^\]\n]*` rather than `[^\]]*`, because this now runs over the
+         * whole subject: a stray `[redacted:` typed *in a document* must not
+         * blank a span reaching to some unrelated `]` pages later.
+         */
+        $subject = (string) preg_replace_callback(
+            '/\[redacted:[^\]\n]*\]/u',
+            static fn (array $match): string => str_repeat(' ', mb_strlen($match[0])),
+            $subject,
+        );
+
         $start = max(0, $offset - self::LABEL_WINDOW);
         $before = mb_strtolower(mb_substr($subject, $start, $offset - $start));
         $after = mb_strtolower(mb_substr($subject, $offset + $length, self::LABEL_WINDOW));
 
         /*
          * **A placeholder this class wrote is not a caption the document
-         * wrote**, and until it was stripped it could act as one.
+         * wrote**, and until it was neutralised it could act as one.
          *
          * `redact()` runs six rules in sequence, each over the *output* of the
          * last, so `$subject` is the original document only for the first.
@@ -352,8 +386,6 @@ final class Redactor
          * happen to run in, which is not a property worth depending on, so the
          * whole class of contamination is removed rather than the one instance.
          */
-        $before = self::withoutPlaceholders($before);
-        $after = self::withoutPlaceholders($after);
 
         // Keep only the side of a paragraph break the candidate is on.
         $before = (string) preg_replace('/^.*\R\s*\R/su', '', $before);
@@ -366,18 +398,6 @@ final class Redactor
         }
 
         return false;
-    }
-
-    /**
-     * The window with this class's own substitutions taken out of it.
-     *
-     * A single space, not an empty string: removing the run entirely would
-     * join the words either side of it and could manufacture a different
-     * caption from two halves that were never adjacent.
-     */
-    private static function withoutPlaceholders(string $window): string
-    {
-        return (string) preg_replace('/\[redacted:[^\]]*\]/u', ' ', $window);
     }
 
     /**
@@ -411,7 +431,35 @@ final class Redactor
      */
     private function contains(string $haystack, string $label): bool
     {
-        $pattern = '/\b'.str_replace(' ', '[\s\p{Zs}]+', preg_quote($label, '/'));
+        /*
+         * **The apostrophe is folded, and an abbreviation's stop is part of
+         * the separator.** Whitespace was only one of three things a page puts
+         * inside and between the words of a caption.
+         *
+         * `driver's license` is in `LABELS` with a straight quote, and Word
+         * autocorrects one into U+2019 as it is typed — the very character
+         * {@see self::replace()}'s docblock names as what these documents are
+         * full of. Nothing between `ReadableText` and here normalises it, so
+         * every licence label was defeated by a character the file already
+         * warns about. There are **zero** U+2019 characters in all twenty
+         * corpus fixtures, and `government_id` fires in none of them, so the
+         * whole family had never been exercised outside a unit test written
+         * with a straight quote.
+         *
+         * `acct no` is in the list *because* somebody expected the abbreviated
+         * caption — and an abbreviation is written `Acct. No.`, which a
+         * whitespace-only separator refuses. Corpus fixture `0017` happens to
+         * write `Acct No . . . .` with no stop, which is the one variant that
+         * worked.
+         *
+         * `[.,]?` is deliberately narrow: one optional stop or comma directly
+         * after a word, not a general punctuation run, so the separator cannot
+         * start swallowing sentence boundaries.
+         */
+        $haystack = str_replace(["\u{2019}", "\u{02BC}"], "'", $haystack);
+        $label = str_replace(["\u{2019}", "\u{02BC}"], "'", $label);
+
+        $pattern = '/\b'.str_replace(' ', '[.,]?[\s\p{Zs}]+', preg_quote($label, '/'));
 
         if (preg_match('/[a-z0-9]$/', $label) === 1) {
             $pattern .= '\b';

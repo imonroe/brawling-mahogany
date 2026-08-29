@@ -252,10 +252,12 @@ function submit(): void {
                         v-if="capped"
                         class="h-1.5 w-full overflow-hidden rounded bg-muted"
                         role="progressbar"
-                        :aria-valuenow="Math.round(spend.percent ?? 0)"
+                        :aria-valuenow="
+                            Math.min(100, Math.round(spend.percent ?? 0))
+                        "
                         aria-valuemin="0"
                         aria-valuemax="100"
-                        :aria-label="`Extraction spend: ${spend.used} of ${spend.cap}`"
+                        :aria-label="`Extraction spend: ${spend.used} of ${spend.cap}${spend.percent !== null ? ` · ${spend.percent}% used` : ''}`"
                     >
                         <div
                             class="h-full rounded"

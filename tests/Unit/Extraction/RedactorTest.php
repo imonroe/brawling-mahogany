@@ -488,29 +488,93 @@ it('reads a caption however the page wrapped or spaced it', function (string $la
     ['non-breaking space', "Account\u{00A0}Number:"],
 ]);
 
-it('does not let its own placeholder act as a caption', function (): void {
+it('does not let its own placeholder act as a caption, at any distance', function (int $gap): void {
     /*
-     * `redact()` runs six rules in sequence, each over the **output** of the
-     * last — so the text `hasLabelNear()` reads is the original document only
-     * for the first rule. `[redacted: social security number]` contains
-     * `social security`, which is a `government_id` label, so an unlabelled SSN
-     * manufactured a caption where the document had none and the next digit run
-     * in the window was masked as a government id.
+     * Round 4 removed this class of contamination and round 5 found it still
+     * reachable, which is why the case is now built from the **mechanism**
+     * rather than from one reproduction.
      *
-     * This is #114's **other** direction — *"a redactor that masks a purchase
-     * price or a deadline has broken the feature"* — and the value destroyed is
-     * a purchase price, which is one of the two things F10.1 exists to read.
+     * `redact()` runs six rules over each other's output, and
+     * `[redacted: social security number]` contains `social security` — a
+     * `government_id` label. Round 4 stripped placeholders out of the label
+     * window; but the strip ran on a window that had **already been sliced**,
+     * and the pattern needs both brackets. A 34-character placeholder cut by
+     * the 48-character boundary left a fragment still saying `social security`
+     * and no longer saying `[redacted:`, so it acted as exactly the caption
+     * the strip existed to remove.
      *
-     * The control is the same document with the SSN removed: the price survives
-     * there either way, so a test with only the first half would pass against a
-     * redactor that had simply stopped matching prices for some other reason.
+     * The surviving bands were narrow — six to sixteen characters of gap in
+     * one direction, thirteen to twenty in the other — and round 4's fixture
+     * sat at eight, inside the one band the fix still covered. It passed. The
+     * same sentence with eleven more characters of prose in the middle
+     * destroyed the price.
+     *
+     * So this varies the distance instead of asserting one of them. The value
+     * at stake is a **purchase price**: #114 is explicit that a redactor which
+     * masks one has broken the feature, and it is one of the two things F10.1
+     * exists to read.
      */
-    $withSsn = redacted("Ref 123-45-6789.\nPrice 1250000 at closing.\n");
-    $withoutSsn = redacted("Ref.\nPrice 1250000 at closing.\n");
+    $padding = str_repeat('x', $gap);
 
-    expect($withSsn->text)->toContain('1250000')
-        ->and($withSsn->text)->not->toContain('123-45-6789')
-        ->and($withSsn->report->counts['social_security_number'] ?? 0)->toBe(1)
-        ->and($withSsn->report->counts['government_id'] ?? 0)->toBe(0)
-        ->and($withoutSsn->text)->toContain('1250000');
+    $before = redacted("Ref 123-45-6789. {$padding} Price 1250000 at closing.");
+    $after = redacted("Price 1250000 at closing. {$padding} Ref 123-45-6789.");
+
+    expect($before->text)->toContain('1250000', "the amount was destroyed at gap {$gap}")
+        ->and($after->text)->toContain('1250000', "the amount was destroyed at gap {$gap}, after")
+        // …while the identifier the document really does carry is still gone.
+        ->and($before->text)->not->toContain('123-45-6789')
+        ->and($after->text)->not->toContain('123-45-6789')
+        ->and($before->report->counts['government_id'] ?? 0)->toBe(0)
+        ->and($after->report->counts['government_id'] ?? 0)->toBe(0);
+})->with([0, 4, 8, 11, 14, 16, 18, 20, 24, 32, 48]);
+
+it('keeps masking a number the document itself captioned, beside a placeholder', function (): void {
+    /*
+     * The control for the case above, and the one that stops it being passed
+     * by a redactor that had simply stopped reading captions near a
+     * placeholder at all. A real caption next to a real placeholder must still
+     * fire — neutralising this class's own output is not the same as going
+     * quiet around it.
+     */
+    $result = redacted("Seller SSN: 123-45-6789\nAccount Number: 0004567891\n");
+
+    expect($result->text)->not->toContain('123-45-6789')
+        ->and($result->text)->not->toContain('0004567891')
+        ->and($result->report->counts['social_security_number'] ?? 0)->toBe(1)
+        ->and($result->report->counts['account_number'] ?? 0)->toBe(1);
 });
+
+it('reads a caption written with an abbreviation’s stop or a typographic apostrophe', function (string $label, string $document, string $secret): void {
+    /*
+     * Round 5's B2. Round 4 widened the separator to whitespace, which was
+     * right and which held under 189 label-by-separator cases — but whitespace
+     * is one of three things a page puts inside and between the words of a
+     * caption.
+     *
+     * The apostrophe is the sharper half, because this file already names the
+     * character: `replace()`'s docblock argues that *"a contract lifted out of
+     * a PDF or a DOCX is full of `’`, `—` and `§`"*, and `LABELS` then carried
+     * `driver's license` with a straight quote only. Word autocorrects one into
+     * U+2019 as it is typed and nothing between `ReadableText` and here
+     * normalises it. There are **zero** U+2019 characters in the whole corpus,
+     * and `government_id` fires in none of the twenty fixtures, so the entire
+     * licence family had never been exercised against a realistic rendering.
+     *
+     * `acct no` is in `LABELS` because somebody expected the abbreviated
+     * caption — and an abbreviation is written `Acct. No.`, which a
+     * whitespace-only separator refuses. Fixture `0017` writes `Acct No . . .`
+     * with no stop, which is the one variant that happened to work.
+     *
+     * Each row is paired with the rendering that always worked, so a matcher
+     * that had merely become permissive would not pass by widening.
+     */
+    $result = redacted($document);
+
+    expect($result->text)->not->toContain($secret, "the {$label} caption did not claim its number");
+})->with([
+    ['plain abbreviation', 'Acct No.: 0004567891', '0004567891'],
+    ['abbreviation with a stop', 'Acct. No.: 0004567891', '0004567891'],
+    ['straight apostrophe', "Driver's License: 412338907", '412338907'],
+    ['typographic apostrophe', "Driver\u{2019}s License: 412338907", '412338907'],
+    ['no apostrophe at all', 'Drivers License: 412338907', '412338907'],
+]);
