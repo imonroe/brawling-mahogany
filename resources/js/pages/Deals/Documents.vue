@@ -94,11 +94,14 @@ const props = defineProps<{
     refusal: Refusal | null;
     extract: {
         available: boolean;
+        /** False when a spend ceiling has stopped this team — a second refusal. */
+        allowed: boolean;
         unavailableReason: string | null;
         spend: {
             used: string;
-            cap: string;
-            percent: number;
+            /** Null when there is no ceiling at all; see `ExtractDocumentDialog`. */
+            cap: string | null;
+            percent: number | null;
             warn: boolean;
             resetsAt: string;
         };
@@ -607,6 +610,7 @@ const canExtract = computed(() => props.can.extract);
         :document-name="extracting.name"
         :deal-url="dealUrl"
         :available="extract.available"
+        :allowed="extract.allowed"
         :unavailable-reason="extract.unavailableReason"
         :spend="extract.spend"
         @update:open="

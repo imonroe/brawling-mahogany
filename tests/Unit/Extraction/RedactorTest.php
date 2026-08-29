@@ -321,47 +321,118 @@ it('hands back a document that reports its own length and emptiness', function (
 
 it('finds the label beside the number it actually matched, not beside an earlier copy of the same digits', function (): void {
     /*
-     * The regression test for the one defect in this class that failed **open**,
-     * and the reason it is written as a case rather than a line in an existing
-     * one: nothing else in this file, and nothing in the corpus, can see it.
+     * The regression test for round 2's B1, **rewritten in round 3 because the
+     * first version could not see the defect it was named for.**
      *
-     * `replace()` was written for a round with a `strpos($subject, $match,
-     * $cursor)` cursor instead of `PREG_OFFSET_CAPTURE`, to get around PHPStan's
-     * stub for `preg_replace_callback` not modelling the flags argument. `strpos`
-     * finds the first occurrence of the matched **text**, which is not where the
-     * regex matched: the same digits can appear earlier glued to letters, where
-     * `\b` refuses to match but a plain substring search does not care. The label
-     * window is then measured around the *wrong* offset, finds no caption, and
-     * the captioned number goes to the provider intact.
+     * That is worth recording rather than quietly correcting. The original
+     * fixture put the decoy `REF112233445566X` on the line *immediately above*
+     * the caption — so when the `strpos` cursor returned the wrong offset
+     * (position 12, inside the reference), `Account Number` was still inside
+     * the **after** half of the window and the label was found anyway, by
+     * accident, at a location it had no business being read from. Every
+     * assertion passed against `435f2fa`, the commit round 2 proved leaks. A
+     * test named for a promise it does not assert is worse than no test,
+     * because the name is what stops anybody looking again — CLAUDE.md records
+     * the same failure in Slice 4's `it('reminds a week out and the day
+     * before')`, and it recurred here inside the fix for it.
      *
-     * So the fixture puts the digits twice — once inside `REF112233445566X`,
-     * where they are unreachable to the pattern, and once under an *Account
-     * Number* caption, which is the occurrence that must go. Every other fixture
-     * in this file and every identifier in the corpus (#14) is unique, which is
-     * exactly why a green suite and a green corpus run both missed it.
+     * What makes this version work is **distance**: the decoy sits in its own
+     * paragraph, out of both halves of a 48-character window measured from the
+     * wrong place. Verified by running it against `435f2fa`, where the account
+     * number comes through intact.
      *
-     * The second assertion is the one that fails against the cursor: the
-     * *reference* is what survives (the pattern cannot match it) and the
-     * *account number* is what must not.
+     * And it asserts the **absence of the digits beside their caption** rather
+     * than the presence of a placeholder. A placeholder can be produced by
+     * some other rule firing somewhere else in the document; only the digits
+     * being gone is the thing F10.5 promises.
      */
-    $document = "Escrow file REF112233445566X is the internal reference.\n"
-        ."Account Number  . . . . .  112233445566\n"
-        .'Closing Date . . . . . . . March 28, 2026';
+    $document = "CLOSING INSTRUCTIONS\n\n"
+        ."Beneficiary reference REF112233445566X is the internal file.\n\n"
+        ."Account Number: 112233445566\n\n"
+        .'Closing Date: March 28, 2026';
 
     $result = redacted($document);
 
-    expect($result->text)->toContain('REF112233445566X')
+    expect($result->text)->not->toContain('Account Number: 112233445566')
         ->and($result->text)->toContain('[redacted: account number]')
         ->and($result->report->counts['account_number'] ?? 0)->toBe(1)
+        /*
+         * The reference survives, and that is the control: the pattern cannot
+         * match inside a 27-digit run with no interior word boundary, so a
+         * redactor that had simply become more aggressive would fail here
+         * rather than pass.
+         */
+        ->and($result->text)->toContain('REF112233445566X')
         ->and($result->text)->toContain('March 28, 2026');
+});
 
+it('does not lose a number to punctuation earlier in the document', function (): void {
     /*
-     * And the general form of it, stated separately so a later narrowing of the
-     * fixture above cannot quietly take this with it: two captioned copies of
-     * one identifier are two redactions, not one redaction and one leak.
+     * Round 3's B1, and the second leak of the same kind: `preg_match_all`
+     * returns **byte** offsets and {@see Redactor::hasLabelNear()} slices the
+     * label window with `mb_substr`, a character API. The drift is the
+     * cumulative count of extra bytes in every multi-byte character earlier in
+     * the document — unbounded, and growing down the page.
+     *
+     * Twenty-one excess bytes is enough. A contract lifted out of a PDF is
+     * full of `’`, `—` and `§`, three bytes each, and there is no
+     * transliteration anywhere between `ReadableText` and here.
+     *
+     * ## Why the ASCII twin is in the same case
+     *
+     * It is the control that makes the assertion mean something, and it has to
+     * be the **same document**: `str_replace` produces a fixture identical in
+     * every respect except the byte length of four punctuation marks, so a
+     * failure can only be about the units. Two hand-written fixtures would
+     * have differed in layout too, and layout is exactly what decides how
+     * little drift is fatal here — the blank line after the number is what
+     * lets the paragraph-break narrowing keep the wrong side.
+     *
+     * Nothing else in the tree can see this: every `.txt` in
+     * `tests/Corpus/contracts/` is pure ASCII, so `RedactorCorpusTest` reports
+     * identical rules fired either way.
      */
-    $twice = redacted("Account Number: 998877665544\n\nAccount Number: 998877665544");
+    $punctuated = "§ 4.1  The Buyer’s obligation is subject to the Seller’s delivery of title — free of\n"
+        ."encumbrances — on or before the Closing Date. The Buyer’s lender may require an\n"
+        ."appraisal; the Seller’s broker shall deliver the Seller’s Property Disclosure and\n"
+        ."the Seller’s Association Documents — if any — within the deadline stated below.\n\n"
+        ."ESCROW INSTRUCTIONS\n\n"
+        ."Account Number: 4512338907\n\n"
+        .'Closing Date: March 26, 2026';
 
-    expect($twice->text)->not->toContain('998877665544')
-        ->and($twice->report->counts['account_number'] ?? 0)->toBe(2);
+    $ascii = str_replace(['’', '—', '§'], ["'", '--', 'Sec.'], $punctuated);
+
+    // The fixture really is multi-byte, and the twin really is not.
+    expect(strlen($punctuated) - mb_strlen($punctuated))->toBe(21)
+        ->and(strlen($ascii))->toBe(mb_strlen($ascii));
+
+    foreach (['punctuated' => $punctuated, 'ascii' => $ascii] as $label => $document) {
+        $result = redacted($document);
+
+        expect($result->text)->not->toContain('4512338907', "the {$label} document leaked its account number")
+            ->and($result->report->counts['account_number'] ?? 0)->toBe(1)
+            // And the date the feature exists to read is still there.
+            ->and($result->text)->toContain('March 26, 2026');
+    }
+});
+
+it('keeps counting characters correctly across a candidate it refused', function (): void {
+    /*
+     * The offset is accumulated along the walk rather than recomputed, so the
+     * one arrangement that could break the accounting is a match the decision
+     * callback **rejects**: the bytes are written back to the output
+     * unredacted, and the character count has to advance over them anyway.
+     *
+     * A money amount between two captioned account numbers is exactly that —
+     * `isProtected()` refuses it — and the second number is the one that would
+     * be missed if the count had not advanced.
+     */
+    $result = redacted(
+        "Account Number: 111111222222\n\nPrice: $612,000.00 — paid at Closing\n\nAccount Number: 333333444444"
+    );
+
+    expect($result->text)->not->toContain('111111222222')
+        ->and($result->text)->not->toContain('333333444444')
+        ->and($result->report->counts['account_number'] ?? 0)->toBe(2)
+        ->and($result->text)->toContain('$612,000.00');
 });

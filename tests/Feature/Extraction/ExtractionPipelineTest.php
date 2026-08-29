@@ -675,6 +675,32 @@ it('ends the row on a failure it has no name for, rather than leaving it claimed
 
     $extraction->refresh();
 
+    /*
+     * And a second attempt does **not** run.
+     *
+     * Round 3 asked the shape question and it is a real one: left to the
+     * ordinary retry, attempts 2, 3 and 4 find a row that is no longer
+     * `queued`, `claim()` no-ops, each returns normally — so the queue records
+     * a *success* for work that failed, `failed()` never fires, and three
+     * worker slots are spent finding out nothing. `handle()` calls `fail()`
+     * when the row has ended, so the queue's record agrees with the row's.
+     *
+     * Asserted by running the job again and proving it changes nothing, since
+     * the `fail()` call itself is the queue's business rather than the row's.
+     */
+    $before = $extraction->only(['state', 'error', 'error_code', 'completed_at']);
+
+    $threwAgain = false;
+
+    try {
+        $job->handle(app(PerformExtraction::class));
+    } catch (Throwable) {
+        $threwAgain = true;
+    }
+
+    expect($threwAgain)->toBeFalse('a claimed, ended row must not be picked up again')
+        ->and($extraction->fresh()?->only(['state', 'error', 'error_code', 'completed_at']))->toBe($before);
+
     expect($extraction->state)->toBe(ExtractionState::Failed)
         ->and($extraction->state->isFinal())->toBeTrue()
         ->and($extraction->error_code)->toBe('extraction_errored')

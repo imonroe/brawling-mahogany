@@ -44,9 +44,15 @@ use Illuminate\Console\Command;
  *
  * The column is micros because `extractions.cost_micros` is, and nobody types
  * `50000000` meaning fifty dollars without eventually typing one nought too
- * many. `--dollars` is the only way in, `Money::fromDollars()` is the only
- * conversion, and the confirmation prints the figure back in words so a
- * mistyped one is visible before it is a ceiling.
+ * many. `--dollars` is the only way in and `Money::fromDollars()` is the only
+ * conversion, so nothing stores a number nobody converted.
+ *
+ * The report afterwards prints the figure back in words. That is a **check,
+ * not a guard** — the save happens first, so a mistyped `--dollars=500` is
+ * already a ceiling by the time anybody reads it back. The docblock claimed the other ordering for a round. It is still worth
+ * having: the mistake is visible immediately and one more invocation corrects
+ * it, which for an operator-only command beats a prompt that a runbook step or
+ * a `&&` chain would have to answer.
  */
 class SetExtractionCap extends Command
 {
@@ -157,9 +163,22 @@ class SetExtractionCap extends Command
         $spent = $teams->runFor($team, fn (): int => $ledger->teamSpentThisMonth($team));
 
         $this->components->twoColumnDetail('Team', $team->name);
+        /*
+         * A negative cap is the absence of a ceiling, so it is not a figure.
+         * `Money::words()` on one prints `$-0.00`, which is what this line did
+         * for a round — in the operator's only window onto this column, on an
+         * installation deliberately configured without a limit. It is the same
+         * defect round 2 named in `DealDocumentController`, reproduced in a
+         * file written during the commit series that fixed it, which is the
+         * argument for the rule living in one function rather than in six
+         * readers' heads. `ScoreExtractions::reportAgainstTheLedger()` says it
+         * this way too.
+         */
         $this->components->twoColumnDetail(
             'Ceiling',
-            Money::words($cap).($team->extraction_monthly_cap_micros === null ? ' (the configured default)' : ' (set for this team)'),
+            $cap < 0
+                ? 'none (no ceiling is configured)'
+                : Money::words($cap).($team->extraction_monthly_cap_micros === null ? ' (the configured default)' : ' (set for this team)'),
         );
         $this->components->twoColumnDetail('Spent this month', Money::words($spent));
         $this->components->twoColumnDetail('Resets', $ledger->resetsAt()->toDayDateTimeString().' UTC');

@@ -388,7 +388,22 @@ final class ReadProposals
          * wrote.
          */
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
-            $iso = CarbonImmutable::createFromFormat('Y-m-d', $value);
+            try {
+                $iso = CarbonImmutable::createFromFormat('Y-m-d', $value);
+            } catch (Throwable) {
+                /*
+                 * The same guard the loop below carries, and for the same
+                 * reason: Carbon 3 **throws** where Carbon 2 returned false.
+                 *
+                 * The regex makes it very unlikely today, and that is exactly
+                 * why the asymmetry was worth closing — a `catch` on one call
+                 * and not on the identical call ten lines up is a rule that
+                 * stops being true the moment somebody widens the pattern, in
+                 * a queue worker where the failure is a stack trace instead of
+                 * a proposal.
+                 */
+                $iso = null;
+            }
 
             if ($iso instanceof CarbonImmutable && $iso->format('Y-m-d') === $value) {
                 return $value;

@@ -16,6 +16,7 @@ use App\Models\Stage;
 use App\Models\Task;
 use App\Models\TeamMembership;
 use App\Models\Workflow;
+use App\Support\Dates\SaveKeyDate;
 use App\Support\Permissions;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\DB;
@@ -292,6 +293,73 @@ it('moves a deadline the deal already has instead of adding a second one', funct
 
     // …and the proposal points at the row it moved, so S66 can link to it.
     expect($field->refresh()->created_record_id)->toBe($existing->getKey());
+});
+
+it('leaves a derived deadline following its anchor when the contract agrees with it', function (): void {
+    /*
+     * Round 3's B3, and the case that makes it serious: this is the **success**
+     * path. Everything worked — the deal already carries the deadline, derived
+     * from mutual acceptance, and the model read exactly the same day off the
+     * contract.
+     *
+     * `SaveKeyDate::applyAttributes()` detaches on the *presence* of a `date`
+     * key rather than on a change (#106: a typed day wins over a computed one,
+     * and the row says so), so calling `edit()` for a value that has not moved
+     * cleared `is_derived` and stamped `detached_at`. From then on the deadline
+     * stopped following mutual acceptance — permanently, and silently.
+     *
+     * Silently is the word that matters. `recordEdit()` writes `key_date.moved`
+     * only when the day changed, so no activity event; the cascade was empty,
+     * so no `key_date.cascaded`; and S66's conflict strip is built only when
+     * the days **differ**, so the one screen written to state this consequence
+     * could not reach this case. The reviewer saw a proposal that matched,
+     * pressed Confirm, and nothing appeared to happen — because nothing was
+     * supposed to.
+     *
+     * The second half is the point rather than a bonus: the anchor is moved
+     * afterwards and the derived date has to move with it. Asserting only
+     * `is_derived` would pass against a version that kept the flag and dropped
+     * the link.
+     */
+    $anchor = KeyDate::factory()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Mutual acceptance',
+        'date' => '2026-07-10',
+    ]);
+
+    $derived = KeyDate::factory()->derivedFrom($anchor, 10, OffsetBasis::Calendar)->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'name' => 'Inspection objection',
+    ]);
+
+    expect($derived->date->toDateString())->toBe('2026-07-20')
+        ->and($derived->is_derived)->toBeTrue();
+
+    // The model reads the same day the deal already computed.
+    $field = proposalOn($this->extraction, fn ($factory) => $factory
+        ->keyDate('Inspection Objection Deadline', '2026-07-20'));
+
+    $this->post(confirmUrl($this->deal, $this->extraction, $field))->assertRedirect();
+
+    $derived->refresh();
+
+    expect($derived->is_derived)->toBeTrue()
+        ->and($derived->detached_at)->toBeNull()
+        ->and($derived->date->toDateString())->toBe('2026-07-20')
+        // The field is still reviewed, and still points at what it agreed with.
+        ->and($field->refresh()->review_state)->toBe(ExtractedFieldReviewState::Confirmed)
+        ->and($field->created_record_id)->toBe($derived->getKey());
+
+    /*
+     * And the link is live, not merely flagged. Moving the anchor has to carry
+     * the deadline with it — which is the whole thing the confirmation was
+     * silently taking away.
+     */
+    app(SaveKeyDate::class)->edit($anchor, ['date' => '2026-07-17'], $this->member);
+
+    expect($derived->refresh()->date->toDateString())->toBe('2026-07-27');
 });
 
 it('will not accept a contract’s dates in a batch, and will accept an inspection’s tasks', function (): void {

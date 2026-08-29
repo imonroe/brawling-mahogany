@@ -67,6 +67,63 @@ it('overrides the worker’s own timeout rather than inheriting it', function ()
         ->and($job->timeout)->toBeGreaterThan($worker);
 });
 
+it('derives the queue’s window too, so the ordering survives a raised timeout', function (): void {
+    /*
+     * Round 3's finding, and the reason it matters more than it looks:
+     * `retry_after` was a **literal** 300 while the job's timeout derived, so
+     * the three numbers were only in order at the shipped default. Any
+     * `EXTRACTION_TIMEOUT` of 240 or more — well inside the range
+     * `.env.example` calls reasonable for *"several pages of contract through
+     * a vision model"* — inverted the very inequality this file exists to
+     * hold, and did it in a `.env` on the droplet, which is the one place no
+     * test run and no review can observe (#196).
+     *
+     * `config/queue.php` is read at boot, so the derivation is re-evaluated
+     * here from the same env value rather than by re-reading the config the
+     * test process already resolved.
+     */
+    $provider = (int) config('extraction.anthropic.timeout');
+
+    /*
+     * The **equality** is the assertion, not an inequality: a literal that
+     * happened to sit above today's job timeout would satisfy `>` and go back
+     * to being wrong the moment somebody raised `EXTRACTION_TIMEOUT`. Only
+     * `retry_after` being a function of the same value survives that, and only
+     * an equality can tell the two apart.
+     *
+     * There is deliberately no case here that raises the env var and re-reads:
+     * `config/queue.php` is evaluated once at boot, so such a case would be
+     * arithmetic on its own local variables — a test that passes with the
+     * derivation deleted.
+     */
+    expect((int) config('queue.connections.redis.retry_after'))
+        ->toBe($provider + 120)
+        ->and((new RunDocumentExtraction('extraction-1'))->timeout)->toBe($provider + 60);
+});
+
+it('holds the unique lock past the point a live sibling could still have it', function (): void {
+    /*
+     * `ShouldBeUnique` with no `uniqueFor` holds the lock until the job
+     * completes or fails — right until a worker is **killed**, which runs no
+     * shutdown handler and releases nothing. The id can then never be
+     * dispatched again.
+     *
+     * That was survivable while every dispatch came from `StartExtraction`,
+     * which mints a new row and so a new id. `extractions:reap-stranded` is the
+     * first caller that re-dispatches an id already dispatched once, so a
+     * leaked lock makes its repair a silent no-op that reports *"re-queued 1"*
+     * every hour for ever.
+     *
+     * The window has to be past both numbers, not either: past the job's own
+     * timeout, and past the queue's visibility window, since a message made
+     * visible again is a sibling that may still be starting.
+     */
+    $job = new RunDocumentExtraction('extraction-1');
+
+    expect($job->uniqueFor)->toBeGreaterThan($job->timeout)
+        ->and($job->uniqueFor)->toBeGreaterThan((int) config('queue.connections.redis.retry_after'));
+});
+
 it('derives the job timeout, so the two cannot drift apart', function (): void {
     /*
      * A literal `public int $timeout = 240` would pass every case above and

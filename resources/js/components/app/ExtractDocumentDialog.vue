@@ -67,6 +67,18 @@ const props = defineProps<{
     /** False when no provider is configured for this environment. */
     available: boolean;
     unavailableReason: string | null;
+    /**
+     * False when a spend ceiling has stopped this team, which is a different
+     * refusal from `available` and needs the same treatment.
+     *
+     * It was inferred from nothing for two rounds: the server composed the cap
+     * sentence into `unavailableReason`, the template rendered that only under
+     * `v-if="!available"`, and the button's guard asked only `!available`. So a
+     * capped team met an enabled Extract, no sentence, and one `blocked` row
+     * plus one audit entry per press — the controller's `withErrors()` told
+     * them afterwards, which is not what §9.7 asks for.
+     */
+    allowed: boolean;
     spend: {
         /** Already words — "$4.80". Money is composed on the server. */
         used: string;
@@ -145,6 +157,16 @@ const barWidth = computed(
 
 /** Whether there is a ceiling to draw this month's spend against at all. */
 const capped = computed(() => props.spend.cap !== null);
+
+/**
+ * Whether pressing Extract could do anything.
+ *
+ * Both refusals, because both end in the same place. §9.7 asks for *what
+ * happened, then what to do*, and the reason is the server's — *"no provider is
+ * configured"* and *"this team is over its cap"* are different problems with
+ * different people to talk to, which is why the sentence is not composed here.
+ */
+const canExtract = computed(() => props.available && props.allowed);
 
 function submit(): void {
     form.post(`${props.dealUrl}/extractions`, {
@@ -310,7 +332,7 @@ function submit(): void {
                     different people to talk to.
                 -->
                 <p
-                    v-if="!available"
+                    v-if="!canExtract"
                     class="text-[11px] text-state-danger"
                     data-slot="extraction-unavailable"
                 >
@@ -336,7 +358,7 @@ function submit(): void {
                     Cancel
                 </AppButton>
                 <AppButton
-                    :disabled="!available || form.processing"
+                    :disabled="!canExtract || form.processing"
                     @click="submit"
                 >
                     {{ form.processing ? 'Starting…' : 'Extract' }}

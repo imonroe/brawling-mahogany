@@ -182,6 +182,38 @@ final class ConfirmExtractedField
         );
 
         if ($existing instanceof KeyDate) {
+            /*
+             * **Agreeing with the deal is not editing it.**
+             *
+             * `SaveKeyDate::applyAttributes()` detaches on the *presence* of a
+             * `date` key, not on a change — `is_derived` false, `detached_at`
+             * stamped — because a day somebody types wins over a computed one
+             * (#106). That is right for an edit and wrong for a no-op, and the
+             * no-op is the **ordinary success case**: a derived
+             * *Inspection Objection Deadline* at MEC + 10 days, and a model
+             * that reads exactly that day off the contract.
+             *
+             * Without this guard, confirming it stopped the deadline following
+             * its anchor for good — and nothing recorded that it had.
+             * `recordEdit()` writes `key_date.moved` only when the day changed,
+             * so no activity event; the cascade was empty, so no
+             * `key_date.cascaded`; and S66's conflict strip is built only when
+             * the days **differ** (`DealExtraction::row()`), so the one screen
+             * written to state this consequence could not reach this case. The
+             * reviewer saw a proposal that matched, pressed Confirm, and the
+             * deal quietly stopped recalculating.
+             *
+             * Worse than the case the strip was added for, where at least
+             * something is shown. Found in review round 3.
+             *
+             * The field is still marked reviewed and still gets its audit
+             * entry and its `created_record_*` link — the caller does that.
+             * What is skipped is a write with nothing to write.
+             */
+            if ($existing->date->toDateString() === $day) {
+                return $existing;
+            }
+
             $this->keyDates->edit($existing, ['date' => $day], $actor);
 
             return $existing;

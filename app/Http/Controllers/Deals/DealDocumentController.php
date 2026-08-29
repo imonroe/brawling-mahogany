@@ -334,8 +334,19 @@ class DealDocumentController extends Controller
         $decision = $ledger->decide($deal->team);
         $available = $providers->isAvailable();
 
+        $teamSpent = $ledger->teamSpentThisMonth($deal->team);
+        $teamCap = $ledger->capFor($deal->team);
+
         return [
             'available' => $available,
+            /*
+             * The second refusal, shipped as its own flag rather than left for
+             * the client to infer. The dialog gates both the sentence and the
+             * button on `available && allowed`; it asked only `available` for
+             * two rounds, so a capped team met an enabled Extract with no
+             * explanation and produced a `blocked` row per press.
+             */
+            'allowed' => $decision->allowed,
             /*
              * Two reasons a person can meet, and they need different sentences.
              * *Not switched on* is an installation that has never had a
@@ -349,8 +360,36 @@ class DealDocumentController extends Controller
                 ! $decision->allowed => $decision->message,
                 default => null,
             },
+            /*
+             * **The team's own figures, whichever ceiling did the refusing.**
+             *
+             * `SpendLedger::decide()` answers the *platform* question first and
+             * returns platform numbers in the decision when that is what
+             * stopped things — correctly, since the refusal is about the
+             * platform. Shipping `$decision->spentMicros` here read those
+             * numbers as this team's: from the moment the platform ceiling was
+             * reached, **every** team's Extract dialog drew the installation's
+             * total under a comment reading *"Where this team stands against
+             * its own cap"*, with an `aria-label` saying the same.
+             *
+             * That is one team learning another team's numbers, which ADR 0002
+             * and CLAUDE.md state as its own rule — *the count is scoped even
+             * when the row is not*. It also undid the argument
+             * `platformSpentThisMonth()` is allowlisted on: *"a fact about the
+             * installation's bill rather than about anybody's data"* is true of
+             * the query and was false of where the answer went. And the figure
+             * was simply wrong for the reader, with nothing to tell them so.
+             *
+             * S68 was never affected — `ExtractionHistory::spend()` reads
+             * `capFor()` and `teamSpentThisMonth()` directly — which is what
+             * made the two screens disagree about one team on one day.
+             *
+             * So the panel is composed from the team's own ledger, and the
+             * decision is used only for what it is about: whether this may
+             * proceed, what to say, and whether to warn.
+             */
             'spend' => [
-                'used' => Money::words($decision->spentMicros),
+                'used' => Money::words($teamSpent),
                 /*
                  * **A negative cap is the absence of a ceiling; zero is a
                  * ceiling of zero.** `SpendLedger::decide()` draws the line
@@ -363,8 +402,12 @@ class DealDocumentController extends Controller
                  * which on an installation configured with no ceiling drew a
                  * **negative dollar amount** as the cap and a bar against it.
                  */
-                'cap' => $decision->capMicros >= 0 ? Money::words($decision->capMicros) : null,
-                'percent' => $decision->capMicros >= 0 ? $decision->percentUsed() : null,
+                'cap' => $teamCap >= 0 ? Money::words($teamCap) : null,
+                'percent' => match (true) {
+                    $teamCap < 0 => null,
+                    $teamCap === 0 => 100,
+                    default => (int) min(100, round($teamSpent * 100 / $teamCap)),
+                },
                 'warn' => $decision->shouldWarn,
                 /*
                  * UTC, and the screen says so. Every other date in this product

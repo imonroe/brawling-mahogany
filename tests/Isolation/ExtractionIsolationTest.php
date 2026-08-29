@@ -15,6 +15,7 @@ use App\Support\Tenancy\TeamContext;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Inertia\Testing\AssertableInertia;
 
 /**
  * The tenant boundary around S65, S66 and S67 (#115–#117 · ADR 0002).
@@ -321,4 +322,70 @@ it('does not let one team’s confirmation write onto another team’s deal', fu
     expect($foreignField->isPending())->toBeTrue()
         ->and($foreignField->reviewed_by)->toBeNull()
         ->and(KeyDate::withoutTeamScope()->where('deal_id', $foreignDeal->getKey())->count())->toBe(0);
+});
+
+it('never shows one team another team’s spend, even when the platform is what stopped them', function (): void {
+    /*
+     * Round 3's B4, and it is a leak of a **number** rather than of a row —
+     * which ADR 0002 says is the kind that goes unnoticed.
+     *
+     * `SpendLedger::decide()` answers the platform question first and returns
+     * platform figures in the decision, correctly: the refusal is about the
+     * platform. `DealDocumentController::extractProps()` then shipped those
+     * figures to S65 without asking which ceiling they described, and
+     * `ExtractDocumentDialog` drew them under a comment reading *"Where this
+     * team stands against its own cap."* So from the moment the platform
+     * ceiling was reached, every team's Extract dialog showed the whole
+     * installation's total as its own.
+     *
+     * The state is the incident this subsystem exists for. Team B holds all the
+     * spend; team A has spent nothing and is asked what it has spent.
+     *
+     * S68 was never affected, because `ExtractionHistory::spend()` reads
+     * `capFor()` and `teamSpentThisMonth()` directly — which is what made two
+     * screens disagree about one team on one day.
+     */
+    $this->travelTo('2026-09-10 12:00:00');
+
+    config([
+        'extraction.caps.platform_monthly_micros' => 10_000_000,
+        'extraction.caps.team_monthly_micros' => 50_000_000,
+    ]);
+
+    app(TeamContext::class)->runFor($this->teamB, function (): void {
+        $deal = Deal::factory()->create(['team_id' => $this->teamB->getKey()]);
+
+        Extraction::factory()->complete()->costing(10_000_000)->create([
+            'team_id' => $this->teamB->getKey(),
+            'deal_id' => $deal->getKey(),
+        ]);
+    });
+
+    [$deal] = extractionFixtureFor($this->teamA);
+
+    $this->actingAsPerson($this->memberA, $this->teamA);
+
+    $this->get("/deals/{$deal->getKey()}/documents")
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $extract = $page->toArray()['props']['extract'];
+
+            /*
+             * Team A's own figures. The fixture above spent $10 in team B and
+             * team A has spent nothing but the cost of its own fixture
+             * extraction, so the leak is visible as a two-figure difference
+             * rather than as a subtle one.
+             */
+            expect($extract['spend']['used'])->not->toContain('10.00')
+                ->and($extract['spend']['cap'])->toBe('$50.00')
+                ->and($extract['spend']['percent'])->toBeLessThan(100);
+
+            /*
+             * And the refusal still arrives — this is not a test that the cap
+             * stopped working. The platform ceiling is reached, so team A
+             * cannot extract; it simply is not told the platform's numbers.
+             */
+            expect($extract['allowed'])->toBeFalse()
+                ->and($extract['unavailableReason'])->toContain('paused across this installation');
+        });
 });

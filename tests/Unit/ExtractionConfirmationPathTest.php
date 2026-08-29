@@ -103,25 +103,6 @@ it('keeps the extracted source enums out of every other writer', function (): vo
         'Models/KeyDate.php',
         'Support/Dates/SaveKeyDate.php',
         'Support/Deals/DealTasks.php',
-        /*
-         * The confirmation path itself, named as **one file** rather than as
-         * the directory it lives in.
-         *
-         * This read `str_starts_with($relative, 'Support/Extraction/')` for a
-         * round, which exempted thirty-odd files from a rule that needs one —
-         * `PerformExtraction`, `ReadProposals`, `StartExtraction` and every
-         * provider could have stamped `KeyDateSource::Extracted` straight into
-         * `key_dates` with the guard silent. The candidate filter is half of
-         * any source-reading guard (CLAUDE.md records `SingleMutationPathTest`
-         * missing `action_instances.state` the same way), and a filter wide in
-         * the direction nothing reports is the half that fails quietly.
-         *
-         * As it happens the directory currently names the enum nowhere at all
-         * — the confirmation goes through `SaveKeyDate` and `DealTasks` — so
-         * this entry is a placeholder for the one door that may legitimately
-         * grow it, and every other file in the directory is now covered.
-         */
-        'Support/Extraction/ConfirmExtractedField.php',
     ];
 
     $offenders = [];
@@ -139,6 +120,28 @@ it('keeps the extracted source enums out of every other writer', function (): vo
     }
 
     expect($offenders)->toBe([]);
+
+    /*
+     * And `Support/Extraction/` is **not** on that list, which is the half of
+     * this guard that was missing.
+     *
+     * It read `str_starts_with($relative, 'Support/Extraction/')` for a round,
+     * exempting thirty-odd files from a rule that needs none of them —
+     * `PerformExtraction`, `ReadProposals`, `StartExtraction` and every
+     * provider could have stamped `KeyDateSource::Extracted` straight into
+     * `key_dates` with the guard silent. The candidate filter is half of any
+     * source-reading guard (CLAUDE.md records `SingleMutationPathTest` missing
+     * `action_instances.state` exactly this way), and a filter wide in the
+     * direction nothing reports is the half that fails quietly.
+     *
+     * Asserted rather than left as an absence, because an absence is what a
+     * later edit restores without noticing. A blanket exemption would also
+     * make this file's own subject — `ConfirmExtractedField` being the only
+     * door — unverifiable by the very test named for it.
+     */
+    foreach ($allowed as $entry) {
+        expect($entry)->not->toStartWith('Support/Extraction/');
+    }
 });
 
 it('can tell a violation from a clean tree', function (): void {

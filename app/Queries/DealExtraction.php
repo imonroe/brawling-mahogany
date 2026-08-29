@@ -87,6 +87,22 @@ final class DealExtraction
         $existing = KeyDate::query()->where('deal_id', $deal->getKey())->get();
 
         /*
+         * The anchors, resolved from the list already in memory rather than by
+         * asking per row.
+         *
+         * `row()` names the anchor of a derived date in the conflict strip, and
+         * `$match->anchor?->name` would issue one query per conflicting row —
+         * under the comment directly above arguing against exactly that. Every
+         * anchor is a key date on the same deal, so it is already here, and
+         * `with('anchor')` would fetch a second copy of rows this collection
+         * holds. CLAUDE.md: *before adding a `with()`, name the cell that reads
+         * it* — the cell exists, and the row it needs is already loaded.
+         */
+        $anchorNames = $existing
+            ->mapWithKeys(fn (KeyDate $date): array => [(string) $date->getKey() => (string) $date->name])
+            ->all();
+
+        /*
          * `array_values` around the collection's own `all()`: a collection
          * preserves keys through `map()`, and `values()` before it is not
          * something PHPStan can carry through to the return type. The wrapper
@@ -94,15 +110,16 @@ final class DealExtraction
          */
         return array_values($extraction->fields
             ->sortBy('sort_order')
-            ->map(fn (ExtractedField $field): array => $this->row($field, $existing, $deal))
+            ->map(fn (ExtractedField $field): array => $this->row($field, $existing, $deal, $anchorNames))
             ->all());
     }
 
     /**
      * @param  \Illuminate\Database\Eloquent\Collection<int, KeyDate>  $existing
+     * @param  array<string, string>  $anchorNames
      * @return array<string, mixed>
      */
-    private function row(ExtractedField $field, $existing, Deal $deal): array
+    private function row(ExtractedField $field, $existing, Deal $deal, array $anchorNames): array
     {
         /** @var array<string, mixed> $payload */
         $payload = $field->payload ?? [];
@@ -150,7 +167,9 @@ final class DealExtraction
                      * different sentences, and the strip needs both.
                      */
                     'detaches' => $match->is_derived,
-                    'anchorName' => $match->is_derived ? $match->anchor?->name : null,
+                    'anchorName' => $match->is_derived
+                        ? ($anchorNames[(string) $match->anchor_key_date_id] ?? null)
+                        : null,
                 ];
             }
         }

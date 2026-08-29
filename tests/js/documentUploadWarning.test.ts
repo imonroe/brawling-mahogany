@@ -75,6 +75,7 @@ function render(overrides: Record<string, unknown> = {}) {
             refusal: null,
             extract: {
                 available: true,
+                allowed: true,
                 unavailableReason: null,
                 spend: {
                     used: '$4.80',

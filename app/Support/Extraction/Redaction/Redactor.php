@@ -400,11 +400,32 @@ final class Redactor
      * Run one rule, counting what it took.
      *
      * `$decide` is given where in the *original* subject the candidate sat,
-     * which is what makes the label window meaningful. Offsets are byte
-     * offsets, and the window is measured in characters, so the subject is
-     * handed to `mb_substr` on the byte offset: correct for the ASCII a digit
-     * run is surrounded by in practice, and wrong only by a few characters of
-     * window in text that is not, which is a margin this window has by design.
+     * which is what makes the label window meaningful — and it is given a
+     * **character** offset, because {@see self::hasLabelNear()} slices that
+     * window with `mb_substr`.
+     *
+     * ## The units are the whole rule, and this shipped wrong
+     *
+     * `preg_match_all` returns **byte** offsets. Passing one to a character
+     * API is not an approximation, and the docblock here argued for a round
+     * that it was — *"wrong only by a few characters of window in text that is
+     * not [ASCII], which is a margin this window has by design."*
+     *
+     * It is neither a few characters nor bounded by the window. The error is
+     * the **cumulative** count of extra bytes in every multi-byte character
+     * earlier in the document, so it grows down the page without limit — and a
+     * contract lifted out of a PDF or a DOCX is full of `’`, `—` and `§`,
+     * three bytes each. Twenty-one excess bytes is enough: the window slides
+     * far enough right that the paragraph-break narrowing keeps the wrong side
+     * of the break, `$before` ends up holding the text *after* the number, and
+     * a captioned account number is sent to the provider intact. Measured, on
+     * a nine-line fixture whose byte-identical ASCII twin redacts correctly.
+     *
+     * That is #114's expensive direction and it is round 2's B1 one layer down
+     * — the same sentence, *the label window is measured around the wrong
+     * place, so the number is not redacted*. Two different mechanisms reached
+     * it, which is why the conversion now happens once, here, rather than
+     * being reasoned about at each call site.
      *
      * @param  array<string, int>  $counts
      */
@@ -454,16 +475,29 @@ final class Redactor
 
         $result = '';
         $consumed = 0;
+        $consumedChars = 0;
 
         foreach ($matches[0] as $capture) {
             $match = (string) $capture[0];
             $offset = (int) $capture[1];
 
             // Everything between the previous match and this one, untouched.
-            $result .= substr($subject, $consumed, $offset - $consumed);
-            $consumed = $offset + strlen($match);
+            $between = substr($subject, $consumed, $offset - $consumed);
 
-            if (! $decide($match, $subject, $offset)) {
+            /*
+             * The byte offset converted to a character offset, counted along
+             * the walk rather than by re-measuring the prefix each time: the
+             * loop already holds every byte between the last match and this
+             * one, so the conversion is O(n) over the document rather than
+             * O(n·m). Exact, not approximate — see the docblock.
+             */
+            $charOffset = $consumedChars + mb_strlen($between);
+
+            $result .= $between;
+            $consumed = $offset + strlen($match);
+            $consumedChars = $charOffset + mb_strlen($match);
+
+            if (! $decide($match, $subject, $charOffset)) {
                 $result .= $match;
 
                 continue;

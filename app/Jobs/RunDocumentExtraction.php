@@ -73,9 +73,28 @@ class RunDocumentExtraction implements ShouldBeUnique, ShouldQueue
      */
     public int $timeout;
 
+    /**
+     * How long the `ShouldBeUnique` lock may outlive the job that took it.
+     *
+     * Without a value the lock is held until the job completes or fails, which
+     * is exactly right until a worker is **killed** — it then runs no shutdown
+     * handler, releases nothing, and the id can never be dispatched again.
+     * That was survivable while every dispatch came from `StartExtraction`
+     * (a new row, a new id); `extractions:reap-stranded` is the first caller
+     * that re-dispatches an id already dispatched once, so a leaked lock turns
+     * its repair into a silent no-op reporting *"re-queued 1"* every hour for
+     * ever.
+     *
+     * Comfortably past the point where a live sibling could still be holding
+     * it — the job's own timeout plus the queue's visibility window — so this
+     * expires only after the work it guards genuinely cannot still be running.
+     */
+    public int $uniqueFor;
+
     public function __construct(public readonly string $extractionId)
     {
         $this->timeout = (int) config('extraction.anthropic.timeout', 180) + 60;
+        $this->uniqueFor = $this->timeout + (int) config('queue.connections.redis.retry_after', 300);
     }
 
     public function uniqueId(): string
@@ -159,7 +178,41 @@ class RunDocumentExtraction implements ShouldBeUnique, ShouldQueue
                 return;
             }
 
-            $extractions->perform($extraction, $team);
+            try {
+                $extractions->perform($extraction, $team);
+            } catch (Throwable $failure) {
+                /*
+                 * **A row that has already ended does not get three more
+                 * attempts.**
+                 *
+                 * `perform()`'s catch-all fails the row and re-throws, so the
+                 * failure still reaches the log with its stack. Left to the
+                 * ordinary retry, attempts 2, 3 and 4 then run, `claim()`
+                 * no-ops on a row that is no longer `queued`, and each returns
+                 * normally — so the queue records a **success** for work that
+                 * failed, `failed()` never fires, and three worker slots are
+                 * spent finding out nothing.
+                 *
+                 * `fail()` ends it here instead, which makes Horizon's record
+                 * agree with the row's. It is safe against a double
+                 * notification twice over: `claim()` would have refused the
+                 * later attempts anyway, and `failed()` stands down on a state
+                 * that `isFinal()`.
+                 *
+                 * The retryable case is untouched, and that is the whole point
+                 * of asking the row rather than the exception:
+                 * `ProviderFailed::unavailable()` puts the row back to `queued`
+                 * before re-throwing, so it is not final and the attempts a
+                 * provider blip deserves still happen.
+                 */
+                if ($extraction->refresh()->state->isFinal()) {
+                    $this->fail($failure);
+
+                    return;
+                }
+
+                throw $failure;
+            }
         });
     }
 }

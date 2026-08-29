@@ -453,8 +453,18 @@ final class ExtractionHistory
          * about the **deal**: a deal with one real extraction and twenty
          * refusals is one deal that spent what the one extraction cost, and
          * filtering the rows first would give the same answer the long way
-         * round. A null `deal_id` is excluded for the same reason — there is no
-         * deal to divide by.
+         * round.
+         *
+         * Two things the predicate does that are worth naming rather than
+         * discovering. It also drops a **complete but unpriced** extraction —
+         * the `pricing_missing` path logs a warning and writes `cost_micros =
+         * 0` — which is a different thing from a refusal, and the right call
+         * for the same reason: a deal whose only reading cost an unknown amount
+         * is not a deal that cost nothing, so it must not be averaged as one.
+         * And `whereNotNull('deal_id')` cannot currently exclude anything,
+         * because `teamScopedForeign()` makes the column `NOT NULL`; it is kept
+         * as the statement of what this query divides by, so making the column
+         * nullable later does not silently produce a null bucket.
          */
         $perDeal = Extraction::query()
             ->toBase()

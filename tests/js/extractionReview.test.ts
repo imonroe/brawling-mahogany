@@ -649,6 +649,7 @@ describe('S65 — what leaves the account, said plainly', () => {
                 documentName: 'Executed contract.pdf',
                 dealUrl: '/deals/deal-1',
                 available: true,
+                allowed: true,
                 unavailableReason: null,
                 spend: {
                     used: '$4.80',
@@ -733,6 +734,58 @@ describe('S65 — what leaves the account, said plainly', () => {
             .find((button) => button.text() === 'Extract');
 
         expect(start?.attributes('disabled')).toBeDefined();
+    });
+
+    it('says why, and disables, when a spend ceiling is what stopped it', async () => {
+        /*
+         * The **other** refusal, and it reached no template for two rounds.
+         *
+         * The server composed the cap sentence into `unavailableReason`, the
+         * paragraph rendered only under `v-if="!available"`, and the button's
+         * guard asked only `!available`. So a capped team met an enabled
+         * Extract, no explanation, and one `blocked` row plus one audit entry
+         * per press — with the reason arriving afterwards as a form error, on
+         * a dialog whose own docblock argues these are *"different problems
+         * with different people to talk to"*.
+         *
+         * `available` stays **true** here, which is what makes this a
+         * different case from the one above rather than a restatement of it.
+         */
+        const wrapper = await dialog({
+            available: true,
+            allowed: false,
+            unavailableReason:
+                'This team has reached its monthly limit for reading documents.',
+        });
+
+        expect(
+            wrapper.find('[data-slot="extraction-unavailable"]').text(),
+        ).toContain('monthly limit');
+
+        const start = wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Extract');
+
+        expect(start?.attributes('disabled')).toBeDefined();
+    });
+
+    it('offers the button when nothing is stopping it', async () => {
+        /*
+         * The positive control for both refusals. Without it a dialog that had
+         * started disabling unconditionally would pass the two cases above
+         * while nobody could extract anything.
+         */
+        const wrapper = await dialog();
+
+        expect(
+            wrapper.find('[data-slot="extraction-unavailable"]').exists(),
+        ).toBe(false);
+
+        const start = wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Extract');
+
+        expect(start?.attributes('disabled')).toBeUndefined();
     });
 
     it('starts nothing until the button is pressed, and posts the chosen kind', async () => {

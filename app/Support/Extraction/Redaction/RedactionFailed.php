@@ -9,12 +9,18 @@ use RuntimeException;
 /**
  * The redactor could not finish, so nothing may leave.
  *
- * `preg_replace_callback` returns null on a backtrack limit or a malformed
- * UTF-8 sequence, and both are reachable from a document somebody uploaded.
- * The tempting handling is `?? $subject` — carry on with what we had — and
- * that is precisely the bug: it hands the provider the text with the
- * identifiers still in it, silently, on the one input weird enough to have
- * broken the regex.
+ * `preg_match_all` returns **false** on a backtrack limit or a malformed UTF-8
+ * sequence, and both are reachable from a document somebody uploaded. The
+ * tempting handling is to carry on with what we had — `?? $subject`, or simply
+ * treating a false return as "no matches" — and that is precisely the bug: it
+ * hands the provider the text with the identifiers still in it, silently, on
+ * the one input weird enough to have broken the regex.
+ *
+ * (This named `preg_replace_callback` and its **null** return for a round,
+ * which was true of an earlier `Redactor::replace()`. The argument never
+ * changed and the mechanism did — worth correcting rather than leaving,
+ * because this is the class whose whole point is that the mechanism decides
+ * which way a failure falls.)
  *
  * So this is thrown, the extraction fails visibly, and the operator sees a
  * rule name. PRD §9's *"no document reaches a third-party model without
