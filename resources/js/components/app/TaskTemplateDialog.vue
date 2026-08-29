@@ -30,6 +30,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { fromNullableInteger, toNullableInteger } from '@/lib/numbers';
 
 export type TaskTemplateValues = {
     id: string;
@@ -103,45 +104,6 @@ watch(
     },
     { immediate: true },
 );
-
-/**
- * A stored `null` becomes an empty box, never the word "null" or a `0`.
- *
- * `String(null)` is `'null'` and `Number(null)` is `0`; both put an answer in
- * a field nobody answered.
- */
-function fromNullableInteger(value: number | null | undefined): string {
-    return value === null || value === undefined ? '' : String(value);
-}
-
-/**
- * An empty box is **no answer**, not zero.
- *
- * `Number('')` is `0` — the trap `CLAUDE.md` records from #107, where clearing
- * a numeric field *added* a zero rather than emptying it. Here that zero means
- * "due on the day the stage starts", which is a deadline nobody typed. So the
- * value is trimmed and tested for empty **before** `Number` sees it.
- *
- * A value that is not an integer is handed back **as the string it was**
- * rather than as `NaN`: `JSON.stringify(NaN)` is `null`, which passes
- * `nullable` and would save *no answer* over somebody's typo. The raw string
- * fails the server's `integer` rule instead, which is a message on the field.
- *
- * A near-copy of the same helper in `StageTemplateDialog` — two callers rather
- * than the three that earn a shared module, and the whole rule is four lines
- * with its reasoning attached.
- */
-function toNullableInteger(value: string): number | string | null {
-    const trimmed = value.trim();
-
-    if (trimmed === '') {
-        return null;
-    }
-
-    const parsed = Number(trimmed);
-
-    return Number.isInteger(parsed) ? parsed : trimmed;
-}
 
 const base = computed(
     () =>

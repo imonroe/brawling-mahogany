@@ -236,12 +236,18 @@ it('refuses a gate type this editor cannot fully specify', function (): void {
 
     expect($stage->gateTemplates()->count())->toBe(0);
 
-    // And the two that clear on their own are offered, which is the control:
-    // a validation rule refusing everything would pass the loop above.
-    foreach (['manual_confirmation', 'required_tasks_complete'] as $type) {
+    /*
+     * And the two that clear on their own are offered, which is the control:
+     * a validation rule refusing everything would pass the loop above.
+     *
+     * Distinct labels, because #87 made a gate's label unique on its stage —
+     * a `gate_cleared` automation names its gate by label in a pack file, and
+     * two with one name cannot be told apart.
+     */
+    foreach (['manual_confirmation', 'required_tasks_complete'] as $index => $type) {
         $this->post("/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates", [
             'gate_type' => $type,
-            'label' => 'Something somebody can clear',
+            'label' => 'Something somebody can clear '.$index,
         ])->assertRedirect();
     }
 

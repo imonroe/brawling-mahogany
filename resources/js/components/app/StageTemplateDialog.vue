@@ -32,6 +32,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { fromNullableInteger, toNullableInteger } from '@/lib/numbers';
 
 export type StageTemplateValues = {
     id: string;
@@ -58,7 +59,8 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>();
  * It is `nullable|integer|between:0,365` on the server, and this is a text
  * input, so the value in hand between two keystrokes is a string — including
  * the empty one, which is *no answer* rather than zero. `submit()` converts;
- * see `toNullableInteger`.
+ * see `lib/numbers`, which both dialogs import rather than each keeping a
+ * copy — `reorder.ts`'s argument, in this same change.
  *
  * The three nullable strings are held as `''` for the same reason: a text
  * input has no way to say null, and `ConvertEmptyStringsToNull` (Laravel's
@@ -107,41 +109,6 @@ watch(
     },
     { immediate: true },
 );
-
-/**
- * A stored `null` becomes an empty box, never the word "null" or a `0`.
- *
- * `String(null)` is `'null'` and `Number(null)` is `0`; both would put an
- * answer in a field nobody answered.
- */
-function fromNullableInteger(value: number | null | undefined): string {
-    return value === null || value === undefined ? '' : String(value);
-}
-
-/**
- * An empty box is **no answer**, not zero.
- *
- * `Number('')` is `0` — the trap `CLAUDE.md` records from #107, where
- * clearing a numeric field *added* a zero rather than emptying it. So the
- * value is trimmed and tested for empty **before** `Number` ever sees it, or
- * "leave it blank" saves a stage the product believes takes no days at all.
- *
- * A value that is not an integer is handed back **as the string it was**
- * rather than as `NaN`: `JSON.stringify(NaN)` is `null`, which passes
- * `nullable` and would save *no answer* over somebody's typo. The raw string
- * fails the server's `integer` rule instead, which is a message on the field.
- */
-function toNullableInteger(value: string): number | string | null {
-    const trimmed = value.trim();
-
-    if (trimmed === '') {
-        return null;
-    }
-
-    const parsed = Number(trimmed);
-
-    return Number.isInteger(parsed) ? parsed : trimmed;
-}
 
 const base = computed(() => `/templates/${props.templateId}/stages`);
 

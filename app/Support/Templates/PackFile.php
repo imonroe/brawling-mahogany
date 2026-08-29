@@ -180,8 +180,9 @@ final class PackFile
              * wants to read twice.
              */
             /*
-             * `whereNull('team_id')` for the reason `orphaned()` gives about
-             * itself: this is the pack's own rows. Two of the three readers of
+             * The pack's **own** rows only — `isSystem()` is `team_id === null`,
+             * the same predicate `packTemplate()` and `orphaned()` write in
+             * SQL; in PHP here because the relation is already loaded. Two of the three readers of
              * this relation had the filter and this one did not — and it is
              * the one that *emits*, so a team-owned row filed under a pack
              * would have written that team's message subjects and bodies into

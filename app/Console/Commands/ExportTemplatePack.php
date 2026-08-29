@@ -101,6 +101,8 @@ class ExportTemplatePack extends Command
             return self::FAILURE;
         }
 
+        $this->warnAboutAmbiguousGates($document);
+
         $output = $this->option('output');
 
         if (! is_string($output) || $output === '') {
@@ -122,6 +124,54 @@ class ExportTemplatePack extends Command
         );
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Say when the file being written is one the importer will refuse.
+     *
+     * S43 refuses two gates on one stage sharing a label, and so does the
+     * importer — but a row written before that rule is still here, and a
+     * `gate_cleared` automation names its gate **by label**. Without this the
+     * export succeeds, the file looks fine, and the person told about it is
+     * whoever runs the deploy on some other install a week later. #87's whole
+     * premise is that what somebody authored is what ships, so the person who
+     * can rename the gate is the one who should hear about it.
+     *
+     * @param  array<string, mixed>  $document
+     */
+    private function warnAboutAmbiguousGates(array $document): void
+    {
+        $workflows = is_array($document['workflows'] ?? null) ? $document['workflows'] : [];
+
+        foreach ($workflows as $workflow) {
+            $stages = is_array($workflow['stages'] ?? null) ? $workflow['stages'] : [];
+
+            foreach ($stages as $stage) {
+                if (! is_array($stage)) {
+                    continue;
+                }
+
+                $gates = is_array($stage['gates'] ?? null) ? $stage['gates'] : [];
+
+                $labels = array_map(
+                    fn (mixed $gate): string => is_array($gate)
+                        ? mb_strtolower(trim((string) ($gate['label'] ?? '')))
+                        : '',
+                    $gates,
+                );
+
+                if (count($labels) === count(array_unique($labels))) {
+                    continue;
+                }
+
+                $name = is_string($stage['name'] ?? null) ? $stage['name'] : 'a stage';
+
+                $this->components->warn(
+                    "“{$name}” has two gates with the same label. An import will refuse this file: "
+                    .'an automation waiting on a gate names it by label. Rename one and export again.',
+                );
+            }
+        }
     }
 
     /**

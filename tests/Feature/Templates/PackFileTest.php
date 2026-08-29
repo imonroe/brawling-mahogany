@@ -665,17 +665,102 @@ it('refuses two message templates in one file that fold to the same name', funct
         'fromIdentity' => null,
     ];
 
-    $document['messageTemplates'] = [
-        $stanza,
-        [...$stanza, 'key' => 'b', 'name' => 'under CONTRACT', 'bodyText' => 'Something else entirely'],
+    /*
+     * Two pairs, and the second is the one that matters.
+     *
+     * `Under contract` / `under CONTRACT` is pure ASCII, which `mb_strtolower`
+     * and Postgres `lower()` fold identically — so a check written in PHP
+     * catches it, and this case alone would have passed against the very
+     * implementation round 3 replaced.
+     *
+     * `ΑΣ` / `Ασ` is the pair that separates them: PHP folds the final sigma
+     * to `ς` and Postgres does not, so the two names differ in PHP and are one
+     * row to the database. That is the case the fix is for, and the one the
+     * test's name has always claimed.
+     */
+    foreach ([
+        ['Under contract', 'under CONTRACT'],
+        ['ΑΣ', 'Ασ'],
+    ] as [$first, $second]) {
+        $document['messageTemplates'] = [
+            [...$stanza, 'name' => $first],
+            [...$stanza, 'key' => 'b', 'name' => $second, 'bodyText' => 'Something else entirely'],
+        ];
+
+        try {
+            app(ImportPack::class)->intoTeam($document, $this->team);
+
+            expect(false)->toBeTrue();
+        } catch (ValidationException $e) {
+            expect(array_keys($e->errors()))->toContain('messageTemplates.1.name');
+        }
+    }
+});
+
+it('refuses a pairing of action and execution mode the queue would then refuse', function (): void {
+    /*
+     * Round 3 narrowed the trigger and the action and left the third column of
+     * the same row open. A hand-edited file — and the README tells people to
+     * hand-edit — could ship a `manual_prompt` marked *automatic*:
+     * `RaiseAutomations` queues it, `ExecuteAction` refuses it (*"a manual
+     * action is marked done by a person, not carried out by the queue"*), and
+     * `automations:alert-on-failures` emails the team. Every deal, every
+     * install, forever — which is verbatim the harm the action narrowing was
+     * argued for.
+     */
+    $original = PackFile::encodePack(seededPack());
+
+    foreach ([
+        ['manual_prompt', 'automatic', ['instruction' => 'Ring the lender.']],
+        // *Approval* means releasing a queued **message**; there is no sense
+        // in which a created task is approved, and `RaiseAutomations` would
+        // hold it in a queue it says a task must never enter.
+        ['create_task', 'approval', ['taskTitle' => 'Order the survey']],
+    ] as [$action, $mode, $config]) {
+        $document = $original;
+
+        $document['workflows'][0]['stages'][0]['automations'] = [[
+            'trigger' => 'stage_start',
+            'actionType' => $action,
+            'config' => $config,
+            'isActive' => true,
+            'executionMode' => $mode,
+            'messageTemplate' => null,
+        ]];
+
+        try {
+            app(ImportPack::class)->asPack($document);
+
+            expect(false)->toBeTrue();
+        } catch (ValidationException $e) {
+            expect(array_keys($e->errors()))
+                ->toContain('workflows.0.stages.0.automations.0.executionMode');
+        }
+    }
+});
+
+it('refuses two gates on one stage with the same label', function (): void {
+    /*
+     * A `gate_cleared` automation names its gate **by label**, so two gates
+     * answering to one name is a name that cannot be resolved. Refused at both
+     * doors — S43 refuses it at authoring time, and this is the second door a
+     * file provides.
+     */
+    $document = PackFile::encodePack(seededPack());
+
+    $document['workflows'][0]['stages'][0]['gates'][] = [
+        'gateType' => 'manual_confirmation',
+        'label' => 'Appraisal received',
+        'isBlocking' => true,
+        'config' => null,
     ];
 
     try {
-        app(ImportPack::class)->intoTeam($document, $this->team);
+        app(ImportPack::class)->asPack($document);
 
         expect(false)->toBeTrue();
     } catch (ValidationException $e) {
-        expect(array_keys($e->errors()))->toContain('messageTemplates.1.name');
+        expect(array_keys($e->errors()))->toContain('workflows.0.stages.0.gates.2.label');
     }
 });
 

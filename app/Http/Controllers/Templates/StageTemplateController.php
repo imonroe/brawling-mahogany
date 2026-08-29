@@ -10,6 +10,7 @@ use App\Models\StageTemplate;
 use App\Models\TaskTemplate;
 use App\Models\WorkflowTemplate;
 use App\Support\Workflow\Gates\GateRegistry;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
@@ -425,6 +426,19 @@ class StageTemplateController extends Controller
              * what a person choosing from a dropdown may pick, and a file is
              * written by somebody who can supply the configuration.
              */
+            /*
+             * Unique on its own stage, and the reason is a whole layer away.
+             *
+             * A `gate_cleared` automation names its gate **by label** in a pack
+             * file (#87) — the id it stores belongs to whichever database
+             * wrote it. Two gates on one stage sharing a label make that name
+             * ambiguous, which the importer has to refuse, so the export of a
+             * perfectly ordinary template becomes a file nobody can import.
+             * Refused where it is authored instead: the person who can rename
+             * it is the one looking at it.
+             */
+            'label' => ['required', 'string', 'max:120', $this->labelIsFreeOnThisStage($request, $editing)],
+
             'gate_type' => [
                 'required',
                 /*
@@ -445,7 +459,6 @@ class StageTemplateController extends Controller
                     $editing?->gate_type,
                 ])))),
             ],
-            'label' => ['required', 'string', 'max:120'],
             'is_blocking' => ['boolean'],
             /*
              * `date_reached`'s whole configuration (#109), and the first thing
@@ -473,6 +486,35 @@ class StageTemplateController extends Controller
                 'max:120',
             ],
         ];
+    }
+
+    /**
+     * No two gates on one stage may answer to the same label.
+     *
+     * Scoped to the stage the request names, because that is the scope the
+     * ambiguity lives in: `SaveAutomationRequest` already refuses an
+     * automation naming a gate from another stage, so a label only has to be
+     * unambiguous among its siblings.
+     */
+    private function labelIsFreeOnThisStage(Request $request, ?GateTemplate $editing): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($request, $editing): void {
+            $stage = $request->route('stageTemplate');
+
+            if (! is_string($value) || ! $stage instanceof StageTemplate) {
+                return;
+            }
+
+            $taken = GateTemplate::query()
+                ->where('stage_template_id', $stage->getKey())
+                ->whereKeyNot($editing?->getKey() ?? '')
+                ->whereRaw('lower(label) = lower(?)', [$value])
+                ->exists();
+
+            if ($taken) {
+                $fail(__('This stage already has a gate called that. Two with one name cannot be told apart — by a person or by an automation waiting on one.'));
+            }
+        };
     }
 
     /**

@@ -60,6 +60,7 @@ import type { StageTemplateValues } from '@/components/app/StageTemplateDialog.v
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import TaskTemplateDialog from '@/components/app/TaskTemplateDialog.vue';
 import type { TaskTemplateValues } from '@/components/app/TaskTemplateDialog.vue';
+import { formatCount } from '@/lib/formatters';
 import { moveWithin } from '@/lib/reorder';
 
 type Stage = StageTemplateValues & {
@@ -305,6 +306,16 @@ function stageDetail(stage: Stage): string {
         parts.push(stage.ownerRole);
     }
 
+    /*
+     * Shown because the dialog collects it and the help text says it "sets the
+     * planned dates on a deal" — a field somebody can set and cannot see
+     * without reopening the form is the same complaint #11 is about, one field
+     * along.
+     */
+    if (stage.expectedDurationDays !== null) {
+        parts.push(formatCount(stage.expectedDurationDays, 'day'));
+    }
+
     if (stage.isMilestone) {
         parts.push(
             stage.clientFacingLabel
@@ -446,15 +457,37 @@ function remove(): void {
                 class="flex flex-wrap items-end gap-2 px-4 py-4"
                 @submit.prevent="rename"
             >
-                <AppInput v-model="detailsForm.name" class="w-72" />
+                <AppInput
+                    v-model="detailsForm.name"
+                    class="w-72"
+                    maxlength="120"
+                />
                 <AppInput
                     v-model="detailsForm.description"
                     class="w-96"
+                    maxlength="2000"
                     placeholder="What this process is for"
                 />
                 <AppButton :disabled="detailsForm.processing" @click="rename"
                     >Save</AppButton
                 >
+                <!--
+                    Rendered, because a refusal nobody can see is the failure
+                    IA §10 names: the field keeps what was typed, the save does
+                    not happen, and no reason appears.
+                -->
+                <p
+                    v-if="
+                        detailsForm.errors.name ||
+                        detailsForm.errors.description
+                    "
+                    class="w-full text-xs text-state-danger"
+                >
+                    {{
+                        detailsForm.errors.name ??
+                        detailsForm.errors.description
+                    }}
+                </p>
             </form>
         </Card>
 
@@ -724,6 +757,7 @@ function remove(): void {
                                 <AppButton
                                     variant="ghost"
                                     size="compact"
+                                    :aria-label="`Edit ${automation.description}`"
                                     @click="openAutomation(stage, automation)"
                                     >Edit</AppButton
                                 >

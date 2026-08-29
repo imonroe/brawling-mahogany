@@ -709,7 +709,19 @@ final class ImportPack
              */
             $stage.'.automations.*.trigger' => ['required', Rule::in(array_keys(AutomationTrigger::selectableOptions()))],
             $stage.'.automations.*.actionType' => ['required', Rule::in(array_keys(AutomationActionType::selectableOptions()))],
-            $stage.'.automations.*.executionMode' => ['nullable', Rule::in(['automatic', 'approval', 'manual'])],
+            /*
+             * Checked against the **action**, not against the bare three.
+             *
+             * Round 3 narrowed the trigger and the action and left the third
+             * column of the same row wide open, so a hand-edited file could
+             * ship a `manual_prompt` marked *automatic*: `RaiseAutomations`
+             * queues it, `ExecuteAction` refuses it — *"a manual action is
+             * marked done by a person, not carried out by the queue"* — and
+             * `automations:alert-on-failures` emails the team, for every deal
+             * on every install. The pairing is asked of the enum, which is
+             * where `SaveAutomationRequest` asks it too.
+             */
+            $stage.'.automations.*.executionMode' => ['nullable', 'string'],
             $stage.'.automations.*.isActive' => ['boolean'],
             $stage.'.automations.*.config' => ['nullable', 'array'],
             // Named, not numbered — the file's own key for a message template
@@ -874,8 +886,32 @@ final class ImportPack
                     continue;
                 }
 
+                $labels = [];
+
                 foreach ($this->listAt($stage, 'gates') as $g => $gate) {
-                    if (! is_array($gate) || ($gate['gateType'] ?? null) !== 'action_completed') {
+                    if (! is_array($gate)) {
+                        continue;
+                    }
+
+                    /*
+                     * The same rule S43 now enforces at authoring time: two
+                     * gates on one stage answering to the same label cannot be
+                     * told apart, and a `gate_cleared` automation names one
+                     * **by label** in a file. Refused at both doors, because a
+                     * file has a second one.
+                     */
+                    $label = mb_strtolower(trim((string) ($gate['label'] ?? '')));
+
+                    if ($label !== '' && isset($labels[$label])) {
+                        $validator->errors()->add(
+                            "workflows.{$w}.stages.{$st}.gates.{$g}.label",
+                            __('This stage already has a gate called that. Two with one name cannot be told apart.'),
+                        );
+                    }
+
+                    $labels[$label] = true;
+
+                    if (($gate['gateType'] ?? null) !== 'action_completed') {
                         continue;
                     }
 
@@ -1025,23 +1061,62 @@ final class ImportPack
         $action = AutomationActionType::tryFrom((string) ($automation['actionType'] ?? ''));
         $trigger = AutomationTrigger::tryFrom((string) ($automation['trigger'] ?? ''));
 
+        $mode = $automation['executionMode'] ?? 'automatic';
+
+        if ($action !== null && ! in_array($mode, $action->executionModes(), strict: true)) {
+            $validator->errors()->add($field.'.executionMode', __(
+                'A :action cannot run that way. It can be: :modes.',
+                ['action' => mb_strtolower($action->label()), 'modes' => implode(', ', $action->executionModes())],
+            ));
+        }
+
         $needs = [];
 
         if ($action === AutomationActionType::CreateTask) {
-            $needs['taskTitle'] = __('An automation that creates a task needs a title for it.');
+            $needs['taskTitle'] = [200, __('An automation that creates a task needs a title for it.')];
         }
 
         if ($action === AutomationActionType::ManualPrompt) {
-            $needs['instruction'] = __('An automation that prompts somebody needs to say what to do.');
+            $needs['instruction'] = [500, __('An automation that prompts somebody needs to say what to do.')];
         }
 
         if ($trigger?->needsKeyDate() === true) {
-            $needs['keyDateName'] = __('Name the date this counts from — the same name the deal uses for it.');
+            $needs['keyDateName'] = [120, __('Name the date this counts from — the same name the deal uses for it.')];
         }
 
-        foreach ($needs as $key => $message) {
-            if (! is_string($config[$key] ?? null) || trim((string) $config[$key]) === '') {
+        foreach ($needs as $key => [$limit, $message]) {
+            $value = $config[$key] ?? null;
+
+            if (! is_string($value) || trim($value) === '') {
                 $validator->errors()->add($field.'.config.'.$key, $message);
+
+                continue;
+            }
+
+            /*
+             * The bound as well as the presence, because a length over the
+             * column's width fails in the same place an absence does — in the
+             * worker, per deal. `ExecuteAction::createTask()` writes the title
+             * straight into `tasks.title`, a `varchar(255)`, so a 300-character
+             * one imports cleanly and then throws a `QueryException` on every
+             * deal that reaches the stage. These are `SaveAutomationRequest`'s
+             * own limits.
+             */
+            if (mb_strlen($value) > $limit) {
+                $validator->errors()->add($field.'.config.'.$key, __(
+                    'This is longer than :limit characters.',
+                    ['limit' => $limit],
+                ));
+            }
+        }
+
+        foreach (['taskDueOffsetDays', 'offsetDays'] as $key) {
+            $value = $config[$key] ?? null;
+
+            if ($value !== null && (! is_int($value) || $value < -365 || $value > 365)) {
+                $validator->errors()->add($field.'.config.'.$key, __(
+                    'This is a whole number of days between -365 and 365.',
+                ));
             }
         }
 

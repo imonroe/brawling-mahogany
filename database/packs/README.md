@@ -26,9 +26,11 @@ screen is honest; a plausible wrong one is not.
 
 Step 4's second half is not a formality: an export writes whatever the team's
 template holds, including an automation that sends an email and an
-`action_completed` gate, and `packs:import --as-pack` refuses both. The export
-does not warn — it is a faithful copy of a team's template, and only the pack
-direction has those limits. The two bullets below say which.
+`action_completed` gate, and `packs:import --as-pack` refuses both. It is a
+faithful copy of a team's template, and only the pack direction has those
+limits — the bullets below say which. The one case the **export does** warn
+about is two gates on a stage sharing a label, because that file would be
+refused by *any* import, `--team` included.
 
 `packs:export --pack=<slug>` exports a whole pack rather than one workflow.
 
@@ -124,8 +126,13 @@ One file is one pack, and a pack holds one or more workflow templates.
   the label is re-resolved on the way in. A label naming no gate, or two, is
   refused — both would be silent at runtime.
 - **An automation is refused if its configuration could never let it do
-  anything**: a *create a task* with no title, a *prompt somebody* with no
-  instruction, a key-date trigger naming no date.
+  anything**: a *create a task* with no title or one longer than the column,
+  a *prompt somebody* with no instruction, a key-date trigger naming no date,
+  an offset outside ±365 days.
+- **`executionMode` is checked against the action.** A *prompt somebody to do
+  it* can only be `manual`; only an action that sends words can be `approval`.
+  The wrong pairing is a row the queue picks up and then refuses, for every
+  deal on every install.
 - **An `action_completed` gate is refused on the way *in*.** Its configuration
   is an `actionDefinitionId` — an id from whichever database wrote the file —
   and every import rebuilds the automations with new ids, so the gate would

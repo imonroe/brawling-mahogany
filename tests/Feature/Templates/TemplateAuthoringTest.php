@@ -452,3 +452,50 @@ it('drops a configuration the new type cannot read, and only then', function ():
 
     expect($gate->refresh()->config)->toBeNull();
 });
+
+it('refuses a second gate on a stage with the same label', function (): void {
+    /*
+     * Refused where it is authored, because the consequence is a layer away
+     * and a week later: a `gate_cleared` automation names its gate by label in
+     * a pack file, so two gates answering to one name make an export nobody
+     * can import — and the person told about it is whoever runs the deploy,
+     * not the person who could rename it.
+     */
+    $template = authoredTemplate();
+    $stage = soleStage($template);
+    $base = "/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates";
+
+    $this->post($base, ['gate_type' => 'manual_confirmation', 'label' => 'Appraisal received'])
+        ->assertRedirect();
+
+    // Folded, the way the database folds it — a name that differs only in case
+    // is the same name to a person reading a list.
+    $this->post($base, ['gate_type' => 'manual_confirmation', 'label' => 'appraisal RECEIVED'])
+        ->assertSessionHasErrors('label');
+
+    expect(GateTemplate::query()->where('stage_template_id', $stage->getKey())->count())->toBe(1);
+
+    // The same label on a *different* stage is fine: the ambiguity only exists
+    // among siblings, which is the only place an automation can name one.
+    $other = app(TeamContext::class)->runFor($this->team, fn (): StageTemplate => StageTemplate::factory()->create([
+        'workflow_template_id' => $template->getKey(),
+        'name' => 'Closing',
+        'sort_order' => 1,
+    ]));
+
+    $this->post("/templates/{$template->getKey()}/stages/{$other->getKey()}/gates", [
+        'gate_type' => 'manual_confirmation',
+        'label' => 'Appraisal received',
+    ])->assertRedirect();
+
+    // And editing a gate does not collide with itself.
+    $gate = GateTemplate::query()->where('stage_template_id', $stage->getKey())->sole();
+
+    $this->patch("{$base}/{$gate->getKey()}", [
+        'gate_type' => 'manual_confirmation',
+        'label' => 'Appraisal received',
+        'is_blocking' => false,
+    ])->assertRedirect();
+
+    expect($gate->refresh()->is_blocking)->toBeFalse();
+});
