@@ -422,8 +422,9 @@ const primary = computed(() => {
                             Documents tab holds — so "try again" goes to the
                             place an extraction is actually begun rather than
                             re-posting from a screen whose own document is
-                            already spent. Nothing was written, so there is
-                            nothing to undo first.
+                            already spent. A failed attempt wrote no field and
+                            confirmed nothing, so there is nothing to take back
+                            before pressing it.
                         -->
                         <AppButton :href="`${dealUrl}/documents`">
                             Try again from Documents
@@ -663,7 +664,6 @@ const primary = computed(() => {
                         @select="show(field.id)"
                         @confirm="(value) => confirmField(field, value)"
                         @reject="rejectField(field)"
-                        @undo="show(field.id)"
                         @update:ticked="(on) => tick(field.id, on)"
                     />
                 </div>

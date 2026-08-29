@@ -693,3 +693,81 @@ describe('S65 — what leaves the account, said plainly', () => {
         );
     });
 });
+
+describe('S66 — a decided field offers only what the server supports', () => {
+    /*
+     * Round 2 of adversarial review found this card promising a person
+     * something the endpoints refuse.
+     *
+     * A reviewed field carried an **Undo** that re-opened the action band
+     * locally and a note reading *"This is already on the deal. Confirm again
+     * to change it, or Reject to take it off."* Both presses met
+     * `ConfirmExtractedField`'s `alreadyReviewed()` refusal, surfaced as a
+     * validation error on a field the person had not edited — and the second
+     * half was false a second time, because rejecting a confirmed field flips
+     * a review state and does not take the date off the deal.
+     *
+     * The rule these cases hold is not the copy. It is that this card offers
+     * **no write** over a row that has left `pending`, and that it still says
+     * where the thing it produced actually lives.
+     */
+    function decided(overrides: Partial<Field> = {}) {
+        return mount(ExtractionReviewCard, {
+            props: {
+                field: field({
+                    reviewState: 'confirmed',
+                    reviewedByName: 'Heather Vance',
+                    reviewedAt: '2026-08-28T15:04:00Z',
+                    createdRecordUrl: '/deals/deal-1/dates#kd-1',
+                    ...overrides,
+                }),
+                canConfirm: true,
+            },
+        });
+    }
+
+    it('offers no button that would be refused', () => {
+        const labels = decided()
+            .findAll('button')
+            .map((button) => button.text().trim());
+
+        expect(labels).not.toContain('Confirm');
+        expect(labels).not.toContain('Reject');
+        expect(labels).not.toContain('Edit');
+        expect(labels).not.toContain('Undo');
+        expect(labels).not.toContain('Reopen');
+    });
+
+    it('offers them all while the field is still pending', () => {
+        /*
+         * The positive control, and the case that makes the one above mean
+         * something: a card that had stopped rendering its action band at all
+         * would pass the first test over a screen nobody could review on.
+         */
+        const labels = mount(ExtractionReviewCard, {
+            props: { field: field(), canConfirm: true },
+        })
+            .findAll('button')
+            .map((button) => button.text().trim());
+
+        expect(labels).toContain('Confirm');
+        expect(labels).toContain('Reject');
+        expect(labels).toContain('Edit');
+    });
+
+    it('sends a person to the record instead, which is where changing it works', () => {
+        const wrapper = decided();
+
+        const link = wrapper.find('a[href="/deals/deal-1/dates#kd-1"]');
+
+        expect(link.exists()).toBe(true);
+
+        /*
+         * And nothing on the card claims a second decision is available. This
+         * is asserted on the substance rather than on the sentence: any text
+         * telling somebody to confirm or reject *again* is the defect coming
+         * back in different words.
+         */
+        expect(wrapper.text()).not.toMatch(/confirm again|take it off/i);
+    });
+});

@@ -113,6 +113,21 @@ const props = defineProps<{
  */
 const extracting = ref<DocumentRow | null>(null);
 
+/**
+ * An attempt that ended and left nothing running.
+ *
+ * `StartExtraction` refuses a second attempt only while a sibling is `queued`
+ * or `processing`, so these two states are the ones a person may press again —
+ * a provider outage that has since passed, or a spend ceiling an owner has
+ * raised or a month has reset.
+ */
+function retryable(row: DocumentRow): boolean {
+    return (
+        row.extraction?.state === 'failed' ||
+        row.extraction?.state === 'blocked'
+    );
+}
+
 const uploadOpen = ref(false);
 const file = ref<File | null>(null);
 
@@ -293,11 +308,22 @@ const canExtract = computed(() => props.can.extract);
                 <!--
                     S65's entry point (#115).
 
-                    Three shapes, and which one shows is decided by the row's
+                    Four shapes, and which one shows is decided by the row's
                     own most recent attempt rather than by a global flag: a
                     document with something to review links to it, a document
-                    being read says so and offers nothing, and a document with
-                    no attempt offers Extract.
+                    being read says so and offers nothing, a document with no
+                    attempt offers Extract, and a document whose attempt ended
+                    badly offers **both** — the reason it stopped, and a way to
+                    try again.
+
+                    That last pair is a chain the first version of this screen
+                    got wrong. `v-else-if="row.extraction"` swallowed `failed`
+                    and `blocked` before the Extract branch could be reached, so
+                    a provider outage or a month's spend ceiling took the button
+                    away permanently and the only route back was an upload of
+                    the same file. `StartExtraction` refuses only a `queued` or
+                    `processing` sibling — a finished-badly row is retryable
+                    server-side, and was, with nothing able to ask.
 
                     IA §7: the verb is **Extract**. Never Scan, Parse or
                     Analyze, and never AI.
@@ -383,6 +409,37 @@ const canExtract = computed(() => props.can.extract);
                     @click="extracting = row"
                 >
                     Extract
+                </button>
+
+                <!--
+                    Deliberately a `v-if` of its own rather than another link in
+                    the chain above: the stopped badge and this button belong
+                    together. The badge says what happened and where to read it;
+                    without the button beside it the row is a dead end.
+                -->
+                <button
+                    v-if="
+                        canExtract &&
+                        row.scanState === 'clean' &&
+                        retryable(row)
+                    "
+                    type="button"
+                    :class="[
+                        'shrink-0',
+                        'rounded-md',
+                        'px-2',
+                        'py-[3px]',
+                        'text-11',
+                        'font-medium',
+                        'text-primary',
+                        'hover:bg-muted',
+                        'focus-visible:ring-2',
+                        'focus-visible:ring-ring',
+                        'focus-visible:outline-none',
+                    ]"
+                    @click="extracting = row"
+                >
+                    Try again
                 </button>
 
                 <button

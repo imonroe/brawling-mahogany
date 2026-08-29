@@ -26,7 +26,7 @@
  * 2. the value, and the verbatim quote it was copied from
  * 3. *(conditional)* the conflict strip, and what confirming would move
  * 4. Reject / Edit / Confirm — or, once reviewed, the state, who reviewed it,
- *    when, and Undo
+ *    when, and a link to what it produced
  *
  * ## Confirm is always a press, however sure the model was
  *
@@ -36,15 +36,28 @@
  * a 0.4 present identically except for the mark, which is what §2.5 means by
  * confidence being information rather than permission.
  *
- * ## Undo re-opens; it does not silently unwind
+ * ## A decided field is a record, not a live handle
  *
- * A reviewed field's Undo puts the action band back rather than posting
- * anything. That is what the endpoints actually support and it is also the
- * honest shape: a confirmed date is *on the deal*, so taking it back off is
- * Reject — a real write with a real consequence — and changing it is Confirm
- * again with a corrected value, which is what F10.4's *"what the human
- * changed"* record is for. A control labelled Undo that quietly deleted a
- * live deadline would be the worst button on the screen.
+ * There is deliberately no control here that re-opens a reviewed field, and
+ * the reason is that the server has none: `ConfirmExtractedField::confirm()`
+ * and `::reject()` both refuse a row that has left `pending`, because
+ * confirming twice would write the proposal onto the deal twice and
+ * `key_dates` has no natural key to stop it.
+ *
+ * This card carried an **Undo** for a round that re-opened the action band
+ * locally and promised, in as many words, *"Confirm again to change it, or
+ * Reject to take it off."* Both presses met a validation error, and the
+ * second sentence was false twice over — rejecting a confirmed field would
+ * not have taken the date off the deal either, only flipped the review state.
+ * IA §7 also lists Undo among the words **Reopen** supersedes, so the label
+ * was wrong even where the behaviour was not.
+ *
+ * What a person actually does instead is on the row: *Open it on the deal*
+ * goes to the key date, the task or the note that was created, which is where
+ * changing it belongs — it is a live record with its own cascade preview,
+ * its own audit entry and its own permission. The extracted field stays what
+ * F10.4 needs it to be: the frozen record of what the model proposed and what
+ * the human did about it.
  *
  * ## The tick is S67's, and it is not a select-all
  *
@@ -71,7 +84,6 @@ import {
     GitCompareArrows,
     Pencil,
     TriangleAlert,
-    Undo2,
     X,
 } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
@@ -147,22 +159,11 @@ const emit = defineEmits<{
     /** Confirm, carrying the value as it stands — edited or not. */
     confirm: [value: string];
     reject: [];
-    undo: [];
     'update:ticked': [value: boolean];
 }>();
 
 const editing = ref(false);
 const draft = ref(props.field.value);
-
-/**
- * Whether the action band is showing over a field that has already been
- * reviewed — the state Undo puts it in.
- *
- * Local, because it is a thing about this card on this screen right now and
- * not a thing about the row: a reload lands on the server's answer, which is
- * the reviewed state it actually holds.
- */
-const reopened = ref(false);
 
 /*
  * A reviewed row that comes back changed resets everything: the draft, the
@@ -175,14 +176,11 @@ watch(
     () => {
         draft.value = props.field.value;
         editing.value = false;
-        reopened.value = false;
     },
 );
 
 const reviewed = computed(() => props.field.reviewState !== 'pending');
-const showActions = computed(
-    () => props.canConfirm && (!reviewed.value || reopened.value),
-);
+const showActions = computed(() => props.canConfirm && !reviewed.value);
 
 /**
  * The value as a person reads it.
@@ -283,12 +281,6 @@ function cancelEdit(): void {
 function confirm(): void {
     emit('confirm', editing.value ? draft.value : props.field.value);
     editing.value = false;
-}
-
-function undo(): void {
-    reopened.value = true;
-    emit('undo');
-    emit('select');
 }
 </script>
 
@@ -485,15 +477,6 @@ function undo(): void {
 
         <!-- Band 4 — the decision, or the record of one. -->
         <div v-if="showActions" class="flex flex-wrap items-center gap-2">
-            <p
-                v-if="reopened"
-                class="text-[11px] text-muted-foreground"
-                data-slot="reopened-note"
-            >
-                This is already on the deal. Confirm again to change it, or
-                Reject to take it off.
-            </p>
-
             <div class="flex-1"></div>
 
             <template v-if="editing">
@@ -559,16 +542,6 @@ function undo(): void {
             </a>
 
             <div class="flex-1"></div>
-
-            <AppButton
-                v-if="canConfirm"
-                variant="ghost"
-                size="compact"
-                @click.stop="undo"
-            >
-                <Undo2 class="size-4" />
-                Undo
-            </AppButton>
         </div>
 
         <!--
