@@ -42,16 +42,16 @@ nothing under contract yet. Those are named after the client until one is.
 Every deal has the same set across the top, and the same header — the client,
 the state, the stage, and the counts.
 
-| Tab            | What is on it                                                     |
-| -------------- | ----------------------------------------------------------------- |
-| **Overview**   | Where the deal is, what is blocking it, and what happened lately  |
-| **Timeline**   | Every stage in order, expandable, with its requirements and tasks |
-| **Tasks**      | The checklist — see [Tasks](/help/tasks)                          |
-| **Dates**      | Dates and deadlines — _arriving in a later release_               |
-| **People**     | Everybody on the deal and their part in it                        |
-| **Properties** | The subject property, and any others in play                      |
-| **Offers**     | What has been offered and where each one stands                   |
-| **Documents**  | Files against the deal — _arriving in a later release_            |
+| Tab            | What is on it                                                                 |
+| -------------- | ----------------------------------------------------------------------------- |
+| **Overview**   | Where the deal is, what is blocking it, and what happened lately              |
+| **Timeline**   | Every stage in order, expandable, with its requirements and tasks             |
+| **Tasks**      | The checklist — see [Tasks](/help/tasks)                                      |
+| **Dates**      | The chain of deadlines — see [Dates and deadlines](/help/dates-and-deadlines) |
+| **People**     | Everybody on the deal and their part in it                                    |
+| **Properties** | The subject property, and any others in play                                  |
+| **Offers**     | What has been offered and where each one stands                               |
+| **Documents**  | Files against the deal — see [Documents](/help/documents)                     |
 
 The Offers tab hides itself on deal types that do not have offers, and appears
 as soon as one is recorded.

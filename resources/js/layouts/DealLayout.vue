@@ -52,10 +52,24 @@ const deal = computed(
  * carries `people`. Deriving it means the tab list in `DealHeader` stays the
  * one place that knows which segments exist — a second table here would be a
  * second thing to update when S16 lands.
+ *
+ * ## One segment is deliberately not its own tab
+ *
+ * `/deals/{id}/extractions/{id}` — S66 and S67 (#116, #117) — wears the deal
+ * chrome and is not a peer of the eight tabs. It is reached *from* a document
+ * and goes back to one, so it borrows the Documents tab rather than
+ * highlighting nothing: a screen with the tab bar visible and no tab active
+ * reads as somewhere you have fallen out of the deal.
+ *
+ * Mapped here rather than added to `DealHeader`'s list because a tab in that
+ * list is a thing with a URL somebody can press, and there is no extraction to
+ * press towards until a document has been read.
  */
-const activeSegment = computed<string | null>(
-    () => currentUrl.value.split('/')[3] ?? null,
-);
+const activeSegment = computed<string | null>(() => {
+    const segment = currentUrl.value.split('/')[3] ?? null;
+
+    return segment === 'extractions' ? 'documents' : segment;
+});
 
 /**
  * What the last advance attempt said, if it refused.

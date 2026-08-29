@@ -10,6 +10,7 @@ use App\Enums\AutomationTrigger;
 use App\Models\ActionInstance;
 use App\Models\Deal;
 use App\Models\Gate;
+use App\Models\KeyDate;
 use App\Models\MessageTemplate;
 use App\Models\Stage;
 use App\Models\Team;
@@ -21,6 +22,7 @@ use App\Support\Messages\RecipientRule;
 use App\Support\Messages\RenderMessage;
 use App\Support\Messages\ResolveRecipients;
 use App\Support\Tenancy\TeamContext;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -63,6 +65,44 @@ final class RaiseAutomations
     public function forStage(Stage $stage, AutomationTrigger $trigger): array
     {
         return $this->raiseAll($stage, $this->automations->on($stage, $trigger));
+    }
+
+    /**
+     * F5.3's *a number of days from a key date*, now that key dates exist
+     * (#106, #109).
+     *
+     * ## Why the automation names the date by its name
+     *
+     * An automation is defined on a **template**, and a template has never met
+     * this deal — there is no `key_dates` row for it to point at, and there
+     * must not be one, because the definition layer does not reach into the
+     * runtime layer (PRD §8.1). What both layers *do* share is the word a team
+     * uses: every deal this team runs calls the same date *"Inspection
+     * objection"*. So the automation carries the name and the runtime matches
+     * it, case- and whitespace-insensitively, the way a person would.
+     *
+     * A name that matches nothing raises nothing. That is the same safe
+     * direction `gate_cleared` takes when its gate has been deleted from the
+     * template: a misfire on this trigger is an email to a client about a
+     * deadline that is not on their deal.
+     *
+     * @param  list<Stage>  $stages
+     * @return list<ActionInstance>
+     */
+    public function forKeyDate(KeyDate $keyDate, array $stages, CarbonInterface $scheduledFor): array
+    {
+        $raised = [];
+
+        foreach ($stages as $stage) {
+            $matching = array_values(array_filter(
+                $this->automations->on($stage, AutomationTrigger::KeyDateOffset),
+                fn (SnapshotAutomation $automation): bool => $automation->namesKeyDate($keyDate->name),
+            ));
+
+            $raised = [...$raised, ...$this->raiseAll($stage, $matching, $scheduledFor)];
+        }
+
+        return $raised;
     }
 
     /**
@@ -119,7 +159,7 @@ final class RaiseAutomations
      * @param  list<SnapshotAutomation>  $automations
      * @return list<ActionInstance>
      */
-    private function raiseAll(Stage $stage, array $automations): array
+    private function raiseAll(Stage $stage, array $automations, ?CarbonInterface $scheduledFor = null): array
     {
         if ($automations === []) {
             // The common case by a wide margin, and worth not paying two
@@ -139,7 +179,7 @@ final class RaiseAutomations
         $raised = [];
 
         foreach ($automations as $automation) {
-            $instance = $this->raise($automation, $stage, $deal, $team);
+            $instance = $this->raise($automation, $stage, $deal, $team, $scheduledFor);
 
             if ($instance instanceof ActionInstance) {
                 $raised[] = $instance;
@@ -154,6 +194,7 @@ final class RaiseAutomations
         Stage $stage,
         Deal $deal,
         Team $team,
+        ?CarbonInterface $scheduledFor = null,
     ): ?ActionInstance {
         /*
          * An automation missing its template is skipped rather than raised
@@ -185,6 +226,14 @@ final class RaiseAutomations
             'config' => $automation->config,
             'trigger' => $automation->trigger->value,
             'state' => $this->openingState($automation, $team)->value,
+            /*
+             * Null for every trigger but one, and null means *now*: the
+             * scheduler picks up a null `scheduled_for` immediately, which is
+             * what every stage- and gate-driven automation wants. A key-date
+             * offset is the one that names a day in the future, and that day
+             * moves when the date does — `KeyDateAutomations` is what moves it.
+             */
+            'scheduled_for' => $scheduledFor,
             'payload' => $payload,
         ])->save();
 
@@ -335,7 +384,7 @@ final class RaiseAutomations
 
     /**
      * @param  Collection<int, TeamMembership>  $memberships
-     * @return list<array{name: string, email: string}>
+     * @return list<array{name: string, email: string, membershipId: string}>
      */
     private function addresses(Collection $memberships): array
     {
@@ -352,6 +401,15 @@ final class RaiseAutomations
             ->map(fn (TeamMembership $membership): array => [
                 'name' => $membership->fullName(),
                 'email' => (string) $membership->email,
+                /*
+                 * Carried so #95's delivery rows can point at somebody a
+                 * reader can open, rather than at a string. The **address**
+                 * beside it stays the fact of record: a bounce names the
+                 * address that bounced, and correcting the membership
+                 * afterwards must not rewrite the history of the message that
+                 * went to the wrong one.
+                 */
+                'membershipId' => (string) $membership->getKey(),
             ])
             ->values()
             /*

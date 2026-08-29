@@ -61,6 +61,34 @@ RUN groupmod -o -g "${APP_GID}" www-data \
     && mkdir -p /home/www-data /data /config \
     && chown -R www-data:www-data /home/www-data /app /data /config
 
+# What an upload may weigh, and what a request may spend reading one.
+#
+# The FrankenPHP image installs no `php.ini` at all, so PHP's own compiled-in
+# defaults applied: **2M**. `App\Support\Documents\DocumentStorage::MAX_BYTES`
+# is 15MB, its validator says 15MB and the help article says 15MB — and every
+# upload over 2M was discarded by PHP before any of them ran, arriving at the
+# controller as an empty `$_FILES` and a validation error naming the wrong
+# reason. A limit the application states four times and the runtime enforces at
+# an eighth of it is worse than a lower limit honestly declared.
+#
+# `post_max_size` has to clear `upload_max_filesize` because multipart framing
+# and the rest of the form ride in the same body; PHP discards the whole
+# request when the body exceeds it, fields included.
+#
+# `memory_limit` is raised off its 128M default because a 15MB upload is held
+# as a string while it is scanned. `ReadableText` bounds what it inflates and
+# walks the file rather than splitting it, so a 15MB PDF was measured peaking
+# at 24.3MB rather than the 52.3MB the split form cost — but a request also
+# carries a framework, and a margin of zero against a default is not a margin.
+#
+# Set in `base` so development and production enforce the same ceiling: a limit
+# that only exists in production is one nobody finds out about until deploy.
+RUN { \
+    echo 'upload_max_filesize=16M'; \
+    echo 'post_max_size=24M'; \
+    echo 'memory_limit=256M'; \
+    } > /usr/local/etc/php/conf.d/uploads.ini
+
 ENV COMPOSER_ALLOW_SUPERUSER=1 \
     SERVER_NAME=:80 \
     HOME=/home/www-data

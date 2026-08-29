@@ -11,11 +11,13 @@ use App\Models\DataExport;
 use App\Models\Deal;
 use App\Models\DealDraft;
 use App\Models\Document;
+use App\Models\Notification;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentStorage;
+use App\Support\Push\PushSubscriptionRegistry;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
@@ -52,8 +54,11 @@ class PurgeSoftDeletedRecords extends Command
 
     protected $description = 'Hard-delete records and teams whose recovery window has closed.';
 
-    public function handle(TeamContext $teams, AuditLogger $audit): int
-    {
+    public function handle(
+        TeamContext $teams,
+        AuditLogger $audit,
+        PushSubscriptionRegistry $subscriptions,
+    ): int {
         $days = (int) $this->option('days');
         $cutoff = now()->subDays($days);
 
@@ -78,20 +83,27 @@ class PurgeSoftDeletedRecords extends Command
              */
             $purgedStaging += $teams->runFor($team, fn (): int => $this->purgeExpiredExports()
                 + $this->purgeAbandonedImports($cutoff)
-                + $this->purgeAbandonedDrafts($cutoff));
+                + $this->purgeAbandonedDrafts($cutoff)
+                + $this->purgeReadNotifications($team, $cutoff)
+                + $this->purgeNotificationsForFormerMembers($team, $cutoff));
             $purgedRows += $this->purgeRowsFor($team, $cutoff);
         }
 
-        // `people` is not team-scoped, so it is purged once rather than per
-        // team. See `purgePeople()`.
+        /*
+         * Neither of these is team-scoped, so both run once rather than per
+         * team — sweeping them inside the loop would either miss the people
+         * in no team or delete the same rows once per team they are in.
+         */
+        $purgedStaging += $this->purgeStalePushSubscriptions($subscriptions);
         $purgedPeople = $this->purgePeople($cutoff, $audit);
 
         $purgedTeams = $this->purgeTeams($teams, $audit);
 
         $this->info(
             "Purged {$purgedRows} records, {$purgedPeople} people, ".
-            "{$purgedStaging} expired exports, abandoned uploads and drafts, ".
-            "and {$purgedTeams} teams past the {$days}-day window.",
+            "{$purgedStaging} expired exports, abandoned uploads, drafts, ".
+            "notifications and dead devices, and {$purgedTeams} teams past the ".
+            "{$days}-day window.",
         );
 
         return self::SUCCESS;
@@ -322,6 +334,157 @@ class PurgeSoftDeletedRecords extends Command
         }
 
         return $purged;
+    }
+
+    /**
+     * Notifications somebody has read and moved on from (#101).
+     *
+     * `CLAUDE.md`'s rule, arriving with a third table: *"a table that ends by
+     * neglect needs its own sweep."* Nothing ever soft-deletes a notification,
+     * so `purgeRowsFor()` — which finds rows by `deleted_at` — would never
+     * touch this one, and it sits under `ShellCounts`' unread count on every
+     * request in the product.
+     *
+     * **Read ones only.** The column to sweep on is chosen per table, and here
+     * it is `read_at`: an unread notification is still doing its job however
+     * old it is, and deleting one would answer *"has anybody been told?"* by
+     * quietly making it no. A person who has read something and left it thirty
+     * days is a person who is finished with it.
+     *
+     * ## `forceDelete()` on a builder is unscoped, and round 2 of review
+     * caught it
+     *
+     * `Illuminate\Database\Eloquent\Builder::forceDelete()` is one line —
+     * `return $this->query->delete()` — and `$this->query` is the **base**
+     * builder. It never calls `applyScopes()`, so `TeamScope` is dropped. The
+     * same trap `CLAUDE.md` records one method along about `getQuery()` versus
+     * `toBase()`, and the SQL says so plainly:
+     *
+     *     forceDelete(): delete from "notifications" where "read_at" < …
+     *     toBase():      delete from "notifications" where "read_at" < …
+     *                      and "team_id" = … and "deleted_at" is null
+     *
+     * (`toBase()` applies `SoftDeletingScope` as well, which is where the
+     * `deleted_at` predicate comes from, and the team appears twice because
+     * the explicit `where` sits beside `TeamScope`'s. Neither costs anything
+     * and both are the point: the statement says what bounds it.)
+     *
+     * Every team is visited by the loop above, so the *rows* that end up gone
+     * are the same set today. That is not a reason to leave it: it made
+     * `records:purge` a cross-tenant destructive write held in check by
+     * nothing but the shape of its caller, it is invisible to
+     * `UnscopedQueryConventionTest` (which reads for `withoutTeamScope` and
+     * `withoutGlobalScope`, neither of which appears here), and the first
+     * team's pass reported a count belonging to the whole platform.
+     *
+     * `toBase()` applies the scopes and hands back a base builder, so the
+     * `DELETE` is real — `Builder::delete()` would call `SoftDeletes`'
+     * `onDelete` and give this table a sixty-day window, which the draft sweep
+     * above rejects for the same reason. The team is also named explicitly,
+     * because a destructive statement should say what it is bounded by rather
+     * than inherit it.
+     *
+     * The `deleted_at is null` that `SoftDeletingScope` adds leaves nothing
+     * unreachable: `notifications` carries `BelongsToTeam`, so a row that ever
+     * were soft-deleted is swept by `purgeRowsFor()` on `deleted_at` instead.
+     */
+    private function purgeReadNotifications(Team $team, CarbonInterface $cutoff): int
+    {
+        return Notification::query()
+            ->where('team_id', $team->getKey())
+            ->whereNotNull('read_at')
+            ->where('read_at', '<', $cutoff)
+            ->toBase()
+            ->delete();
+    }
+
+    /**
+     * Notifications for somebody who has left the team (#101).
+     *
+     * ## A row nobody can read is not "still doing its job"
+     *
+     * `purgeReadNotifications()` above spares **unread** rows on the argument
+     * that an unread notification is still doing its job however old it is,
+     * and that deleting one would answer *"has anybody been told?"* by quietly
+     * making it no. That argument was true of every row in the table until
+     * round 3 of review added a membership predicate to
+     * `Notification::scopeForPerson()`.
+     *
+     * It stopped being true for one class: a row addressed to somebody whose
+     * membership has since been **revoked**. Nothing can read it — not the
+     * panel, not the badge, not `open()` — and nothing ever will, because a
+     * membership is revoked rather than un-revoked in the ordinary case. So
+     * the read sweep spared it forever, and `notifications:deadlines` went on
+     * minting more of them for as long as a task stayed assigned to a former
+     * colleague. Unreachable **and** immortal, which is the one combination
+     * PRD §9 has no answer for.
+     *
+     * ## Keyed on the revocation, not on the row
+     *
+     * The window belongs to the event that made these unreachable, so the
+     * predicate is `revoked_at < $cutoff` rather than anything about the
+     * notification's own age. That is what makes PRD §9's thirty days a real
+     * **recovery** window here: restore the membership inside it and the whole
+     * panel comes back, because nothing was deleted. A cutoff on `created_at`
+     * would have deleted last year's rows the moment somebody left.
+     */
+    private function purgeNotificationsForFormerMembers(Team $team, CarbonInterface $cutoff): int
+    {
+        /*
+         * Scoped, not `withoutTeamScope()`. This runs inside
+         * `TeamContext::runFor($team)`, so the global scope already answers
+         * "this team" and the explicit predicate says so out loud — the same
+         * belt-and-braces `purgeReadNotifications()` uses above. Reaching for
+         * the escape hatch here would have been an unscoped read of another
+         * tenant's memberships to decide what to delete, which is exactly what
+         * `UnscopedQueryConventionTest` exists to stop; it caught this.
+         */
+        $formerMembers = TeamMembership::query()
+            ->where('team_id', $team->getKey())
+            ->whereNotNull('revoked_at')
+            ->where('revoked_at', '<', $cutoff)
+            ->pluck('person_id')
+            ->all();
+
+        if ($formerMembers === []) {
+            return 0;
+        }
+
+        return Notification::query()
+            ->where('team_id', $team->getKey())
+            ->whereIn('person_id', $formerMembers)
+            ->toBase()
+            ->delete();
+    }
+
+    /**
+     * Devices nothing has reached in a very long time (#103).
+     *
+     * ## Why this needs a sweep at all, when the cascade covers the rest
+     *
+     * `push_subscriptions.person_id` cascades, so an account being purged
+     * takes its subscriptions with it, and a push service answering 404 or
+     * 410 removes one immediately (`SendPush`). What neither covers is the
+     * commonest ending: a phone wiped, reset or replaced, whose push service
+     * simply never says so. Those endpoints sit there being retried on every
+     * notification, forever.
+     *
+     * ## Outside the per-team loop, because the table is outside tenancy
+     *
+     * A subscription belongs to a person rather than a team (see the
+     * migration), so sweeping it per team would either miss the people in no
+     * team or delete the same rows once per team they are in. Purged once,
+     * like `people` below and for the same reason.
+     *
+     * The cutoff is `PushSubscription::STALE_AFTER_DAYS` rather than the
+     * command's `--days`: the retention window is about **customer data**
+     * PRD §9 requires be destroyed, and this is neither — it is a dead
+     * address, swept on a schedule chosen for how long somebody may
+     * reasonably go without being notified.
+     */
+    private function purgeStalePushSubscriptions(PushSubscriptionRegistry $subscriptions): int
+    {
+        return $subscriptions->pruneStale();
     }
 
     /**

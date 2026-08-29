@@ -116,6 +116,15 @@
         // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
         "skipLibCheck": true /* Skip type checking all .d.ts files. */
     },
+    /*
+       The service worker is excluded here and checked by `tsconfig.sw.json`
+       instead. It needs `lib: WebWorker`, whose `self` is a
+       `ServiceWorkerGlobalScope` rather than a `Window`, and the two cannot
+       share one program — `addEventListener` alone has incompatible overloads
+       in each. Excluded rather than left unchecked: `npm run types:check`
+       runs both configs.
+    */
+    "exclude": ["resources/js/sw.ts"],
     "include": [
         "resources/js/**/*.ts",
         "resources/js/**/*.d.ts",

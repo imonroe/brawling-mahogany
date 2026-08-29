@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 use App\Console\Commands\AlertOnAutomationFailures;
 use App\Console\Commands\DispatchDueAutomations;
+use App\Console\Commands\NotifyAboutDeadlines;
+use App\Console\Commands\NotifyAboutKeyDates;
 use App\Console\Commands\PurgeSoftDeletedRecords;
+use App\Console\Commands\ReapStrandedExtractions;
 use App\Console\Commands\ReapUnconfirmedSends;
+use App\Console\Commands\ReleaseHeldNotifications;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -56,6 +60,21 @@ Schedule::command(ReapUnconfirmedSends::class)
     ->onOneServer();
 
 /*
+ * A read nobody came back from, and the document it holds hostage (#115).
+ *
+ * Hourly, and for `ReapUnconfirmedSends`'s reason rather than because there is
+ * anything urgent about it: the sweep decides at a distance from the claim,
+ * where no live worker can be contradicted, so running it often would put it
+ * back inside the window it exists to stay out of. The cost of waiting is a
+ * document that cannot be extracted again for a few hours; the cost of being
+ * hasty is failing a read that is still in flight and charging for a second.
+ */
+Schedule::command(ReapStrandedExtractions::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
  * S91's internal alert (#97).
  *
  * Every five minutes, and the cadence carries the whole design. It is not
@@ -72,6 +91,53 @@ Schedule::command(ReapUnconfirmedSends::class)
  * somebody is still at their desk.
  */
 Schedule::command(AlertOnAutomationFailures::class)
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * Deadline reminders (#101).
+ *
+ * **Hourly**, and the command decides which teams are in scope — each is
+ * handled only in the hour that is 8am locally, because a reminder is a thing
+ * somebody reads with their coffee and PRD §9's display-in-the-team's-timezone
+ * applies to a decision as much as to a rendering. A daily schedule would have
+ * to pick one zone and be wrong for every other team on the platform.
+ */
+Schedule::command(NotifyAboutDeadlines::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * Deadline reminders ahead of a **key date** (#109 · F8.4).
+ *
+ * Hourly and team-local for the same reason its sibling above is, and a
+ * separate command rather than a second loop inside it: the two sweep
+ * different tables, aggregate differently (one notification per task, one
+ * *digest* per person), and fail independently. A long title in one team's
+ * tasks must not stop the deadline that has legal consequences from being
+ * announced.
+ */
+Schedule::command(NotifyAboutKeyDates::class)
+    ->hourly()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+/*
+ * What quiet hours held (#101).
+ *
+ * Every five minutes, which is the resolution F12.4 actually needs: the rule
+ * is *"nobody wants a 6am push"*, and a person whose window ends at seven does
+ * not care whether their email arrives at 07:00 or 07:04. Every minute would
+ * be a sweep of a table that is empty for most of the day.
+ *
+ * A sweep rather than a delayed job, because a queue that loses its backlog
+ * loses every held notification silently and the person they were for never
+ * learns anything was owed. `notifications.deliver_after` is the record; the
+ * queue is only how it travels.
+ */
+Schedule::command(ReleaseHeldNotifications::class)
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->onOneServer();

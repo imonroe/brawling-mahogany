@@ -119,6 +119,36 @@ export function gateResolutionLink(
             return `${dealUrl}/properties`;
         case 'tasks':
             return `${dealUrl}/tasks`;
+        /*
+         * `document_upload` arrived with S21 (#98, #104). Until then
+         * `document_present` returned `awaiting_slice` and resolved to
+         * nothing, which was right — the tab did not exist. It does now, and
+         * CLAUDE.md names this evaluator as one of two owing the *"a row
+         * nothing can reach"* check: a gate type with exactly one way to be
+         * satisfied, never verified as reachable from a screen. This line is
+         * that verification.
+         *
+         * The tab rather than a pre-filled upload dialog, for the reason
+         * `tasks` goes to the whole checklist: somebody arriving at a blocker
+         * needs to see what is already there before adding to it, and half the
+         * time the document is present under a category nobody expected.
+         */
+        case 'document_upload':
+            return `${dealUrl}/documents`;
+        /*
+         * `key_date` arrived with S18 (#106, #107, #109), and it is the other
+         * evaluator CLAUDE.md named as owing the *"a row nothing can reach"*
+         * check. It is reachable from both ends now: S43 configures the date
+         * the gate names, and this is where somebody goes to look at it.
+         *
+         * What clears this gate is **time**, which nobody can do anything
+         * about — so the link is not "go and clear it". It is *"go and look at
+         * the date"*, because the action somebody actually takes is checking
+         * whether the contract moved and moving the date if it did, and that
+         * is a cascade they need the tab for.
+         */
+        case 'key_date':
+            return `${dealUrl}/dates`;
         default:
             return null;
     }

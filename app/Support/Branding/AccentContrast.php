@@ -34,6 +34,41 @@ final class AccentContrast
     public const FOREGROUND = '#FFFFFF';
 
     /**
+     * Black or white on this accent, whichever a reader can actually read.
+     *
+     * ## Warned on one surface, computed on two
+     *
+     * Design System §15.6 settles the warn-versus-adjust question by surface,
+     * and the deciding fact is *whether anybody is standing there*. S72 warns,
+     * because the owner is looking at a preview and can pick again — and a
+     * silently altered brand is an angrier support ticket later. **Email
+     * computes**, because there is no second chance and nobody to notice.
+     *
+     * The client status page is the second surface with nobody standing there:
+     * a client reads it once, on a phone, and a heading they cannot read is a
+     * phone call to the agent — which is the outcome the whole surface exists
+     * to reduce. §15.6 says it *"inherits S72's answer"*, and it does, for the
+     * **colour**: the accent is the one the owner chose and was warned about.
+     * What is computed is only what sits *on* it.
+     *
+     * Promoted out of `BrandedEmail` when the status page became its second
+     * caller. Two copies of a contrast rule disagree the first time one of
+     * them is tuned.
+     *
+     * @param  string  $dark  the near-black this surface uses for text — the
+     *                        email palette's and the app's are not the same
+     *                        value, and each surface passes its own rather
+     *                        than this class inventing a third
+     */
+    public static function foregroundFor(string $accent, string $dark): string
+    {
+        $onLight = self::ratio(self::FOREGROUND, $accent);
+        $onDark = self::ratio($dark, $accent);
+
+        return $onLight >= $onDark ? self::FOREGROUND : $dark;
+    }
+
+    /**
      * A sentence to show the owner, or null when the colour is fine.
      *
      * IA §10: say what happened, then what to do.

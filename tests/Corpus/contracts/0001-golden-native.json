@@ -1,0 +1,96 @@
+{
+    "slug": "0001-golden-native",
+    "description": "A clean native-PDF listing-side contract with every standard deadline present and every date written as a calendar date in one format. The control: anything the harness cannot read here is a defect in the harness, not in the document.",
+    "traits": [
+        "native",
+        "complete",
+        "money"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-03-14",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-03-18",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-03-24",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-03-29",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-04-03",
+            "critical": false
+        },
+        {
+            "label": "New Loan Application Deadline",
+            "value": "2026-03-19",
+            "critical": false
+        },
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-04-08",
+            "critical": true
+        },
+        {
+            "label": "New Loan Availability Deadline",
+            "value": "2026-04-13",
+            "critical": false
+        },
+        {
+            "label": "Appraisal Deadline",
+            "value": "2026-04-13",
+            "critical": true
+        },
+        {
+            "label": "Appraisal Resolution Deadline",
+            "value": "2026-04-18",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-03-28",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-03-30",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-04-02",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-04-04",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-05-01",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-05-01",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Seller to convey the washer and dryer with the property.",
+        "Seller to complete repair of the north basement egress window well prior to Closing, at Seller expense.",
+        "Buyer acknowledges the property is served by a well and that Seller has provided the well permit."
+    ]
+}

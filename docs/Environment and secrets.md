@@ -42,17 +42,100 @@ the container which uses them transparently."*
 | `APP_KEY` | generated | generated per run | real, unique | real, unique |
 | `DB_PASSWORD` | developer's choice | fixed, throwaway | real, unique | real, unique |
 | `REDIS_PASSWORD` | none | none | real | real |
-| `MAIL_*` | Mailpit, no credentials | array driver | **SES, every recipient redirected** | SES |
+| `MAIL_*` | Mailpit, no credentials | array driver | **SES; every recipient redirected, but only because `MAIL_REDIRECT_TO` below says so** | SES |
 | `APP_NAME` | `Brawling Mahogany` | same | same | same |
 | `APP_PRODUCT_NAME` | `Goldieflow` | same | same | same |
 | `MAIL_FROM_ADDRESS` | anything | `.env.example`'s value — **used**, not unused | `goldieflow@monroedigitalconsulting.com` | `goldieflow@monroedigitalconsulting.com` |
-| `MAIL_REDIRECT_TO` | optional | unset | **set — every message redirected** | **must be empty** |
+| `MAIL_REDIRECT_TO` | optional | unset | **must be set — every message redirected, and it fails open when it is not (#196)** | **must be empty** |
+| `SES_SNS_TOPIC_ARN` | empty | empty | the staging topic | the production topic — **required**, see below |
 | `AWS_*` (Spaces) | unset — local disk | unset | real, staging bucket | real, production bucket |
 | `SENTRY_LARAVEL_DSN` | unset | unset | real, staging project | real, production project |
-| `AI_API_KEY` | unset | unset | **separate key, own budget cap** | real, production cap |
+| `EXTRACTION_DRIVER` | `null` — refuses | `null` | `anthropic`, once §10's four exist | `anthropic` |
+| `ANTHROPIC_API_KEY` | unset | unset | **separate key, own budget cap** | real, production cap |
+| `EXTRACTION_*_MONTHLY_CAP` | the defaults | the defaults | **lower than production's** | the commercial number |
 | `VAPID_*` | generated locally | unset | real | real |
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
 | `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
+
+### The extraction driver defaults to refusing, and that is the control
+
+`EXTRACTION_DRIVER=null` refuses every call and says why. It is the default in
+`config/extraction.php` and in `.env.example`, and it should stay the default
+in every environment that has not deliberately been switched on.
+
+The reason is PRD §10, which lists four things that must exist before F10 ships
+— a signed data processing agreement, a provider contractually barred from
+training on submitted content, a retention position, and disclosure language in
+the team's own listing agreement (#13). **None of them is a code change, and
+none of them can be checked from inside the application.** A default that
+reached a live provider would make the absence of that decision into a
+decision: somebody's contract goes to a third party because a key was never
+set.
+
+Note the direction, because it is the opposite of `MAIL_REDIRECT_TO`'s and the
+contrast is instructive. That one **fails open** — unset means every message
+reaches real people, and #196 is open about how expensive that is. This one
+fails closed: unset means nothing leaves, and the failure is a screen telling
+somebody the feature is not switched on. The cheap failure got the loud
+behaviour, which is the arrangement #196 says the mail guardrail should have
+had.
+
+### The staging key is a different key with a lower cap, not the same key
+
+PRD §8.6 asks staging to run *"a separate AI provider key with its own budget
+cap"*, and there are two caps to set rather than one:
+
+- The **provider's own** cap, set in the provider's console against the staging
+  key. This is the one that holds when the application is wrong.
+- `EXTRACTION_TEAM_MONTHLY_CAP` and `EXTRACTION_PLATFORM_MONTHLY_CAP`, which
+  are the application's own ceilings.
+
+Set both. The application's cap is the one a person meets, with a sentence and
+a screen; the provider's is the one that holds if the application's is
+misconfigured or bypassed — and a staging environment exists precisely to be
+the place where something is misconfigured.
+
+**Zero is a ceiling of zero; a negative number is the absence of a ceiling.**
+They are not interchangeable, and only a negative value means *unlimited* —
+setting a cap to `0` stops extraction for everybody it applies to, which is
+exactly what `teams.extraction_monthly_cap_micros = 0` is for on a single team
+that needs stopping now (`php artisan extraction:cap <team> --dollars=0`).
+
+Note the direction a mistake falls in: `(int) env()` of an unparseable value is
+`0`, so a typo in either variable **stops extraction** rather than uncapping
+it. That is the safe half of the trade, and it is only safe because of which
+way round the two meanings are — the reading that treats `0` as "no ceiling"
+turns the same typo into an uncapped bill.
+
+The values are in **micros** — millionths of a dollar — which is the unit
+`extractions.cost_micros` uses, because a page of contract costs a fraction of
+a cent and a cap in cents cannot express the figures it caps. `50000000` is
+$50.
+
+### `VAPID_*` is generated once and never rotated
+
+Web push (#103). Three keys — `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY` — produced by `php artisan push:vapid-keys`, which prints
+them rather than writing them, like `invitation:link` and `auth:reset-link`.
+
+**This is the one secret in this document that must not be rotated on a
+schedule.** The public half is baked into every subscription a browser has
+already created, so replacing the pair does not re-key anything: it silently
+invalidates every existing subscription, and every device has to be
+re-subscribed by hand from Settings → Notifications. Nobody finds out until
+they notice they have stopped being notified. Treat the pair like a domain
+name, not like a password — and if the private key is ever *exposed*, rotating
+it is still correct, but plan for the re-subscription rather than discovering
+it.
+
+`VAPID_SUBJECT` must be a `mailto:` or `https:` URL (RFC 8292); a push service
+uses it to reach somebody about this application, and several reject a
+malformed one at send time rather than at configuration time.
+
+An environment with any of the three unset simply does not offer push:
+`SendPush::configured()` is what S78 asks before drawing the switch and what
+`Notify` asks before writing `push` into a notification's channels, so a
+half-configured environment is not a state the product can reach.
 
 ### `APP_NAME` is not the product's name
 
@@ -86,7 +169,7 @@ They were the same key until round 2 of review on #12 found teams sending
 from it: **before pinning a display string to an existing config value, check
 what else derives from that value.** Here, four keyspaces did.
 
-### The sending identity, and the two things it is not
+### The sending identity, what it is not, and what it now is
 
 SES is configured and `monroedigitalconsulting.com` is a verified sending
 domain (#12). Every message this product sends leaves as
@@ -99,15 +182,27 @@ other. That is a deliberate trade to get Slice 3 sending — the alternative was
 waiting on the naming decision in #15 — and it is worth revisiting before there
 are enough customers for the reputation to be worth anything.
 
-**It is not necessarily production access.** A verified *domain identity* and a
+**It is production access**, confirmed 2026-08-28 (#12): the account is out of
+the SES sandbox, and staging sends real mail through it.
+
+That distinction was worth chasing, and is worth keeping written down for
+whoever stands up the next environment. A verified *domain identity* and a
 production *account* are two different grants: in the SES sandbox an account
 may only send to addresses it has also verified, so a message to a real
 client's inbox is rejected at the API rather than delivered. Both look
 identical from inside this application right up to the moment a client is
-supposed to receive something. Before the first real send, check the account's
-sending status in the SES console — and note that S91's alert (#97) now
-surfaces exactly this failure on the message queue rather than letting it go
-quiet.
+supposed to receive something.
+
+Two things follow from that, for any new environment:
+
+- **Production access is granted per region.** An account can be out of the
+  sandbox in one region and still in it in the region `MAIL_HOST` actually
+  points at. Check the region you are sending from, not the account in general.
+- **S91's alert (#97) makes the failure loud, but only on the message queue.**
+  `automations:alert-on-failures` reads `action_instances.state`, so a rejected
+  *automated* send is `failed` however it got there rather than going quiet.
+  Nothing surfaces the same rejection for an invitation, a password reset or a
+  notification — those never reach `SendRails`. Do not read this as coverage.
 
 **A team's own address never goes in `From`.** It rides in `Reply-To`, which
 needs no DNS and no verification. A `From` SES is not authorised to send as is
@@ -120,29 +215,67 @@ address that would otherwise look forged — and the same class puts their
 `sending_identity_email` in `Reply-To`, so hitting Reply reaches them and not
 the product's mailbox.
 
+### The bounce webhook, and why its ARN is a security control
+
+SES publishes bounce and complaint notifications to an SNS topic, which posts
+them to `POST /webhooks/ses` (#95). `SES_SNS_TOPIC_ARN` names that topic and is
+**not optional in production** — the endpoint refuses everything while it is
+empty, deliberately, because the other way round is the default that ships:
+works in staging, unset in production, and nobody notices.
+
+It is not merely configuration. The endpoint has no session, no CSRF token and
+no authenticated person, so Amazon's signature over the canonical SNS string is
+the whole of its authentication — and a valid signature only proves that *some*
+SNS topic sent the message. Anybody with an AWS account can create a topic,
+point it at this URL, and have its notifications signed exactly as genuinely as
+ours. The ARN is what makes the check mean *our* topic.
+
+The reason that matters more here than on an ordinary webhook is what the
+endpoint writes to: `suppressed_addresses` is this product's one **account-wide**
+table, so without the ARN check a stranger could stop this product writing to
+any address they chose, for every team on the platform, permanently. See
+[`adr/0002`](adr/0002-multi-tenancy-enforcement.md), "The deliberately
+cross-tenant table".
+
+Three checks, none of them optional: the signing certificate's host is matched
+against an **anchored** `sns.<region>.amazonaws.com` pattern (an unanchored one
+passes `https://evil.test/?x=amazonaws.com`), the signature is verified over
+the canonical field-by-field string rather than over the raw body, and the ARN
+is compared. Setting the topic up is console work like the rest of §2 — the
+application half is done and the subscription confirms itself on the first
+handshake.
+
+Locally the value stays empty: nothing sends through SES, so nothing bounces.
+
 ### The two staging guardrails that are not optional
 
 PRD §8.6, restated because both protect somebody else's client:
 
-1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` is set on staging, and
-   `AppServiceProvider` rewrites every recipient to it. The application
-   **refuses to boot in production** with that value set, so the guardrail
-   cannot be left on by accident either. This is ours and it does not depend on
-   SES's own sandbox — which is the point, since the same SES account now
-   serves both environments.
+1. **Every recipient is redirected.** `MAIL_REDIRECT_TO` **must be** set on
+   staging, and `AppServiceProvider` then rewrites every recipient to it. The
+   application **refuses to boot in production** with that value set, so the
+   guardrail cannot be left on by accident either. This is ours and it does not
+   depend on SES's own sandbox — which is now the whole point, since that
+   sandbox stopped refusing anything when the account reached production access
+   (#12) and the same SES account serves both environments.
+
+   *Must be*, not *is*: nothing here can check it. The value lives in the
+   droplet's `.env`, an empty one **fails open** silently, and no test, CI run
+   or review can observe it. See [[Deployment]] §4a and #196.
 2. **A separate AI provider key with its own budget cap.** Staging never
    spends against the production budget, and a runaway loop in a test costs a
    small, capped amount rather than a large, uncapped one.
 
 ### What that means for anything you have to *act on*
 
-Both guardrails above make staging mail undeliverable on purpose, and local
+The redirect above makes staging mail undeliverable on purpose — **when it is
+set** — and local
 mail never leaves the machine. [[adr/0003-no-email-only-flows|ADR 0003]] is the
 rule that keeps this from being a dead end: **no user flow depends on email
 alone**, so nothing in the product is unreachable because a message went to
 Mailpit or was redirected to an ops mailbox.
 
-In practice, for the two flows that exist today:
+In practice, for the two flows an operator most often has to unblock by hand (`App\Support\Mail\EmailIndependence::FLOWS` is the full list, and carries six):
 
 | Flow | Without the message |
 |---|---|
@@ -355,12 +488,19 @@ work. Do not reverse these.
 There is no re-encryption step and nothing to migrate, so unlike `APP_KEY` this
 one has no reason to wait for a scheduled window.
 
-### SES, Spaces, Sentry, AI provider
+### SES, Spaces, Sentry, the extraction provider
 
 Create the new credential alongside the old one, update `.env`, restart,
 confirm traffic on the new credential, then revoke the old one. Never revoke
 first: a revoked SES credential means client email stops, and client email
 stopping is the failure this product exists to prevent.
+
+The extraction key is the one exception to the "never revoke first" rule, and
+only in one direction: if a key is believed compromised, setting
+`EXTRACTION_DRIVER=null` stops every call immediately and costs nothing but the
+feature. Documents stay where they are, dates already confirmed stay confirmed,
+and somebody meets a sentence saying reading is not switched on. That is a
+much better failure than any of the others on this page.
 
 ### After any rotation
 

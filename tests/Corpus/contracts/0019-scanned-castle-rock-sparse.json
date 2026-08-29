@@ -1,0 +1,64 @@
+{
+    "slug": "0019-scanned-castle-rock-sparse",
+    "description": "A short cash purchase read back with heavy OCR noise: few deadlines, no financing track, and enough damage that a reader has to work. Sparse and scanned together, which is the combination a harness is most likely to score as an empty document.",
+    "traits": [
+        "scanned",
+        "sparse"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-08-03",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-08-06",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-08-11",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-08-15",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-08-20",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-08-11",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-08-13",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-08-16",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-08-24",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-08-24",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Sale is as-is with no repairs and no credit in lieu of repairs.",
+        "Buyer to pay the entire closing company fee."
+    ]
+}

@@ -51,6 +51,30 @@ const TEAM_AGNOSTIC_MODELS = [
     // for two teams signs in once. Scoped like `people`, which is to say not.
     App\Models\Passkey::class,
 
+    /*
+     * The same argument, one credential along (#103).
+     *
+     * A push subscription is an opaque endpoint URL plus the two keys that
+     * authorise encrypting to it — a credential for a *browser*, held by a
+     * human who has one phone however many agencies they work for. A
+     * `team_id` would mean a row per team per device, and every send would
+     * then have to de-duplicate by endpoint or push the same sentence to the
+     * same lock screen twice.
+     *
+     * What makes this safe where `people` was not (ADR 0002, "the hole the
+     * layers do not cover"): **every row describes a colleague's own
+     * browser.** There is no client name, address or figure in this table and
+     * nothing one team could learn about another by reading it. The day a
+     * column here describes somebody a team works *with* rather than somebody
+     * working *for* them, it belongs on a team-scoped table instead.
+     *
+     * Retention rides the cascade from `people`, which `records:purge`
+     * already hard-deletes thirty days after an account goes — so this is not
+     * a table outside the purge, which is the failure mode that argument
+     * usually hides.
+     */
+    App\Models\PushSubscription::class,
+
     // The security record outlives the team it describes — issue #57 requires
     // the audit trail of a purge to survive the purge — and some entries have
     // no team at all. Reading it is gated by policy instead.
@@ -111,6 +135,37 @@ const TEAM_AGNOSTIC_MODELS = [
      * `action_instances`, which is team-scoped by construction.
      */
     App\Models\ActionDefinition::class,
+
+    /*
+     * The only one that is team-agnostic because it is **deliberately
+     * cross-tenant** rather than merely shared (Slice 3, #95).
+     *
+     * (No ordinal: an earlier draft said "the eighth", and a count written
+     * into a comment beside a list is a claim nothing checks — which is the
+     * reason CLAUDE.md points at this array rather than quoting a number.)
+     *
+     * A hard bounce is a fact about the address, not about the team that
+     * happened to send to it: the mailbox does not exist for anybody. And SES
+     * measures bounce and complaint rates across the **whole account** (PRD
+     * §12.2 — bounce under 2%, complaint under 0.1%), so a per-team
+     * suppression list would have each new team rediscover the same dead
+     * address at every other team's expense.
+     *
+     * Issue #95 asks for it in as many words — *"this is the one place where a
+     * deliberately cross-tenant record is correct, and it needs to be built
+     * explicitly rather than falling out of a scope gap"* — and this entry is
+     * where the decision is recorded rather than implied.
+     *
+     * What keeps it from being a disclosure: **nothing team-facing reads the
+     * row.** `SuppressedAddress::suppresses()` returns a reason and nothing
+     * else, `discovered_by_team_id` is console-only, and a team is told *"we
+     * are not writing to this address"* in words about the address rather than
+     * about another team's correspondence. It also outlives a team purge on
+     * purpose (#57): the address is still dead afterwards, and having no
+     * `team_id` is what makes that true by construction rather than by an
+     * exception in the sweep.
+     */
+    App\Models\SuppressedAddress::class,
 ];
 
 /**

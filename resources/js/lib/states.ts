@@ -21,7 +21,9 @@ export type StateDomain =
     | 'gate'
     | 'person'
     | 'automation'
+    | 'delivery'
     | 'extractedField'
+    | 'extraction'
     | 'document';
 
 export interface StateDescriptor {
@@ -149,11 +151,76 @@ const automation: StateTable = {
     cancelled: { label: 'Cancelled', tone: 'neutral', clientLabel: null },
 };
 
+/**
+ * What became of one copy of one message (#95 · F5.8).
+ *
+ * A separate domain from `automation`, and the separation is the point: they
+ * answer different questions about the same row. `automation.sent` means *this
+ * product handed the message over and the provider accepted it*; a delivery
+ * says whether it arrived, per recipient — so a message whose automation state
+ * is a green **Sent** can carry a red **Bounced** beside every address it was
+ * written to, and both badges are correct.
+ *
+ * `sent` is therefore `neutral` here where it is `success` there. It is the
+ * *absence* of news rather than good news, and on this table it sits below
+ * `delivered`; tinting it green would tell somebody the message arrived when
+ * all that is known is that it left.
+ */
+const delivery: StateTable = {
+    sent: { label: 'Sent', tone: 'neutral', clientLabel: null },
+    delivered: { label: 'Delivered', tone: 'success', clientLabel: null },
+    /*
+     * Success rather than info, because an open is the strongest evidence
+     * this product ever gets that a client actually read something — and
+     * `info` is spoken for by §7.3's *"message sent"*, which this table
+     * deliberately does not reuse.
+     */
+    opened: { label: 'Opened', tone: 'success', clientLabel: null },
+    bounced: { label: 'Bounced', tone: 'danger', clientLabel: null },
+    complained: {
+        label: 'Marked as spam',
+        tone: 'danger',
+        clientLabel: null,
+    },
+    /*
+     * Never handed over: the address is on the suppression list.
+     *
+     * `danger`, like the two above, because the question this table answers is
+     * whether the client was told — and for this row the answer is no. That it
+     * failed *before* the provider rather than at it is a distinction the
+     * explanation carries; it is not a reason for a quieter colour.
+     */
+    suppressed: { label: 'Not sent', tone: 'danger', clientLabel: null },
+};
+
 const extractedField: StateTable = {
     pending: { label: 'Needs Review', tone: 'warning', clientLabel: null },
     confirmed: { label: 'Confirmed', tone: 'success', clientLabel: null },
     edited: { label: 'Edited', tone: 'info', clientLabel: null },
     rejected: { label: 'Rejected', tone: 'neutral', clientLabel: null },
+};
+
+/**
+ * How far one attempt at reading a document got (#115 · IA §8).
+ *
+ * A different question from `extractedField` beside it, and the two are on the
+ * same screen at the same time — this one is about the *attempt*, that one
+ * about a *proposal*. Keeping them separate domains is what stops a
+ * `Needs Review` badge and an `Extracting` badge sharing a vocabulary they do not
+ * share a meaning with.
+ *
+ * `blocked` is not a kind of failure and does not wear `danger`. It means a
+ * monthly spending limit stopped this before the model was called — nothing
+ * went wrong, and nothing will go right until somebody raises the limit or the
+ * month turns over (#113). Drawing it in red would send an operator looking for
+ * a broken thing that is working as designed.
+ */
+const extraction: StateTable = {
+    queued: { label: 'Queued', tone: 'neutral', clientLabel: null },
+    processing: { label: 'Extracting', tone: 'info', clientLabel: null },
+    complete: { label: 'Ready to Review', tone: 'success', clientLabel: null },
+    failed: { label: 'Failed', tone: 'danger', clientLabel: null },
+    blocked: { label: 'Stopped', tone: 'warning', clientLabel: null },
 };
 
 const document: StateTable = {
@@ -172,7 +239,9 @@ export const STATES: Record<StateDomain, StateTable> = {
     gate,
     person,
     automation,
+    delivery,
     extractedField,
+    extraction,
     document,
 };
 

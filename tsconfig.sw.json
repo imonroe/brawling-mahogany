@@ -1,0 +1,19 @@
+{
+    /*
+       The service worker, alone (#102).
+
+       `WebWorker` instead of `DOM`: inside a worker `self` is a
+       `ServiceWorkerGlobalScope`, and the two libraries declare incompatible
+       versions of enough globals that one program cannot hold both. Splitting
+       the config is the standard answer and it keeps `sw.ts` type-checked
+       rather than exempt — `npm run types:check` runs this file too.
+    */
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "lib": ["ESNext", "WebWorker"],
+        "types": ["vite/client", "vite-plugin-pwa/client"],
+        "noEmit": true
+    },
+    "exclude": [],
+    "include": ["resources/js/sw.ts"]
+}

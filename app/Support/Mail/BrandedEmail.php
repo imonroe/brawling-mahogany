@@ -134,9 +134,13 @@ final readonly class BrandedEmail
      */
     private static function foregroundFor(string $accent): string
     {
-        $onWhite = AccentContrast::ratio(AccentContrast::FOREGROUND, $accent);
-        $onBlack = AccentContrast::ratio(EmailPalette::TEXT, $accent);
-
-        return $onWhite >= $onBlack ? AccentContrast::FOREGROUND : EmailPalette::TEXT;
+        /*
+         * The rule moved to `AccentContrast` when the client status page
+         * became its second caller (#111). The **near-black is still this
+         * surface's own**: the email palette's `TEXT` is not the app's, and a
+         * shared class picking one for both would be inventing a third value
+         * neither design system contains.
+         */
+        return AccentContrast::foregroundFor($accent, EmailPalette::TEXT);
     }
 }

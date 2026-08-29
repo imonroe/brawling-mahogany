@@ -1,4 +1,4 @@
-import { createInertiaApp } from '@inertiajs/vue3';
+import { createInertiaApp, router, usePage } from '@inertiajs/vue3';
 import * as Sentry from '@sentry/vue';
 import { createApp, h } from 'vue';
 import { initializeTheme } from '@/composables/useAppearance';
@@ -8,6 +8,7 @@ import AuthLayout from '@/layouts/AuthLayout.vue';
 import DealLayout from '@/layouts/DealLayout.vue';
 import SettingsLayout from '@/layouts/SettingsLayout.vue';
 import { initializeFlashToast } from '@/lib/flashToast';
+import { reconcileOfflineCache, reRegisterPush } from '@/lib/pwa';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Goldieflow';
 
@@ -22,9 +23,12 @@ const DEAL_TAB_PAGES = [
     'Deals/Overview',
     'Deals/Timeline',
     'Deals/Tasks',
+    'Deals/Dates',
     'Deals/People',
     'Deals/Properties',
     'Deals/Offers',
+    'Deals/Documents',
+    'Deals/Extraction',
 ];
 
 createInertiaApp({
@@ -120,3 +124,82 @@ initializeTheme();
 
 // This will listen for flash toast data from the server...
 initializeFlashToast();
+
+/**
+ * The service worker (#102).
+ *
+ * Registered here rather than by the plugin: `vite-plugin-pwa`'s injected
+ * registration wants an `index.html` to inject into, and Laravel serves the
+ * document.
+ *
+ * **`/sw.js`, not the built path.** A worker controls only URLs at or below
+ * its own, so one registered from `/build/sw.js` installs cleanly and
+ * intercepts nothing anybody visits — a failure whose symptom is silence.
+ * `ServiceWorkerController` serves the built file from the root for exactly
+ * that reason.
+ *
+ * Failure is swallowed on purpose. A worker is a progressive enhancement:
+ * unsupported browsers, private windows and insecure origins all reject the
+ * registration, and none of them is a reason to put an error in front of
+ * somebody trying to look at a deal.
+ */
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+        void navigator.serviceWorker
+            .register('/sw.js', { scope: '/' })
+            .catch(() => {
+                // Nothing to do, and nothing worth saying: the app works without
+                // it, minus the offline half.
+            });
+    });
+}
+
+/**
+ * Session bookkeeping the service worker cannot do for itself (#102, #103).
+ *
+ * ## On `navigate`, not on `load`
+ *
+ * Round 2 of review found both of these hung off `window.addEventListener(
+ * 'load')`, where neither could do its job. This is a single-page app:
+ * **signing out, signing in and switching team are Inertia visits, and none
+ * of them fires a document `load`.** So on a shared device A could sign out
+ * and B sign in without one — the offline cache was never reconciled, and B
+ * offline was served A's work queue.
+ *
+ * `router.on('navigate')` fires on the first page as well as on every visit
+ * after it, so this covers the cold load too. Both calls are idempotent: the
+ * cache is only emptied when the identity actually changed, and the push
+ * re-post is an upsert on an endpoint that has not moved.
+ *
+ * Outside the `serviceWorker` guard above deliberately — `caches` and
+ * `PushManager` are separate capabilities, and each function tests for what
+ * it needs rather than inheriting somebody else's test.
+ */
+router.on('navigate', () => {
+    const props = usePage().props as
+        | {
+              auth?: { user?: { id?: string } | null };
+              team?: { id?: string } | null;
+          }
+        | undefined;
+
+    /*
+     * Sequenced rather than raced, and each awaited on its own: an exception
+     * in one must not skip the other. The first version chained them inside a
+     * single `.catch()` that swallowed everything, so a lost race on
+     * `usePage()` would have silently killed both — the failure mode being
+     * fixed here, one layer along.
+     */
+    void reconcileOfflineCache(
+        props?.auth?.user?.id ?? null,
+        props?.team?.id ?? null,
+    ).catch(() => {
+        // The next navigation tries again; the identity is only recorded on
+        // success, so nothing is marked done that was not.
+    });
+
+    void reRegisterPush().catch(() => {
+        // Offline, or no VAPID keys in this environment. The notification is
+        // in the panel regardless.
+    });
+});

@@ -38,9 +38,10 @@ import { describe, expect, it } from 'vitest';
 /**
  * Segments under `/deals/{deal}/…` whose screens have not been built.
  *
- * `timeline` left this list when S16 landed (#76), and `tasks` when S17 did
- * (#71) — both are routes now, and a link to one is a link. The list shrinks
- * one entry per slice; what it protects is the ones still unbuilt.
+ * `timeline` left this list when S16 landed (#76), `tasks` when S17 did (#71),
+ * and `documents` when S21 did (#98) — all three are routes now, and a link to
+ * one is a link. The list shrinks one entry per slice; what it protects is the
+ * ones still unbuilt.
  *
  * `tasks` leaving is the case the test was written for: PRD §5.4 asks that
  * *"each unmet gate links directly to the thing that clears it"*, and
@@ -58,7 +59,20 @@ import { describe, expect, it } from 'vitest';
  * this because the test failed on an import, that is the pattern being blunt
  * rather than your code being wrong — narrow the pattern, do not delete it.
  */
-const UNBUILT_DEAL_TABS = ['dates', 'documents'];
+/*
+ * **Empty as of Slice 4** (#107), and deliberately still here.
+ *
+ * `dates` was the last entry: S18 shipped with the contingency calendar, so
+ * every tab `DealHeader` draws now has a route behind it and there is nothing
+ * left to protect. An empty list makes the sweep below a no-op — which is
+ * correct, and is exactly the state a scan is most likely to rot in unnoticed.
+ *
+ * So the positive control takes its segments explicitly rather than reading
+ * this constant. It goes on proving the *mechanism* against `dates`, which is
+ * now a real route, so the day a Slice 5 or 6 tab is added inert the only
+ * thing that has to change is this line.
+ */
+const UNBUILT_DEAL_TABS: string[] = [];
 
 function sourceFiles(directory: string): string[] {
     const absolute = resolve(process.cwd(), directory);
@@ -115,10 +129,13 @@ const EXPECTED_CODE_CHARS = 100_000;
  * hung off the end. The trailing guard keeps `/dates-and-deadlines` and
  * `/documentsUpload` out.
  */
-function deadLinksIn(source: string): string[] {
+function deadLinksIn(
+    source: string,
+    segments: string[] = UNBUILT_DEAL_TABS,
+): string[] {
     const code = withoutComments(source);
 
-    return UNBUILT_DEAL_TABS.flatMap((segment) => {
+    return segments.flatMap((segment) => {
         const match = new RegExp(`\\S*/${segment}(?![\\w-])\\S*`).exec(code);
 
         return match === null ? [] : [match[0]];
@@ -141,29 +158,33 @@ describe('route targets', () => {
         const dead = [
             'return `${dealUrl.value}/dates`;',
             "return dealUrl.value + '/dates';",
-            "return '/deals/' + deal.id + '/documents';",
+            "return '/deals/' + deal.id + '/dates';",
             'return `/deals/${deal.id}/dates?filter=all`;',
-            'const u = dealUrl.value; return u + "/documents";',
+            'const u = dealUrl.value; return u + "/dates";',
         ];
 
         for (const source of dead) {
-            expect(deadLinksIn(source), source).toHaveLength(1);
+            expect(deadLinksIn(source, ['dates']), source).toHaveLength(1);
         }
 
         const fine = [
             "const label = 'Dates';",
             "{ segment: 'dates', arrivesWith: 'S18' }",
+            // A tab name is not a path: the slash is what separates them.
+            "const label = 'Dates & Deadlines';",
             "router.visit('/dates-and-deadlines');",
-            "fetch('/deals/1/documentsUpload');",
+            "fetch('/deals/1/datesPicker');",
             '// the deal has no /dates route yet',
             // Built, so a link to it is a link rather than an offence.
             'return `${dealUrl}/tasks`;',
             // Offers left the list with S22 (#73).
             'form.post(`${dealUrl}/offers`,',
+            // Documents left it with S21 (#98).
+            'form.post(`${dealUrl}/documents`,',
         ];
 
         for (const source of fine) {
-            expect(deadLinksIn(source), source).toEqual([]);
+            expect(deadLinksIn(source, ['dates']), source).toEqual([]);
         }
     });
 

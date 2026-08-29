@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\DealState;
 use App\Models\Concerns\BelongsToTeam;
+use App\Models\Concerns\HasDocuments;
 use App\Models\Concerns\HasProductDefaults;
 use App\Models\Concerns\HasStateMachine;
 use App\Support\Tenancy\ArchivedReferenceException;
@@ -16,7 +17,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -44,7 +47,17 @@ use Illuminate\Support\Carbon;
 class Deal extends Model
 {
     /** @use HasFactory<DealFactory> */
-    use BelongsToTeam, HasFactory, HasProductDefaults, HasStateMachine;
+    /*
+     * `HasDocuments` is what makes S21's uploads survivable, and it is a rule
+     * rather than a convenience: `documents.documentable_id` is polymorphic,
+     * so **no foreign key reaches it** and nothing cascades when a deal goes.
+     * Without the trait, deleting a deal would leave live rows pointing at a
+     * parent that no longer exists and their bytes on the disk permanently —
+     * past PRD §9's retention window and past F6.4's promise that a deletion
+     * deletes. The same lesson `Property` records, arriving at its second
+     * parent.
+     */
+    use BelongsToTeam, HasDocuments, HasFactory, HasProductDefaults, HasStateMachine;
 
     /**
      * @return array<string, string>
@@ -220,6 +233,36 @@ class Deal extends Model
     }
 
     /**
+     * The people on this deal, as team memberships (#110).
+     *
+     * The relation `scopeBindings()` walks for
+     * `deals/{deal}/people/{membership}/status-page`. Without it Laravel calls
+     * `$deal->memberships()` to resolve the child and throws
+     * `BadMethodCallException` — so all three of S19's status-page controls
+     * (Send, Copy link, Revoke) were a 500 on every press, and nothing caught
+     * it because no test posted to those routes. The same shape S17 and S23
+     * are recorded for: a path that exists in a file and is not reachable.
+     *
+     * Nesting is also what answers *"is this person on **this** deal"*. The
+     * tenancy layers answer *"is this our team's"* and say nothing about the
+     * pairing, so binding both halves independently let a hand-crafted request
+     * grant a 14-day session for one deal to any membership in the team.
+     * `StatusPageAccessController::clientOn()` narrows it further to a client
+     * role; this is what makes the pair exist at all.
+     *
+     * @return BelongsToMany<TeamMembership, $this>
+     */
+    public function memberships(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            TeamMembership::class,
+            'deal_participants',
+            'deal_id',
+            'team_membership_id',
+        );
+    }
+
+    /**
      * The properties this deal is about (F3.4 · issue #61).
      *
      * A buyer-side deal tours nine houses before it makes an offer on one, so
@@ -232,6 +275,38 @@ class Deal extends Model
     public function propertyLinks(): HasMany
     {
         return $this->hasMany(DealProperty::class)->orderByDesc('is_subject')->orderBy('created_at');
+    }
+
+    /**
+     * The deal's own documents (S21).
+     *
+     * A `MorphMany` beside the `HasDocuments` sweep, which is deliberately
+     * only a `deleting` hook: the trait exists so nothing strands bytes, and
+     * a relation is what a screen reads. `Property::photos()` orders by
+     * `sort_order` because a gallery is arranged; a deal's documents are not,
+     * so this leaves the order to the caller.
+     *
+     * @return MorphMany<Document, $this>
+     */
+    public function documents(): MorphMany
+    {
+        return $this->morphMany(Document::class, 'documentable');
+    }
+
+    /**
+     * This deal's Dates & Deadlines (#106).
+     *
+     * Named for the table, as every relation here is — IA §2 keeps `key_dates`
+     * as the code name and *Dates & Deadlines* as the label a person reads.
+     * The route binding needs it as much as any caller does: `deals/{deal}/
+     * dates/{keyDate}` is a `scopeBindings()` group, and Laravel resolves the
+     * child through this method.
+     *
+     * @return HasMany<KeyDate, $this>
+     */
+    public function keyDates(): HasMany
+    {
+        return $this->hasMany(KeyDate::class);
     }
 
     /**
@@ -270,6 +345,20 @@ class Deal extends Model
         return $this->hasMany(Workflow::class)
             ->orderBy('created_at')
             ->orderBy('id');
+    }
+
+    /**
+     * Every attempt at reading a document on this deal (#115).
+     *
+     * Here so `Route::scopeBindings()` can hold `/deals/{deal}/extractions/{extraction}`
+     * to this deal — which is the layer that refuses the team's *other* deal's
+     * extraction, a case the team scope alone happily allows.
+     *
+     * @return HasMany<Extraction, $this>
+     */
+    public function extractions(): HasMany
+    {
+        return $this->hasMany(Extraction::class);
     }
 
     /**

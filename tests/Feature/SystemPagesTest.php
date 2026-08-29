@@ -51,9 +51,31 @@ it('renders the admin variant under the admin namespace', function (): void {
             ->where('variant', 'admin'));
 });
 
-it('renders the client variant for an expired status page link', function (): void {
+it('sends an unknown status page token to S64 rather than to a 404', function (): void {
+    /*
+     * Before Slice 4 there was no `/s/{token}` route, so an unknown token fell
+     * through to the client-variant 404 — which was the right answer while the
+     * screen it should reach did not exist.
+     *
+     * It does now (#110), and S64 is a better answer than any 404 can be: it
+     * says *which* of expired, already used, or revoked, and it offers a way
+     * to ask for a new link knowing nothing but an email address. The 404's
+     * client variant is still asserted below, on a client-surface path that
+     * genuinely has no route.
+     */
+    $this->get('/s/'.str_repeat('z', 43))
+        ->assertRedirect('/s/expired?reason=expired');
+
+    $this->get('/s/expired')
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('Status/Expired')
+            ->where('reason', 'expired'));
+});
+
+it('renders the client variant of a 404 on the client surface', function (): void {
     // IA §9: no alarming words, and a route back to a human.
-    $this->get('/s/expired-token')
+    $this->get('/s/'.str_repeat('z', 43).'/nothing-here')
         ->assertNotFound()
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->component('System/NotFound')
@@ -88,10 +110,11 @@ it('renders a placeholder for every sidebar destination', function (): void {
 
     $this->actingAsPerson($member, $team);
 
-    // `work` left this list with S11 (#80) — it is a real screen now, and
+    // `work` left this list with S11 (#80) — it is a real screen now,
     // `templates` left it with S39–S43 (#84–#86), asserted below against an
-    // owner because `templates.manage` is a Team Owner permission.
-    foreach (['calendar', 'keep-in-touch'] as $path) {
+    // owner because `templates.manage` is a Team Owner permission, and
+    // `calendar` left it with S57 (#105).
+    foreach (['keep-in-touch'] as $path) {
         $this->get("/{$path}")
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->component('Placeholder'));
@@ -108,6 +131,10 @@ it('renders a placeholder for every sidebar destination', function (): void {
         '/people' => 'People/Index',
         '/properties' => 'Properties/Index',
         '/deals' => 'Deals/Index',
+        '/calendar' => 'Calendar/Index',
+        // S59 (#107). Its own sidebar row beside Calendar, because *"what is
+        // this week's exposure"* is asked from a standing start.
+        '/dates' => 'Dates/Index',
     ];
 
     foreach ($built as $path => $component) {

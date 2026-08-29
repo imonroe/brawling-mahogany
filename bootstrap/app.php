@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\ClientSurfaceHeaders;
 use App\Http\Middleware\EnsureSuperAdministrator;
 use App\Http\Middleware\EnsureTeamContext;
 use App\Http\Middleware\HandleAppearance;
@@ -16,6 +17,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -24,6 +26,24 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        /*
+         * Webhooks, outside the `web` group (#95).
+         *
+         * They carry no session and no CSRF token — a third party has
+         * neither — so registering them here rather than in `web.php` is what
+         * keeps `VerifyCsrfToken` from having an exception list, which is the
+         * usual shape and the one that grows.
+         *
+         * Rate-limited generously rather than not at all: a bounce storm is
+         * genuinely thousands of notifications a minute, and SNS retries a 429
+         * with backoff, so the limit costs nothing but bounds what an
+         * unauthenticated endpoint can be made to do before the signature
+         * check runs.
+         */
+        then: function (): void {
+            Route::middleware('throttle:600,1')
+                ->group(base_path('routes/webhooks.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
@@ -131,6 +151,14 @@ return Application::configure(basePath: dirname(__DIR__))
             $pages = [
                 403 => 'System/Forbidden',
                 404 => 'System/NotFound',
+                /*
+                 * A client has no session to retry with and cannot read a
+                 * status code — IA §9's *"a refusal is a page"*, and the one
+                 * refusal a client is most likely to meet, because the surface
+                 * is throttled and pressing a link twice is what people do.
+                 * Symfony's own 429 body is a white page with a number on it.
+                 */
+                429 => 'System/TooManyRequests',
                 500 => 'System/ServerError',
                 503 => 'System/Maintenance',
             ];
@@ -153,12 +181,27 @@ return Application::configure(basePath: dirname(__DIR__))
              * token, which Slice 4 resolves — until then the page renders
              * without the call button rather than with a wrong number.
              */
-            return Inertia::render($page, [
+            $rendered = Inertia::render($page, [
                 'variant' => $variant,
                 'agentName' => null,
                 'agentPhone' => null,
             ])
                 ->toResponse($request)
                 ->setStatusCode($response->getStatusCode());
+
+            /*
+             * An exception is converted **outside** the route middleware, so
+             * `ClientSurfaceHeaders` never sees this response — every error on
+             * the client surface went out with no `no-referrer`, no `noindex`
+             * and no `no-store`, which is exactly the case the referrer header
+             * exists for: a client who has just been refused is the one most
+             * likely to click away.
+             *
+             * The same writer, called from the second place that needs it,
+             * rather than a second copy of three header names.
+             */
+            return $variant === 'client'
+                ? ClientSurfaceHeaders::apply($rendered)
+                : $rendered;
         });
     })->create();

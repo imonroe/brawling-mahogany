@@ -1,0 +1,69 @@
+{
+    "slug": "0006-cash-purchase-sparse",
+    "description": "A cash purchase: no loan application, no loan terms, no appraisal, and a short run to Closing. Two of PRD 12.3 five critical deadlines are legitimately absent, so a harness that scores a missing New Loan Terms Deadline as a miss is scoring the corpus rather than the extraction.",
+    "traits": [
+        "native",
+        "sparse"
+    ],
+    "dates": [
+        {
+            "label": "Mutual Acceptance",
+            "value": "2026-06-01",
+            "critical": false
+        },
+        {
+            "label": "Alternative Earnest Money Deadline",
+            "value": "2026-06-04",
+            "critical": false
+        },
+        {
+            "label": "Record Title Deadline",
+            "value": "2026-06-09",
+            "critical": false
+        },
+        {
+            "label": "Record Title Objection Deadline",
+            "value": "2026-06-14",
+            "critical": true
+        },
+        {
+            "label": "Title Resolution Deadline",
+            "value": "2026-06-19",
+            "critical": false
+        },
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-06-10",
+            "critical": true
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-06-12",
+            "critical": false
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-06-15",
+            "critical": false
+        },
+        {
+            "label": "Property Insurance Objection Deadline",
+            "value": "2026-06-16",
+            "critical": false
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-06-26",
+            "critical": true
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-06-26",
+            "critical": false
+        }
+    ],
+    "provisions": [
+        "Buyer to provide proof of funds from a Colorado depository within three days of MEC.",
+        "Property is sold in its present condition, with Buyer retaining the right to inspect and terminate."
+    ]
+}

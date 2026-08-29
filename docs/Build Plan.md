@@ -1,6 +1,6 @@
 ---
 created: 2026-08-20
-modified: 2026-08-22
+modified: 2026-08-28
 project: Goldieflow
 type: plan
 status: draft
@@ -28,9 +28,9 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 |---|---|---|---|
 | **0** ✅ | Scaffolding, platform, design system | 19 | A stack that runs, a pipeline that gates once `scripts/protect-branches.sh` is run, and a component kit the other 70 screens assemble from |
 | **1** ✅ | Tenancy, identity, people | 19 | A team can exist, log in, and hold contacts — with isolation proven |
-| **2** | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
-| **3** | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
-| **4** | Calendar, key dates, status page | 8 | Deadlines drive the work, and the client can look without calling |
+| **2** ✅ | Deals and the workflow engine | 32 | **The product exists.** One real deal, end to end, manually |
+| **3** ✅ | Automation, documents, mobile shell | 15 | The client gets told automatically, and Heather finds out on her phone |
+| **4** ✅ | Calendar, key dates, status page | 8 | Deadlines drive the work, and the client can look without calling |
 | **5** | AI document intelligence | 6 (+2 gates) | Parity with the competitor's headline feature |
 | **6** | Post-close and Keep in Touch | 5 | A closed deal stays an asset |
 | **7** | Commercial | 3 (+3 gates) | It becomes a business |
@@ -40,14 +40,46 @@ The PRD defines seven release slices. This plan adds a **Slice 0** in front of t
 
 > [!success] Slice 0 has landed
 > The application skeleton, the container stack, the CI pipeline, the design
-> system foundations, and the two ADRs are built and merged. Two things inside
-> it are deliberately still open, and both are named in the pull request rather
-> than quietly carried: **the `AppLayout` review with Heather**, and **the
-> staging droplet**, which needs an account, a domain, and DNS that no
-> repository can provide. Slice 1 starts from a stack that runs and a pipeline
-> that gates — the gating needs `scripts/protect-branches.sh` run once by an
-> admin, because branch protection lives in repository settings and cannot be
-> committed.
+> system foundations, and the two ADRs are built and merged. **The `AppLayout`
+> review with Heather happened on 2026-08-21 and she approved it** — that was
+> the gate on the other seventy screens, and #31 closed on it. This document
+> and epic #1 both went on calling it outstanding for a week afterwards, which
+> is what a backlog audit on 2026-08-28 found.
+>
+> What is still open is **staging** (#36) and **observability's account
+> configuration** (#37). The droplet now exists — public internet, TLS, running
+> the stack and sending real mail (confirmed 2026-08-28) — so #36 stays open
+> for three things rather than for the box: whether `dev` actually deploys to
+> it (`STAGING_ENABLED`), the nightly offsite backup, **which nothing in this
+> repository implements**, and the restore drill PRD §9 requires before launch,
+> which has certainly not happened.
+>
+> One thing got worse rather than better when the droplet arrived, and it is
+> tracked in #196: production access removed the SES sandbox, so
+> `MAIL_REDIRECT_TO` is now the only guard covering **every** message the product
+> sends — and it fails open when unset, from a `.env` no test can observe.
+>
+> Slice 1 starts from a stack that runs and a pipeline that gates — the gating
+> needs `scripts/protect-branches.sh` run once by an admin, because branch
+> protection lives in repository settings and cannot be committed.
+
+> [!success] Slice 4 has landed
+> All eight issues are built: `key_dates` with the derived-date cascade (#106),
+> events and the calendar (#105), the Dates & Deadlines screens (#107), the
+> tokenised iCal feeds (#108), deadline reminders and the `date_reached` gate
+> (#109), magic-link access (#110), the client status page (#111), and the
+> WCAG 2.1 AA audit of the client surface (#112). The exit criterion — *"deadlines
+> drive the work, and the client can look without calling"* — is met, and
+> **Slice 5's destination now exists**, which was the reason this slice came
+> before it.
+>
+> One thing inside it is deliberately open and named in the pull request rather
+> than quietly carried: **the manual screen-reader pass** on real iOS and
+> Android devices. #112's automated audit is real — axe-core over the rendered
+> client surface with a positive control, plus a server-side contrast pass over
+> every accent a team can pick — but VoiceOver and TalkBack on a phone are not
+> something a test suite can stand in for, and this is the one surface whose
+> audience makes that difference matter.
 
 ### Why Slice 0 exists
 
@@ -99,13 +131,17 @@ Seeded template packs   ← blocked on Emily's lists (#87 ← #11)
 
 Three things on that path are worth naming.
 
-**`AppLayout` (#31) is the highest-leverage single piece of work in the project.** Seventy screens inherit its decisions about density, type scale, and mobile collapse. The Design System requires a review with Heather before anything else is built. A week there saves a month.
+**`AppLayout` (#31) is the highest-leverage single piece of work in the project.** Seventy screens inherit its decisions about density, type scale, and mobile collapse. The Design System required a review with Heather before anything else was built; that review happened on 2026-08-21 and she approved it, which is what unblocked S10, S11, S13, S15 and S16.
 
 **`AdvanceWorkflow` (#68) is the architectural keystone.** Every workflow mutation goes through it. If a controller ever writes `stages.state` directly, the audit trail, the automation dispatch, and the gate guarantees all become optional — and nobody notices until something has been silently skipped.
 
 **The seeded template packs (#87) are blocked on input we do not have.** Emily's consolidated task list, including a buyer-side list that does not yet exist, is the direct input. Build the pack *mechanism* against a placeholder; do not invent the content to unblock the schedule.
 
-That is now the state of it: the mechanism landed with #84–#86 — packs are listed, previewed, and copied, and the copy is deep — and what is missing is a pack with real stages in it. **A seeded pack whose content somebody invented is worse than an empty templates screen**, because it teaches a process nobody follows and gets copied before anyone notices, so #87 stays open on #11 rather than being closed with a plausible placeholder.
+That is now the state of it, and the mechanism is finished in both directions. #84–#86 listed, previewed and deep-copied a pack; #87's plumbing added the half that was missing. **The editor could not take the content even once it arrived** — `stage_templates.owner_role` and `task_templates.owner_role` had a reader and no writer at all, and a task's `description`, `is_required` and `due_offset_days` could be set once on creation and never corrected. Those are exactly the four columns #11 lists as missing from #154's checklist, which is why that markup pass was being gathered in a GitHub comment: changing one flag meant deleting the task and adding it back, at the end of the list, ninety times.
+
+So the loop now runs end to end: `packs:import <file> --team=<slug>` seeds a draft, somebody who does the job marks it up on S41, `packs:export` takes back what they produced, and `TemplatePackSeeder` reads `database/packs/*.json` on every deploy. What is missing is a file in that directory.
+
+**A seeded pack whose content somebody invented is worse than an empty templates screen**, because it teaches a process nobody follows and gets copied before anyone notices, so #87 stays open on #11 rather than being closed with a plausible placeholder.
 
 Two decisions sit on this path rather than beside it:
 
@@ -124,7 +160,7 @@ Three tracks can proceed independently of the critical path, and should:
 
 | Track | Issues | Why it is independent |
 |---|---|---|
-| **Long-lead externals** | #12 SES production access, #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 3, 5, and 7 |
+| **Long-lead externals** | ~~#12 SES production access~~ (done, 2026-08-28), #13 AI provider DPA, #15 product name, #17 legal | Weeks of waiting on other people. Start them now; they gate slices 3, 5 and 7 — Slice 3's #12 has cleared, but #15 still gates #94's per-team sending identity and the dedicated sending subdomain. #13 (a provider DPA) and #17 (outside counsel) are the two with weeks of external lead time left, and #13 gates Slice 5 entirely |
 | **Research spikes** | #14 extraction corpus, #19 iPhone web push, #16 Tailwind Plus | Answer questions whose answers change the build. All three are throwaway code or conversations |
 | **Design ahead of build** | Empty states (#33), mobile collapse (#31), S16 prototype (#76) | Design System §15 lists the first two as gaps; the S16 prototype comes from the Screen Inventory's sequencing recommendation. Designing them while Slice 1 is being built keeps Slice 2 unblocked |
 | **Decisions that gate a slice** | #10 partner or customer, #18 person records | Neither is code. Both have to be settled before the slice they gate starts — #18 before the first slice 1 migration, #10 before slice 2 |

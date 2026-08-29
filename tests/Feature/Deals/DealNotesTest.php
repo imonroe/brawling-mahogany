@@ -77,9 +77,22 @@ it('never carries the toggle from one note to the next', function (): void {
         'body' => 'And this one is nobody else’s business.',
     ])->assertRedirect();
 
+    /*
+     * `orderBy('id')` as the tiebreak, which this repository already learned
+     * once: `ActivityEvent::scopeForDeal()` carries the reason in as many
+     * words — a timestamp column shared by rows written in one request leaves
+     * their order *"whatever Postgres happens to return"*, and
+     * `ActivityFeed::paginate()` had learned it before that.
+     *
+     * Both notes below are posted inside one test, so they share `created_at`
+     * to the second, and the two assertions underneath are about **which note
+     * is which**. Without the tiebreak this passes or fails on the planner's
+     * mood; it went red once on a merge commit that touches nothing near it.
+     */
     $notes = ActivityEvent::query()
         ->where('event_type', 'note.added')
         ->orderBy('created_at')
+        ->orderBy('id')
         ->get();
 
     expect($notes)->toHaveCount(2)

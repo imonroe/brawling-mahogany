@@ -52,14 +52,24 @@ use App\Support\Messages\RenderedMessage;
  * template's tokens: an author can write the listing URL out in full instead
  * of using the field, and a token scan would not see it.
  *
- * ## The status page link is Slice 4, and its absence is a state
+ * ## The status page link slot is still empty, and the reason changed
  *
  * PRD §5.7 step 1 is *"the seller receives a milestone email containing a
  * status page link"*, and the page is #110. The issue names both — *"with and
  * without status link"* — so the slot exists, takes precedence over the MLS
- * link when it is filled, and is null everywhere today. `MergeFields` already
- * carries `status_page_link` as a registered-but-unavailable field for the
- * same reason.
+ * link when it is filled, and is null everywhere today.
+ *
+ * It was null through Slice 3 because the page did not exist. Slice 4 built
+ * the page and the slot stayed null, which is worth saying out loud rather
+ * than leaving as an oversight somebody later "fixes" by filling it: what is
+ * missing now is a **credential a message may carry**. `IssueStatusPageLink`
+ * mints a 30-minute single-use link and revokes every live grant that person
+ * holds on the deal — correct for a client asking for a new link, and wrong
+ * for an automation, which would end the session of a client browsing the page
+ * at the moment a stage completed. Pointing at the session they already hold
+ * is not available either: the session token is stored hashed, deliberately,
+ * so nothing can render it back into a URL. `MergeFields::status_page_link`
+ * carries the same note, and is unavailable for the same reason.
  *
  * ## Snapshotted at raise time, into the payload, beside the words
  *

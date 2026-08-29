@@ -60,6 +60,19 @@ const SANCTIONED_UNSCOPED_QUERIES = [
         'reason' => 'The definition itself.',
     ],
 
+    'Support/Extraction/SpendLedger.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2 — a context with no tenant, and the one figure in the product '.
+            'that is deliberately not about a tenant at all. `platformSpentThisMonth()` '.
+            'answers "what has this installation spent on reading documents this month", '.
+            'which is the ceiling PRD §14.3 asks for so a defect — a retry loop, a runaway '.
+            'import — cannot spend the company\'s money overnight. Asking it inside one '.
+            'team\'s scope would answer a different question, and one that cannot stop '.
+            'anything: every team would be under the platform cap because every team is '.
+            'only part of it. The per-team figure beside it (`teamSpentThisMonth`) is '.
+            'ordinary scoped Eloquent, which is the pairing that makes this one legible.',
+    ],
+
     'Models/Person.php' => [
         // Three, down from four: `identityIsEditableBy()` went with the shared
         // identity columns it guarded (#140).
@@ -69,6 +82,58 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'every membership I hold when my account goes (revokeEveryMembership). A '.
             'login spans teams by design, so asking about one inside a single team is '.
             'the bug, not the fix.',
+    ],
+
+    'Models/Notification.php' => [
+        'count' => 2,
+        'reason' => 'Kind 1 twice over, and the second one is what makes the first true. '.
+            '`forPerson()` asks "what have I been told", and issue #101 requires it to span '.
+            'teams: "a person in two teams needs to know which one a notification came from, '.
+            'and switching teams should not hide it." A stager working two agencies who is '.
+            'told at nine that a task is theirs must not lose it by switching at ten. So the '.
+            'notifications query lifts the team scope, and the predicate is their own id. '.
+            'The **membership subquery beside it** lifts the scope for the same reason — a '.
+            'question about the actor cannot be asked from inside one tenant — and it is '.
+            'what bounds the first: only teams this person holds an unrevoked membership in. '.
+            'Round 3 of review is why it is there. `summary` is snapshotted at raise time '.
+            'but the feed hydrates `dealName` and `teamName` live, so without it a revoked '.
+            'member who still held an account in another team went on receiving the first '.
+            'team\'s current deal names — which `NameDeal` derives from the subject '.
+            'property\'s address and the roster. Nothing here is read across a boundary that '.
+            'is not already this person\'s, and now that is true of what the lines *say* as '.
+            'well as of which rows come back.',
+    ],
+
+    'Support/Notifications/NotificationFeed.php' => [
+        'count' => 1,
+        'reason' => 'Kind 1, and downstream of Notification::forPerson() rather than beside '.
+            'it. The panel reads across teams by design, so the deals those rows point at '.
+            'have to be readable too — an ->with(\'deal\') does **not** inherit the lifted '.
+            'scope, it issues its own query under whichever team happens to be resolved, '.
+            'so the cross-team line came back with a null deal name and a link that 404s. '.
+            'The ids are not arbitrary: they come off rows addressed to this person, each '.
+            'carrying its own team_id, and a composite foreign key makes a notification '.
+            'pointing at another team\'s deal unrepresentable — so this reads exactly the '.
+            'deals the person was already told about.',
+    ],
+
+    'Console/Commands/ReleaseHeldNotifications.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2, and the same shape: what quiet hours held belongs to every team '.
+            'at once, so the sweep is above the tenancy and each notification carries its '.
+            'own team_id into the job, which re-establishes it before anything is read.',
+    ],
+
+    'Support/Delivery/ApplyDeliveryEvent.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2, and the clearest example of it in the product: a bounce '.
+            'notification arrives from Amazon carrying a message id and nothing else — no '.
+            'session, no team, no way to know whose message it is until the row is found. '.
+            'The *find* is unscoped and the *write* is not: the rows come back already '.
+            'keyed to one team, and everything downstream runs inside '.
+            'TeamContext::runFor() for that team. So no tenant data is read across a '.
+            'boundary — one indexed column is matched, and the answer establishes the '.
+            'tenant the rest of the work happens under.',
     ],
 
     'Models/ActionDefinition.php' => [
@@ -184,6 +249,17 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'which rows exist.',
     ],
 
+    'Console/Commands/ReapStrandedExtractions.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant, the same shape as the sweep above it: which '.
+            'extractions have stopped moving is a question across every team at once, and '.
+            'a scheduled run has no session to ask it in. Nothing is read from the row but '.
+            'its id, its state and its team, and each one is then handled inside runFor() '.
+            'on its own team so the failure write and the notification land under the right '.
+            'tenant. The re-dispatch carries the team id through forTeam(), where RunsForTeam '.
+            'throws rather than running unscoped.',
+    ],
+
     'Console/Commands/DispatchDueAutomations.php' => [
         'count' => 3,
         'reason' => 'A context with no tenant, and the sweep shape PurgeSoftDeletedRecords '.
@@ -203,6 +279,84 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'due, and built a whereNotIn list that only ever grew — every team that has '.
             'ever left the kill switch on, forever, against Postgres\'s 65,535-parameter '.
             'ceiling. It reads one column.',
+    ],
+
+    /*
+     * The client status page (#110, #111), and every one of these is the
+     * second kind of reason this file names: **a context with no tenant.**
+     *
+     * A client has no account, no membership and no session. The token *is*
+     * what establishes the team — ADR 0002's stated exception, the same one an
+     * invitation makes — so the lookup that finds the row cannot be scoped by
+     * the thing the row is about to establish. Everything after it is narrowed
+     * against that row's own `team_id` and `deal_id` by hand, which is what
+     * the scope would have done.
+     */
+    'Support/StatusPage/IssueStatusPageLink.php' => [
+        'count' => 2,
+        'reason' => 'The two token lookups, and the only two places a client\'s credential '.
+            'is resolved. A client has no team to scope by — the token is what establishes '.
+            'it — so this is the boundary where a tenant comes into existence for the '.
+            'request, the same shape `invitations.show` has. Both are equality matches on a '.
+            'unique sha256 column, so neither can read more than one row, and everything '.
+            'downstream is narrowed against that row\'s own team.',
+    ],
+
+    'Support/StatusPage/DispatchStatusPageLink.php' => [
+        'count' => 1,
+        'reason' => 'S64\'s escape hatch, which starts from an email address and nothing '.
+            'else — #110 requires that a client be able to ask for a new link "knowing '.
+            'nothing but their email address", so there is no tenant to scope by and no '.
+            'session to read one from. It matches only grants that **already exist** and '.
+            'are not revoked, so asking cannot get anybody onto a deal they were not '.
+            'already on; each send then runs inside runFor() on that grant\'s own team.',
+    ],
+
+    'Support/StatusPage/ClientStatus.php' => [
+        'count' => 1,
+        'reason' => 'The team\'s owner, as the fallback for "who do I call?" (F7.6). '.
+            'Reached from a client request, which has no tenant resolved — the link\'s own '.
+            'team is the one it asks about, and it is passed in rather than inferred. '.
+            'Filters active() for the reason SendingIdentity records: an owner who has '.
+            'left is not somebody to tell a client to ring.',
+    ],
+
+    'Http/Controllers/StatusPage/StatusDocumentController.php' => [
+        'count' => 1,
+        'reason' => 'The document a client is downloading. No tenant is resolved because '.
+            'the caller is a client, so the query is narrowed by hand against the link\'s '.
+            'own team_id **and** the deal that link names **and** client_visible — three '.
+            'conditions where the scope would have supplied one, because a client with a '.
+            'session for one deal must not be able to name a document id from another.',
+    ],
+
+    'Support/Calendar/ManageCalendarFeeds.php' => [
+        'count' => 2,
+        'reason' => 'A context with no tenant: the reader is a calendar client — Google\'s '.
+            'fetcher or Apple\'s — with no cookie and no idea what a team is, so the token '.
+            'is what establishes one (F8.3, ADR 0002\'s stated exception, the same one the '.
+            'status page makes). An equality match on a unique sha256 column can find only '.
+            'the row it names, and the controller then renders the feed inside runFor() on '.
+            'that row\'s own team, so the board query is scoped exactly as any screen\'s is. '.
+            'The second is the membership subquery inside that same lookup, and it narrows '.
+            'rather than widens: a feed keeps working only while its person is still on the '.
+            'team **and still holds calendar.view** (#194) — the key EventPolicy::viewAny() '.
+            'gates the screen on, so a URL cannot outlive the screen it came from. That '.
+            'stops both a colleague who left in March and one moved onto a role composed '.
+            'without the calendar from fetching the whole thing from a URL nobody remembers '.
+            'exists. It has to lift the scope for the same reason the lookup does — it runs '.
+            'before any team is established, and it is correlated to the feed\'s own '.
+            'team_id, so a person holding the key at one agency cannot keep a feed alive at '.
+            'another.',
+    ],
+
+    'Console/Commands/IssueStatusPageLinkCommand.php' => [
+        'count' => 2,
+        'reason' => 'ADR 0003\'s console door, and the sweep shape every scheduled command '.
+            'here uses: a console run has no session, so the deal and the membership are '.
+            'looked up unscoped and the issue itself happens inside runFor() on that '.
+            'deal\'s team. The membership lookup is narrowed to the deal\'s own team_id, '.
+            'so an address that exists in two teams cannot resolve to the wrong one.',
     ],
 ];
 

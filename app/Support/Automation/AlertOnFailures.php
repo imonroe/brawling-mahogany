@@ -6,12 +6,17 @@ namespace App\Support\Automation;
 
 use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
+use App\Enums\DeliveryStatus;
+use App\Enums\NotificationType;
 use App\Mail\InternalAlertMail;
 use App\Models\ActionInstance;
 use App\Models\Deal;
+use App\Models\MessageDelivery;
+use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Messages\ResolveRecipients;
+use App\Support\Notifications\Notify;
 use App\Support\Permissions;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -101,8 +106,24 @@ use Throwable;
  * ago is how an alert becomes noise, and an alert people filter is an alert
  * that does not work when it matters.
  *
- * S91's other two states are not ours yet: a **bounce** is #95 and an
- * **extraction failure** is Slice 5. Both become rows this sweep can read.
+ * ## Two tables, one mark, one email (#95)
+ *
+ * A **bounce** is the other half of S91 and it is not a failure of this
+ * product at all: `action_instances.state` is `sent`, correctly — the message
+ * was written and handed over — and the mailbox rejected it afterwards. So it
+ * lives in `message_deliveries` and is swept from there, on the same window
+ * and behind the same watermark, because a team that gets one email about
+ * their credentials and a second about a bounce two minutes later is a team
+ * that starts filtering both.
+ *
+ * The delivery window keys on `noticed_at` rather than on `bounced_at`, and
+ * that column exists for this: Amazon's timestamp is when the mailbox
+ * refused, which can be well behind the mark by the time the notification
+ * arrives, and a window on it would step straight over a genuine bounce. The
+ * migration argues it in full.
+ *
+ * S91's third state, an **extraction failure**, is Slice 5 and becomes rows
+ * this sweep can read the same way.
  */
 final class AlertOnFailures
 {
@@ -130,7 +151,10 @@ final class AlertOnFailures
     /** Enough people to be sure somebody sees it, few enough not to be a broadcast. */
     private const MAX_RECIPIENTS = 5;
 
-    public function __construct(private readonly ResolveRecipients $recipients) {}
+    public function __construct(
+        private readonly ResolveRecipients $recipients,
+        private readonly Notify $notify,
+    ) {}
 
     /**
      * Tell this team about anything that has failed since they were last told.
@@ -230,7 +254,22 @@ final class AlertOnFailures
          * reported 500 and moved the mark past the rest — the same silence the
          * window fixes, arriving through a `LIMIT` instead.
          */
-        $count = $window()->count();
+        /*
+         * The bounces and complaints this team learned about in the same
+         * window (#95). A separate query rather than a union, because the two
+         * tables answer different questions and only the counts need adding
+         * up — and because a union would have to reconcile two different
+         * timestamp columns into one sort, which is precisely the confusion
+         * `noticed_at` exists to avoid.
+         */
+        $bounces = fn (): Builder => MessageDelivery::query()
+            ->where('team_id', $team->getKey())
+            ->failed()
+            ->whereNotNull('noticed_at')
+            ->where('noticed_at', '>=', $since)
+            ->where('noticed_at', '<', $through);
+
+        $count = $window()->count() + $bounces()->count();
 
         if ($count === 0) {
             /*
@@ -296,7 +335,18 @@ final class AlertOnFailures
             ->orderByDesc('id')
             ->first();
 
-        if (! $newest instanceof ActionInstance) {
+        /*
+         * And the newest bounce, for a window that may hold only those. Same
+         * tiebreaker, same reason: `noticed_at` is `timestamp(0)` too, and a
+         * bounce storm arrives as one burst.
+         */
+        $newestBounce = $bounces()
+            ->with('actionInstance.deal')
+            ->orderByDesc('noticed_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $newest instanceof ActionInstance && ! $newestBounce instanceof MessageDelivery) {
             // Unreachable behind the count above, and cheap insurance against
             // a row purged between the two queries.
             $this->remember($team, $through);
@@ -304,24 +354,61 @@ final class AlertOnFailures
             return false;
         }
 
-        $carriedEmail = $window()
-            ->where('action_type', AutomationActionType::SendEmail->value)
-            ->exists();
+        $carriedEmail = $newestBounce instanceof MessageDelivery
+            || $window()->where('action_type', AutomationActionType::SendEmail->value)->exists();
+
+        /*
+         * Which of the two the email leads with: whichever happened last, so
+         * *"the most recent failure"* means what it says over a window holding
+         * both kinds. Comparing the two clocks is safe here because both are
+         * this product's own — `executed_at` is stamped by the worker and
+         * `noticed_at` by the webhook, and neither is Amazon's.
+         *
+         * One failure gets a link to itself; several get the queue, since
+         * picking one of twelve to open is a choice nobody can make from an
+         * inbox. A bounce links to the message it bounced off, which is the
+         * row S49 renders the delivery history on.
+         */
+        if ($newestBounce instanceof MessageDelivery && $this->bounceIsNewer($newestBounce, $newest, $since)) {
+            $detail = $this->bounceDetail($newestBounce, $count);
+            $only = $newestBounce->action_instance_id;
+        } else {
+            $detail = $this->detail($newest, $count);
+            $only = $newest?->getKey();
+        }
 
         Mail::to($audience)->send(new InternalAlertMail(
             team: $team,
             headline: $this->headline($count, $carriedEmail),
-            detail: $this->detail($newest, $count),
-            /*
-             * One failure gets a link to itself; several get the queue, since
-             * picking one of twelve to open is a choice nobody can make from
-             * an inbox.
-             */
-            actionUrl: $count === 1
-                ? route('messages.show', ['message' => $newest->getKey()])
+            detail: $detail,
+            actionUrl: $count === 1 && is_string($only)
+                ? route('messages.show', ['message' => $only])
                 : route('messages.index'),
             actionLabel: $count === 1 ? 'See what happened' : 'Open the message queue',
         ));
+
+        /*
+         * F12.4's *"automation failure"* notification, raised from **this**
+         * sweep rather than from a failure path (#101).
+         *
+         * The argument is this class's own, one channel along: a thing wired
+         * to one implementation of a failure is wired to none of it, and a
+         * transport exception never reaches `ExecuteAction::fail()`. Reading
+         * the same window the email reads means the panel and the inbox can
+         * never disagree about what happened — and the watermark that stops
+         * the email arriving twice stops the notification arriving twice for
+         * free.
+         *
+         * The audience is the same too: whoever can approve messages, and the
+         * owners when nobody holds it.
+         */
+        $this->notify->send(
+            type: NotificationType::AutomationFailed,
+            people: $this->notifiable($audience, $team),
+            team: $team,
+            summary: $this->headline($count, $carriedEmail),
+            deal: $newest?->deal,
+        );
 
         /*
          * The mark moves **after** the send, which is the safe order and not a
@@ -401,10 +488,10 @@ final class AlertOnFailures
      * transport's rejection, the reaper's deliberate ambiguity. Quoting the
      * row beats composing a sentence about it.
      */
-    private function detail(ActionInstance $newest, int $count): string
+    private function detail(?ActionInstance $newest, int $count): string
     {
-        $deal = $newest->deal;
-        $reason = trim((string) $newest->error);
+        $deal = $newest?->deal;
+        $reason = trim((string) $newest?->error);
 
         $sentence = $deal instanceof Deal
             ? 'On '.$deal->displayName().': '.($reason !== '' ? $reason : 'no reason was recorded.')
@@ -423,6 +510,124 @@ final class AlertOnFailures
         }
 
         return $sentence;
+    }
+
+    /**
+     * Did this bounce happen after the newest instance failure, if there is one?
+     *
+     * With no instance failure in the window the bounce is trivially the
+     * newest — which is the ordinary case for a healthy team whose only
+     * problem is one dead address.
+     */
+    private function bounceIsNewer(
+        MessageDelivery $bounce,
+        ?ActionInstance $newest,
+        CarbonInterface $since,
+    ): bool {
+        if (! $newest instanceof ActionInstance) {
+            return true;
+        }
+
+        $noticed = $bounce->noticed_at;
+
+        return $noticed instanceof CarbonInterface
+            && $noticed->greaterThan($newest->executed_at ?? $since);
+    }
+
+    /**
+     * The most recent bounce, in words about the address rather than about SMTP.
+     *
+     * #95: *"An agent needs to know that the disclosure email never arrived,
+     * and needs it to say so in plain language — not `SMTP 550`."* The
+     * provider's own diagnostic is on the delivery row for anybody debugging
+     * deliverability; what goes in an inbox is what happened and what to do.
+     *
+     * The address itself is **not** in the alert. It is on S49, behind the
+     * link, where a person with permission is looking at one deal — and an
+     * internal alert is forwarded, quoted and left in inboxes, which is not
+     * where a client's email address belongs (PRD §9).
+     */
+    private function bounceDetail(MessageDelivery $delivery, int $count): string
+    {
+        $deal = $delivery->actionInstance?->deal;
+
+        /*
+         * **An exhaustive match, not "complained or else"**, which is
+         * `CLAUDE.md`'s own finding two bullets up from the ones this feature
+         * added: *"a headline that asserts is wrong for one caller — derive
+         * the words from the action type."* Round 2 of review measured the
+         * else-branch describing a `suppressed` row — a copy never handed to a
+         * provider — as *"could not be delivered, the address was rejected"*.
+         * Nothing was delivered to and no mail server was involved.
+         *
+         * The actions differ too, which is why one sentence cannot serve both:
+         * a bounce means *check the address with them*; a withheld copy means
+         * the address has been known dead for some time and the fix is to
+         * correct it on the deal.
+         *
+         * `suppressed` cannot reach here today — the sweep windows on
+         * `noticed_at`, which `RecordDeliveries` deliberately leaves null on a
+         * withheld row — and it is written out all the same. A `match` arm for
+         * a case the enum really has is exhaustiveness, and the alternative is
+         * a default branch that lies the moment somebody stamps that column.
+         */
+        $what = match ($delivery->status) {
+            DeliveryStatus::Complained => 'was marked as spam by the person it was sent to',
+            DeliveryStatus::Bounced => 'could not be delivered — the address was rejected',
+            DeliveryStatus::Suppressed => 'was not sent, because that address can no longer be written to',
+            DeliveryStatus::Sent, DeliveryStatus::Delivered, DeliveryStatus::Opened => 'needs looking at',
+        };
+
+        $sentence = $deal instanceof Deal
+            ? 'On '.$deal->displayName().': a message '.$what.'.'
+            : 'A message '.$what.'.';
+
+        if ($count > 1) {
+            $others = $count - 1;
+
+            $sentence .= $others === 1
+                ? ' 1 other also needs looking at.'
+                : ' '.$others.' others also need looking at.';
+        }
+
+        return $sentence;
+    }
+
+    /**
+     * The same people, as `Person` rows for the notification fan-out.
+     *
+     * Resolved from the addresses rather than a second query: `audience()`
+     * has already decided who — including its *"owners when nobody holds the
+     * permission"* fallback and its cap — and asking again with a different
+     * predicate is how the email and the panel come to disagree about who was
+     * told.
+     *
+     * @param  list<Address>  $audience
+     * @return list<Person>
+     */
+    private function notifiable(array $audience, Team $team): array
+    {
+        $addresses = array_map(
+            static fn (Address $address): string => mb_strtolower($address->address),
+            $audience,
+        );
+
+        if ($addresses === []) {
+            return [];
+        }
+
+        return array_values(TeamMembership::query()
+            ->where('team_id', $team->getKey())
+            ->active()
+            ->with('person')
+            ->get()
+            ->filter(static fn (TeamMembership $membership): bool => in_array(
+                mb_strtolower((string) $membership->email),
+                $addresses,
+                true,
+            ))
+            ->map(static fn (TeamMembership $membership): Person => $membership->person)
+            ->all());
     }
 
     /**

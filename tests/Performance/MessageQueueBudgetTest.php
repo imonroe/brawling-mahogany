@@ -126,7 +126,20 @@ it('does not grow its query count with the queue', function (): void {
      * added, and that is the point: another query on the screen a team opens
      * all day should have to be argued for in a diff rather than absorbed.
      */
-    expect($large)->toBe(35);
+    /*
+     * **34, down from 35**, while gaining a third badge (#101).
+     *
+     * `PeopleIndexBudgetTest` predicted this shape: *"two is where the shell's
+     * counts stop being free, and a third would need one query returning
+     * several counts."* `ShellCounts` is that query, so the shell now issues
+     * one round trip where it issued two — the notification count rides along
+     * for nothing and the message count comes back with it.
+     *
+     * Pinned to an exact number rather than a ceiling for the reason above:
+     * another query on the screen a team opens all day should have to be
+     * argued for in a diff.
+     */
+    expect($large)->toBe(34);
 });
 
 it('really did render the larger queue', function (): void {

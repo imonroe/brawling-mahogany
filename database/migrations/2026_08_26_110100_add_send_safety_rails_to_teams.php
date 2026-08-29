@@ -29,8 +29,11 @@ use Illuminate\Support\Facades\Schema;
  *
  * Halting sending is an incident, and *when* somebody pulled the cord is part
  * of what happened. Sandbox mode is a configuration — a team tuning their
- * templates, or staging, where PRD §8.6 requires that *"no test ever reaches a
- * real client"* permanently.
+ * templates, or staging, where PRD §8.6 requires permanently that no test
+ * reaches a real client. (§8.6 was reworded on 2026-08-28: SES production
+ * access removed the sandbox half of that guarantee, so `MAIL_REDIRECT_TO` now
+ * carries it for every message and this flag only for automated ones. See
+ * #196.)
  *
  * ## The limits have defaults, and the defaults are the point
  *

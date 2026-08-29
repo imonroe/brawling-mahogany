@@ -386,6 +386,26 @@ Code uses `snake_case`. UI uses Title Case. Client-facing uses plain language.
 
 `pending` → Needs Review · `confirmed` → Confirmed · `edited` → Edited · `rejected` → Rejected
 
+### Extraction
+
+`queued` → Queued · `processing` → Extracting · `complete` → Ready to Review · `failed` → Failed · `blocked` → Stopped
+
+A different question from *Extracted field* above, and the two appear on the
+same screen at once: this one is about the **attempt**, that one about a
+**proposal**.
+
+Two of the labels are deliberate. *Extracting* rather than "Processing", which
+is what a progress bar says when nobody thought about it — and not "Reading"
+either, which is the word §11 bans: the feature has one name and a second one
+is how a screen and a help article stop describing the same thing. Prose may
+say a document is read; a label may not.
+
+And *Stopped* rather than "Blocked" or "Failed" — a monthly spending limit
+halted this before the model was called, so nothing went wrong and nothing will
+go right until somebody raises the limit or the month turns over. Calling that a
+failure sends an operator looking for a broken thing that is working as
+designed.
+
 ---
 
 ## 9. Client-facing language rules
@@ -407,6 +427,15 @@ The client is a homeowner, not a user of software. Three rules, all traceable to
 **No instructions directed at the client.** Heather's point, and it shapes the whole surface: chasing a client through a checklist reads as less professional than a phone call, not more. The status page states facts and never issues assignments. "Your inspection is scheduled for Thursday" is correct. "Action needed: confirm inspection time" is not.
 
 **No alarming words.** Blocked, failed, overdue, and error never reach the client. If something is late, the agent handles it by phone.
+
+> [!note] How the three rules are held, now that the surface exists (#111)
+> Every string on the client status page is composed by `App\Support\StatusPage\ClientStatus` on the server, not assembled in the Vue template. That is the difference between a rule and a habit: a template holding the rows could reach for `stage.name` in one place and forget, and nothing fails — a seller just reads *"Chase lender"* on their own page.
+>
+> Three consequences worth knowing before changing anything here.
+>
+> - **A stage with no `milestone_label` is omitted from the timeline, not renamed.** The only alternative to omitting it is inventing a label, and an invented label puts words in the team's mouth on the team's own branded page. A workflow whose stages carry no labels renders a status card and no timeline, which is a legible page saying little.
+> - **A blocked stage is *"Happening now"*.** The third rule read literally: the client surface has no vocabulary for *blocked* and does not need one, because a stage nobody can move is still the stage the deal is at.
+> - **Only confirmed dates in the future are shown.** A pending extracted date is a proposal, and a client reading a proposal as a commitment is the failure mode PRD §4.10 exists to prevent.
 
 ---
 

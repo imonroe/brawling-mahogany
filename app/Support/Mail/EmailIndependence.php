@@ -7,6 +7,7 @@ namespace App\Support\Mail;
 use App\Mail\AutomatedMessageMail;
 use App\Mail\InternalAlertMail;
 use App\Mail\MessageTemplateTestMail;
+use App\Mail\StatusPageLinkMail;
 use App\Mail\TeamInvitationMail;
 
 /**
@@ -111,6 +112,30 @@ final class EmailIndependence
                 .'person can send it by hand or pick up the phone. ADR 0003\'s failure is a flow '
                 .'that becomes unreachable **without anybody being told**; this one cannot go '
                 .'quiet, because a message that fails is a row somebody has to clear.',
+        ],
+
+        'status-page-link' => [
+            'label' => 'A client opening their own status page',
+            'sends' => StatusPageLinkMail::class,
+            'alternatives' => [
+                // The agent handing the URL over from the deal's People tab —
+                // for the phone call, or the text message. The same shape S74
+                // uses for an invitation, and the door an agent actually
+                // reaches for when a client says the email never arrived.
+                'route:deals.status-page.link',
+                // S64's own escape hatch, which asks for nothing but an email
+                // address and re-issues access somebody already had.
+                'route:status.request',
+                // And the install with no transport at all, or the support
+                // call where somebody has to read a URL down the phone.
+                'command:status-page:link',
+            ],
+            'note' => 'The client cannot open the page without *a* link, so the second door here '
+                .'is not "another way to read it" — it is another way to be **given** one, and '
+                .'there are three. The agent can produce the URL on screen and hand it over by '
+                .'any channel they like, which is the case that actually happens: a client says '
+                .'the email never arrived and the agent reads it out. An install with no mail '
+                .'transport loses the convenience and none of the access.',
         ],
 
         'internal-alert' => [

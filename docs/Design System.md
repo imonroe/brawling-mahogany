@@ -224,6 +224,11 @@ One table, and it is the single source of truth for every badge in the product. 
 | | Confirmed | `success` | |
 | | Edited | `info` | |
 | | Rejected | `neutral` | |
+| **Extraction** | Queued | `neutral` | |
+| | Extracting | `info` | |
+| | Ready to Review | `success` | |
+| | Failed | `danger` | |
+| | Stopped | `warning` | A spending limit halted it before the model ran (#113). Not `danger`: nothing is broken |
 | **Document** | Refused by scan | `danger` | |
 | **Property** | Pre-listing | `neutral` | Not on the market yet |
 | | For Sale | `info` | On the market |
@@ -639,7 +644,7 @@ Everything in this section is measured from the built designs. Tailwind classes 
 | `PersonPicker` | `components/app/` | Not yet designed |
 | `EmptyState` | `components/app/` | **Built.** Two variants: nothing exists yet, and nothing matches this filter |
 | `ConfirmDestructive` | `components/app/` | Not yet designed |
-| `UploadZone` | `components/app/` | Not yet designed (S51) |
+| `UploadZone` | `components/app/` | **Built** (S51). A button that opens the file picker, with drop handling layered on top — built the other way, the keyboard path is a thing somebody remembers to add. Refuses nothing client-side: the bytes decide, server-side, and two copies of an allowlist disagree the moment one is edited |
 
 ### 7.2 Atoms
 
@@ -980,7 +985,7 @@ Beyond shadcn and its own dependencies. Keep this list short and justify every a
 | ~~A sortable library~~ | S38, S41, S42 | **Decided in S38 (#63): none.** Explicit move controls instead — see §13.2's note below |
 | TipTap | S46 merge-field editor | Only if a simpler token-insert textarea proves insufficient |
 | A PDF renderer | S52, S66 | pdf.js based |
-| A calendar library | S57 | Evaluate against building the month grid by hand |
+| ~~A calendar library~~ | S57 | **Decided in S57 (#105): none.** The month grid is built by hand — see §15.3 |
 
 > [!tip] Try the simple version of S46 first
 > A textarea with a merge-field insert button and a live preview may be entirely adequate, and it avoids adding a rich text editor along with its serialization, sanitization, and paste-handling problems. Reach for TipTap only after the simple version demonstrably fails.
@@ -1364,7 +1369,7 @@ Baseline for the internal app, and a hard requirement on the client status page 
 | Touch targets | 44px minimum on mobile, without exception |
 | Labels | Every input bound to a label. Placeholder is not a label. |
 | Motion | Honour `prefers-reduced-motion` |
-| Client page | **WCAG 2.1 AA, verified.** Older audience, unfamiliar interface, one chance to be understood. |
+| Client page | **WCAG 2.1 AA, verified.** Older audience, unfamiliar interface, one chance to be understood. Automated pass and contrast pass are held by tests (#112); the manual screen-reader pass on a real device is outstanding and named below. |
 
 > [!success] Contrast measured, 2026-08-21
 > Every state pair was measured from the oklch tokens in `resources/css/app.css`, converted to sRGB and checked against WCAG 2.1. All pass 4.5:1 — the threshold for normal text — which covers the 11px and 12px badge labels.
@@ -1380,6 +1385,19 @@ Baseline for the internal app, and a hard requirement on the client status page 
 > Dark mode measures higher on every pair (5.62 to 7.01 on the badge). The margins are thin by design — the badges are deliberately subtle — so the measurement is a **test**, not a note: `tests/js/tokens.test.ts` recomputes it from the stylesheet on every run and fails the build if a token edit drops a pair below 4.5:1.
 >
 > One caveat, stated because the margins are thin. Four token values sit just outside the sRGB gamut (`--state-info-bg`, `--state-warning`, `--state-warning-bg`, `--state-danger-bg`). The measurement clips each channel; a browser gamut-maps by reducing chroma instead, so what renders differs slightly from what is measured. The direction of that difference is toward *less* saturation and therefore, for these pairs, marginally more contrast — but if a pair is ever tightened further, bring the token into gamut rather than trusting the measurement to the second decimal.
+
+> [!success] The client surface audited, 2026-08-28 (#112)
+> PRD §9's *"WCAG 2.1 AA for the client status page, best effort internally"* is now held by tests rather than by intention. Two files, because the requirement splits in two and each half fails in a way the other cannot see.
+>
+> **The automated pass** is `tests/js/clientSurfaceAccessibility.test.ts`: axe-core over S62, S63 and S64, at `wcag2a`/`wcag2aa`/`wcag21a`/`wcag21aa`, plus the rules axe cannot express — the timeline as a real `<ol>`, each step's state carried in words as well as by its marker, real landmarks, 52px and 44px targets, and no internal density class (`text-13`, `text-sm` and `text-xs` are all below this surface's 16px floor). It carries a **positive control**: a deliberately broken fragment must produce a violation, because an automated accessibility check is unusually good at looking clean for the wrong reason.
+>
+> **The contrast pass** is `tests/Feature/StatusPage/ClientContrastTest.php`, and it is on the server because that is where the decision lives. jsdom computes no layout, so axe's `color-contrast` rule cannot run at all there — it is disabled rather than left to return `incomplete`, which reads as a clean run.
+>
+> §15.6's answer holds, and the audit bounds it honestly. **Any accent S72 did not warn about reaches AA on the client page**, because S72's threshold is white against the accent, so passing it means white passes. There is a narrow band — mid greys around `#777777` — where *neither* white nor near-black reaches 4.5:1, and every colour in it fails S72's check, so the owner was told before they kept it. In that band the page takes the better of the two and never drops below AA's 3:1 UI line.
+>
+> **Deferred, and named rather than implied.** #112 also asks for a manual screen-reader pass on a real iOS and Android device. That is device work a commit cannot close — the same category as #19's web push confirmation — and it is the half that catches *"a timeline that reads as gibberish"*, which no automated tool can. It is recorded on the epic rather than counted as done.
+>
+> Motion: the client surface animates nothing at all, which is how `prefers-reduced-motion` is honoured there. The test asserts the absence, so the next edit that adds a transition without a media query beside it fails rather than ships.
 
 ---
 
@@ -1491,16 +1509,16 @@ resources/js/
 ### 13.3 Build order
 
 1. ~~Tokens and the Tailwind theme, including the `state-*` utilities and `text-13`~~ — **done**
-2. ~~`AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.~~ — **built; the review with Heather is still outstanding**
+2. ~~`AppLayout` — sidebar and top bar, section 8. The highest-leverage work in the project.~~ — **done**, and reviewed with Heather on 2026-08-21
 3. ~~`StatusBadge`, since it appears on nearly every screen~~ — **done**
 4. ~~`PageHeader`, `FilterBar`, `EmptyState`, which unlock every P1 list page~~ — **done**, along with `Card`, `Table`, `DealRow`, `TaskItem`, `ActivityItem`, `DateChip`, `IconButton`, and `Tab`
 5. ~~One real list screen end to end (S13), to prove the density spec at 20 rows~~ — done in #78; §4.3 carries the measured budget
 6. Then the bespoke work, starting with the stage rail (S16) — Slice 2
 
-> [!warning] Step 2 still owes its review
-> `AppLayout` is built to the measurements in section 8 and renders in both themes, but **it has not been reviewed with Heather.** Seventy screens inherit its decisions about density, type scale, and mobile collapse, so that review happens before any product screen is built — not after.
+> [!success] Step 2's review happened
+> `AppLayout` is built to the measurements in section 8, renders in both themes, and **was reviewed with Heather on 2026-08-21, who approved it** (#31). Seventy screens inherit its decisions about density, type scale and mobile collapse, which is why that review had to come before any product screen rather than after — and it did.
 >
-> Every component in steps 1 to 4 renders in the gallery at `/design-system`, in both themes, which is what the review should be run against.
+> Every component in steps 1 to 4 renders in the gallery at `/design-system`, in both themes. The review itself was run against **screenshots of the running shell** at three breakpoints plus dark mode, deliberately — #31's own thread says it *"does not need a meeting, a dev environment, or a running stack"*, which is what made it answerable between appointments. The gallery is what a *future* review would use.
 
 ---
 
@@ -1542,7 +1560,13 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 
 1. **Product name.** Blocks the logo, the favicon, the email header, and the sending subdomain, which is painful to change once reputation is established.
 2. **Empty states, beyond the first two.** The component is built and the dashboard and deals-index states are designed (§9.7). Every remaining screen still owes its own, and the rule is now that a screen is not finished without one.
-3. **Calendar library for S57.** Evaluate building the month grid by hand against adopting one, since most calendar libraries bring heavy styling opinions that will fight this system.
+3. **Calendar library for S57. Settled, and the answer is none** (#105). The month grid is `CalendarMonth.vue`: six rows of seven cells over a range the controller already computes.
+
+    The styling argument stood — most calendar libraries bring opinions that would fight §2's tokens — but it is not what decided it. **No library models two kinds of thing on one square.** Every one of them has a single event type with a start and an end, and Screen Inventory calls S57 hard for precisely the case that is not: *"events and deadlines are different things sharing a grid."* A deadline is a moment with legal consequences that nobody attends, it has to be visually distinct from a 4pm showing **and sorted above it**, and the distinction has to survive a dense day where five of each land together.
+
+    Adopting one would have meant fighting its cell renderer to express the single thing this screen exists to express, on top of fighting its CSS. A month grid is a smaller thing to own than an adapter.
+
+    `CalendarItem.vue` carries the distinction in **three** channels rather than in colour alone (§11 does not let colour be the only one): shape — a deadline is a flag on a flat row with a left border, an event is a filled chip with a time; order — decided on the server, because it is a statement about which matters; and words — a deadline shows its name and nothing else. A dense cell shows three and counts the rest into a *"+4 more"* that opens the day, because a cell that grows to fit eleven pushes the rest of the month off the screen and silently dropping them is the version that looks fine and loses a closing.
 4. **Rich text for S46.** Try the simple token-insert textarea first.
 5. **Does anything need charts?** Only S85 and the optional F9.6 reporting. If it stays that small, shadcn's Chart component may be more than is needed.
 6. **Team accent contrast validation. Settled, and the answer is *both*, split by surface** (#97). Warning is more honest and generates support questions; auto-adjusting is invisible and occasionally produces a colour they did not pick — and which of those costs more depends entirely on whether anybody is standing there.
@@ -1573,7 +1597,7 @@ The remaining 74 are listed in [[Screen Inventory]]. Anything built from this do
 - [x] Write the token block, both light and dark, plus the `state-*` and `text-13` theme entries ✅ 2026-08-21
 - [x] Measure contrast on the warning and success badge pairs at 11px ✅ 2026-08-21 — all pairs pass 4.5:1; now a test, see §11
 - [x] Build `AppLayout` plus the sidebar (section 8) ✅ 2026-08-21
-- [ ] **Review `AppLayout` with Heather before any product screen is built** 📅 2026-08-31
+- [x] **Review `AppLayout` with Heather before any product screen is built** ✅ 2026-08-21 — approved; #31 closed on it
 - [x] Build `StatusBadge` against the section 2.4 table ✅ 2026-08-21
 - [x] Build S13 end to end and confirm 20 rows is the honest desktop number ✅ 2026-08-24 — #78; §4.3 now carries the measured budget rather than the estimate
 - [x] Design the mobile collapse for the shell before the PWA slice ✅ 2026-08-21 — built; still to be judged on a real phone

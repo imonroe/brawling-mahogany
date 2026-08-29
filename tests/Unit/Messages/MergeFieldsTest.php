@@ -13,11 +13,17 @@ use App\Support\Messages\MergeFields;
  * field *resolves to* is `tests/Feature/Messages/MessageRenderingTest.php`,
  * which needs one.
  */
-it('registers the fields F5.6 names that cannot resolve yet, with the slice that wires them', function (): void {
+it('registers the field F5.6 names that cannot resolve yet, saying why', function (): void {
     /*
-     * Registered rather than omitted, so the editor can say *which* slice and
-     * the validator can refuse them **by name**. "There is no such field"
-     * would send somebody looking for a spelling mistake.
+     * Registered rather than omitted, so the editor can say what is missing and
+     * the validator can refuse it **by name**. "There is no such field" would
+     * send somebody looking for a spelling mistake.
+     *
+     * There were two of these through Slice 3, both waiting on Slice 4. #109
+     * wired `next_deadline`, so this asserts the **whole** deferred list rather
+     * than membership in it: a field quietly becoming unavailable again — an
+     * `availableFrom` added while chasing a bug, and left — is a merge field
+     * every existing template using it now fails to save with.
      */
     $deferred = array_values(array_filter(
         MergeFields::all(),
@@ -25,11 +31,16 @@ it('registers the fields F5.6 names that cannot resolve yet, with the slice that
     ));
 
     expect(array_map(static fn (MergeField $f): string => $f->token, $deferred))
-        ->toBe(['next_deadline', 'status_page_link']);
+        ->toBe(['status_page_link']);
 
-    foreach ($deferred as $field) {
-        expect($field->availableFrom)->toContain('Slice');
-    }
+    /*
+     * And it says why *now*, not which slice: the status page shipped in Slice
+     * 4 and this field did not, because what is missing is a credential a
+     * message may carry rather than a screen. A note naming a slice that has
+     * landed reads as an oversight and gets "fixed" by deleting the guard.
+     */
+    expect($deferred[0]->availableFrom)->toContain('#110')
+        ->and($deferred[0]->availableFrom)->not->toContain('Slice 4');
 });
 
 it('keeps every merge field token in snake_case', function (): void {

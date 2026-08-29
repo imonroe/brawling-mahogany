@@ -10,7 +10,7 @@ import { Head, router } from '@inertiajs/vue3';
 import AppButton from '@/components/app/AppButton.vue';
 import Card from '@/components/app/Card.vue';
 import EmptyState from '@/components/app/EmptyState.vue';
-import InvitationLinkPanel from '@/components/app/InvitationLinkPanel.vue';
+import HandedLinkPanel from '@/components/app/HandedLinkPanel.vue';
 import PageHeader from '@/components/app/PageHeader.vue';
 import StatusBadge from '@/components/app/StatusBadge.vue';
 import { formatDate } from '@/lib/formatters';
@@ -124,7 +124,7 @@ function restore(): void {
             </Card>
         </div>
 
-        <InvitationLinkPanel v-if="issuedLink" :link="issuedLink" />
+        <HandedLinkPanel v-if="issuedLink" :link="issuedLink" />
 
         <Card title="Pending invitations">
             <EmptyState

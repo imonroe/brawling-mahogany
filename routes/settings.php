@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Notifications\NotificationPreferenceController;
+use App\Http\Controllers\Push\PushSubscriptionController;
 use App\Http\Controllers\Settings\DataExportController;
 use App\Http\Controllers\Settings\DealTypeController;
+use App\Http\Controllers\Settings\ExtractionHistoryController;
 use App\Http\Controllers\Settings\MemberController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
@@ -104,7 +107,44 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
     Route::get('settings/sending', [SendSafetyController::class, 'edit'])->name('team.send-safety.edit');
     Route::patch('settings/sending', [SendSafetyController::class, 'update'])->name('team.send-safety.update');
 
+    /*
+     * S68 — extraction history (#118).
+     *
+     * Under Sending rather than beside Deal types, because it is the second
+     * screen in Settings that reports on **spend and what left the building**
+     * — and, like Sending, it is opened because a question has been asked
+     * rather than because something needs configuring. There is no `POST` of
+     * any kind: everything on it is a read, and a settings screen that could
+     * re-run a model would be a way to spend the team's money from the page
+     * that exists to report what has been spent.
+     */
+    Route::get('settings/extractions', [ExtractionHistoryController::class, 'index'])
+        ->name('extractions.index');
+
     // S79 — team data export.
+    /*
+     * S78 (#101). Inside the team group but behind no permission: everybody
+     * chooses how they are told, and the row is keyed on the person asking.
+     */
+    Route::get('settings/notifications', [NotificationPreferenceController::class, 'edit'])
+        ->name('notification-preferences.edit');
+    Route::patch('settings/notifications', [NotificationPreferenceController::class, 'update'])
+        ->name('notification-preferences.update');
+
+    /*
+     * S55 (#103), beside S78 because it is the same screen.
+     *
+     * A subscription belongs to a **browser**, and a browser belongs to a
+     * person who may be in two teams — so these deliberately do not care
+     * which team is resolved, and switching teams neither registers nor
+     * forgets a device. They sit in this group only because that is where the
+     * screen lives.
+     */
+    Route::post('settings/notifications/push', [PushSubscriptionController::class, 'store'])
+        ->name('push-subscriptions.store');
+    Route::delete('settings/notifications/push', [PushSubscriptionController::class, 'destroy'])
+        ->name('push-subscriptions.destroy');
+
     Route::get('settings/export', [DataExportController::class, 'index'])->name('export.index');
     Route::post('settings/export', [DataExportController::class, 'store'])->name('export.store');
 });

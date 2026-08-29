@@ -6,7 +6,9 @@ namespace App\Support\Automation;
 
 use App\Enums\AutomationActionType;
 use App\Enums\AutomationState;
+use App\Enums\SuppressionReason;
 use App\Models\ActionInstance;
+use App\Models\SuppressedAddress;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Support\Messages\ResolveRecipients;
@@ -174,6 +176,53 @@ final class SendRails
             return SendDecision::refuse('This message resolved to nobody on this deal.');
         }
 
+        /*
+         * **Rail 0b — the suppression list** (#95 · F5.8).
+         *
+         * Above the ceiling and the sandbox, because a suppressed address is
+         * not a message this team may send later when the window rolls: it is
+         * a message that must not go, ever, and counting it against a limit
+         * or redirecting it to the team owner would both be wrong.
+         *
+         * Below the message's own soundness, because a broken template is
+         * worth telling somebody about whichever address it was pointed at.
+         *
+         * Partial suppression **drops the address and sends the rest**. A deal
+         * with two sellers, one of whose mailbox has died, must still reach
+         * the other — refusing the whole message would let one dead address
+         * silence a client who is perfectly reachable, which is the failure
+         * this product cares about most.
+         */
+        $suppressed = SuppressedAddress::among(array_column($recipients, 'email'));
+
+        $sendable = $this->withoutSuppressed($recipients, $suppressed);
+
+        /*
+         * **Not under sandbox**, which round 3 of review found as a cliff
+         * between one-of-two and two-of-two. Round 2's argument for dropping
+         * the withheld list under sandbox — *"sandbox replaces every
+         * recipient, so nothing was withheld from anybody"* — applies to the
+         * refusal just as much as to the reporting, and it had only been
+         * applied to the reporting. So one dead address of two rehearsed
+         * fine and two dead addresses failed the send permanently, with an
+         * S91 alert, in the mode that exists so a team can exercise
+         * automations without touching a client.
+         */
+        if ($sendable === [] && ! $live->sandbox_mode) {
+            return SendDecision::refuse($this->suppressionRefusal($suppressed));
+        }
+
+        /*
+         * The dropped ones are **carried**, not discarded. Round 1 of review:
+         * the first version silently narrowed the list, so the timeline said
+         * *"Emailed Dana Okafor, Sam Reilly"* over a send Dana never received
+         * and no surface in the product recorded the drop at all. A withheld
+         * copy is an outcome — `RecordDeliveries` writes it a row.
+         */
+        $withheld = $this->withheldFrom($recipients, $suppressed);
+
+        $recipients = $sendable;
+
         // Rail 1 — the ceiling.
         $ceiling = $this->ceilingReached($live);
 
@@ -191,10 +240,134 @@ final class SendRails
                 );
             }
 
-            return SendDecision::send([$owner], redirected: true);
+            /*
+             * **The redirect target goes through Rail 0b too**, and round 1 of
+             * review is why: this rewrite runs *after* the filter, so it put
+             * back an address the filter had just removed. Sandbox is the one
+             * mode where a team's whole outbound volume converges on a single
+             * address, so a suppressed owner would be re-mailed on every send
+             * — the account-wide rate PRD §12.2 is about, damaged by the rail
+             * written to protect it.
+             *
+             * A **halt**, not a refusal: the message is fine, the destination
+             * is not, and turning sandbox off releases it. F5.9's rule that a
+             * blocked send is held rather than dropped applies to the reason
+             * as much as to the switch.
+             */
+            if (SuppressedAddress::suppresses($owner['email']) !== null) {
+                return SendDecision::halt(
+                    'Sandbox mode is on, and the address it redirects to can no longer be written to. '
+                    .'Turn sandbox off, or set a team owner whose address still works.',
+                );
+            }
+
+            /*
+             * The withheld list **is** carried under sandbox, and what changes
+             * is who acts on it.
+             *
+             * Round 2 removed it because carrying it produced a client
+             * delivery row and an S91 alert for a message that went nowhere
+             * near a client. Round 3 measured what removing it then cost: the
+             * summary read *"went to the team rather than Dana Okafor, Sam
+             * Reilly"*, naming Dana as somebody a live send would have
+             * reached, when it would have skipped her. Sandbox exists so a
+             * team can see what an automation **will** do, and it had become
+             * the one mode where a dead address is invisible.
+             *
+             * So the decision tells the truth and the two consumers differ:
+             * `RecordDeliveries` writes no withheld row when the send was
+             * redirected (nothing was withheld from anybody — nobody was
+             * written to), and `ExecuteAction` says so in the summary, which
+             * is the rehearsal a team came to sandbox for.
+             */
+            return SendDecision::send([$owner], redirected: true, withheld: $withheld);
         }
 
-        return SendDecision::send($recipients);
+        return SendDecision::send($recipients, withheld: $withheld);
+    }
+
+    /**
+     * The recipients this product is still allowed to write to.
+     *
+     * The suppression map is looked up **once** by the caller and passed to
+     * both this and {@see self::withheldFrom()}. The first version asked the
+     * table twice for the same answer on the refusal path, inside a queue
+     * worker, against the one table shared by every team on the platform.
+     *
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
+     * @param  array<string, SuppressionReason>  $suppressed
+     * @return list<array{name: string, email: string, membershipId: string|null}>
+     */
+    private function withoutSuppressed(array $recipients, array $suppressed): array
+    {
+        if ($suppressed === []) {
+            return $recipients;
+        }
+
+        return array_values(array_filter(
+            $recipients,
+            static fn (array $recipient): bool => ! array_key_exists(
+                SuppressedAddress::normalise($recipient['email']),
+                $suppressed,
+            ),
+        ));
+    }
+
+    /**
+     * The ones being dropped, each with why.
+     *
+     * @param  list<array{name: string, email: string, membershipId: string|null}>  $recipients
+     * @param  array<string, SuppressionReason>  $suppressed
+     * @return list<array{name: string, email: string, membershipId: string|null, reason: SuppressionReason}>
+     */
+    private function withheldFrom(array $recipients, array $suppressed): array
+    {
+        $withheld = [];
+
+        foreach ($recipients as $recipient) {
+            $reason = $suppressed[SuppressedAddress::normalise($recipient['email'])] ?? null;
+
+            if ($reason instanceof SuppressionReason) {
+                $withheld[] = [...$recipient, 'reason' => $reason];
+            }
+        }
+
+        return $withheld;
+    }
+
+    /**
+     * Why nothing went out, in words about the address.
+     *
+     * Never *"another team's client reported you"*, and never the row. The
+     * suppression list is account-wide (`SuppressedAddress` argues why), and
+     * two teams sharing a client must not learn about each other's
+     * correspondence from a refusal message. What a team is entitled to know
+     * is that **this** address is not reachable and what to do about it, which
+     * is what `SuppressionReason::explanation()` says — and round 1 of review
+     * found that sentence written about the *reader* rather than the address,
+     * so that string carries the argument now too.
+     *
+     * @param  array<string, SuppressionReason>  $suppressed
+     */
+    private function suppressionRefusal(array $suppressed): string
+    {
+        /*
+         * The most serious reason among them leads. On a message to one
+         * person that is simply their reason; on a message to two it is the
+         * one that needs acting on first, and the count below says there was
+         * more than one.
+         */
+        $reason = collect($suppressed)
+            ->sortByDesc(fn (SuppressionReason $reason): bool => $reason->threatensTheAccount())
+            ->first();
+
+        $explanation = $reason instanceof SuppressionReason
+            ? ' '.$reason->explanation()
+            : '';
+
+        return count($suppressed) > 1
+            ? 'None of the addresses on this message can be written to any more.'.$explanation
+            : 'This message was not sent because the address it was going to can no longer be written to.'.$explanation;
     }
 
     /**
@@ -272,7 +445,7 @@ final class SendRails
     }
 
     /**
-     * @return array{name: string, email: string}|null
+     * @return array{name: string, email: string, membershipId: string|null}|null
      */
     private function teamOwnerAddress(Team $team): ?array
     {
@@ -280,7 +453,11 @@ final class SendRails
             ->first(fn (TeamMembership $membership): bool => ($membership->email ?? '') !== '');
 
         return $owner instanceof TeamMembership
-            ? ['name' => $owner->fullName(), 'email' => (string) $owner->email]
+            ? [
+                'name' => $owner->fullName(),
+                'email' => (string) $owner->email,
+                'membershipId' => (string) $owner->getKey(),
+            ]
             : null;
     }
 }

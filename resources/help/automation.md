@@ -41,9 +41,17 @@ property address, the MLS link. Click one to drop it into whatever you were
 typing. They are checked when you save, so a misspelled field is refused then
 rather than discovered in somebody's inbox.
 
-Two of them are listed and cannot be filled in yet — the next deadline and the
-client's status page link — because the features behind them have not been
-built. The editor says so, and refuses to save a template using one.
+**Next deadline** arrived with the calendar and now fills in like the rest: it
+is the soonest confirmed date on the deal that has not passed. The **day
+only** — not the name you gave the date, because the names you type are for
+your screens and some of them would read oddly to a client.
+
+One field is still listed and cannot be filled in: the **client's status page
+link**. The page exists, and handing somebody a link to it is something you do
+deliberately from the deal's People tab — see
+[The client status page](/help/client-status-page). Putting it in an automated
+message is a different thing, and the reason it is still off is on the field
+itself. The editor says so, and refuses to save a template using it.
 
 **“Replies go to” sets the reply address for this template.** Leave it blank
 and replies go to the reply-to address in **Settings → Team**, which is the
@@ -232,17 +240,84 @@ waiting. Your logo
 and colour are the exception: those are read when the message actually goes, so
 changing them updates everything still queued.
 
-## What is still to come
+## Whether it arrived
 
-**Delivery tracking**, so a bounced message is something you find out about
-rather than something a client mentions three weeks later.
+Sending a message and it arriving are two different things, and the app now
+tells you both. Open any message from **Messages** and there is a **Delivery**
+section under the details: one line per person it was sent to.
+
+- **Sent** — handed over, and nothing has come back yet. Usually the mail
+  service reports within a minute or two.
+- **Delivered** — their mail server accepted it. That is as far as anything can
+  be known; whether they read it is not something email reports.
+- **Opened** — measured with a small tracking image that many mail apps block,
+  so **a message with no open here may well have been read**. Treat it as good
+  news when it appears and as nothing at all when it does not.
+- **Bounced** — their mail server refused it. If it keeps happening the address
+  is probably wrong: check it with them and correct it on the deal.
+- **Marked as spam** — the person reported the message. This is the serious
+  one, for a reason below.
+
+A bounce or a spam report also lands on the deal's activity, so it is
+findable later without remembering which message it was, and the team gets one
+alert about it alongside anything else that needs looking at.
+
+### When an address stops working
+
+After a bounce that says the mailbox does not exist — or after somebody reports
+a message as spam — **the app stops writing to that address**, and will not
+start again. A message addressed to it fails with the reason on it rather than
+going out.
+
+Two things about that are worth knowing:
+
+**Only that address.** A message to two sellers, one of whose mailbox has died,
+still reaches the other. The dead address is dropped and the rest goes.
+
+**It is not per team.** A mail server that says an address does not exist is
+saying it about the address, not about you — and mail providers judge the whole
+app on how much undeliverable mail it sends, not each team separately. So the
+app remembers it once, everywhere. Nobody can see which team's message
+discovered it.
+
+A full mailbox or a temporary rejection does **not** do this — the address is
+fine and cutting somebody off because their inbox was full on Tuesday would be
+worse than the bounce. Those are shown as bounces so you know what happened,
+and the address stays usable. **The message itself is not sent again**, by the
+app or by you: there is no resend, deliberately, because a message that may
+have arrived and a message that did not look identical from here. If it
+mattered, write to them yourself.
+
+**When somebody's message is held back**, you see it. The deal's activity says
+who was not written to, and the message's own page lists that person under
+**Delivery** as _Not sent_, with the reason. Nothing goes quiet.
+
+**Test mode is the exception, and deliberately.** While sending is in test mode
+every message goes to you rather than to anybody it was addressed to — so
+nothing is held back from a client, because nothing reaches one. The deal's
+activity still says which addresses a real send _would_ have skipped, so the
+rehearsal tells you the truth, but there is no **Delivery** line for them and
+no alert: there is nothing to report about a message that went nowhere near
+them.
+
+If an address is wrong and you have corrected it, the corrected address is a
+different address and works straight away. If the same address genuinely comes
+back to life, ask support — lifting one is deliberately not something a team
+can do to itself, because it affects everybody's mail.
+
+## What is still to come
 
 **Your own sending address.** Your clients see your team's name in their inbox,
 and a reply reaches you — but the address underneath it is the app's, not
 yours. Sending as `you@youragency.com` needs your domain verified with the mail
 provider, which is a setup step rather than a feature.
 
-**A link to the client's status page** in a milestone email. The email has a
-place for it; the page itself is still being built.
+**A link to the client's status page** in a milestone email. The page is
+built, and the email has a place for it — what is missing is a safe way for a
+message to hand out access. Giving somebody the page is a deliberate act on
+the People tab, and a link that arrives in a milestone email would either be
+stale by the time it is read or would end the session of a client who happened
+to be looking at the page at that moment. Until that is settled, give access
+once from the People tab and the client keeps it.
 
 **Push notifications and calendar events** as things an automation can do.

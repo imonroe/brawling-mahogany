@@ -10,7 +10,9 @@
 import {
     Activity,
     Briefcase,
+    CalendarClock,
     CalendarDays,
+    FileText,
     Heart,
     House,
     LayoutDashboard,
@@ -61,11 +63,50 @@ export const NAV_GROUPS: NavEntry[][] = [
             icon: House,
             permission: 'properties.view',
         },
+        /*
+         * S50 (#98). Beside Properties rather than under Deals, because the
+         * question it answers — "where is that disclosure" — is asked from a
+         * standing start, without a deal already in mind.
+         *
+         * **Ungated**, and that is not an oversight. `DocumentPolicy::viewAny()`
+         * admits either subject permission and the query scopes each row to
+         * what the person may see, so gating the link on `deals.view` hid the
+         * screen from somebody holding `properties.view` who has documents to
+         * find there. A nav rule narrower than the policy is a screen nobody
+         * can reach; one wider is a 403 they can read.
+         */
+        {
+            label: 'Documents',
+            href: '/documents',
+            icon: FileText,
+        },
         {
             label: 'Calendar',
             href: '/calendar',
             icon: CalendarDays,
             permission: 'calendar.view',
+        },
+        /*
+         * S59 (#107). Beside Calendar rather than under Deals, because the
+         * question it answers — *"what is this week's exposure"* — is asked
+         * from a standing start with no deal in mind, which is the same reason
+         * Documents sits beside Properties.
+         *
+         * Gated on `deals.view`, not `calendar.view`: every row is a deadline
+         * on a deal and carries the deal's name, so this is reading deals.
+         * `KeyDatePolicy` asks the same key, and a nav rule narrower or wider
+         * than the policy is either a screen nobody can reach or a 403 they
+         * can read.
+         *
+         * **Dates & Deadlines**, Emily's phrase (IA §2, §11). Never "Key
+         * dates", which is the code name, and never Milestone — that word
+         * means a moment on a stage now, and nothing else.
+         */
+        {
+            label: 'Dates & Deadlines',
+            href: '/dates',
+            icon: CalendarClock,
+            permission: 'deals.view',
         },
         {
             label: 'Keep in Touch',

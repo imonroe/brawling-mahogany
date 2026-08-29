@@ -8,7 +8,9 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Http\Responses\PasswordResetLinkRequested;
 use App\Models\Person;
+use App\Support\Admin\Impersonation;
 use App\Support\Audit\AuditLogger;
+use App\Support\Push\PushSubscriptionRegistry;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
@@ -106,6 +108,46 @@ class FortifyServiceProvider extends ServiceProvider
                 auditableId: $person->getKey(),
                 actorPersonId: $person->getKey(),
             );
+
+            /*
+             * **Every push subscription this person holds, on the way out**
+             * (#103).
+             *
+             * Not only this browser's, and that is the point. A subscription
+             * survives a sign-out on its own — it belongs to the browser, not
+             * to the session — so without this a phone somebody handed back,
+             * sold, or signed out of at an open house goes on receiving *"a
+             * task was assigned to you"* on its lock screen indefinitely, with
+             * no session anywhere to notice.
+             *
+             * The cost is that signing out on a laptop also stops the phone,
+             * and it is the right way round: re-subscribing is one press on
+             * S55, and the failure it prevents is a device nobody controls
+             * showing a stranger which properties are in play.
+             */
+            /*
+             * **Not while impersonating.** `$event->user` is then the
+             * *customer*, so an operator ending an S84 support session by
+             * signing out would delete every push device that customer owns
+             * — a support action destroying customer state, silently, and
+             * with no way to put it back except each of their people
+             * re-enabling push on each of their phones.
+             *
+             * The same asymmetry `PushSubscriptionController::store()` guards
+             * from the other end, and it is worth stating twice because the
+             * two are reached by completely different code.
+             */
+            /*
+             * `request()` rather than a captured one: the event carries no
+             * request, and this fires inside the sign-out request itself —
+             * before Fortify invalidates the session, so the marker is still
+             * there to read.
+             */
+            if (Impersonation::isActive(request())) {
+                return;
+            }
+
+            app(PushSubscriptionRegistry::class)->forgetFor($person);
         });
 
         Event::listen(Failed::class, function (Failed $event): void {

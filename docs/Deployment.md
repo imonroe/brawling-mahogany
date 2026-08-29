@@ -14,13 +14,25 @@ version: 1.0
 > should be able to follow it at 2am.
 
 > [!warning] What is written here and what exists
-> The pipeline, the compose stack, the provisioning script, and the runbook
-> below are built and reviewable. **The staging droplet itself is not
-> provisioned** — creating it and pointing DNS at it need an account and a
-> domain, neither of which lives in this repository. Everything after those two
-> steps is `scripts/provision-staging.sh` (§6). The deploy workflow is inert
-> until the repository variable `STAGING_ENABLED` is set to `true`, so nothing
-> fails while the infrastructure catches up.
+> **Staging is provisioned** (confirmed 2026-08-28): a droplet on the public
+> internet, TLS working, running the stack and sending real mail through SES.
+> The pipeline, the compose stack, the provisioning script and the runbook below
+> are built and reviewable.
+>
+> What is **not** yet confirmed on that box, and is what #36 stays open for:
+> whether the deploy workflow is actually driving it (it is inert until the
+> repository variable `STAGING_ENABLED` is set to `true`, so the droplet may be
+> being updated by hand), the nightly backup — which is not merely unconfirmed
+> but **unbuilt**, see §4 — and the restore drill, which has not been
+> performed. The drill does not strictly wait on the backup job: a manual
+> `pg_dump` gives it something to restore from. That measures a **floor**, not
+> the RTO: a local dump skips retrieval from the offsite target, which is the
+> part of a real recovery most likely to be slow or to fail.
+>
+> One consequence of the SES account reaching production access is called out in
+> §4a: **the SES sandbox is no longer the backstop it was**, leaving
+> `MAIL_REDIRECT_TO` as the only guard that covers *every* message the product
+> sends.
 
 ---
 
@@ -198,7 +210,15 @@ every boot until Let's Encrypt rate-limits the domain.
 
 ## 4. Backups
 
-PRD §9: nightly, 30-day retention, **offsite**. RPO 24 hours, RTO 4 hours.
+> [!warning] This section is a specification, not a description
+> **Nothing in this repository implements any of it.** There is no `pg_dump`
+> in `.github/` or `scripts/`, no backup service in any compose file, and no
+> scheduled job. A backlog audit on 2026-08-28 found this section written in
+> the present tense, which reads as though the mechanism exists and only needs
+> switching on. It does not exist. Tracked in #36.
+
+PRD §9: nightly, 30-day retention, **offsite**. RPO 24 hours, RTO 4 hours. What
+that requires, once somebody builds it:
 
 - `pg_dump` nightly, compressed, encrypted at rest, written to object storage
   in a different region from the droplet.
@@ -219,6 +239,65 @@ issue rather than a line in this document. It is performed on staging:
    documents resolve, and the audit log is continuous.
 5. Record how long it took, end to end. That number is the real RTO; the four
    hours in the PRD is an aspiration until it is measured.
+
+---
+
+## 4a. The safety net that changed under us
+
+PRD §8.6 **used to** read *"Staging runs SES in sandbox mode with all mail
+redirected, so no test ever reaches a real client"* — the sentence
+`AppServiceProvider::configureMailGuardrail()` glosses as *"the safety net behind
+the whole of Slice 3"*. (§8.6 was narrowed on 2026-08-28; see #196.)
+
+That was **two** guards, and only one of them is left.
+
+The SES sandbox refuses, at the API, any message to an address the account has
+not separately verified. It was the outer guard, and it was free — it held even
+if the application was misconfigured. Now that the account is in production
+access (#12), it does not hold at all: staging can put mail in any inbox on the
+internet.
+
+What remains is `MAIL_REDIRECT_TO`, read in `AppServiceProvider::configureMailGuardrail()`
+and applied as `Mail::alwaysTo()`. It is a good guard, and it is now the only
+one that covers **every** message the product sends.
+
+Be precise about what is left, because the count matters. F5.9's per-team
+`sandbox_mode` defaults to `true` and rewrites automated recipients to the team
+owner (`SendRails`), and the migration that added it cites this very PRD clause.
+So on the *automation* path there are still two guards. It is not a
+substitute for the one that went, on three counts: it is **per team**, so a team
+created tomorrow is only as safe as its own row; it is **switchable** from
+`/settings/sending`; and it covers only automated sends — the invitation, the
+password reset, every notification email, and the client's own status-page magic
+link (`DispatchStatusPageLink`) all go nowhere near it. That last one is the
+example worth holding on to, because it is the one addressed to a **client**
+rather than a colleague. It also *redirects* rather than withholds, and on
+staging the team owner is a real person.
+
+Two properties of `MAIL_REDIRECT_TO` are worth stating plainly, because they
+were acceptable when it was the inner guard of two global ones and are not
+acceptable now:
+
+- **It fails open.** An unset or empty value returns early and mail goes
+  wherever it was addressed. Nothing warns; there is no staging-side equivalent
+  of the production check one branch below, which throws at boot if the value
+  *is* set. A typo in the variable name is indistinguishable from a deliberate
+  decision.
+- **It is environment state, not repository state.** It lives in the droplet's
+  own `.env`, so nothing in CI, no test and no review can tell you it is
+  present. The only way to know is to look at the box.
+
+One boundary on "every message", since this section is about being precise:
+`Mail::alwaysTo()` binds the **default** mailer. Nothing today reaches for a
+named one, so the claim holds — but a future `Mail::mailer('ses')->to(...)`
+would route around this guard without touching it, and would look like ordinary
+code in review.
+
+So: **check it on the droplet before putting anything resembling real client
+data on staging**, and treat a seeded demo team as real client data the moment
+Emily's actual deals are in it. Tracked as **#196** rather than a line here,
+because a guard that fails open deserves a code change, not a note in a
+runbook.
 
 ---
 
@@ -284,7 +363,8 @@ them, and a suspended sender means no client hears anything.
 ## 6. Standing up the staging droplet
 
 Two things have to happen outside this repository first, because nothing in it
-can do them: **create the droplet**, and **point DNS at it**. Caddy requests a
+can do them: **create the droplet**, and **point DNS at it**. (Both are done for
+staging — this section is the procedure for a new environment.) Caddy requests a
 certificate on first boot and ACME's challenge arrives over public DNS, so the
 hostname must already resolve.
 
@@ -376,13 +456,14 @@ it is set every message goes to its real recipient. §2 of
 
 The remainder — the parts that need a decision or another account:
 - [ ] Postgres: managed instance or the compose service, matching production's choice
-- [ ] SES in sandbox, `MAIL_REDIRECT_TO` set — and note that a redirected invitation still reaches nobody: use the **Get link** action in `/admin`, or `php artisan invitation:link <email>`, to onboard staging's first team owner ([[adr/0003-no-email-only-flows|ADR 0003]])
+- [ ] **`MAIL_REDIRECT_TO` set — now load-bearing on its own.** The SES account is in production access (#12), so the **SES** sandbox no longer refuses mail to an unverified recipient; this variable is the only guardrail covering every message, and it fails open when unset. See §4a for what F5.9's per-team `sandbox_mode` does and does not still cover. And note that a redirected invitation still reaches nobody: use the **Get link** action in `/admin`, or `php artisan invitation:link <email>`, to onboard staging's first team owner ([[adr/0003-no-email-only-flows|ADR 0003]])
 - [ ] A separate AI provider key with its own budget cap
 - [ ] Sentry staging project, DSN in `.env`
 - [ ] Repository secrets: `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY`, `STAGING_PATH`, `STAGING_URL`, and `STAGING_SSH_PORT` if the droplet does not listen on 22
 - [ ] Repository variable `STAGING_ENABLED=true`
 - [ ] Repository variable `UPTIME_STAGING_URL` (and `UPTIME_PRODUCTION_URL` at launch), which turn the uptime workflow on — note these are variables, while `STAGING_URL` is a secret
-- [ ] Nightly backup job and its offsite target
+- [ ] `SES_SNS_TOPIC_ARN` set, with the SNS topic and its subscription created — `POST /webhooks/ses` refuses everything while it is empty, so bounces go unrecorded and suppression never fires (#95)
+- [ ] Nightly backup job and its offsite target — **not built; nothing in this repository implements it** (§4)
 - [ ] Restore drill performed and its duration recorded
 
 ---

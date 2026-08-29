@@ -111,6 +111,11 @@ class TemplateController extends Controller
                     'description' => $stage->description,
                     'sortOrder' => $stage->sort_order,
                     'expectedDurationDays' => $stage->expected_duration_days,
+                    // Sent because the editor can now set it (#87). It was a
+                    // column with a reader and no writer: `InstantiateWorkflow`
+                    // resolves it to a person and nothing could put a role
+                    // there to resolve.
+                    'ownerRole' => $stage->owner_role,
                     'isMilestone' => $stage->is_milestone,
                     'clientFacingLabel' => $stage->client_facing_label,
                     'gates' => $stage->gateTemplates->map(fn (GateTemplate $gate): array => [
@@ -118,10 +123,16 @@ class TemplateController extends Controller
                         'gateType' => $gate->gate_type,
                         'label' => $gate->label,
                         'isBlocking' => $gate->is_blocking,
+                        // The gate editor reopens onto what is stored, so
+                        // `date_reached`'s key date comes back rather than
+                        // being retyped from memory — or silently lost.
+                        'config' => $gate->config ?? [],
                     ])->values()->all(),
                     'tasks' => $stage->taskTemplates->map(fn (TaskTemplate $task): array => [
                         'id' => $task->getKey(),
                         'title' => $task->title,
+                        'description' => $task->description,
+                        'ownerRole' => $task->owner_role,
                         'isRequired' => $task->is_required,
                         'dueOffsetDays' => $task->due_offset_days,
                     ])->values()->all(),

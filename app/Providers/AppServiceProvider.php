@@ -10,14 +10,19 @@ use App\Models\Passkey;
 use App\Models\Person;
 use App\Support\Database\BlueprintMacros;
 use App\Support\Help\HelpLibrary;
+use App\Support\Notifications\NotificationAudience;
+use App\Support\Notifications\Notify;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Laravel\Passkeys\Passkeys;
@@ -45,6 +50,27 @@ class AppServiceProvider extends ServiceProvider
          * read twenty-two files twice.
          */
         $this->app->singleton(HelpLibrary::class);
+
+        /*
+         * `scoped`, not `singleton`, and the distinction is the point (#101).
+         *
+         * `Notify` memoises a team's notification preferences so a workflow
+         * instantiation reads them once rather than once per assigned task —
+         * review measured twelve identical selects among sixty. A `singleton`
+         * would carry that memo across requests in a long-lived worker, so a
+         * preference changed on S78 would go on being ignored; `scoped` clears
+         * it at the request or job boundary, which is exactly the lifetime the
+         * memo is correct for.
+         */
+        $this->app->scoped(Notify::class);
+
+        /*
+         * And the audience beside it, for the same reason one layer along:
+         * `AdvanceWorkflow` asks who should hear about a cleared gate **once
+         * per cleared gate**, inside the advance's own transaction, and the
+         * answer cannot change between two gates of one advance.
+         */
+        $this->app->scoped(NotificationAudience::class);
     }
 
     /**
@@ -54,6 +80,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureMailGuardrail();
+        $this->configureClientSurfaceLimits();
 
         BlueprintMacros::register();
 
@@ -88,9 +115,16 @@ class AppServiceProvider extends ServiceProvider
      * MAIL_REDIRECT_TO is set.
      *
      * This is the safety net behind the whole of Slice 3 (PRD §8.6): staging
-     * runs SES in sandbox mode with mail redirected, so no test ever reaches a
-     * real client. An email to the wrong client cannot be recalled, which is
-     * why this lives in the framework boot rather than in a mailer somewhere.
+     * **must** redirect all mail, so that no test reaches a real client. An email to the
+     * wrong client cannot be recalled, which is why this lives in the framework
+     * boot rather than in a mailer somewhere.
+     *
+     * PRD §8.6 used to pair that redirect with SES's own sandbox, which refused
+     * unverified recipients at the API — outside this application, so it held
+     * even when this was misconfigured. The account reached production access
+     * on 2026-08-28 (#12) and that guard is gone. Note what the early return
+     * below does now: an unset value **fails open**, silently, and this is the
+     * only guard left that covers every message the product sends. See #196.
      */
     protected function configureMailGuardrail(): void
     {
@@ -114,6 +148,45 @@ class AppServiceProvider extends ServiceProvider
     /**
      * Configure default behaviors for production-ready applications.
      */
+    /**
+     * The two limits the client surface carries, with keys of their own.
+     *
+     * ## Two `throttle:n,m` on one request is one bucket, not two
+     *
+     * Laravel's inline throttle keys a guest by `sha1(domain|ip)` and nothing
+     * else — no route, no name — so stacking `throttle:60,1` on the group and
+     * `throttle:10,1` on `s/request` gave both middlewares the **same** cache
+     * key. Every page view spent the mail budget, and the request itself cost
+     * two hits, so an ordinary *"my link expired, send me another"* round trip
+     * was refused with a bare 429 on the third press.
+     *
+     * Named limiters get `throttle:<name>` prefixes, which is what separates
+     * them. Written here rather than as two inline strings because the defect
+     * is invisible in `routes/web.php`: two different numbers *look* like two
+     * different limits.
+     *
+     * ## And they are deliberately different limits
+     *
+     * Sixty an hour for reading: a client refreshing their own page is not an
+     * attack, and this is the surface PRD §3.3 says must work *"first try"*.
+     * Ten for the endpoint that **sends mail**, on top of the per-address
+     * limit `StatusPageController` applies — a global limit alone lets one
+     * attacker spend everybody's budget, and a per-address limit alone lets a
+     * script walk a list.
+     */
+    protected function configureClientSurfaceLimits(): void
+    {
+        RateLimiter::for(
+            'client-surface',
+            fn (Request $request): Limit => Limit::perMinute(60)->by((string) $request->ip()),
+        );
+
+        RateLimiter::for(
+            'client-link-request',
+            fn (Request $request): Limit => Limit::perMinute(10)->by((string) $request->ip()),
+        );
+    }
+
     protected function configureDefaults(): void
     {
         Date::use(CarbonImmutable::class);

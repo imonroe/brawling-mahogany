@@ -46,6 +46,19 @@ Inside the container stack: `docker compose exec app composer check`.
 Everything but Unit runs against a real Postgres, one transaction per test
 (`RefreshDatabase`).
 
+> [!warning] A Unit test that touches the database passes locally and fails in CI
+> `tests/Pest.php` gives `RefreshDatabase` to Feature, Isolation and
+> Performance — and **not** to Unit, because Unit is pure logic. So a test
+> placed in `tests/Unit` that builds a model runs against whatever happens to
+> be in the test database: migrated, on a developer's machine that has run the
+> other suites; **empty**, in CI, where Unit may run before the first Feature
+> test has migrated anything. The symptom is `relation "teams" does not
+> exist`, and it is invisible until the pipeline sees it.
+>
+> Found on #103, whose payload test built a team, a deal and a property from
+> `tests/Unit`. The suite a test lives in is a claim about what it needs, not
+> a folder preference — if it makes a row, it is a Feature test.
+
 > [!note] A query budget is a **comparison**, not a ceiling
 > A test asserting "fewer than 20 queries" passes an N+1 on a fixture of three
 > rows, which is the size a fixture tends to be. The assertion that catches one
@@ -228,8 +241,31 @@ remembering them:
 | `tests/Performance/MessageQueueBudgetTest.php` | S47's budget, and its fixture is built around `CLAUDE.md`'s eager-load finding: **a template per message**, not one shared, because a fixture that cannot grow the relation cannot catch an N+1 on it. Two assertions, and the second exists because the first could not see what it claimed to: `toBe($small)` is a **per-row** budget, blind to fixed cost by construction — two queries were added to this screen and it stayed green while this test's own docblock said it would not. So the absolute count is pinned as well, and a fifth list has to be argued for in a diff rather than absorbed. Every list the screen renders has a fixture, including `held`, which had none and whose eager loads were therefore never executed by the guard | issues #78, #93 |
 | `tests/Feature/Messages/MessageRenderingTest.php` | Where a merged value lands decides what happens to it: escaped into `body_html`, **untouched** into `body_text` — escaping there puts `&amp;` into every message to the O'Brien household — and stripped of CR and LF into the subject, which is a mail **header** whose value comes from a name somebody typed into the people directory. Also that the registry and the resolver are the same table: a field registered and never resolved renders as an empty string in a client email | PRD §4.5 F5.6, issue #90 |
 | `tests/Feature/Templates/AutomationsTest.php` | S44's *"invalid combinations are impossible to save"*, one refused combination per case — and the two the **database** refuses rather than the form: a shared automation may not name a message template at all (a Postgres foreign key is MATCH SIMPLE, so the composite key is silent on a null `team_id` and the CHECK is what closes it), and `is_manual` with `requires_approval` is a state that cannot exist. The archived and wrong-channel guards are asserted on the **model** as well as the request, because #92's instantiation is a second caller the request never sees | PRD §4.5 F5.1–F5.4, issue #91 |
+| `tests/Isolation/ClientSurfaceTenancyTest.php` | **Every route a stranger reaches, made the way a stranger makes it** (#108, #110, #111). Slice 4 added the first two surfaces with no `auth` and no `team` — `/s/{token}` and the `.ics` feed — both documented as *"the token establishes the tenant"*, ADR 0002's stated exception, and both shipped with nothing that actually established it: every one of those routes threw `MissingTeamContextException` for a real client while the whole suite was green. The reason it was green is the more useful half. `TestCase::withTeam()` binds a `TeamContext` into the container **before** the request, so by the time the pipeline runs there is a team whatever the route resolves — and `auth()->logout()`, which the status page tests were careful to call, clears the guard and not the binding. `bootstrap/app.php` already records that trap from #156, where three signed-in routes 500'd in production and passed here; it recurred one slice later on the surface where it costs the most. So this file clears the binding (`asStranger()`), makes the request, and asserts a **real response** — and its first case is the control: if `asStranger()` ever stops clearing the context, every case below would keep passing while proving nothing, which is the original defect rather than a hypothetical one | ADR 0002, PRD §4.7, issues #108, #110, #111 |
+| `tests/Isolation/StatusPageIsolationTest.php` | One token, one deal, one team — #110's *"opaque, single-use, and scoped to one deal, proven in #42"*. It matters more here than anywhere else in the product: every other reader has a session and a resolved team, and this one has a string in a URL. Also holds the **pairing**, which the tenancy layers cannot: `deals/{deal}/people/{membership}/status-page` binds both halves independently, so the team scope proves each belongs to the team and says nothing about whether they belong to each other — a hand-crafted request granted a 14-day session for one deal to any membership in the team | ADR 0002, PRD §4.7 F7.1, issue #110 |
 
 When one of these fails, the fix is the code or the document — not the test.
+
+> [!important] `asStranger()`, and why `auth()->logout()` is not enough
+> Anything asserting how a **client-facing** route behaves calls
+> `TestCase::asStranger()` first. It clears the resolved team, the session and
+> the authenticated person, in that order, because only the first of those is
+> the one that matters and it is the one nothing else clears.
+>
+> `withTeam()` — which `actingAsPerson()` calls — binds a `TeamContext` into
+> the container before the request is made. `auth()->logout()` clears the
+> guard. The binding survives it, so a test that logs out and then hits
+> `/s/{token}` is still making the request with a team already resolved, and a
+> route that never resolves one of its own looks like it works. That is how
+> Slice 4 shipped both of its token-authenticated surfaces non-functional with
+> a green suite, and how issue #156 shipped three signed-in routes the same way
+> a slice earlier.
+>
+> Fifty-two call sites across eight files now depend on it, and
+> `ClientSurfaceTenancyTest`'s first case is what holds the helper itself
+> honest: it asserts that after `asStranger()` an ordinary scoped read
+> **throws**. Without that control the file could pass in full against a helper
+> that had quietly stopped clearing anything.
 
 ### Proving a mechanical test is not vacuous
 

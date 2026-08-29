@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import type { DealHeaderProps } from '@/components/app/DealHeader.vue';
+import Tab from '@/components/app/Tab.vue';
 
 /**
  * Design System §8.4, as assertions (#75).
@@ -38,7 +39,14 @@ const deal: DealHeaderProps = {
     sideLabel: 'Sell',
     clientName: 'Emily Bosart',
     location: { city: 'Indianapolis', state: 'IN' },
-    counts: { people: 3, properties: 2, tasks: 5, offers: 0 },
+    counts: {
+        people: 3,
+        properties: 2,
+        tasks: 5,
+        offers: 0,
+        documents: 0,
+        dates: 4,
+    },
     hasOffers: true,
     advance: { workflowId: 'wf-1', stageId: 'stage-1' },
 };
@@ -97,9 +105,18 @@ describe('DealHeader', () => {
         expect(tabs[1].attributes('href')).toBe('/deals/deal-1/timeline');
         expect(tabs[2].element.tagName).toBe('A');
         expect(tabs[2].attributes('href')).toBe('/deals/deal-1/tasks');
-        // Dates is the inert example now.
-        expect(tabs[3].element.tagName).toBe('BUTTON');
-        expect(tabs[3].attributes('disabled')).toBeDefined();
+        /*
+         * Dates since S18 (#107) — which leaves **no inert example**, because
+         * every tab `DealHeader` draws now has a route behind it.
+         *
+         * The mechanism is still there — `arrivesWith` renders a tab inert,
+         * and `Tab` draws a hrefless tab as a `<button>` — and the test below
+         * pins it directly on `Tab`, because a rule that could only be proven
+         * while some tab happened to be unbuilt stops being proven on the day
+         * the last one ships.
+         */
+        expect(tabs[3].element.tagName).toBe('A');
+        expect(tabs[3].attributes('href')).toBe('/deals/deal-1/dates');
         expect(tabs[4].attributes('href')).toBe('/deals/deal-1/people');
         // Offers since S22 (#73).
         expect(tabs[6].element.tagName).toBe('A');
@@ -142,12 +159,45 @@ describe('DealHeader', () => {
          * that; what this pins is that the tab renders a count at all.
          */
         expect(tabs[2].text()).toBe('Tasks5');
-        // A tab whose slice has not landed has no count to show either — a
-        // zero there would read as a fact about this deal.
-        expect(tabs[3].text()).toBe('Dates');
+        /*
+         * Dates counts **confirmed** deadlines only (#107, #116). A date the
+         * machine proposed and nobody agreed to is shown on S18 so somebody
+         * can agree to it, and counted nowhere — a tab badge is exactly where
+         * a proposal would quietly become a fact. The server decides that;
+         * what this pins is that the tab renders a count at all.
+         */
+        expect(tabs[3].text()).toBe('Dates4');
         // Built and still countless: Timeline is not a list of anything, so it
         // stays bare now that it is linked rather than gaining a number.
         expect(tabs[1].text()).toBe('Timeline');
+    });
+
+    it('draws a tab with no route as an inert button', () => {
+        /*
+         * The half `DealHeader` no longer exercises, pinned where it actually
+         * lives. Every deal tab has a route as of Slice 4 (#107), so this is
+         * the only remaining proof that a tab added inert in a later slice
+         * renders as something nobody can click into a 404.
+         *
+         * Visible rather than hidden, deliberately: §7.3's *"hide rather than
+         * disable"* rule is about **permission** — a section somebody may not
+         * use should not advertise itself — and a section nobody can use
+         * *yet* is a different case that reads as one.
+         */
+        const inert = mount(Tab, {
+            /*
+             * No `href`, and `disabled` as a fallthrough attribute — which is
+             * exactly how `DealHeader` draws one: `hrefFor()` returns
+             * undefined for a tab with an `arrivesWith`, and the `disabled`
+             * binding lands on the `<button>` `Tab` renders in its place.
+             */
+            props: { label: 'Extractions', count: null },
+            attrs: { disabled: true, title: 'Extractions arrives with S66.' },
+        });
+
+        expect(inert.element.tagName).toBe('BUTTON');
+        expect(inert.attributes('disabled')).toBeDefined();
+        expect(inert.text()).toContain('Extractions');
     });
 
     it('marks the active tab and no other', () => {

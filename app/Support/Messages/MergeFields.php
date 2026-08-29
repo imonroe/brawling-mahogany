@@ -7,6 +7,7 @@ namespace App\Support\Messages;
 use App\Models\DealParticipant;
 use App\Models\DealProperty;
 use App\Models\ExternalLink;
+use App\Models\KeyDate;
 use App\Models\Property;
 use App\Models\Stage;
 use App\Support\Formatting\Format;
@@ -21,14 +22,25 @@ use RuntimeException;
  * > **Validated at save time.** An invalid merge field is a broken email to a
  * > real client, discovered too late.
  *
- * ## Two of F5.6's seven cannot resolve yet, and they are registered anyway
+ * ## `next_deadline` is wired; `status_page_link` still is not, for a new reason
  *
- * Key dates arrive in Slice 4 (#109) and the status page in Slice 4 (#110).
- * They are here, carrying the slice that wires them, for the same reason the
- * deferred gate evaluators are real classes: the editor can then say *which*
- * slice rather than "unknown field", and the validator refuses them **by
- * name** rather than by silence. A template that could carry one would produce
- * a client email with a dead link in it.
+ * Both were registered-but-unavailable through Slice 3, carrying the slice
+ * that would wire them, for the same reason the deferred gate evaluators are
+ * real classes: the editor can then say *which* slice rather than "unknown
+ * field", and the validator refuses them **by name** rather than by silence.
+ *
+ * Slice 4 wired the first of them. The second stayed unavailable, and its
+ * `availableFrom` says so honestly, because the blocker changed underneath it:
+ * the status page exists now, and what is missing is a **credential a message
+ * may carry**. A status page link is minted by `IssueStatusPageLink::issue()`,
+ * which revokes every live grant that person holds on that deal — that is the
+ * right behaviour for a client asking for a new link and the wrong behaviour
+ * for an automation, which would end the session of a client browsing the page
+ * at the moment a stage completed. The alternative, pointing at the session
+ * they already hold, cannot be built either: the session token is stored
+ * hashed, by design, so nothing can render it back into a URL. Neither is a
+ * missing feature; both are a decision about what a client email is allowed to
+ * hand out, and #110's `IssuedLink` is where it would be made.
  *
  * ## Why the stage field is the client-facing name and there is no other
  *
@@ -162,15 +174,14 @@ final class MergeFields
                 'next_deadline',
                 'Next deadline',
                 'Deal',
-                'The next date somebody has to act by on this deal.',
-                availableFrom: 'Dates & Deadlines arrive in Slice 4 (#109).',
+                'The next date somebody has to act by on this deal. The day only — the date’s own name is internal wording.',
             ),
             new MergeField(
                 'status_page_link',
                 'Status page link',
                 'Client',
                 'The client’s own read-only view of this deal.',
-                availableFrom: 'The Status Page arrives in Slice 4 (#110).',
+                availableFrom: 'A message cannot mint a status page link yet — see MergeFields and issue #110.',
             ),
         ];
     }
@@ -366,7 +377,39 @@ final class MergeFields
             'deal_name' => $deal->displayName(),
             'team_name' => $context->team->name,
             'agent_contact_block' => self::contactBlock($context),
+            'next_deadline' => self::nextDeadline($context),
         ];
+    }
+
+    /**
+     * The soonest date on this deal a client could be told about (#109).
+     *
+     * ## The day, and never the date's own name
+     *
+     * A key date's name is free text a team typed for their own screens —
+     * *"Inspection objection deadline"*, *"Loan commitment"* — and this
+     * field lands in a client's inbox. It is the same argument that makes
+     * `{{ stage }}` resolve to the client-facing label and leaves the internal
+     * stage name unoffered: a merge field must not be the way internal wording
+     * reaches a client. The author writes the sentence around the day.
+     *
+     * ## The same predicate the status page uses, deliberately
+     *
+     * Confirmed, today or later, soonest first — `ClientStatus::dates()` reads
+     * exactly this. A client who is told one date in an email and shown a
+     * different one on the page it links to has been told two things, and an
+     * unconfirmed extracted date is a proposal rather than a date (#116).
+     */
+    private static function nextDeadline(MergeContext $context): string
+    {
+        $next = KeyDate::query()
+            ->confirmed()
+            ->where('deal_id', $context->deal->getKey())
+            ->whereDate('date', '>=', KeyDate::today())
+            ->orderBy('date')
+            ->first();
+
+        return $next instanceof KeyDate ? Format::clientDate($next->date) : '';
     }
 
     /**

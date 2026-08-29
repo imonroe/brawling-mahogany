@@ -240,7 +240,7 @@ it('renders one unmet gate with the sentence its evaluator wrote', function (): 
 it('renders several unmet gates, blocking first and each with its own way out', function (): void {
     [$workflow, $first] = advanceModalWorkflow($this->deal);
 
-    Gate::factory()->ofType('document_present', ['category' => 'listing agreement'])->create([
+    Gate::factory()->ofType('document_present', ['category' => 'disclosure'])->create([
         'team_id' => $this->team->getKey(),
         'stage_id' => $first->getKey(),
         'label' => 'Signed listing agreement',
@@ -288,10 +288,14 @@ it('renders several unmet gates, blocking first and each with its own way out', 
         'Photos are back',
     ]);
 
-    // Two blockers, two different next actions. One has a screen to go to and
-    // one cannot clear on its own at all — which is what the dialog groups by.
-    expect($preview['gates'][0]['linkTarget']['type'])->toBe('awaiting_slice')
-        ->and($preview['gates'][0]['explanation'])->toContain('listing agreement')
+    /*
+     * Two blockers, two different next actions, and both now have a screen to
+     * go to. `document_present` returned `awaiting_slice` until S21 shipped
+     * (#98, #104) — the tab it needed did not exist, and a dead link is worse
+     * than a sentence. PRD §5.4's rule is true of this gate type now.
+     */
+    expect($preview['gates'][0]['linkTarget']['type'])->toBe('document_upload')
+        ->and($preview['gates'][0]['explanation'])->toContain('disclosure')
         ->and($preview['gates'][1]['linkTarget']['type'])->toBe('deal_field');
 });
 

@@ -5,22 +5,25 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Enums\ContactType;
-use App\Models\ActionInstance;
 use App\Models\Person;
 use App\Models\Team;
 use App\Models\TeamMembership;
-use App\Queries\MyWork;
+use App\Queries\ShellCounts;
 use App\Support\Admin\Impersonation;
 use App\Support\Feedback\BugReportForm;
+use App\Support\Notifications\NotificationFeed;
 use App\Support\Permissions;
 use App\Support\Teams\PendingInvitations;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
+    public function __construct(private readonly NotificationFeed $notifications) {}
+
     /**
      * The root template that's loaded on the first page visit.
      *
@@ -117,22 +120,23 @@ class HandleInertiaRequests extends Middleware
              * entirely before a team resolves.
              */
             'counts' => $person instanceof Person && $team instanceof Team
-                ? [
-                    'myWork' => MyWork::countFor($person),
-                    /*
-                     * S47's queue (#93), and the count is the whole reason the
-                     * queue is safe. PRD §4.5 makes the approval queue a
-                     * launch blocker; a queue nobody is told about is a set of
-                     * client messages that silently never go — which is a
-                     * worse failure than the one the queue prevents, because
-                     * it is invisible.
-                     *
-                     * Team-wide rather than per-person: `message.approve` is a
-                     * team responsibility and anybody holding it may clear
-                     * any row, unlike My Work, which is *mine*.
-                     */
-                    'pendingMessages' => ActionInstance::query()->awaitingApproval()->count(),
-                ]
+                /*
+                 * **One round trip for all three**, and `ShellCounts` argues
+                 * why: `PeopleIndexBudgetTest` said in advance that two was
+                 * where the shell's counts stopped being free and that a third
+                 * should force a different mechanism rather than a third line
+                 * here. S08's unread count (#101) is the third.
+                 */
+                ? ShellCounts::for($person)
+                : null,
+            /*
+             * The panel itself, **only when asked for**. `Inertia::optional`
+             * rather than a plain value: this is the one prop that should be
+             * absent from an ordinary page load and present on the partial
+             * reload the popover fires when it opens.
+             */
+            'notifications' => $person instanceof Person
+                ? Inertia::optional(fn (): array => $this->notifications->previewFor($person))
                 : null,
             /*
              * The top bar's Report a bug button (issue #176).

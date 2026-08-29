@@ -2,10 +2,10 @@ name: Deploy to staging
 
 # Staging mirrors production and deploys from `dev` (issue #36).
 #
-# The workflow is inert until the droplet exists: set the repository variable
-# STAGING_ENABLED to "true" once the secrets below are in place. That way the
-# pipeline is written down and reviewable now, without failing every merge
-# until the infrastructure catches up.
+# The droplet exists as of 2026-08-28 (public internet, TLS, sending real mail).
+# This workflow is still inert until the repository variable STAGING_ENABLED is
+# set to "true" with the secrets below in place — so if it has not been set, the
+# droplet is being updated by hand and this pipeline is not what is deploying it.
 #
 # Required secrets:
 #   STAGING_SSH_HOST         the droplet's hostname

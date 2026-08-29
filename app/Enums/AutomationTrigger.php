@@ -59,7 +59,6 @@ enum AutomationTrigger: string implements HasLabel
     public function availableFrom(): ?string
     {
         return match ($this) {
-            self::KeyDateOffset => 'Dates & Deadlines arrive in Slice 4 (#109).',
             self::PostClosingOffset => 'Keep in Touch arrives in Slice 6.',
             default => null,
         };
@@ -80,6 +79,24 @@ enum AutomationTrigger: string implements HasLabel
     public function needsGate(): bool
     {
         return $this === self::GateCleared;
+    }
+
+    /**
+     * Whether the trigger names a key date and an offset from it (#106).
+     *
+     * The second trigger to carry a further choice, and it carries **two**: a
+     * date and a signed number of days. Named rather than pointed at, because
+     * an automation lives on a *template* and a template has never met the
+     * deal it will run on — there is no `key_dates` row for it to reference,
+     * and PRD §8.1 keeps the definition layer out of the runtime layer.
+     *
+     * So the two sides meet on the word a team uses. `SnapshotAutomation::
+     * namesKeyDate()` folds case and whitespace, because the template author
+     * and whoever set the deal up typed it months apart.
+     */
+    public function needsKeyDate(): bool
+    {
+        return $this === self::KeyDateOffset;
     }
 
     /**
