@@ -240,9 +240,12 @@ function verdictLabel(meets: Verdict): string {
 /*
  * The bar is drawn only when there is a real ceiling to draw it against.
  *
- * `SpendLedger` treats a cap of zero or less as "no ceiling", so the screen
- * has to as well — a bar with an invented maximum is the lie S50 refuses to
- * tell about storage.
+ * `SpendLedger` treats a **negative** cap as the absence of one; zero is a
+ * ceiling of zero and reads as fully spent, which is what `spend.percent`
+ * already carries. So the only case with no bar is the one where the server
+ * sent no percentage at all — a bar with an invented maximum is the lie S50
+ * refuses to tell about storage, and a missing bar over a stopped team is the
+ * same lie running the other way.
  */
 const capTone = computed<Tone>(() => {
     if (props.spend.percent === null) {

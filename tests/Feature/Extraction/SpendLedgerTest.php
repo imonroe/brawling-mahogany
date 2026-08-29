@@ -138,6 +138,62 @@ it('lets a team carry its own ceiling', function (): void {
         ->and($this->ledger->decide($this->team)->capMicros)->toBe(250_000);
 });
 
+it('reads a cap of zero as a ceiling of zero, not as the absence of one', function (): void {
+    /*
+     * The case none of the three places stating this rule had a fixture for,
+     * and the reason it is worth one: the two readings are indistinguishable
+     * except at exactly this value, and the wrong one **fails open** on the
+     * team an operator has just decided to stop.
+     *
+     * `teams.extraction_monthly_cap_micros` exists, in the migration's own
+     * words, for *"the one team that needs stopping now"*. `$cap > 0` — which
+     * `SpendLedger` shipped for a round and `ExtractionHistory` for two — reads
+     * that as no ceiling at all and lets the team spend without limit.
+     *
+     * The zero spend is deliberate. A cap of zero must refuse the **first**
+     * press, not the press after some money has been spent, which is the only
+     * arrangement that separates a ceiling of zero from an ordinary exhausted
+     * one.
+     */
+    $this->travelTo('2026-09-10 12:00:00');
+
+    $this->team->forceFill(['extraction_monthly_cap_micros' => 0])->save();
+
+    $decision = $this->ledger->decide($this->team->fresh());
+
+    expect($this->ledger->capFor($this->team->fresh()))->toBe(0)
+        ->and($decision->allowed)->toBeFalse()
+        ->and($decision->reasonCode)->toBe('team_spend_cap_reached')
+        ->and($decision->spentMicros)->toBe(0)
+        ->and($decision->percentUsed())->toBe(100);
+});
+
+it('reads a negative cap as no ceiling, which is the other half of the same rule', function (): void {
+    /*
+     * Paired with the case above, because a rule with only one side asserted is
+     * a rule that passes for `>= 0` and for `!== 0` alike.
+     *
+     * Nothing in the product writes a negative cap — the CHECK on `teams`
+     * refuses it — so this is asserted on the **configured** ceiling, which is
+     * where it can actually come from: an operator turning the platform limit
+     * off deliberately.
+     */
+    $this->travelTo('2026-09-10 12:00:00');
+
+    config([
+        'extraction.caps.team_monthly_micros' => -1,
+        'extraction.caps.platform_monthly_micros' => -1,
+    ]);
+
+    billedExtraction($this->team, 50_000_000);
+
+    $decision = $this->ledger->decide($this->team);
+
+    expect($decision->allowed)->toBeTrue()
+        ->and($decision->percentUsed())->toBe(0)
+        ->and($decision->shouldWarn)->toBeFalse();
+});
+
 it('reads a null cap as the default now, not the default when the row was written', function (): void {
     /*
      * The migration's own argument, and it is the trap `teams

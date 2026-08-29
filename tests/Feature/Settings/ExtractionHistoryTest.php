@@ -180,3 +180,56 @@ it('shows what the human changed, which is F10.4’s valuable column', function 
                 ->and($row['finalValue'])->toBe('2026-03-28');
         });
 });
+
+it('draws a ceiling of zero as a ceiling, not as no limit at all', function (): void {
+    /*
+     * The half of the zero-cap rule that lives on this screen, and the one that
+     * was wrong for two rounds after `SpendLedger` was fixed.
+     *
+     * `spend()` read `$cap > 0`, so the team an operator had just stopped got
+     * the presentation reserved for *"there is no ceiling here"*: no figure, no
+     * bar, no percentage — on a team whose next press is refused. The operator
+     * checking their own change would have found the screen reporting that they
+     * had not made it.
+     *
+     * Both keys are asserted because either alone passes for the wrong reason:
+     * a `cap` with no `percent` draws a number with no bar, and a `percent`
+     * with no `cap` draws a bar against nothing.
+     */
+    $this->team->forceFill(['extraction_monthly_cap_micros' => 0])->save();
+
+    $this->actingAsPerson($this->owner, $this->team);
+
+    $this->get('/settings/extractions')
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $spend = $page->toArray()['props']['spend'];
+
+            expect($spend['cap'])->not->toBeNull()
+                ->and($spend['percent'])->toBe(100);
+        });
+});
+
+it('draws no ceiling when there genuinely is not one', function (): void {
+    /*
+     * The control. Without it the case above passes against a screen that
+     * always draws a bar, which is the same defect with the sign flipped —
+     * S50's invented-maximum lie, told about spend instead of storage.
+     *
+     * A negative cap is the only way to say *"no ceiling"*, and it comes from
+     * configuration rather than the column: the CHECK on `teams` refuses one.
+     */
+    config(['extraction.caps.team_monthly_micros' => -1]);
+
+    $this->actingAsPerson($this->owner, $this->team);
+
+    $this->get('/settings/extractions')
+        ->assertOk()
+        ->assertInertia(function (AssertableInertia $page): void {
+            $spend = $page->toArray()['props']['spend'];
+
+            expect($spend['cap'])->toBeNull()
+                ->and($spend['percent'])->toBeNull()
+                ->and($spend['monthToDate'])->not->toBeNull();
+        });
+});

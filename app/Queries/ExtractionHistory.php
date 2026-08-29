@@ -151,16 +151,34 @@ final class ExtractionHistory
         $cap = $this->ledger->capFor($team);
 
         /*
-         * A zero or negative cap means "no ceiling" to `SpendLedger::decide()`,
-         * so it has to mean the same thing here. Rendering it as `$0.00` would
-         * say the opposite of what it does.
+         * **A negative cap is the absence of a ceiling; zero is a ceiling of
+         * zero.** `SpendLedger::decide()` draws the line there and
+         * `SpendDecision::percentUsed()` agrees with it — nought per cent for
+         * a negative cap, a hundred for zero — so this screen has to as well.
+         *
+         * It read `$cap > 0` for a round, which put a stopped team in the one
+         * presentation that says the opposite of what has happened: no ceiling
+         * shown, no bar, no percentage, on a team whose next press is refused.
+         * The operator who set the column to zero *"for the one team that needs
+         * stopping now"* would have found the settings screen reporting no
+         * limit at all.
          */
-        $capped = $cap > 0;
+        $capped = $cap >= 0;
 
         return [
             'monthToDate' => Money::words($spent),
             'cap' => $capped ? Money::words($cap) : null,
-            'percent' => $capped ? $this->percent($spent, $cap) : null,
+            /*
+             * `percent()` returns null on a zero denominator, which is the
+             * wrong answer for a zero ceiling: everything spent against it is
+             * over it. The bar reads full, as `SpendDecision::percentUsed()`
+             * already says it should.
+             */
+            'percent' => match (true) {
+                ! $capped => null,
+                $cap === 0 => 100,
+                default => $this->percent($spent, $cap),
+            },
             /*
              * The same threshold `SpendLedger::shouldWarn()` uses, read from
              * the same config key. Two numbers here would mean the screen going
