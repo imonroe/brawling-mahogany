@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Models\ActionDefinition;
 use App\Models\AuditEntry;
+use App\Models\MessageTemplate;
 use App\Models\StageTemplate;
 use App\Models\TaskTemplate;
 use App\Models\TemplatePack;
@@ -206,4 +208,72 @@ it('seeds every pack file that is there, twice, with the same result', function 
     });
 
     expect(AuditEntry::query()->where('action', 'template_pack.imported')->count())->toBe(2);
+});
+
+it('exports a template whose automations send words', function (): void {
+    /*
+     * The command was broken for exactly the templates it exists to export.
+     *
+     * `PackFile::encodeTemplate()` eager-loads
+     * `actionDefinitions.messageTemplate`, and `MessageTemplate` is
+     * `BelongsToTeam` — so with no team resolved the scope threw
+     * `MissingTeamContextException` and the operator got a stack trace. A
+     * template with no message-sending automation happened to work, because
+     * `BelongsTo` skips the query when every foreign key is null.
+     *
+     * Which is why the suite could not see it: every fixture was built inside
+     * `TeamContext::runFor(...)`, and the one console export fixture had no
+     * automations at all. CLAUDE.md's Slice 4 finding, one slice later — *"a
+     * test helper that sets up more than the route does hides what the route
+     * fails to do"*. The `runWithoutScope` below is what makes this test run
+     * the line the way an operator does.
+     */
+    $template = exportableTemplate();
+
+    app(TeamContext::class)->runFor($this->team, function () use ($template): void {
+        $message = MessageTemplate::factory()->create([
+            'name' => 'What to expect now that you are under contract',
+        ]);
+
+        ActionDefinition::factory()->sendingEmail()->create([
+            'team_id' => $this->team->getKey(),
+            'stage_template_id' => StageTemplate::query()
+                ->where('workflow_template_id', $template->getKey())->sole()->getKey(),
+            'message_template_id' => $message->getKey(),
+        ]);
+    });
+
+    app(TeamContext::class)->runWithoutScope(function () use ($template): void {
+        $this->artisan('packs:export', [
+            '--template' => $template->getKey(),
+            '--output' => $this->path,
+        ])->assertSuccessful();
+    });
+
+    /** @var array<string, mixed> $document */
+    $document = json_decode((string) file_get_contents($this->path), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($document['messageTemplates'])->toHaveCount(1)
+        ->and($document['messageTemplates'][0]['key'])->toBe('what-to-expect-now-that-you-are-under-contract')
+        ->and($document['workflows'][0]['stages'][0]['automations'][0]['messageTemplate'])
+        ->toBe('what-to-expect-now-that-you-are-under-contract');
+});
+
+it('exports a pack with no team resolved at all', function (): void {
+    // The other half of the same fix: a pack's rows belong to nobody, so
+    // `--pack` has no team to run as and must not need one.
+    $template = exportableTemplate();
+
+    $this->artisan('packs:export', ['--template' => $template->getKey(), '--output' => $this->path]);
+    $this->artisan('packs:import', ['file' => $this->path, '--as-pack' => true])->assertSuccessful();
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        $this->artisan('packs:export', ['--pack' => 'listing-to-close', '--output' => $this->path])
+            ->assertSuccessful();
+    });
+
+    /** @var array<string, mixed> $document */
+    $document = json_decode((string) file_get_contents($this->path), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($document['pack']['slug'])->toBe('listing-to-close');
 });

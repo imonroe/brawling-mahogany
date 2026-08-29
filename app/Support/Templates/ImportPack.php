@@ -7,6 +7,7 @@ namespace App\Support\Templates;
 use App\Enums\AutomationActionType;
 use App\Enums\AutomationTrigger;
 use App\Enums\MessageChannel;
+use App\Http\Requests\Messages\MessageTemplateRules;
 use App\Models\ActionDefinition;
 use App\Models\DealType;
 use App\Models\GateTemplate;
@@ -87,6 +88,21 @@ final class ImportPack
         /** @var ImportReport */
         return DB::transaction(function () use ($document, $stanza, &$notes): ImportReport {
             $pack = TemplatePack::query()->withTrashed()->firstOrNew(['slug' => $stanza['slug']]);
+
+            /*
+             * Said out loud, because the slug is the only thing matched on and
+             * nothing checks that the pack found is the pack the file means.
+             * Importing somebody's export whose slug happens to be `listing`
+             * renames the shipped Listing pack and rebuilds the stages of
+             * every workflow inside it whose name collides — an upsert when it
+             * is your own file, and a surprise when it is not.
+             */
+            if ($pack->exists) {
+                $notes[] = "This install already had a pack with the slug “{$pack->slug}”"
+                    .($pack->name === $stanza['name'] ? '' : " (“{$pack->name}”)")
+                    .', so it was updated rather than added.'
+                    .($pack->trashed() ? ' It had been archived, and is back.' : '');
+            }
 
             $pack->forceFill(PackFile::packColumns($stanza));
             $pack->deleted_at = null;
@@ -200,6 +216,11 @@ final class ImportPack
     {
         return array_values(WorkflowTemplate::query()
             ->where('template_pack_id', $pack->getKey())
+            // `whereNull('team_id')` for the same reason `packTemplate()` has
+            // it: this is about the pack's own rows. Safe today only because
+            // `CopyTemplate` drops `template_pack_id`, and an asymmetry that
+            // rests on another class's behaviour is one that decays.
+            ->whereNull('team_id')
             ->whereNotIn('name', $named)
             ->orderBy('name')
             ->pluck('name')
@@ -323,6 +344,12 @@ final class ImportPack
                 ->where(fn ($query) => $teamId === null
                     ? $query->whereNull('team_id')
                     : $query->whereNull('team_id')->orWhere('team_id', $teamId))
+                // Live rows only, and the team's own ahead of a system row of
+                // the same name: an archived type is one S76 says a team has
+                // taken out of circulation, and an unordered `first()` over
+                // two rows sharing a name picks whichever the heap offers.
+                ->whereNull('archived_at')
+                ->orderByRaw('team_id is null')
                 ->first();
 
             if (! $type instanceof DealType) {
@@ -341,11 +368,19 @@ final class ImportPack
     /**
      * Write the file's message templates into the current team.
      *
-     * Always created, never matched to an existing template of the same name.
-     * Reuse would bind an imported automation to words somebody else wrote and
-     * may since have changed — the automation would look right on S44 and send
-     * something the file never described. A duplicate name is visible on S45
-     * and fixable there; a silently rebound automation is neither.
+     * ## A name is an identity here, and the database says so
+     *
+     * `message_templates` carries a unique index over
+     * `(team_id, channel, lower(name))` for live rows, so "always create a new
+     * one" is not a policy this table allows: importing the same file twice
+     * was an unhandled `UniqueConstraintViolationException` at the operator.
+     *
+     * So a live template of the same name **on the same channel** is reused,
+     * and the reuse is reported rather than assumed. That is the honest
+     * reading of an index the product already keeps: within a team, that pair
+     * *is* the template. What it costs is worth saying plainly, which is what
+     * the note does — the words the automation will send are the ones already
+     * in the team, which may not be the ones in the file.
      *
      * @param  array<string, mixed>  $document
      * @param  list<string>  $notes
@@ -353,29 +388,74 @@ final class ImportPack
      */
     private function writeMessageTemplates(array $document, array &$notes): array
     {
-        /** @var list<array<string, mixed>> $stanzas */
-        $stanzas = $document['messageTemplates'] ?? [];
-
         $written = [];
+        $created = 0;
+        $reused = [];
 
-        foreach ($stanzas as $stanza) {
+        foreach ($this->rawMessages($document) as $stanza) {
+            if (! is_array($stanza) || ! is_string($stanza['key'] ?? null)) {
+                continue;
+            }
+
+            $columns = PackFile::messageColumns($stanza);
+            $channel = MessageChannel::tryFrom((string) $columns['channel']);
+            $name = (string) $columns['name'];
+
+            $existing = $channel === null ? null : $this->liveTemplateNamed($name, $channel);
+
+            if ($existing instanceof MessageTemplate) {
+                $written[$stanza['key']] = (string) $existing->getKey();
+                $reused[] = $name;
+
+                continue;
+            }
+
             $template = new MessageTemplate;
 
             // `fill`, not `forceFill`: `BelongsToTeam` puts `team_id` on from
             // the resolved team, and the trait's own rule is that nothing else
             // ever writes it.
-            $template->fill(PackFile::messageColumns($stanza));
+            $template->fill($columns);
             $template->save();
 
-            $written[(string) $stanza['key']] = (string) $template->getKey();
+            $written[$stanza['key']] = (string) $template->getKey();
+            $created++;
         }
 
-        if ($written !== []) {
-            $notes[] = count($written).' message '.(count($written) === 1 ? 'template was' : 'templates were')
+        if ($created > 0) {
+            $notes[] = $created.' message '.($created === 1 ? 'template was' : 'templates were')
                 .' created for this team. Read them on Templates → Messages before anything sends.';
         }
 
+        if ($reused !== []) {
+            $notes[] = 'This team already had '.(count($reused) === 1 ? 'a template' : 'templates')
+                .' named '.implode(', ', array_map(fn (string $each): string => '“'.$each.'”', $reused))
+                .', so the imported automations point at '.(count($reused) === 1 ? 'it' : 'them')
+                .' rather than at new copies. The words that will send are the ones already in the team.';
+        }
+
         return $written;
+    }
+
+    /**
+     * A live template of this name on this channel, in the current team.
+     *
+     * Matched in SQL over `lower(name)`, which is what the unique index is
+     * over — `DealTypeRules` records the reason at length and it holds here: a
+     * fold done in PHP is a different comparison from the index's, so the
+     * comparison belongs where the index is.
+     *
+     * Archived and soft-deleted rows are excluded, matching the index's own
+     * predicates: an archived name is free, and reusing an archived template
+     * would point an automation at one `ActionDefinition::booted()` refuses.
+     */
+    private function liveTemplateNamed(string $name, MessageChannel $channel): ?MessageTemplate
+    {
+        return MessageTemplate::query()
+            ->whereRaw('lower(name) = lower(?)', [$name])
+            ->where('channel', $channel->value)
+            ->whereNull('archived_at')
+            ->first();
     }
 
     /**
@@ -402,11 +482,31 @@ final class ImportPack
         $validator = Validator::make($document, $this->rules($keys), $this->errorMessages());
 
         $validator->after(function ($validator) use ($document, $forPack): void {
+            $this->checkShapes($validator, $document);
+            $this->checkMessageTemplates($validator, $document);
+            $this->checkGates($validator, $document);
             $this->checkAutomations($validator, $document, $forPack);
         });
 
-        /** @var array<string, mixed> */
-        return $validator->validate();
+        $validator->validate();
+
+        /*
+         * The **original** document, not `validate()`'s return.
+         *
+         * `validate()` hands back only the keys it had a rule for, and moving
+         * the message-template rules out to `checkMessageTemplates()` (where
+         * the channel can shape them) therefore emptied every stanza down to
+         * its `key` — `recipient_rule` arrived null and `MessageTemplate`
+         * threw from a `booted()` hook, two layers from the cause.
+         *
+         * Writing from the raw document is what stops that recurring: a rule
+         * moved or dropped can then only weaken a *refusal*, never silently
+         * stop a column being written. Safe because nothing here writes a
+         * column it was not asked for — every write goes through a
+         * `PackFile::*Columns()` map, which reads the keys the format defines
+         * and no others.
+         */
+        return $document;
     }
 
     /**
@@ -434,23 +534,34 @@ final class ImportPack
             'pack.priceTier' => ['nullable', 'string', 'max:255'],
             'pack.sortOrder' => ['nullable', 'integer', 'between:0,65535'],
 
+            /*
+             * Only the file's own concerns here — a key that identifies the
+             * stanza, and a name. **Everything about the template itself is
+             * checked against S46's own rules**, per stanza, in
+             * `checkMessageTemplates()`: the channel shapes half of them, and
+             * a second list written here would be exactly the drift this
+             * codebase keeps finding. What that buys is real — merge fields,
+             * a recipient rule the channel can carry, a `from_identity` the
+             * mail parser will actually accept, and a body inside the limits.
+             */
             'messageTemplates' => ['nullable', 'array'],
             'messageTemplates.*.key' => ['required', 'string', 'max:255', 'distinct'],
-            'messageTemplates.*.name' => ['required', 'string', 'max:255'],
-            'messageTemplates.*.channel' => ['required', Rule::in(array_column(MessageChannel::cases(), 'value'))],
-            'messageTemplates.*.subject' => ['nullable', 'string', 'max:255'],
-            'messageTemplates.*.bodyHtml' => ['nullable', 'string'],
-            // NOT NULL in the schema: Design System §12 wants a real
-            // plain-text half of every message, not a stripped-tags fallback.
-            'messageTemplates.*.bodyText' => ['required', 'string'],
-            'messageTemplates.*.recipientRule' => ['required', 'array'],
-            'messageTemplates.*.recipientRule.type' => ['required', 'string'],
-            'messageTemplates.*.fromIdentity' => ['nullable', 'string', 'max:255'],
 
             'workflows' => ['required', 'array', 'min:1'],
-            'workflows.*.name' => ['required', 'string', 'max:120'],
+            /*
+             * `distinct`, because `packTemplate()` matches an existing
+             * workflow **by name within the pack**: two stanzas sharing a name
+             * meant the second one silently overwrote the first and
+             * force-deleted its stages, while the report claimed two templates
+             * had been written. The name is the identity, so the file may not
+             * use one twice.
+             */
+            'workflows.*.name' => ['required', 'string', 'max:120', 'distinct'],
             'workflows.*.description' => ['nullable', 'string', 'max:2000'],
-            'workflows.*.version' => ['nullable', 'integer', 'min:1'],
+            // Bounded, like `pack.sortOrder` beside it: the column is an
+            // `unsignedInteger`, and an out-of-range value is a driver error
+            // in the middle of a deploy rather than a sentence.
+            'workflows.*.version' => ['nullable', 'integer', 'between:1,4294967295'],
             'workflows.*.isActive' => ['nullable', 'boolean'],
             'workflows.*.dealTypes' => ['nullable', 'array'],
             'workflows.*.dealTypes.*.name' => ['required', 'string', 'max:255'],
@@ -500,6 +611,177 @@ final class ImportPack
     }
 
     /**
+     * Every collection in the file is a **list**, not an object.
+     *
+     * `array` is what JSON hands back for both `[…]` and `{…}`, and
+     * `rebuild()` writes `sort_order` straight from the array key — so
+     * `"stages": {"first": {…}}` put the string `first` into an
+     * `unsignedSmallInteger` and threw a `QueryException` at whoever ran the
+     * deploy. Order is array position in this format, and a keyed object has
+     * no position to read.
+     *
+     * @param  \Illuminate\Validation\Validator  $validator
+     * @param  array<string, mixed>  $document
+     */
+    private function checkShapes(mixed $validator, array $document): void
+    {
+        $this->walk($document, function (string $path, mixed $value) use ($validator): void {
+            if (is_array($value) && ! array_is_list($value)) {
+                $validator->errors()->add($path, __(
+                    'This has to be a list. Order comes from position in a pack file, and a named object has none.',
+                ));
+            }
+        });
+    }
+
+    /**
+     * Visit every collection the format defines, by path.
+     *
+     * One walk rather than five nested loops repeated per check, because the
+     * shape of the document is stated once here and the callers say what they
+     * want done with it.
+     *
+     * @param  array<string, mixed>  $document
+     * @param  callable(string, mixed): void  $visit
+     */
+    private function walk(array $document, callable $visit): void
+    {
+        foreach (['messageTemplates', 'workflows'] as $key) {
+            if (array_key_exists($key, $document)) {
+                $visit($key, $document[$key]);
+            }
+        }
+
+        foreach ($this->listAt($document, 'workflows') as $w => $workflow) {
+            if (! is_array($workflow)) {
+                continue;
+            }
+
+            foreach (['dealTypes', 'stages'] as $key) {
+                if (array_key_exists($key, $workflow)) {
+                    $visit("workflows.{$w}.{$key}", $workflow[$key]);
+                }
+            }
+
+            foreach ($this->listAt($workflow, 'stages') as $st => $stage) {
+                if (! is_array($stage)) {
+                    continue;
+                }
+
+                foreach (['gates', 'tasks', 'automations'] as $key) {
+                    if (array_key_exists($key, $stage)) {
+                        $visit("workflows.{$w}.stages.{$st}.{$key}", $stage[$key]);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $from
+     * @return array<int, mixed>
+     */
+    private function listAt(array $from, string $key): array
+    {
+        $value = $from[$key] ?? null;
+
+        return is_array($value) ? array_values($value) : [];
+    }
+
+    /**
+     * Hold a message template stanza to the rules S46 holds one to.
+     *
+     * Per stanza, because half the rules are shaped by the channel — a push
+     * template is *prohibited* a subject rather than merely not needing one.
+     * The stanza is converted to column names first, so what is validated is
+     * literally `MessageTemplateRules::fieldRules()` and not a paraphrase of
+     * it.
+     *
+     * What this closes is not hypothetical. A recipient rule the channel
+     * cannot carry saved happily and then threw `MalformedRecipientRule` out
+     * of `MessageTemplateController::row()` — which runs for **every**
+     * template on S45, so one bad stanza in one pack file made a team's whole
+     * Messages screen a 500, with no screen left to fix the row from.
+     *
+     * @param  \Illuminate\Validation\Validator  $validator
+     * @param  array<string, mixed>  $document
+     */
+    private function checkMessageTemplates(mixed $validator, array $document): void
+    {
+        foreach ($this->rawMessages($document) as $index => $stanza) {
+            if (! is_array($stanza)) {
+                continue;
+            }
+
+            $columns = PackFile::messageColumns($stanza);
+            $channel = MessageChannel::tryFrom((string) ($columns['channel'] ?? ''));
+
+            $inner = Validator::make(
+                $columns,
+                MessageTemplateRules::fieldRules($channel) + ['name' => ['required', 'string', 'max:120']],
+            );
+
+            foreach ($inner->errors()->toArray() as $field => $errors) {
+                foreach ($errors as $message) {
+                    // Reported under the file's own key, so the operator is
+                    // told which stanza rather than which column of nothing.
+                    $validator->errors()->add(
+                        "messageTemplates.{$index}.".PackFile::messageFileKey($field),
+                        $message,
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * The one gate type whose configuration is an identifier.
+     *
+     * `action_completed` stores an `actionDefinitionId`, and every import
+     * rebuilds the automations with fresh ULIDs — `TemplatePackSeeder` runs on
+     * every deploy, so the second one would leave the gate pointing at nothing
+     * and no screen would say so. `ActionCompletedEvaluator` would report *"has
+     * not run yet"* forever: a blocking gate only an **override** can pass,
+     * built by a file rather than by two clicks, which is the same state
+     * `GateRegistry::selectableOptions()` exists to keep out of the product.
+     *
+     * Refused rather than rewritten, because there is nothing to rewrite it
+     * to: the id names a row in somebody else's database.
+     *
+     * @param  \Illuminate\Validation\Validator  $validator
+     * @param  array<string, mixed>  $document
+     */
+    private function checkGates(mixed $validator, array $document): void
+    {
+        foreach ($this->listAt($document, 'workflows') as $w => $workflow) {
+            if (! is_array($workflow)) {
+                continue;
+            }
+
+            foreach ($this->listAt($workflow, 'stages') as $st => $stage) {
+                if (! is_array($stage)) {
+                    continue;
+                }
+
+                foreach ($this->listAt($stage, 'gates') as $g => $gate) {
+                    if (! is_array($gate) || ($gate['gateType'] ?? null) !== 'action_completed') {
+                        continue;
+                    }
+
+                    $validator->errors()->add(
+                        "workflows.{$w}.stages.{$st}.gates.{$g}.gateType",
+                        __(
+                            'An “action completed” gate points at one automation by id, and an id from another '
+                            .'install means nothing here — every import rebuilds the automations. Use a different '
+                            .'gate type, or add this one on the templates screen after importing.',
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * The pairings a rule list cannot express, checked together so one run
      * reports all of them.
      *
@@ -518,36 +800,52 @@ final class ImportPack
             }
         }
 
-        /** @var list<array<string, mixed>> $workflows */
-        $workflows = is_array($document['workflows'] ?? null) ? $document['workflows'] : [];
+        foreach ($this->listAt($document, 'workflows') as $w => $workflow) {
+            if (! is_array($workflow)) {
+                continue;
+            }
 
-        foreach ($workflows as $w => $workflow) {
-            /** @var list<array<string, mixed>> $stages */
-            $stages = is_array($workflow['stages'] ?? null) ? $workflow['stages'] : [];
+            foreach ($this->listAt($workflow, 'stages') as $s => $stage) {
+                if (! is_array($stage)) {
+                    continue;
+                }
 
-            foreach ($stages as $s => $stage) {
-                /** @var list<array<string, mixed>> $automations */
-                $automations = is_array($stage['automations'] ?? null) ? $stage['automations'] : [];
-
-                foreach ($automations as $a => $automation) {
-                    $field = "workflows.{$w}.stages.{$s}.automations.{$a}";
-                    $key = $automation['messageTemplate'] ?? null;
-
-                    if (! is_string($key)) {
+                foreach ($this->listAt($stage, 'automations') as $a => $automation) {
+                    if (! is_array($automation)) {
                         continue;
                     }
 
-                    if ($forPack) {
-                        $validator->errors()->add($field.'.messageTemplate', __(
+                    $field = "workflows.{$w}.stages.{$s}.automations.{$a}";
+                    $key = $automation['messageTemplate'] ?? null;
+                    $action = AutomationActionType::tryFrom((string) ($automation['actionType'] ?? ''));
+
+                    /*
+                     * Keyed on what the action **needs**, not on whether the
+                     * file happened to name a template.
+                     *
+                     * Keying it on the key let a `send_email` with
+                     * `"messageTemplate": null` straight through: the CHECK
+                     * constraint is satisfied by a null, so the row was
+                     * written — a shared automation that `isComplete()` calls
+                     * false, shipped to every install on every deploy, badged
+                     * "Needs a template" on S41, skipped in silence by
+                     * `RaiseAutomations`, and copied into every team that
+                     * installed the pack. A row nothing can reach, seeded.
+                     */
+                    if ($forPack && $action?->needsMessageTemplate() === true) {
+                        $validator->errors()->add($field.'.actionType', __(
                             'A pack is shared by every team and a message template belongs to one, so a shipped '
-                            .'automation cannot name one. Keep the automation and drop the template, or import '
-                            .'this file into a team instead.',
+                            .'automation cannot be one that sends words. Use an action that carries its own title, '
+                            .'or import this file into a team instead.',
                         ));
 
                         continue;
                     }
 
-                    $action = AutomationActionType::tryFrom((string) ($automation['actionType'] ?? ''));
+                    if (! is_string($key)) {
+                        continue;
+                    }
+
                     $wanted = $action?->channel();
 
                     if ($wanted !== null && ($channels[$key] ?? null) !== $wanted) {

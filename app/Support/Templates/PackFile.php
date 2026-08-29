@@ -11,6 +11,7 @@ use App\Models\StageTemplate;
 use App\Models\TaskTemplate;
 use App\Models\TemplatePack;
 use App\Models\WorkflowTemplate;
+use BackedEnum;
 use Illuminate\Support\Str;
 
 /**
@@ -49,13 +50,24 @@ use Illuminate\Support\Str;
  * `template_packs.sort_order` is the exception and stays explicit, because it
  * orders packs **against each other** and there is no array holding them.
  *
- * ## Identifiers do not travel
+ * ## Identifiers do not travel, and one gate type is refused because of it
  *
- * No ULID appears in a pack file. An id is meaningful in the database that
+ * No ULID is *emitted* by this class. An id is meaningful in the database that
  * generated it and nowhere else, and a file carrying one invites an importer
  * to honour it. The one cross-reference a pack needs — an automation naming
  * the message template it sends — travels as a `key`: a slug of the template's
  * name, stable across installs and editable by a person.
+ *
+ * `gate_templates.config` is the hole in that, and it is closed at the other
+ * end. A gate's configuration is opaque JSON here, and exactly one gate type's
+ * configuration **is** an id: `action_completed` stores an
+ * `actionDefinitionId`. `ImportPack` refuses that type outright, because every
+ * import rebuilds the automations with fresh ULIDs — so such a gate would
+ * arrive pointing at nothing and stay that way, a blocking gate only an
+ * override could pass, which is the state `GateRegistry::selectableOptions()`
+ * exists to keep out of the product. The refusal lives with the importer
+ * because that is where the consequence is; this note is here because that is
+ * where the claim was.
  *
  * @phpstan-type PackDocument array<string, mixed>
  */
@@ -160,7 +172,13 @@ final class PackFile
 
         return self::document(
             pack: ['slug' => $pack->slug] + self::read($pack, self::PACK_FIELDS),
-            templates: array_values($pack->workflowTemplates->all()),
+            /*
+             * Sorted by name, because `workflowTemplates` carries no ordering
+             * of its own and a workflow template has no `sort_order` to give
+             * it one. Whatever order the heap returns is not a diff anybody
+             * wants to read twice.
+             */
+            templates: array_values($pack->workflowTemplates->sortBy('name')->values()->all()),
         );
     }
 
@@ -299,7 +317,10 @@ final class PackFile
              * one a team has not got is a pack that leaves the association
              * off, which the importer reports rather than swallows.
              */
+            // Sorted for the same reason, and by the same key the importer
+            // matches on.
             'dealTypes' => $template->dealTypes
+                ->sortBy('name')
                 ->map(fn ($type): array => [
                     'name' => $type->name,
                     'isDefault' => (bool) ($type->pivot->is_default ?? false),
@@ -343,11 +364,7 @@ final class PackFile
     {
         $message = $automation->message_template_id;
 
-        return [
-            'trigger' => $automation->trigger->value,
-            'actionType' => $automation->action_type->value,
-            'config' => $automation->config,
-            'isActive' => $automation->is_active,
+        return self::read($automation, self::AUTOMATION_FIELDS) + [
             /*
              * `executionMode()` is the model's own answer to *"how is a human
              * put in the loop"*, and asking it here rather than reading the two
@@ -364,19 +381,29 @@ final class PackFile
      */
     private static function encodeMessage(MessageTemplate $message): array
     {
-        return [
-            'name' => $message->name,
-            'channel' => $message->channel->value,
-            'subject' => $message->subject,
-            'bodyHtml' => $message->body_html,
-            'bodyText' => $message->body_text,
-            'recipientRule' => $message->recipient_rule,
-            'fromIdentity' => $message->from_identity,
-        ];
+        return self::read($message, self::MESSAGE_FIELDS);
     }
 
     /**
      * Read a row's columns out under their file names.
+     *
+     * The **only** encoder, which is what makes the `*_FIELDS` maps true in
+     * both directions rather than only in the docblock. `encodeMessage` and
+     * `encodeAutomation` used to restate their lists by hand, so a field added
+     * to `MESSAGE_FIELDS` would have been written by the importer and never
+     * emitted by the exporter — the silent column loss this class exists to
+     * prevent, in the two stanzas with the most fields.
+     *
+     * Two normalisations, because a file is compared and committed:
+     *
+     *  - **An enum becomes its value.** `trigger` and `action_type` hydrate as
+     *    enums, and a `json_encode` of one is an implementation detail leaking
+     *    into a format.
+     *  - **A `config` object gets its keys sorted.** jsonb does not preserve
+     *    key order, so a two-key configuration comes back from Postgres in
+     *    whatever order it likes — which made a re-export a spurious diff, and
+     *    made the round-trip test's `toBe` (order-sensitive) pass only because
+     *    every configuration in its fixture happened to have one key.
      *
      * @param  array<string, string>  $fields  file key => column
      * @return array<string, mixed>
@@ -388,7 +415,40 @@ final class PackFile
         foreach ($fields as $key => $column) {
             /** @var mixed $value */
             $value = $row->{$column};
-            $out[$key] = $value;
+
+            $out[$key] = match (true) {
+                $value instanceof BackedEnum => $value->value,
+                is_array($value) => self::sorted($value),
+                default => $value,
+            };
+        }
+
+        return $out;
+    }
+
+    /**
+     * A nested array with every level's string keys in a fixed order.
+     *
+     * Applied on the way **out** only. The importer stores what the file says
+     * and Postgres reorders it on its own; sorting here is what makes two
+     * exports of the same rows byte-identical, which is the whole basis of
+     * *"a re-export after a one-word change is a one-line diff"*.
+     *
+     * A list keeps its order — that is data, not key order.
+     *
+     * @param  array<array-key, mixed>  $value
+     * @return array<array-key, mixed>
+     */
+    private static function sorted(array $value): array
+    {
+        $out = [];
+
+        foreach ($value as $key => $each) {
+            $out[$key] = is_array($each) ? self::sorted($each) : $each;
+        }
+
+        if (! array_is_list($out)) {
+            ksort($out);
         }
 
         return $out;
@@ -482,6 +542,24 @@ final class PackFile
             'bodyHtml' => null,
             'fromIdentity' => null,
         ]);
+    }
+
+    /**
+     * A message template column name, back under the key the file uses for it.
+     *
+     * So a refusal from `MessageTemplateRules::fieldRules()` — which speaks in
+     * columns — can be reported against the stanza somebody actually wrote.
+     * A nested path keeps its tail: `recipient_rule.type` is
+     * `recipientRule.type`.
+     */
+    public static function messageFileKey(string $column): string
+    {
+        [$head, $tail] = array_pad(explode('.', $column, 2), 2, null);
+
+        $key = array_search($head, self::MESSAGE_FIELDS, strict: true);
+        $key = is_string($key) ? $key : (string) $head;
+
+        return $tail === null ? $key : $key.'.'.$tail;
     }
 
     /**

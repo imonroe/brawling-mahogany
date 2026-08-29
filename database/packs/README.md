@@ -95,11 +95,27 @@ One file is one pack, and a pack holds one or more workflow templates.
 - **Order is array position.** There are no `sortOrder` numbers inside the
   arrays, so the file cannot disagree with itself. `template_packs.sort_order`
   is the exception, because it orders packs against each other.
-- **A shipped pack cannot send email.** `message_templates` is team-scoped and
-  `action_definitions` is not, so a CHECK constraint refuses a shared row that
-  names a team's private template. A pack may carry a *create task* or *prompt
-  somebody* automation; a *send email* one is refused at import with that
-  reason. Importing the same file `--team=<slug>` carries the words fine.
+- **A shipped pack cannot carry an automation that sends words.**
+  `message_templates` is team-scoped and `action_definitions` is not, so a
+  CHECK constraint refuses a shared row that names a team's private template.
+  A pack may carry a *create task* or *prompt somebody* automation. Any action
+  that needs a message template — email, push, an internal notification — is
+  refused at import, **whether or not the file names one**: a `send_email` with
+  a null template satisfies the constraint and would ship a permanently
+  incomplete automation to every install. Importing the same file
+  `--team=<slug>` carries the words fine.
+- **An `action_completed` gate is refused, in both directions.** Its
+  configuration is an `actionDefinitionId` — an id from whichever database
+  wrote the file — and every import rebuilds the automations with new ids. Add
+  that gate on the templates screen after importing.
+- **A message template stanza is held to the same rules the Messages screen
+  uses**: merge fields are checked, a subject may not contain a line break, the
+  recipient rule has to be one the channel can carry, and `fromIdentity` has to
+  be an address the mail parser accepts.
+- **Importing into a team reuses a message template of the same name on the
+  same channel** rather than creating a second one, because the database keeps
+  a unique index over that pair. The import says when it did, because the words
+  that will send are then the ones already in the team.
 - **`isRequired` is what makes a task gate an advance.** It feeds the
   `required_tasks_complete` gate. Absent means `false`, which is the column's
   own default and the safe one: a stage where every task blocks is a stage
@@ -122,7 +138,9 @@ One file is one pack, and a pack holds one or more workflow templates.
 
 `packs:import --as-pack` upserts on the pack's slug and rebuilds each named
 workflow's stages outright, so a corrected pack ships with the code that
-corrected it. It does **not** delete a workflow template the file stopped
+corrected it. The slug is the **only** thing matched on, so importing a file
+whose slug collides with an unrelated pack updates that pack — the import says
+so when the slug already existed, and it is worth reading. It does **not** delete a workflow template the file stopped
 naming: `workflows.workflow_template_id` points at it, and a running deal
 losing that pointer to a re-seed is a cost no file edit should impose silently.
 It says so instead, and `is_active` on the templates screen is the reversible

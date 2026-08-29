@@ -67,12 +67,29 @@ class TemplatePackSeeder extends Seeder
             /** @var array<string, mixed> $document */
             $report = $import->asPack($document);
 
-            $this->command->getOutput()->writeln("  <info>Pack:</info> {$report->summary()}");
+            $this->say("<info>Pack:</info> {$report->summary()}");
 
             foreach ($report->notes as $note) {
-                $this->command->getOutput()->writeln("  <comment>{$note}</comment>");
+                $this->say("<comment>{$note}</comment>");
             }
         }
+    }
+
+    /**
+     * Say what the import decided, the way every other seeder here does.
+     *
+     * `$this->command` is set by `Seeder::call()` from the parent seeder, and
+     * `db:seed` is the only door: `ReferenceDataSeeder` is what reaches this,
+     * and `DemoTeamSeeder` and `PerformanceFixtureSeeder` write the same way.
+     *
+     * The notes are the half of a deploy worth reading — an association the
+     * pack could not honour, a slug that already existed, a workflow the file
+     * has stopped describing. A silent seed is how those become discoveries
+     * later.
+     */
+    private function say(string $line): void
+    {
+        $this->command->getOutput()->writeln('  '.$line);
     }
 
     /**

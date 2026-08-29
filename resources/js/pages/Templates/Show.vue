@@ -166,6 +166,31 @@ function openAutomation(
 }
 
 /**
+ * The types this dialog may offer, given what it is opening onto.
+ *
+ * `gateTypes` is the narrow list — what a person may *choose*, because S43 has
+ * no editor for five of the seven configurations. But a pack file may carry
+ * any type the registry knows (#87), so a team can hold a gate whose type is
+ * not in that list. Offering only the narrow list would open the form on a
+ * select with no matching option and refuse the Save for a value nobody
+ * touched, so the stored type is added back — by name, from `gateTypeLabels`,
+ * which is what the server sends precisely so a pack's gate reads as itself.
+ *
+ * The server allows the same one value for the same reason, so this cannot
+ * offer something a save would refuse.
+ */
+function gateTypesFor(gate: GateTemplateValues | null): Record<string, string> {
+    if (!gate || gate.gateType in props.gateTypes) {
+        return props.gateTypes;
+    }
+
+    return {
+        ...props.gateTypes,
+        [gate.gateType]: props.gateTypeLabels[gate.gateType] ?? gate.gateType,
+    };
+}
+
+/**
  * Send a whole new order, or do nothing when the move runs off the end.
  *
  * `moveWithin` returns null rather than the unchanged list precisely so this
@@ -476,12 +501,14 @@ function remove(): void {
                             <AppButton
                                 variant="ghost"
                                 size="compact"
+                                :aria-label="`Edit ${stage.name}`"
                                 @click="openStage(stage)"
                                 >Edit</AppButton
                             >
                             <AppButton
                                 variant="ghost"
                                 size="compact"
+                                :aria-label="`Remove ${stage.name}`"
                                 @click="removeStage(stage)"
                                 >Remove</AppButton
                             >
@@ -740,7 +767,7 @@ function remove(): void {
             :template-id="template.id"
             :stage-template-id="gateStage.id"
             :gate="editingGate"
-            :gate-types="gateTypes"
+            :gate-types="gateTypesFor(editingGate)"
         />
 
         <TaskTemplateDialog

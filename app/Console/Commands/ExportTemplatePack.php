@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Models\TemplatePack;
 use App\Models\WorkflowTemplate;
 use App\Support\Templates\PackFile;
+use App\Support\Tenancy\TeamContext;
 use Illuminate\Console\Command;
 use JsonException;
 
@@ -44,7 +45,7 @@ class ExportTemplatePack extends Command
 
     protected $description = 'Write a template pack, or one workflow template, out as a pack file.';
 
-    public function handle(): int
+    public function handle(TeamContext $teams): int
     {
         $pack = $this->option('pack');
         $template = $this->option('template');
@@ -56,8 +57,8 @@ class ExportTemplatePack extends Command
         }
 
         $document = is_string($pack) && $pack !== ''
-            ? $this->fromPack($pack)
-            : $this->fromTemplate((string) $template);
+            ? $this->fromPack($teams, $pack)
+            : $this->fromTemplate($teams, (string) $template);
 
         if ($document === null) {
             return self::FAILURE;
@@ -100,7 +101,7 @@ class ExportTemplatePack extends Command
     /**
      * @return array<string, mixed>|null
      */
-    private function fromPack(string $slug): ?array
+    private function fromPack(TeamContext $teams, string $slug): ?array
     {
         $pack = TemplatePack::query()->where('slug', $slug)->first();
 
@@ -110,13 +111,22 @@ class ExportTemplatePack extends Command
             return null;
         }
 
-        return PackFile::encodePack($pack);
+        /*
+         * A pack's rows belong to nobody, so there is no team to run as — and
+         * `runFor(null)` is what says that deliberately rather than by
+         * omission. `encodePack` reaches `MessageTemplate`, which is
+         * `BelongsToTeam`, and a pack's automations can never name one (the
+         * CHECK constraint), so the eager load finds no keys and asks the
+         * scope nothing. Wrapped anyway, because \"finds no keys\" is a fact
+         * about today's data and this is a fact about the caller.
+         */
+        return $teams->runFor(null, fn (): array => PackFile::encodePack($pack));
     }
 
     /**
      * @return array<string, mixed>|null
      */
-    private function fromTemplate(string $reference): ?array
+    private function fromTemplate(TeamContext $teams, string $reference): ?array
     {
         /*
          * No team scope to lift: `workflow_templates` is one of the tables
@@ -151,6 +161,22 @@ class ExportTemplatePack extends Command
         /** @var WorkflowTemplate $template */
         $template = $matches->first();
 
-        return PackFile::encodeTemplate($template);
+        /*
+         * **Run as the template's own team**, and this is not a nicety.
+         *
+         * `encodeTemplate` eager-loads `actionDefinitions.messageTemplate`,
+         * and `MessageTemplate` is `BelongsToTeam` — so with no team resolved
+         * the scope throws `MissingTeamContextException` and the operator gets
+         * a stack trace. It broke for exactly the templates this command
+         * exists to export: one whose automations send words. A template with
+         * none happened to work, because `BelongsTo` skips the query when
+         * every foreign key is null.
+         *
+         * Which is CLAUDE.md's Slice 4 finding again — *\"a test helper that
+         * sets up more than the route does hides what the route fails to
+         * do\"*. Every test built its fixture inside `runFor`, so the suite
+         * never ran this line the way an operator does.
+         */
+        return $teams->runFor($template->team, fn (): array => PackFile::encodeTemplate($template));
     }
 }

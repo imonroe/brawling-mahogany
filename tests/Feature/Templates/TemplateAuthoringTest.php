@@ -166,12 +166,17 @@ it('reorders tasks from a whole order rather than a swap', function (): void {
         ->all())->toBe(['Third', 'First', 'Second']);
 });
 
-it('cannot renumber a task belonging to another stage', function (): void {
+it('refuses a reorder that does not name this stage’s whole set', function (): void {
     /*
+     * Two properties in one, and the second is the one worth having.
+     *
      * The renumber runs over the caller's own query, so an id from elsewhere
-     * is simply not in the set. Worth a test rather than a comment: the ids
-     * arrive from a form, and the only thing standing between them and a write
-     * is that scoping.
+     * is never in the set — that is what keeps the write inside the parent it
+     * was called for. But *ignoring* the foreign id and renumbering what is
+     * left is not enough: renumbering a subset from zero leaves the untouched
+     * rows holding the numbers it just handed out, and `orderBy('sort_order')`
+     * then returns an order nobody chose. A reorder is one intention, so half
+     * of one is refused rather than half-applied.
      */
     $template = authoredTemplate();
     $stage = soleStage($template);
@@ -186,13 +191,19 @@ it('cannot renumber a task belonging to another stage', function (): void {
     $this->post("/templates/{$template->getKey()}/stages/{$other->getKey()}/tasks", ['title' => 'Theirs']);
 
     $theirs = TaskTemplate::query()->where('stage_template_id', $other->getKey())->sole();
-    $sortOrderBefore = $theirs->sort_order;
+    $mine = TaskTemplate::query()->where('stage_template_id', $stage->getKey())->sole();
+
+    $theirsBefore = $theirs->sort_order;
+    $mineBefore = $mine->sort_order;
 
     $this->patch("/templates/{$template->getKey()}/stages/{$stage->getKey()}/tasks", [
         'ids' => [$theirs->getKey()],
-    ])->assertRedirect();
+    ])->assertStatus(422);
 
-    expect($theirs->refresh()->sort_order)->toBe($sortOrderBefore);
+    // Neither row moved: not the one from another stage, and — the half a
+    // filter alone would have got wrong — not this stage's own either.
+    expect($theirs->refresh()->sort_order)->toBe($theirsBefore)
+        ->and($mine->refresh()->sort_order)->toBe($mineBefore);
 });
 
 it('edits a gate, and drops a configuration the new type does not read', function (): void {

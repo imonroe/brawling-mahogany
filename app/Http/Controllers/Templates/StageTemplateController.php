@@ -145,17 +145,26 @@ class StageTemplateController extends Controller
 
         abort_unless($gateTemplate->stage_template_id === $stageTemplate->getKey(), 404);
 
-        $validated = $request->validate($this->gateRules($request), $this->gateMessages());
+        $validated = $request->validate($this->gateRules($request, $gateTemplate), $this->gateMessages());
 
         /*
-         * Cleared, not merged. A gate changed from `date_reached` to
-         * `manual_confirmation` keeps no key date: `Rule::excludeIf` drops the
-         * key from the validated set rather than nulling it, so a plain `fill`
-         * would leave the old configuration on a type that never reads it —
-         * invisible until somebody changed the type back and found a date they
-         * did not type.
+         * Cleared when the **type changes**, and only then.
+         *
+         * A gate changed from `date_reached` to `manual_confirmation` keeps no
+         * key date: `Rule::excludeIf` drops the key from the validated set
+         * rather than nulling it, so a plain `fill` would leave the old
+         * configuration on a type that never reads it — invisible until
+         * somebody changed the type back and found a date they did not type.
+         *
+         * Clearing *unconditionally* was worse, and only a pack made it
+         * reachable: a `document_present` gate imported from a file carries a
+         * `category` this editor has no field for, so saving a corrected label
+         * on it silently emptied the configuration the gate runs on.
          */
-        $gateTemplate->forceFill(['config' => null]);
+        if (($validated['gate_type'] ?? null) !== $gateTemplate->gate_type) {
+            $gateTemplate->forceFill(['config' => null]);
+        }
+
         $gateTemplate->fill($validated)->save();
 
         // "Gate", not "Requirement": IA §11 allows the softer word only in the
@@ -292,15 +301,33 @@ class StageTemplateController extends Controller
     {
         $validated = $request->validate([
             'ids' => ['required', 'array'],
-            'ids.*' => ['string'],
+            'ids.*' => ['string', 'distinct'],
         ]);
 
         DB::transaction(function () use ($siblings, $validated): void {
             $rows = $siblings->get()->keyBy(fn (Model $one): string => (string) $one->getKey());
 
+            $known = array_values(array_filter(
+                $validated['ids'],
+                fn (mixed $id): bool => is_string($id) && $rows->has($id),
+            ));
+
+            /*
+             * The whole set or nothing.
+             *
+             * Ignoring an id from elsewhere is right — the renumber must not
+             * reach outside the parent it was called for. Accepting a list
+             * that names *fewer* rows than exist is not: renumbering from zero
+             * over a subset leaves the untouched rows holding the numbers it
+             * just handed out, and `orderBy('sort_order')` then returns an
+             * order nobody chose. A reorder is one intention, which is a
+             * reason to refuse half of one rather than only to filter it.
+             */
+            abort_unless(count($known) === $rows->count(), 422);
+
             $position = 0;
 
-            foreach ($validated['ids'] as $id) {
+            foreach ($known as $id) {
                 $row = $rows->get($id);
 
                 if ($row instanceof Model) {
@@ -351,7 +378,7 @@ class StageTemplateController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function gateRules(Request $request): array
+    private function gateRules(Request $request, ?GateTemplate $editing = null): array
     {
         return [
             /*
@@ -373,7 +400,26 @@ class StageTemplateController extends Controller
              * what a person choosing from a dropdown may pick, and a file is
              * written by somebody who can supply the configuration.
              */
-            'gate_type' => ['required', Rule::in(array_keys(GateRegistry::selectableOptions()))],
+            'gate_type' => [
+                'required',
+                /*
+                 * The selectable list, **plus whatever this gate already is**.
+                 *
+                 * A pack file may carry any type the registry knows (#87), so
+                 * a team can end up holding a `document_present` gate the
+                 * picker cannot compose. Validating an edit against the narrow
+                 * list alone meant its Edit button opened a form whose Save
+                 * was refused for a value nobody had touched — and the only
+                 * way out was changing the type, which used to wipe the
+                 * configuration too. Keeping the stored value valid lets its
+                 * label and its blocking flag be corrected without letting
+                 * anybody *choose* a type this editor cannot fully specify.
+                 */
+                Rule::in(array_values(array_unique(array_filter([
+                    ...array_keys(GateRegistry::selectableOptions()),
+                    $editing?->gate_type,
+                ])))),
+            ],
             'label' => ['required', 'string', 'max:120'],
             'is_blocking' => ['boolean'],
             /*

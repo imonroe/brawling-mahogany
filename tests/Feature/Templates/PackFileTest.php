@@ -454,3 +454,229 @@ it('exports one team template as a pack file somebody can edit into a pack', fun
         ->and($document['workflows'])->toHaveCount(1)
         ->and($document['workflows'][0]['name'])->toBe('Listing to Close');
 });
+
+/**
+ * The round-1 review's findings, each with the case that exposed it.
+ *
+ * Kept together and named for the defect rather than the feature, because what
+ * makes them worth having is not that the behaviour is right — the tests above
+ * say that — but that these particular ways of being wrong all passed a green
+ * suite once.
+ */
+it('sorts a configuration’s keys, so two exports of one pack are identical', function (): void {
+    /*
+     * `gate_templates.config` is jsonb, which does not preserve key order. The
+     * round-trip test compares with `toBe` — order-sensitive — and passed only
+     * because every configuration in its fixture happened to have one key. A
+     * two-key configuration made a re-export a spurious diff and the "lossless"
+     * claim untestable.
+     */
+    $pack = seededPack();
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        $stage = StageTemplate::query()->where('name', 'Under Contract')->sole();
+
+        GateTemplate::factory()->create([
+            'stage_template_id' => $stage->getKey(),
+            'gate_type' => 'document_present',
+            'label' => 'Inspection report is on file',
+            // Written in an order that is not alphabetical, so a pass-through
+            // would be visible.
+            'config' => ['category' => 'inspection_report', 'attachedTo' => 'deal'],
+            'sort_order' => 2,
+        ]);
+    });
+
+    $document = PackFile::encodePack($pack->refresh());
+
+    $gate = collect($document['workflows'][0]['stages'][0]['gates'])
+        ->firstWhere('gateType', 'document_present');
+
+    expect(array_keys($gate['config']))->toBe(['attachedTo', 'category']);
+
+    app(ImportPack::class)->asPack($document);
+
+    $reimported = app(TeamContext::class)->runWithoutScope(
+        fn (): TemplatePack => TemplatePack::query()->where('slug', 'buyer-representation')->sole(),
+    );
+
+    expect(PackFile::encodePack($reimported))->toBe($document);
+});
+
+it('refuses two workflows in one file that answer to the same name', function (): void {
+    /*
+     * `packTemplate()` matches by name within the pack, so the second stanza
+     * found the row the first had just written, overwrote it, and force-deleted
+     * the first one's stages — while the report claimed two templates had been
+     * written and `notes` was empty.
+     */
+    $document = PackFile::encodePack(seededPack());
+    $document['workflows'][] = $document['workflows'][0];
+
+    expect(fn () => app(ImportPack::class)->asPack($document))
+        ->toThrow(ValidationException::class);
+});
+
+it('refuses a shared automation that sends words, named template or not', function (): void {
+    /*
+     * The refusal used to key on whether the file named a template. A
+     * `send_email` with a null one satisfies the CHECK constraint, so it was
+     * written: a shared automation `isComplete()` calls false, shipped to every
+     * install on every deploy and copied into every team that installed the
+     * pack. A row nothing can reach, seeded.
+     */
+    $document = PackFile::encodePack(seededPack());
+
+    $document['workflows'][0]['stages'][0]['automations'] = [[
+        'trigger' => 'stage_completion',
+        'actionType' => 'send_email',
+        'config' => [],
+        'isActive' => true,
+        'executionMode' => 'approval',
+        'messageTemplate' => null,
+    ]];
+
+    expect(fn () => app(ImportPack::class)->asPack($document))
+        ->toThrow(ValidationException::class);
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        expect(ActionDefinition::query()->where('action_type', 'send_email')->exists())->toBeFalse();
+    });
+});
+
+it('refuses a gate whose configuration is an id from another install', function (): void {
+    /*
+     * `action_completed` stores an `actionDefinitionId`, and every import
+     * rebuilds the automations with fresh ULIDs — the seeder runs on every
+     * deploy — so the gate would arrive pointing at nothing and stay that way.
+     * A blocking gate only an override can pass, built by a file.
+     */
+    $document = PackFile::encodePack(seededPack());
+
+    $document['workflows'][0]['stages'][0]['gates'][] = [
+        'gateType' => 'action_completed',
+        'label' => 'The welcome email went out',
+        'isBlocking' => true,
+        'config' => ['actionDefinitionId' => '01JXQ0000000000000000000AA', 'label' => 'Welcome email'],
+    ];
+
+    expect(fn () => app(ImportPack::class)->asPack($document))
+        ->toThrow(ValidationException::class);
+});
+
+it('refuses a collection written as a named object rather than a list', function (): void {
+    /*
+     * `array` is what JSON hands back for both `[…]` and `{…}`, and `rebuild()`
+     * writes `sort_order` straight from the array key — so a keyed object put a
+     * string into an `unsignedSmallInteger` and threw a `QueryException` at
+     * whoever ran the deploy, from a seeder whose docblock promises a loud
+     * failure rather than a confusing one.
+     */
+    $document = PackFile::encodePack(seededPack());
+
+    $document['workflows'][0]['stages'] = ['first' => $document['workflows'][0]['stages'][0]];
+
+    expect(fn () => app(ImportPack::class)->asPack($document))
+        ->toThrow(ValidationException::class);
+});
+
+it('holds a message template to the rules the Messages screen holds one to', function (): void {
+    /*
+     * The import had its own thinner list, so a recipient rule the channel
+     * cannot carry saved happily — and then threw `MalformedRecipientRule` out
+     * of `MessageTemplateController::row()`, which runs for **every** template
+     * on S45. One bad stanza in one pack file made a team's whole Messages
+     * screen a 500, with no screen left to fix the row from.
+     */
+    $document = PackFile::encodePack(seededPack());
+    $document['workflows'][0]['stages'][0]['automations'] = [];
+
+    $stanza = [
+        'key' => 'under-contract',
+        'name' => 'What to expect now that you are under contract',
+        'channel' => 'email',
+        'subject' => 'You are under contract',
+        'bodyHtml' => '<p>Congratulations.</p>',
+        'bodyText' => 'Congratulations.',
+        'recipientRule' => ['type' => 'primary_contact'],
+        'fromIdentity' => null,
+    ];
+
+    foreach ([
+        'an unknown recipient rule' => ['recipientRule' => ['type' => 'not-a-real-rule']],
+        // The address `email:rfc` accepts and `Symfony\Component\Mime\Address`
+        // throws on — CLAUDE.md's own example, and the rule written for it was
+        // sitting one directory away, unused.
+        'an address the mail parser will reject' => ['fromIdentity' => 'emily(work)@bosart.test'],
+        // The dropped brace `MergeFields::strayBraceRuns()` exists for.
+        'a merge field with a dropped brace' => ['bodyText' => 'Hello {{ client_first_name }.'],
+        'a subject carrying a line break' => ['subject' => "You are\nunder contract"],
+        // PRD §7.12: a channel with no transport can never leave the building.
+        'a channel nothing sends' => ['channel' => 'sms'],
+    ] as $case => $broken) {
+        $document['messageTemplates'] = [[...$stanza, ...$broken]];
+
+        expect(fn () => app(ImportPack::class)->intoTeam($document, $this->team))
+            ->toThrow(ValidationException::class, message: "accepted {$case}");
+    }
+});
+
+it('reuses a message template the team already has rather than colliding', function (): void {
+    /*
+     * `message_templates` carries a unique index over
+     * `(team_id, channel, lower(name))` for live rows, so importing the same
+     * file twice was an unhandled `UniqueConstraintViolationException` at the
+     * operator — from a class whose docblock promised the opposite.
+     */
+    $document = PackFile::encodePack(seededPack());
+
+    $document['messageTemplates'] = [[
+        'key' => 'under-contract',
+        'name' => 'What to expect now that you are under contract',
+        'channel' => 'email',
+        'subject' => 'You are under contract',
+        'bodyHtml' => '<p>Congratulations.</p>',
+        'bodyText' => 'Congratulations.',
+        'recipientRule' => ['type' => 'primary_contact'],
+        'fromIdentity' => null,
+    ]];
+    $document['workflows'][0]['stages'][0]['automations'] = [[
+        'trigger' => 'stage_completion',
+        'actionType' => 'send_email',
+        'config' => [],
+        'isActive' => true,
+        'executionMode' => 'approval',
+        'messageTemplate' => 'under-contract',
+    ]];
+
+    app(ImportPack::class)->intoTeam($document, $this->team);
+    $second = app(ImportPack::class)->intoTeam($document, $this->team);
+
+    // Said out loud, because what will send is then the team's words and not
+    // the file's.
+    expect(implode(' ', $second->notes))->toContain('already had');
+
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $templates = MessageTemplate::query()
+            ->where('name', 'What to expect now that you are under contract')
+            ->get();
+
+        expect($templates)->toHaveCount(1);
+
+        // Both imports' automations point at the one template.
+        expect(ActionDefinition::query()
+            ->where('action_type', 'send_email')
+            ->pluck('message_template_id')
+            ->unique()
+            ->all())->toBe([$templates->sole()->getKey()]);
+    });
+});
+
+it('says when a pack with this slug was already here', function (): void {
+    // The slug is the only thing matched on, so an unrelated file whose slug
+    // collides rewrites a shipped pack. Reported rather than silent.
+    $document = PackFile::encodePack(seededPack());
+
+    expect(implode(' ', app(ImportPack::class)->asPack($document)->notes))
+        ->toContain('already had a pack');
+});
