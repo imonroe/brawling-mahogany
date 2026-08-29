@@ -70,8 +70,17 @@ const props = defineProps<{
     spend: {
         /** Already words — "$4.80". Money is composed on the server. */
         used: string;
-        cap: string;
-        percent: number;
+        /**
+         * Null when there is no ceiling at all.
+         *
+         * `SpendLedger` reads a **negative** cap as the absence of one and zero
+         * as a ceiling of zero; the server collapses that to *"a figure or
+         * nothing"* so this component and S68 draw the same thing. It shipped
+         * as a plain string for two rounds, which drew a negative dollar amount
+         * on an uncapped installation.
+         */
+        cap: string | null;
+        percent: number | null;
         warn: boolean;
         /** When the month's allowance starts again, as words. */
         resetsAt: string;
@@ -131,8 +140,11 @@ const KINDS: {
  * fault rather than as the fact it is.
  */
 const barWidth = computed(
-    () => `${Math.min(100, Math.max(0, props.spend.percent))}%`,
+    () => `${Math.min(100, Math.max(0, props.spend.percent ?? 0))}%`,
 );
+
+/** Whether there is a ceiling to draw this month's spend against at all. */
+const capped = computed(() => props.spend.cap !== null);
 
 function submit(): void {
     form.post(`${props.dealUrl}/extractions`, {
@@ -207,14 +219,18 @@ function submit(): void {
                         >
                         <div class="flex-1"></div>
                         <span class="tabular text-13 font-semibold">
-                            {{ spend.used }} of {{ spend.cap }}
+                            <template v-if="capped">
+                                {{ spend.used }} of {{ spend.cap }}
+                            </template>
+                            <template v-else>{{ spend.used }}</template>
                         </span>
                     </div>
 
                     <div
+                        v-if="capped"
                         class="h-1.5 w-full overflow-hidden rounded bg-muted"
                         role="progressbar"
-                        :aria-valuenow="Math.round(spend.percent)"
+                        :aria-valuenow="Math.round(spend.percent ?? 0)"
                         aria-valuemin="0"
                         aria-valuemax="100"
                         :aria-label="`Extraction spend: ${spend.used} of ${spend.cap}`"
@@ -241,8 +257,17 @@ function submit(): void {
                             stops until {{ spend.resetsAt }} — dates can still
                             be added by hand.
                         </template>
-                        <template v-else>
+                        <template v-else-if="capped">
                             The allowance starts again on {{ spend.resetsAt }}.
+                        </template>
+                        <template v-else>
+                            <!--
+                                No ceiling, so there is nothing to start again —
+                                the figure above is what this month has cost and
+                                the month is still the unit it is counted in.
+                            -->
+                            No monthly ceiling is set. This month's total resets
+                            on {{ spend.resetsAt }}.
                         </template>
                     </p>
                 </section>

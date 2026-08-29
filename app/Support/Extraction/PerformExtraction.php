@@ -20,6 +20,7 @@ use App\Support\Notifications\Notify;
 use App\Support\Permissions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * The worker body: redact, call, write (PRD §8.4 step 4 · issue #115).
@@ -108,6 +109,39 @@ final class PerformExtraction
                 'redaction_failed',
                 'This document could not be prepared safely, so nothing was sent. It will need reading by hand.',
             );
+        } catch (Throwable $unexpected) {
+            /*
+             * **Anything else, and the row still ends.**
+             *
+             * The two branches above are the failures this class knows how to
+             * describe. Everything else — a document soft-deleted while its
+             * extraction sat in the queue (`run()` hands `$extraction->document`
+             * straight to `DocumentStorage::contents()`, which is a `TypeError`
+             * on null), a disk that went away, a bug — left the row `processing`
+             * with the claim taken and no outcome written. Review round 2 found
+             * it, and `extractions_one_running` makes that state absorbing: the
+             * document could never be extracted again.
+             *
+             * `extractions:reap-stranded` is the backstop for a worker that is
+             * *killed* and so runs nothing at all. This is the cheaper case —
+             * the process is alive and knows something went wrong — and it
+             * should not need the backstop.
+             *
+             * The row's sentence names no cause, because the exception's own
+             * message is written for a log and can carry anything a library put
+             * in it. Re-thrown afterwards so the failure still reaches the
+             * queue, Horizon and the log with its stack intact: swallowing it
+             * would trade a stranded row for a silent one.
+             */
+            $this->fail(
+                $extraction,
+                $team,
+                'extraction_errored',
+                'Something went wrong while reading this document, and it did not finish. '
+                    .'You can extract it again from Documents.',
+            );
+
+            throw $unexpected;
         }
     }
 

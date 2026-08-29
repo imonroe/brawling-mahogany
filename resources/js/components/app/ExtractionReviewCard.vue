@@ -125,7 +125,21 @@ export type ExtractedFieldRow = {
     /** The body of a proposed task (S67). */
     detail: string | null;
     severity: 'safety' | 'material' | 'minor' | null;
-    conflict: { name: string; currentDate: string; movesCount: number } | null;
+    conflict: {
+        name: string;
+        currentDate: string;
+        movesCount: number;
+        /**
+         * Whether the date being replaced is itself derived from another.
+         *
+         * Confirming a typed day over a derived one **detaches** it (#106),
+         * so it stops following its anchor from then on. That is a
+         * consequence in the opposite direction from `movesCount` and the
+         * strip said nothing about it for two rounds.
+         */
+        detaches: boolean;
+        anchorName: string | null;
+    } | null;
     cascade: {
         id: string;
         name: string;
@@ -217,6 +231,14 @@ const wasCorrected = computed(
  * pluralisation (Frontend conventions §3), and the zero case says what is
  * true rather than saying nothing — a conflict that moves nothing is still a
  * date being replaced.
+ *
+ * **Two directions, and both are consequences.** `movesCount` is what this
+ * date drags with it. `detaches` is what it stops being dragged *by*: a
+ * derived date confirmed against a typed day stops following its anchor, for
+ * good, and #106's whole argument for storing rather than computing is that
+ * such a move is a write somebody can be shown before it happens. Saying only
+ * the first half is how a closing date quietly stops moving with the
+ * acceptance date it was set from.
  */
 const consequence = computed((): string | null => {
     const conflict = props.field.conflict;
@@ -227,9 +249,21 @@ const consequence = computed((): string | null => {
 
     const replaced = `${conflict.name} is already set to ${formatDate(conflict.currentDate)}. Confirming this replaces it`;
 
-    return conflict.movesCount === 0
-        ? `${replaced}. Nothing else is counted from it.`
-        : `${replaced} and shifts ${formatCount(conflict.movesCount, 'derived deadline')}.`;
+    const moves =
+        conflict.movesCount === 0
+            ? `${replaced}. Nothing else is counted from it.`
+            : `${replaced} and shifts ${formatCount(conflict.movesCount, 'derived deadline')}.`;
+
+    if (!conflict.detaches) {
+        return moves;
+    }
+
+    const anchor =
+        conflict.anchorName === null
+            ? 'the date it is counted from'
+            : conflict.anchorName;
+
+    return `${moves} ${conflict.name} currently follows ${anchor}; confirming a typed day stops that.`;
 });
 
 const attribution = computed((): string | null => {

@@ -35,7 +35,7 @@ final class ProviderFailed extends RuntimeException
     {
         return new self(
             'provider_not_configured',
-            'Reading documents is not switched on for this installation yet.',
+            'Extraction is not switched on for this installation yet.',
             isRetryable: false,
         );
     }
@@ -45,7 +45,7 @@ final class ProviderFailed extends RuntimeException
     {
         return new self(
             'provider_unavailable',
-            'The reading service did not answer. This will be tried again.',
+            'The extraction service did not answer. This will be tried again.',
             isRetryable: true,
         );
     }
@@ -55,7 +55,7 @@ final class ProviderFailed extends RuntimeException
     {
         return new self(
             'provider_refused_'.$status,
-            'The reading service refused this document.',
+            'The extraction service refused this document.',
             isRetryable: false,
         );
     }
@@ -72,7 +72,7 @@ final class ProviderFailed extends RuntimeException
     {
         return new self(
             'provider_response_unreadable',
-            'The reading service answered in a form this app could not use.',
+            'The extraction service answered in a form this app could not use.',
             isRetryable: false,
         );
     }

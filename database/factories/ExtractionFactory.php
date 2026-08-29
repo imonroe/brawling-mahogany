@@ -93,7 +93,7 @@ class ExtractionFactory extends Factory
         ]);
     }
 
-    /** Claimed by a worker and not yet finished — S65's *Reading*. */
+    /** Claimed by a worker and not yet finished — S65's *Extracting*. */
     public function processing(): static
     {
         return $this->state(fn (): array => [
@@ -144,7 +144,7 @@ class ExtractionFactory extends Factory
      * readers and a fixture with only one of them cannot hold either promise.
      */
     public function failed(
-        string $message = 'The reading service answered in a form this app could not use.',
+        string $message = 'The extraction service answered in a form this app could not use.',
         string $code = 'provider_response_unreadable',
     ): static {
         return $this->state(fn (): array => [
@@ -166,7 +166,7 @@ class ExtractionFactory extends Factory
     {
         return $this->state(fn (): array => [
             'state' => ExtractionState::Blocked,
-            'error' => 'This team has reached its monthly limit for reading documents.',
+            'error' => 'This team has reached its monthly limit for reading documents. It resets at the start of next month, or whoever runs this installation can raise it.',
             'error_code' => 'team_spend_cap_reached',
             'cost_micros' => 0,
             'completed_at' => now(),

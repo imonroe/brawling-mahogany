@@ -103,12 +103,31 @@ it('keeps the extracted source enums out of every other writer', function (): vo
         'Models/KeyDate.php',
         'Support/Dates/SaveKeyDate.php',
         'Support/Deals/DealTasks.php',
+        /*
+         * The confirmation path itself, named as **one file** rather than as
+         * the directory it lives in.
+         *
+         * This read `str_starts_with($relative, 'Support/Extraction/')` for a
+         * round, which exempted thirty-odd files from a rule that needs one —
+         * `PerformExtraction`, `ReadProposals`, `StartExtraction` and every
+         * provider could have stamped `KeyDateSource::Extracted` straight into
+         * `key_dates` with the guard silent. The candidate filter is half of
+         * any source-reading guard (CLAUDE.md records `SingleMutationPathTest`
+         * missing `action_instances.state` the same way), and a filter wide in
+         * the direction nothing reports is the half that fails quietly.
+         *
+         * As it happens the directory currently names the enum nowhere at all
+         * — the confirmation goes through `SaveKeyDate` and `DealTasks` — so
+         * this entry is a placeholder for the one door that may legitimately
+         * grow it, and every other file in the directory is now covered.
+         */
+        'Support/Extraction/ConfirmExtractedField.php',
     ];
 
     $offenders = [];
 
     foreach (Sources::files(['app'], ['php']) as $relative) {
-        if (in_array($relative, $allowed, true) || str_starts_with($relative, 'Support/Extraction/')) {
+        if (in_array($relative, $allowed, true)) {
             continue;
         }
 

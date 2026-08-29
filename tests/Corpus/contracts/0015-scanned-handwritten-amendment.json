@@ -84,6 +84,28 @@
             "critical": false
         }
     ],
+    "superseded": [
+        {
+            "label": "Inspection Objection Deadline",
+            "value": "2026-01-22"
+        },
+        {
+            "label": "Inspection Termination Deadline",
+            "value": "2026-01-24"
+        },
+        {
+            "label": "Inspection Resolution Deadline",
+            "value": "2026-01-27"
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-02-26"
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-02-26"
+        }
+    ],
     "provisions": [
         "Inspection objection period extended by agreement to allow a sewer scope by a second contractor.",
         "Seller to leave the ping pong table and the basement freezer."

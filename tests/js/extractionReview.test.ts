@@ -379,6 +379,8 @@ describe('S66 — a conflict states its consequence', () => {
                         name: 'Inspection objection',
                         currentDate: '2026-09-08',
                         movesCount: 4,
+                        detaches: false,
+                        anchorName: null,
                     },
                     cascade: [
                         {
@@ -411,6 +413,8 @@ describe('S66 — a conflict states its consequence', () => {
                         name: 'Closing',
                         currentDate: '2026-10-03',
                         movesCount: 0,
+                        detaches: false,
+                        anchorName: null,
                     },
                 }),
             },
@@ -418,6 +422,64 @@ describe('S66 — a conflict states its consequence', () => {
 
         expect(wrapper.text()).not.toMatch(/shifts/);
         expect(wrapper.text()).toMatch(/nothing else is counted from it/i);
+    });
+
+    it('states the other direction too — that confirming stops a derived date following its anchor', () => {
+        /*
+         * Round 2 of adversarial review found the strip stating one
+         * consequence and not the other. `movesCount` is what this date drags
+         * with it; a **derived** date confirmed against a typed day stops
+         * following its anchor for good (`SaveKeyDate::edit()` clears
+         * `is_derived` and stamps `detached_at`), and the strip said nothing.
+         *
+         * #106's whole argument for storing a derived day rather than
+         * computing it is that a move becomes a write somebody can be shown
+         * before it happens. A cascade shown without the detachment is half of
+         * that promise.
+         */
+        const wrapper = mount(ExtractionReviewCard, {
+            props: {
+                field: field({
+                    conflict: {
+                        name: 'Inspection objection',
+                        currentDate: '2026-09-08',
+                        movesCount: 2,
+                        detaches: true,
+                        anchorName: 'Mutual acceptance',
+                    },
+                }),
+            },
+        });
+
+        const text = wrapper.text();
+
+        expect(text).toMatch(/shifts 2 derived deadlines/);
+        expect(text).toContain('Mutual acceptance');
+        expect(text).toMatch(/stops that/i);
+    });
+
+    it('says nothing about an anchor when the date has none', () => {
+        /*
+         * The control. A card that appended the detachment sentence
+         * unconditionally would pass the case above and lie on every ordinary
+         * conflict — which is most of them, since a date a contract states is
+         * typed rather than derived.
+         */
+        const wrapper = mount(ExtractionReviewCard, {
+            props: {
+                field: field({
+                    conflict: {
+                        name: 'Closing',
+                        currentDate: '2026-10-03',
+                        movesCount: 1,
+                        detaches: false,
+                        anchorName: null,
+                    },
+                }),
+            },
+        });
+
+        expect(wrapper.text()).not.toMatch(/stops that/i);
     });
 });
 

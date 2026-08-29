@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Enums\ExtractionKind;
+use App\Support\Extraction\Money;
 use App\Support\Extraction\PromptRegistry;
 use App\Support\Extraction\ProviderFailed;
 use App\Support\Extraction\ProviderManager;
@@ -12,6 +13,7 @@ use App\Support\Extraction\ReadProposals;
 use App\Support\Extraction\Redaction\Redactor;
 use App\Support\Extraction\Scoring\CorpusCase;
 use App\Support\Extraction\Scoring\Scorecard;
+use App\Support\Extraction\SpendLedger;
 use Illuminate\Console\Command;
 
 /**
@@ -43,6 +45,23 @@ use Illuminate\Console\Command;
  * against a candidate model without a tenant to hang the work off, and it keeps
  * a measurement run out of the cost figures a team sees on S68 — a scorecard
  * run should not show up as a deal's spend.
+ *
+ * ## But the platform ceiling still binds it
+ *
+ * Review round 2 was right that writing nothing had a cost: a twenty-case run
+ * is up to $40 of provider spend that `SpendLedger::platformSpentThisMonth()`
+ * cannot see, and that ledger exists *"so a defect — a retry loop, a runaway
+ * import — cannot spend the company's money overnight."* A tool that spends
+ * outside the thing watching the spending is the same hole with a person
+ * holding it open.
+ *
+ * Writing rows is not the answer — they would need a tenant, and a measurement
+ * run in a team's figures is the defect this section already refuses. So the
+ * ceiling binds the command instead: it is checked before the first case and
+ * again before every later one, so a run stops the moment the platform is at
+ * its limit rather than after it has passed it. And the total is **reported
+ * against the ledger's headroom, with the gap named** — the honest version of
+ * *"this run is not in that number, and here is by how much."*
  */
 class ScoreExtractions extends Command
 {
@@ -60,6 +79,7 @@ class ScoreExtractions extends Command
         PromptRegistry $prompts,
         Redactor $redactor,
         ReadProposals $reader,
+        SpendLedger $ledger,
     ): int {
         $directory = base_path((string) $this->option('corpus'));
 
@@ -93,7 +113,30 @@ class ScoreExtractions extends Command
         $prompt = $prompts->for(ExtractionKind::Contract);
         $scorecard = new Scorecard($provider->name(), $provider->model(), $prompt->version());
 
+        $platformCap = (int) config('extraction.caps.platform_monthly_micros');
+        $spentHere = 0;
+        $scored = 0;
+
         foreach ($cases as $case) {
+            /*
+             * Re-asked every case rather than once at the top, because the
+             * product is running while this is: a scorecard begun with room
+             * left can cross the ceiling halfway through, and a ceiling that
+             * is only checked before a twenty-case run is a ceiling with a $40
+             * hole in it. `PerformExtraction` checks immediately before each
+             * provider call for the same reason.
+             */
+            if ($this->platformIsStopped($ledger, $platformCap, $spentHere)) {
+                $this->components->warn(
+                    'Stopped: the platform ceiling has been reached. '
+                    .'Stopped after '.$scored.' of '.count($cases).' cases.',
+                );
+
+                break;
+            }
+
+            $scored++;
+
             $this->components->task($case->slug, function () use (
                 $case,
                 $provider,
@@ -101,6 +144,7 @@ class ScoreExtractions extends Command
                 $redactor,
                 $reader,
                 $scorecard,
+                &$spentHere,
             ): bool {
                 try {
                     /*
@@ -116,6 +160,7 @@ class ScoreExtractions extends Command
                     $proposals = $reader->from($result->raw, ExtractionKind::Contract);
 
                     $scorecard->record($case, $proposals, $result->costMicros, $redacted->report);
+                    $spentHere += $result->costMicros;
 
                     return true;
                 } catch (ProviderFailed $failure) {
@@ -127,6 +172,7 @@ class ScoreExtractions extends Command
         }
 
         $this->render($scorecard);
+        $this->reportAgainstTheLedger($ledger, $platformCap, $spentHere);
 
         if (is_string($this->option('json')) && $this->option('json') !== '') {
             file_put_contents(
@@ -169,6 +215,59 @@ class ScoreExtractions extends Command
         $this->line('Prompt version: '.$prompts->for(ExtractionKind::Contract)->version());
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Has the platform ceiling been reached, counting this run's own spend?
+     *
+     * The ledger cannot see a scorecard run — it writes no rows, deliberately —
+     * so the run's own total is added to what the ledger reports. Without that
+     * the check would be answered by the product's spend alone and a twenty
+     * -case run could sail through a ceiling it had itself crossed on case
+     * three.
+     *
+     * A negative cap is the absence of a ceiling, and zero is a ceiling of
+     * zero: `SpendLedger::decide()`'s rule, applied to the same config value it
+     * reads.
+     */
+    private function platformIsStopped(SpendLedger $ledger, int $cap, int $spentHere): bool
+    {
+        if ($cap < 0) {
+            return false;
+        }
+
+        return $ledger->platformSpentThisMonth() + $spentHere >= $cap;
+    }
+
+    /**
+     * What this run cost, beside what the ledger thinks the month has cost.
+     *
+     * Stated as a **gap** rather than folded into one figure, because folding
+     * would be a claim the ledger does not make: the rows are not there and
+     * S68 will not show them. Somebody reconciling a provider invoice against
+     * this product's own numbers needs to know the difference exists and how
+     * big it is, which is the honest version of a measurement run that
+     * deliberately stays out of a team's spend.
+     */
+    private function reportAgainstTheLedger(SpendLedger $ledger, int $cap, int $spentHere): void
+    {
+        $this->newLine();
+        $this->components->twoColumnDetail('This run cost', Money::words($spentHere));
+        $this->components->twoColumnDetail(
+            'Platform spend the ledger can see',
+            Money::words($ledger->platformSpentThisMonth()),
+        );
+        $this->components->twoColumnDetail(
+            'Platform ceiling',
+            $cap < 0 ? 'none' : Money::words($cap),
+        );
+
+        $this->line(
+            '  This run writes no `extractions` rows, so the figure above understates the'
+            .PHP_EOL.'  month by '.Money::words($spentHere).'. That is deliberate — a measurement run'
+            .PHP_EOL.'  must not appear as a team\'s spend — and it is why the ceiling is checked'
+            .PHP_EOL.'  here rather than only in the pipeline.',
+        );
     }
 
     private function render(Scorecard $card): void

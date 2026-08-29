@@ -345,14 +345,26 @@ class DealDocumentController extends Controller
              * their owner cannot move, or to a vendor about a limit they can.
              */
             'unavailableReason' => match (true) {
-                ! $available => 'Reading documents is not switched on for this installation yet.',
+                ! $available => 'Extraction is not switched on for this installation yet.',
                 ! $decision->allowed => $decision->message,
                 default => null,
             },
             'spend' => [
                 'used' => Money::words($decision->spentMicros),
-                'cap' => Money::words($decision->capMicros),
-                'percent' => $decision->percentUsed(),
+                /*
+                 * **A negative cap is the absence of a ceiling; zero is a
+                 * ceiling of zero.** `SpendLedger::decide()` draws the line
+                 * there and `App\Queries\ExtractionHistory::spend()` sends the
+                 * same shape to S68, so this dialog cannot send a different
+                 * one — two screens describing the same number differently is
+                 * how somebody learns to trust neither.
+                 *
+                 * It sent `Money::words()` unconditionally for two rounds,
+                 * which on an installation configured with no ceiling drew a
+                 * **negative dollar amount** as the cap and a bar against it.
+                 */
+                'cap' => $decision->capMicros >= 0 ? Money::words($decision->capMicros) : null,
+                'percent' => $decision->capMicros >= 0 ? $decision->percentUsed() : null,
                 'warn' => $decision->shouldWarn,
                 /*
                  * UTC, and the screen says so. Every other date in this product

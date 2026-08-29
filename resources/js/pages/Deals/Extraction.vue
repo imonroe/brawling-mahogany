@@ -403,7 +403,7 @@ const primary = computed(() => {
                 <EmptyState
                     v-else-if="extraction.state === 'processing'"
                     :icon="LoaderCircle"
-                    title="Reading the document"
+                    title="Extracting from this document"
                     description="This usually takes a couple of minutes. You can leave this page; nothing is lost if you do, and nothing reaches the deal until you have reviewed it."
                 />
 

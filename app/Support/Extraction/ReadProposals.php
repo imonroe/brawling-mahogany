@@ -370,8 +370,29 @@ final class ReadProposals
      */
     private function asDay(string $value): string
     {
+        /*
+         * The already-ISO case, and it is **still round-tripped**.
+         *
+         * The shape check alone passed `2026-02-31` and `2026-13-45` straight
+         * through into `proposed_value`, where S66 renders them as dates and
+         * offers Confirm — and `ConfirmExtractedField::asDay()` *does*
+         * round-trip, so the press was refused with *"that is not a date"* over
+         * a value the screen had just drawn as one. The slow path below round
+         * -trips for exactly this reason (`createFromFormat` is lenient about
+         * overflow); the fast path skipping it made the reader and the writer
+         * disagree about the same string.
+         *
+         * A value that fails the round trip falls through and is returned
+         * untouched at the end, which is the right outcome: the reviewer sees
+         * what the model actually said rather than a corrected date nobody
+         * wrote.
+         */
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
-            return $value;
+            $iso = CarbonImmutable::createFromFormat('Y-m-d', $value);
+
+            if ($iso instanceof CarbonImmutable && $iso->format('Y-m-d') === $value) {
+                return $value;
+            }
         }
 
         foreach (['Y-n-j', 'n/j/Y', 'm/d/Y', 'F j, Y', 'j F Y', 'M j, Y'] as $format) {

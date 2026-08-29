@@ -15,7 +15,9 @@ use App\Support\Documents\DocumentStorage;
 use App\Support\Extraction\ExtractionRefused;
 use App\Support\Extraction\PerformExtraction;
 use App\Support\Extraction\ProviderFailed;
+use App\Support\Extraction\SpendLedger;
 use App\Support\Extraction\StartExtraction;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -376,7 +378,7 @@ it('stops on a refusal another attempt would reproduce', function (): void {
 
     expect($extraction->state)->toBe(ExtractionState::Failed)
         ->and($extraction->error_code)->toBe('provider_refused_400')
-        ->and($extraction->error)->toBe('The reading service refused this document.')
+        ->and($extraction->error)->toBe('The extraction service refused this document.')
         ->and($extraction->completed_at)->not->toBeNull();
 });
 
@@ -548,5 +550,171 @@ it('tells the team once the queue has given up, and not on every attempt', funct
     $job->failed(ProviderFailed::unavailable());
 
     expect($extraction->refresh()->state)->toBe(ExtractionState::Failed)
-        ->and($extraction->error)->not->toBeNull();
+        /*
+         * **The sentence, not merely a sentence.** `not->toBeNull()` was the
+         * whole assertion for a round, and it is true of the version this fix
+         * replaced — which preferred the row's own `error` and so announced
+         * `ProviderFailed::unavailable()`'s *"This will be tried again."* at
+         * the exact moment there would be no further attempt. A person reading
+         * that waits for a reading that is never coming.
+         *
+         * Both halves, because either alone is satisfied by a message that
+         * says both things.
+         */
+        ->and($extraction->error)->toContain('after several attempts')
+        ->and($extraction->error)->not->toContain('tried again');
+});
+
+it('keeps what the call cost even when the answer is one it cannot use', function (): void {
+    /*
+     * The failure `raw_response` exists for, and the one the ordering fix was
+     * about: `ReadProposals::from()` throws `unreadableResponse()` on an
+     * envelope it cannot decode **and** on an answer that yields no proposals.
+     * That throw is non-retryable, so `perform()` falls to `fail()`, which
+     * writes state and error and nothing else.
+     *
+     * Written before the fix, the row recorded `cost_micros = 0`,
+     * `raw_response = null`, `provider = null`, `model = null` — over a call
+     * that happened and was charged. Three things follow, and each contradicts
+     * something argued elsewhere in this slice: the spend cap under-counts real
+     * spend (`AnthropicProvider` refuses a 200 with no usage block for exactly
+     * that reason); `raw_response` is null for the one case the migration says
+     * it exists for — *"the interesting cases are the ones the parser
+     * dropped"*; and `ExtractionHistory::versions()` filters `whereNotNull
+     * ('model')`, so the attempt is absent from the quality breakdown too.
+     *
+     * The fix is an ordering — the provider facts are written the moment
+     * `extract()` returns, before the reader is called — and **restoring the
+     * old ordering leaves the suite green without this case**, which is why
+     * round 1 found it by reading rather than by running.
+     */
+    anthropicAnswering(['dates' => [], 'tasks' => [], 'provisions' => []]);
+
+    $document = documentOn($this->deal, pipelineContract());
+
+    $extraction = app(StartExtraction::class)
+        ->start($document, $this->deal, ExtractionKind::Contract, $this->member)
+        ->refresh();
+
+    expect($extraction->state)->toBe(ExtractionState::Failed)
+        ->and($extraction->cost_micros)->toBe(45_000)
+        ->and($extraction->provider)->toBe('anthropic')
+        ->and($extraction->model)->toBe('claude-sonnet-5')
+        ->and($extraction->model_version)->toBe('claude-sonnet-5-20260101')
+        ->and($extraction->raw_response)->not->toBeNull();
+
+    /*
+     * And the number the cap is computed from actually moves, which is the
+     * consequence rather than the column. A ledger that could not see this
+     * would let a model reliably answering in prose burn the month's budget
+     * while reporting nothing spent.
+     */
+    expect(app(SpendLedger::class)->teamSpentThisMonth($this->team))->toBe(45_000);
+});
+
+it('ends the row on a failure it has no name for, rather than leaving it claimed', function (): void {
+    /*
+     * `perform()` caught `ProviderFailed` and `RedactionFailed` and nothing
+     * else, so any other exception left the row `processing` with the claim
+     * taken and no outcome written — and `extractions_one_running` makes that
+     * state **absorbing**: the document can never be extracted again, at the
+     * database as well as at `StartExtraction`'s pre-check.
+     *
+     * The case that reaches it in production is ordinary rather than exotic: a
+     * document soft-deleted while its extraction sat in the queue, where
+     * `run()` hands `$extraction->document` straight to
+     * `DocumentStorage::contents()` and gets a `TypeError` on null.
+     *
+     * Both halves are asserted, because they are two different promises. The
+     * row is **final**, so the document is free — and the exception is still
+     * **re-thrown**, so the failure reaches the queue, Horizon and the log with
+     * its stack intact. Swallowing it would trade a stranded row for a silent
+     * one.
+     */
+    $document = documentOn($this->deal, pipelineContract());
+
+    $extraction = Extraction::factory()->queued()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'document_id' => $document->getKey(),
+    ]);
+
+    $document->delete();
+
+    $job = (new RunDocumentExtraction($extraction->getKey()))->forTeam($this->team->getKey());
+
+    expect(fn () => $job->handle(app(PerformExtraction::class)))->toThrow(Throwable::class);
+
+    $extraction->refresh();
+
+    expect($extraction->state)->toBe(ExtractionState::Failed)
+        ->and($extraction->state->isFinal())->toBeTrue()
+        ->and($extraction->error_code)->toBe('extraction_errored')
+        /*
+         * And the sentence names no cause. An exception's message is written
+         * for a log and can carry a library's own words, a path, or a fragment
+         * of a document — none of which belongs on a screen a team reads.
+         */
+        ->and($extraction->error)->toContain('extract it again');
+});
+
+it('holds the one-at-a-time rule at the database, not only at the check above it', function (): void {
+    /*
+     * `StartExtraction`'s `exists()` pre-check is a read-then-write: two tabs
+     * or a double press on a slow connection both see no sibling and both
+     * write. `extractions_one_running` is what actually decides, and the case
+     * above it exercises only the pre-check — so dropping the index from the
+     * migration turned nothing red.
+     *
+     * This inserts straight past the pre-check, which is the only way to reach
+     * the constraint from a test, and it is also the shape the race takes in
+     * production: two writes that were both told there was nothing running.
+     */
+    $document = documentOn($this->deal, pipelineContract());
+
+    Extraction::factory()->processing()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'document_id' => $document->getKey(),
+    ]);
+
+    expect(fn () => Extraction::factory()->queued()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'document_id' => $document->getKey(),
+    ]))->toThrow(UniqueConstraintViolationException::class);
+});
+
+it('lets a finished attempt be read again, which is what a retry is', function (): void {
+    /*
+     * The other half, and it is the half the index is *partial* for. A
+     * `complete` row must not block a second reading: that is a retry after a
+     * bad answer, and it is what `ExtractionHistory::versions()`' whole premise
+     * — *"has a version change made it worse"* — needs to be possible at all.
+     *
+     * Asserted at the database rather than through `StartExtraction`, because
+     * the constraint is what would refuse it and the pre-check already agrees.
+     */
+    $document = documentOn($this->deal, pipelineContract());
+
+    Extraction::factory()->complete()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'document_id' => $document->getKey(),
+    ]);
+
+    Extraction::factory()->failed()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'document_id' => $document->getKey(),
+    ]);
+
+    $second = Extraction::factory()->queued()->create([
+        'team_id' => $this->team->getKey(),
+        'deal_id' => $this->deal->getKey(),
+        'document_id' => $document->getKey(),
+    ]);
+
+    expect($second->exists)->toBeTrue()
+        ->and(Extraction::query()->where('document_id', $document->getKey())->count())->toBe(3);
 });

@@ -132,6 +132,25 @@ final class DealExtraction
                     'name' => $match->name,
                     'currentDate' => Format::date($match->date),
                     'movesCount' => count($cascade),
+                    /*
+                     * The **other** consequence, which the strip stated for
+                     * two rounds only in the downstream direction.
+                     *
+                     * If the matched date is itself derived, confirming runs
+                     * `SaveKeyDate::edit()`, which detaches it — `is_derived`
+                     * false, `detached_at` stamped (#106's rule: a typed day
+                     * wins over a computed one, and the row says so rather
+                     * than presenting a date the team never typed). So a
+                     * confirmation can stop a deadline following its anchor,
+                     * permanently and silently, on the screen whose whole job
+                     * is to state what confirming will do.
+                     *
+                     * `movesCount` describes what this date drags with it;
+                     * this describes what it stops being dragged by. Two
+                     * different sentences, and the strip needs both.
+                     */
+                    'detaches' => $match->is_derived,
+                    'anchorName' => $match->is_derived ? $match->anchor?->name : null,
                 ];
             }
         }

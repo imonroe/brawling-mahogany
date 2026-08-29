@@ -63,7 +63,7 @@ final readonly class SpendDecision
         return new self(
             false,
             'platform_spend_cap_reached',
-            'Reading documents is paused across this installation while a spending limit is reviewed. '
+            'Extraction is paused across this installation while a spending limit is reviewed. '
                 .'Nothing has been lost — try again once it has been raised.',
             $spentMicros,
             $capMicros,

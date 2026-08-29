@@ -921,9 +921,32 @@ Subscription plans, Stripe, self-serve signup, trials, seat limits, plan and pac
 | Metric | Target |
 |---|---|
 | Extracted dates confirmed without edit | Above 85% |
-| Critical dates missed entirely by extraction | **Zero tolerance.** A missed inspection deadline is a legal problem. Measure against a hand-checked corpus before shipping. |
+| Critical dates missed entirely by extraction | **Zero tolerance.** A missed inspection deadline is a legal problem. Measure against a hand-checked corpus before shipping. The five that count are named below. |
 | Time to populate a contingency calendar | Under 5 minutes, versus 20 to 30 manually |
 | AI cost per deal | Under $2 |
+
+#### Which dates are critical
+
+*"Zero tolerance"* is a gate, so what it is a gate on has to be written down
+rather than inferred. `extraction:score` **exits non-zero** when any of these is
+missed, and `tests/Corpus/` marks them `critical: true`:
+
+| Deadline | Why it is on this list |
+|---|---|
+| Inspection Objection Deadline | Missing it waives the buyer's right to object. The example §12.3 already named |
+| New Loan Terms Deadline | The financing contingency. Missing it can forfeit earnest money |
+| Appraisal Deadline | The other money contingency, and the one a low appraisal turns on |
+| Record Title Objection Deadline | Missing it accepts title as-is, which is not reversible |
+| Closing Date | The date every other date is counted back from |
+
+Nothing else is a gate. A missed **possession date** or **survey deadline** is a
+quality failure and shows in the exact-match rate; it does not stop a release.
+
+Adding a sixth is a change to this table first, then to
+`tests/Corpus/check-corpus.php`'s `CRITICAL_LABELS` — in that order, because the
+corpus is measuring against this list rather than defining it. It defined it for
+one round, and a pass/fail gate resting on a definition the test suite invented
+and credited upstream is the shape §15's Decision Log exists to prevent.
 
 ### 12.4 Client experience
 
@@ -1119,6 +1142,7 @@ Still open, ordered by how much the answer changes the build.
 | 2026-08-28 | **An inspection task's due date is computed once at confirmation, not derived** | Slice 5, issue [#117](https://github.com/imonroe/brawling-mahogany/issues/117). The issue promised that moving the objection deadline moves the tasks, and `tasks` has a plain `due_date` with no anchor, offset or basis — only `key_dates` carries derivation. Rather than ship a screen that cannot keep the promise, the deadline is resolved at the moment somebody accepts the task and is an ordinary typed date afterwards, and the issue body is corrected to say so. Null when the deal has no objection deadline yet, which is the ordinary case for a report that arrives before the contract has been read: a task with no due date is honest, and a task due today because there was nothing to derive from is not |
 | 2026-08-28 | **`extraction.confirm` moves to the Team Member's default role** | Slice 5, issue [#116](https://github.com/imonroe/brawling-mahogany/issues/116). It was placed with the owner's permissions in Slice 1, before the screen existed, on the sound instinct that accepting a model's date into a contingency calendar has legal consequence. Screen Inventory then settles who is standing there: S66's user column is **TC**, and §5.3 walks Heather through confirming eleven dates. A default that put the one control on the person who is not at the screen would make the flagship feature unusable by the person it was specified for, and the workaround — making every coordinator an owner — is worse for everything else. It stays its own key, so a team that wants confirmation to sit with one person composes a role that says so |
 | 2026-08-28 | **S68 reports no figure for critical dates missed** | Slice 5, issue [#118](https://github.com/imonroe/brawling-mahogany/issues/118). The application can never know what a contract contained but the model did not report — a miss leaves no row — so any count the live data could produce reads `0` for a perfect model and `0` for one that read a single page of twelve. §12.3 gives that metric **zero tolerance**, which makes a reassuring zero the most expensive number on the screen. It is shown as a target with no figure, naming `php artisan extraction:score` as where it is measured. Same discipline as S50's storage figure: report a number, do not imply a limit |
+| 2026-08-29 | **The five critical deadlines are named in §12.3, not in the corpus** | Slice 5, issues [#14](https://github.com/imonroe/brawling-mahogany/issues/14) and [#118](https://github.com/imonroe/brawling-mahogany/issues/118). `extraction:score` exits non-zero on a missed critical date, so the set is a release gate — and for a round it lived only in `tests/Corpus/check-corpus.php`, whose comment credited it to *"the PRD table it comes from"*. There was no such table: §12.3 had one row naming one example. A gate whose definition is invented by the thing being gated and attributed upstream is worse than an undocumented one, because the attribution stops anybody checking. The table is here now, the corpus reads from it, and a sixth label changes this document first |
 
 ---
 

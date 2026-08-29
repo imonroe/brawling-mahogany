@@ -42,10 +42,19 @@ const CORPUS_DIR = __DIR__.'/contracts';
 /**
  * The five deadlines PRD §12.3 gives zero tolerance on missing.
  *
- * The PRD names them as concepts — inspection objection, financing, appraisal,
- * title objection, closing. These are the labels this corpus spells them with,
- * and the mapping is argued in README.md §Canonical labels. A sixth label must
- * not be added here without a change to the PRD table it comes from.
+ * The list lives in **§12.3's *Which dates are critical* table**, which now
+ * exists — for a round it did not, and this comment credited the set to *"the
+ * PRD table it comes from"* over a §12.3 that had one row naming one example.
+ * `extraction:score` exits non-zero on a miss, so the set is a release gate,
+ * and a gate whose definition is invented by the thing being gated and then
+ * attributed upstream is worse than an undocumented one: the attribution is
+ * what stops anybody checking. Found in review; the table and a Decision Log
+ * row (2026-08-29) are what settled it.
+ *
+ * These are the labels this corpus spells those five concepts with, and the
+ * mapping is argued in README.md §Canonical labels. A sixth changes the PRD
+ * first, then this constant — in that order, because the corpus measures
+ * against the list rather than defining it.
  */
 const CRITICAL_LABELS = [
     'Record Title Objection Deadline',
@@ -306,6 +315,60 @@ foreach ($groundTruthFiles as $path) {
             count($isoByLabel),
             $derivedOnly ? '  (derived-only)' : '',
         );
+    }
+
+    /*
+     * An amended fixture has to prove it is the hard case it claims to be.
+     *
+     * `textStates()` only asks whether the ISO day appears *somewhere* in the
+     * text, and an Amend/Extend states **both** days — the superseded one in
+     * the From column and the amendment in the To column. So a ground truth
+     * recording `2026-04-21` for `0008`'s Closing Date passed every check in
+     * this file exactly as `2026-05-05` does, and the amendment is the only
+     * reason that fixture exists. Round 2 of review found the guard blind to
+     * the one thing the fixture is for.
+     *
+     * `superseded` is what closes it, and it is asserted in both directions:
+     * the old day must be **in the text** (or this is not an amendment, it is
+     * a typo in the manifest), and it must **not be** what `dates` records for
+     * that label (or the ground truth is the superseded reading).
+     */
+    $superseded = $truth['superseded'] ?? [];
+
+    if (in_array('amended', $traits, true) && $superseded === []) {
+        $fail($slug, 'is tagged `amended` and records no `superseded` dates — the superseded reading is what makes the fixture hard, so it has to be written down');
+    }
+
+    if (! is_array($superseded)) {
+        $fail($slug, 'has a `superseded` key that is not a list');
+        $superseded = [];
+    }
+
+    foreach ($superseded as $index => $old) {
+        if (! is_array($old) || ! isset($old['label'], $old['value'])) {
+            $fail($slug, "superseded[{$index}] needs a label and a value");
+
+            continue;
+        }
+
+        $label = (string) $old['label'];
+        $value = (string) $old['value'];
+
+        if (! isset($isoByLabel[$label])) {
+            $fail($slug, "superseded \"{$label}\" is not a label this fixture records at all");
+
+            continue;
+        }
+
+        if ($isoByLabel[$label] === $value) {
+            $fail($slug, "\"{$label}\" records {$value}, which is the day the amendment superseded");
+
+            continue;
+        }
+
+        if (! textStates($text, $value)) {
+            $fail($slug, "superseded \"{$label}\" is {$value} and that day is nowhere in the text — an amendment states the day it replaces");
+        }
     }
 
     // Provisions.

@@ -50,7 +50,9 @@ refuses the corpus when a fixture and its ground truth have drifted apart.
 - **`traits`** are the tags the harness filters on. See below.
 - **`dates[].label`** is the canonical name of the deadline, from the closed
   list below. **`value`** is ISO `YYYY-MM-DD`. **`critical`** marks the five
-  PRD §12.3 gives **zero tolerance** on missing.
+  named in PRD §12.3's *Which dates are critical* table, which is where that
+  set is defined — this corpus measures against it rather than deciding it, and
+  a sixth changes the PRD first.
 - **`provisions`** is a plain-language summary of each additional-provision
   clause, not a verbatim quote. F10.1 captures provisions *as notes*, so the
   thing worth scoring is whether the substance survived, not whether the

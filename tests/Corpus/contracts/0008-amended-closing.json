@@ -89,6 +89,24 @@
             "critical": false
         }
     ],
+    "superseded": [
+        {
+            "label": "New Loan Terms Deadline",
+            "value": "2026-03-28"
+        },
+        {
+            "label": "New Loan Availability Deadline",
+            "value": "2026-04-02"
+        },
+        {
+            "label": "Closing Date",
+            "value": "2026-04-21"
+        },
+        {
+            "label": "Possession Date",
+            "value": "2026-04-21"
+        }
+    ],
     "provisions": [
         "Seller to credit Buyer two thousand dollars at Closing toward the sewer line repair identified in the inspection.",
         "Closing extended by agreement of the parties on account of the lender underwriting delay."

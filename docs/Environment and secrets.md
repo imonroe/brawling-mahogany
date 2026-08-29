@@ -95,6 +95,18 @@ a screen; the provider's is the one that holds if the application's is
 misconfigured or bypassed — and a staging environment exists precisely to be
 the place where something is misconfigured.
 
+**Zero is a ceiling of zero; a negative number is the absence of a ceiling.**
+They are not interchangeable, and only a negative value means *unlimited* —
+setting a cap to `0` stops extraction for everybody it applies to, which is
+exactly what `teams.extraction_monthly_cap_micros = 0` is for on a single team
+that needs stopping now (`php artisan extraction:cap <team> --dollars=0`).
+
+Note the direction a mistake falls in: `(int) env()` of an unparseable value is
+`0`, so a typo in either variable **stops extraction** rather than uncapping
+it. That is the safe half of the trade, and it is only safe because of which
+way round the two meanings are — the reading that treats `0` as "no ceiling"
+turns the same typo into an uncapped bill.
+
 The values are in **micros** — millionths of a dollar — which is the unit
 `extractions.cost_micros` uses, because a page of contract costs a fraction of
 a cent and a cap in cents cannot express the figures it caps. `50000000` is

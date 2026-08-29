@@ -27,7 +27,7 @@ final class ExtractionRefused extends RuntimeException
     {
         return new self(
             'provider_not_configured',
-            'Reading documents is not switched on for this installation yet.',
+            'Extraction is not switched on for this installation yet.',
         );
     }
 

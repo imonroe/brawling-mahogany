@@ -117,12 +117,6 @@ final class SpendLedger
     /**
      * Across every team, so the unscoped read is the right tool here.
      *
-     * (The method is named without its parentheses on purpose:
-     * `UnscopedQueryConventionTest`'s pattern matches the name followed by an
-     * opening bracket, so a docblock that spelled it in full would be counted
-     * as a second call — and an allowlist entry of two would then let a real
-     * second one in without anything noticing.)
-     *
      * This is `UnscopedQueryConventionTest`'s second sanctioned category — *"a
      * context with no tenant"*. A platform ceiling is a fact about the
      * installation's bill, not about anybody's data, and asking it inside one
