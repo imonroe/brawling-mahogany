@@ -399,13 +399,12 @@ final class Redactor
     /**
      * Run one rule, counting what it took.
      *
-     * `preg_replace_callback` with `PREG_OFFSET_CAPTURE` so `$decide` can see
-     * where in the *original* subject the candidate sat — which is what makes
-     * the label window meaningful. Offsets are byte offsets, and the window is
-     * measured in characters, so the subject is handed to `mb_substr` on the
-     * byte offset: correct for the ASCII a digit run is surrounded by in
-     * practice, and wrong only by a few characters of window in text that is
-     * not, which is a margin this window has by design.
+     * `$decide` is given where in the *original* subject the candidate sat,
+     * which is what makes the label window meaningful. Offsets are byte
+     * offsets, and the window is measured in characters, so the subject is
+     * handed to `mb_substr` on the byte offset: correct for the ASCII a digit
+     * run is surrounded by in practice, and wrong only by a few characters of
+     * window in text that is not, which is a margin this window has by design.
      *
      * @param  array<string, int>  $counts
      */
@@ -413,27 +412,34 @@ final class Redactor
     {
         $taken = 0;
 
+        /*
+         * The offset is tracked here rather than taken from `PREG_OFFSET_CAPTURE`.
+         *
+         * The flag is the obvious tool and it cost three rounds of CI to give
+         * up on: PHPStan's stub for `preg_replace_callback` does not model the
+         * flags argument, so it types `$matches[0]` as a plain string. A
+         * destructure of it is an error, a `@var` correcting it is *"not a
+         * subtype of the native type"*, a `@param` on the closure does not
+         * override the stub, and a cast turns it into a one-element array whose
+         * index 1 is then "not found". Every one of those is the analyser being
+         * *right about what it was told* and the code insisting otherwise.
+         *
+         * A cursor needs no annotation at all, because it is true. Matches are
+         * non-overlapping and delivered left to right, so searching forward
+         * from the end of the previous one finds this one — and finds the right
+         * occurrence when the same text appears twice, which is the case a
+         * plain `strpos` from zero would get wrong.
+         */
+        $cursor = 0;
+
         $result = preg_replace_callback(
             $pattern,
-            function (array $matches) use ($subject, $rule, $decide, &$taken): string {
-                /*
-                 * `PREG_OFFSET_CAPTURE` makes every group a `[string, int]`
-                 * pair, and PHPStan's stub for `preg_replace_callback` does not
-                 * model the flags argument — it types `$matches[0]` as a plain
-                 * string, so destructuring it is an error and a `@var` saying
-                 * otherwise is *"not a subtype of the native type"*.
-                 *
-                 * A `@param` on the closure does not override the stub either.
-                 * The cast is what does: it is a no-op at runtime on a value
-                 * that is already an array, and it gives the analyser a shape
-                 * it will accept without either side asserting something false.
-                 * The explicit casts below are then honest about what the
-                 * analyser still cannot know.
-                 */
-                [$match, $offset] = array_values((array) $matches[0]);
+            function (array $matches) use ($subject, $rule, $decide, &$taken, &$cursor): string {
+                $match = (string) $matches[0];
 
-                $match = (string) $match;
-                $offset = (int) $offset;
+                $found = strpos($subject, $match, $cursor);
+                $offset = $found === false ? $cursor : $found;
+                $cursor = $offset + strlen($match);
 
                 if (! $decide($match, $subject, $offset)) {
                     return $match;
@@ -455,7 +461,6 @@ final class Redactor
             $subject,
             -1,
             $count,
-            PREG_OFFSET_CAPTURE,
         );
 
         if (! is_string($result)) {
