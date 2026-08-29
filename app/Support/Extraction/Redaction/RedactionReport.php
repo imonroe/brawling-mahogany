@@ -22,27 +22,35 @@ namespace App\Support\Extraction\Redaction;
 final readonly class RedactionReport
 {
     /**
-     * @param  array<string, int>  $counts  keyed by `RedactionRule::key()`
+     * `$truncated` is deliberately absent.
+     *
+     * It was here for a round and nothing could ever set it — the redactor has
+     * no truncating path, so it was a field that read as a fact and was a
+     * constant `false`. `ReadableText::wasPartial()` answers the question it
+     * looked like it answered, one layer up, about the *reading* rather than
+     * the redaction; if that ever needs recording it belongs on `extractions`
+     * beside the text, not here.
+     *
+     * @param  array<string, int>  $counts  keyed by the redactor's rule names
      */
     private function __construct(
         public array $counts,
-        public bool $truncated,
     ) {}
 
     /**
      * @param  array<string, int>  $counts
      */
-    public static function of(array $counts, bool $truncated = false): self
+    public static function of(array $counts): self
     {
         $counts = array_filter($counts, static fn (int $count): bool => $count > 0);
         ksort($counts);
 
-        return new self($counts, $truncated);
+        return new self($counts);
     }
 
     public static function empty(): self
     {
-        return new self([], false);
+        return new self([]);
     }
 
     public function total(): int
@@ -56,14 +64,13 @@ final readonly class RedactionReport
     }
 
     /**
-     * @return array{counts: array<string, int>, total: int, truncated: bool}
+     * @return array{counts: array<string, int>, total: int}
      */
     public function toArray(): array
     {
         return [
             'counts' => $this->counts,
             'total' => $this->total(),
-            'truncated' => $this->truncated,
         ];
     }
 }

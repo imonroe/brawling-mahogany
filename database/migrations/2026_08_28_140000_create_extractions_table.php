@@ -140,6 +140,26 @@ return new class extends Migration
         DB::statement(
             'ALTER TABLE extractions ADD CONSTRAINT extractions_cost_not_negative_check CHECK (cost_micros >= 0)'
         );
+
+        /*
+         * **One running extraction per document, decided by the database.**
+         *
+         * `StartExtraction` asks whether one is already running before it
+         * writes, and that is a read followed by a write: two presses on a slow
+         * connection, or two tabs, both read "no" and both queue. The cost is
+         * two provider calls for one contract and a review screen showing every
+         * proposal twice — which is exactly the shape of mistake somebody
+         * confirms, because both copies look right.
+         *
+         * Partial, so a finished attempt never blocks a retry: `complete`,
+         * `failed` and `blocked` rows are history and a document may accumulate
+         * as many as it needs (PRD §6.2 — one row per *attempt*). Modelled on
+         * `documents_one_primary`, which is the same shape one table over.
+         */
+        DB::statement(
+            'CREATE UNIQUE INDEX extractions_one_running ON extractions (team_id, document_id) '
+            ."WHERE state IN ('queued', 'processing') AND deleted_at IS NULL"
+        );
     }
 
     public function down(): void

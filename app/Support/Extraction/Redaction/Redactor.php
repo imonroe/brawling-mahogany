@@ -412,18 +412,23 @@ final class Redactor
 
         $result = preg_replace_callback(
             $pattern,
-            /**
-             * `PREG_OFFSET_CAPTURE` makes every group a `[string, int]` pair,
-             * and PHPStan's stub for `preg_replace_callback` does not model
-             * the flags argument — it types `$matches[0]` as a plain string
-             * and reports the destructuring as an error. The annotation says
-             * what the flag actually produces; it is a stub limitation rather
-             * than a claim the analyser can be argued out of.
-             *
-             * @param  array<int, array{0: string, 1: int}>  $matches
-             */
             function (array $matches) use ($subject, $rule, $decide, &$taken): string {
-                [$match, $offset] = $matches[0];
+                /*
+                 * `PREG_OFFSET_CAPTURE` makes every group a `[string, int]`
+                 * pair, and PHPStan's stub for `preg_replace_callback` does
+                 * not model the flags argument — it types `$matches[0]` as a
+                 * plain string and reports a destructuring of it as an error.
+                 *
+                 * A `@param` on the closure does not override the stub, so the
+                 * narrowing goes on the assignment, where it does. This is a
+                 * stub limitation rather than a claim the analyser can be
+                 * argued out of: the runtime shape is what the flag documents,
+                 * and the corpus run exercises it on every contract.
+                 */
+                /** @var array{0: string, 1: int} $captured */
+                $captured = $matches[0];
+
+                [$match, $offset] = $captured;
 
                 if (! $decide($match, $subject, $offset)) {
                     return $match;

@@ -14,6 +14,7 @@ use App\Models\Person;
 use App\Support\Audit\AuditLogger;
 use App\Support\Documents\DocumentStorage;
 use App\Support\Documents\ReadableText;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -106,14 +107,29 @@ final class StartExtraction
             throw ExtractionRefused::capped($decision);
         }
 
-        $extraction = DB::transaction(fn (): Extraction => $this->write(
-            $document,
-            $deal,
-            $kind,
-            $actor,
-            ExtractionState::Queued,
-            null,
-        ));
+        try {
+            $extraction = DB::transaction(fn (): Extraction => $this->write(
+                $document,
+                $deal,
+                $kind,
+                $actor,
+                ExtractionState::Queued,
+                null,
+            ));
+        } catch (UniqueConstraintViolationException) {
+            /*
+             * `extractions_one_running` caught what the check above raced with.
+             *
+             * The `exists()` two screens up is a read followed by a write, so
+             * two presses on a slow connection both see "nothing running" and
+             * both queue — two provider calls for one contract, and a review
+             * screen showing every proposal twice. The index is what actually
+             * decides it; this branch is only how the loser is told, and it is
+             * told the same ordinary sentence as the caller who lost by a
+             * second rather than by a millisecond.
+             */
+            throw ExtractionRefused::alreadyRunning();
+        }
 
         dispatch((new RunDocumentExtraction($extraction->getKey()))->forTeam($extraction->team_id));
 

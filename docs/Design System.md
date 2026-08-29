@@ -225,7 +225,7 @@ One table, and it is the single source of truth for every badge in the product. 
 | | Edited | `info` | |
 | | Rejected | `neutral` | |
 | **Extraction** | Queued | `neutral` | |
-| | Reading | `info` | |
+| | Extracting | `info` | |
 | | Ready to Review | `success` | |
 | | Failed | `danger` | |
 | | Stopped | `warning` | A spending limit halted it before the model ran (#113). Not `danger`: nothing is broken |

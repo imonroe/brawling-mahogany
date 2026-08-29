@@ -16,8 +16,13 @@ Nothing is written until you say so. That is not a setting.
 Open a document on a deal and choose **Extract**. Say whether it is a contract
 or an inspection report — they are read differently — and the app queues it.
 
-Reading a contract takes a minute or two. You can leave the page; the deal's
-documents list will show when it is ready, and you will get a notification.
+Reading a contract takes a minute or two, and you can leave the page. The
+document's row on the **Documents** tab says **Extracting…** while it runs, and
+turns into a **Review** button with a count once it is ready.
+
+There is no notification when it finishes — you go back and look. You _will_
+be told if it fails or if the monthly limit stops it, because those are the
+cases where nothing is going to appear however long you wait.
 
 ## What you get back
 
@@ -43,7 +48,7 @@ no setting that adds one. A wrong closing date entered by hand is a mistake
 somebody made; a wrong closing date written silently by a machine is a mistake
 nobody knows about until it matters.
 
-For an inspection report you *can* tick several tasks and accept them together,
+For an inspection report you _can_ tick several tasks and accept them together,
 because an unwanted task is an annoyance rather than a legal problem. Dates are
 not like that.
 
@@ -57,7 +62,7 @@ starting date looks exactly like a date read correctly off the page.
 **A conflict is shown, with what it will move.** If the deal already has that
 deadline and the contract says something different, you are told both, and told
 how many other dates will shift if you accept the new one. Confirming then
-*moves* your existing date rather than adding a second one.
+_moves_ your existing date rather than adding a second one.
 
 **Editing is expected.** If it misread something, correct it and confirm. What
 you changed is kept — that is how the app knows what it is getting wrong.

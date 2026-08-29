@@ -340,7 +340,7 @@ const canExtract = computed(() => props.can.extract);
                         'text-muted-foreground',
                     ]"
                 >
-                    Reading…
+                    Extracting…
                 </span>
 
                 <a

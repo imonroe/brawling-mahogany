@@ -9,6 +9,15 @@ use App\Enums\Concerns\ProvidesOptions;
 /**
  * Where one extraction attempt got to — PRD §6.2, §8.4, Screen Inventory S65.
  *
+ * ## The labels are IA's words, not this file's
+ *
+ * `Extracting` rather than "Reading", and review caught the difference: IA §11
+ * bans **Read** alongside Scan, Parse, Analyze and AI, because the feature has
+ * one name and *Extract* is it. "Reading" read naturally and was wrong for
+ * exactly the reason the ban exists — a second word for one thing is how a
+ * screen and a help article stop describing the same feature. Prose may still
+ * say a document is read; a **label** may not.
+ *
  * ## Why `blocked` is its own state and not a kind of failure
  *
  * #113: *"Hitting the cap stops extraction and tells the user plainly — it
@@ -39,7 +48,7 @@ enum ExtractionState: string implements HasLabel
     {
         return match ($this) {
             self::Queued => 'Queued',
-            self::Processing => 'Reading',
+            self::Processing => 'Extracting',
             self::Complete => 'Ready to Review',
             self::Failed => 'Failed',
             self::Blocked => 'Stopped',

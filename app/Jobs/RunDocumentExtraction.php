@@ -98,12 +98,23 @@ class RunDocumentExtraction implements ShouldBeUnique, ShouldQueue
                 $team,
                 $exception instanceof ProviderFailed ? $exception->reasonCode : 'extraction_gave_up',
                 /*
-                 * The row's own message when it has one — the sentence the
-                 * last attempt wrote for a person — and a plain one otherwise.
-                 * An exception's message is never used: it is written for a
-                 * log and can carry anything the provider put in a response.
+                 * A **fresh** sentence, never the row's own.
+                 *
+                 * The obvious version reused `$extraction->error`, on the
+                 * reasoning that the last attempt had already written something
+                 * for a person to read. It had — and on the one path that
+                 * reaches here it says *"This will be tried again."*
+                 * `ProviderFailed::unavailable()` is the retryable case, so it
+                 * is precisely the message on the row when the retries run out,
+                 * and the `??` fallback beside it was unreachable for the
+                 * failure it was written for. A terminal state promising
+                 * another attempt is worse than no message: somebody waits.
+                 *
+                 * An exception's own message is not used either — it is written
+                 * for a log and can carry whatever the provider put in a
+                 * response body.
                  */
-                $extraction->error ?? 'This document could not be read after several attempts. '
+                'This document could not be read after several attempts. '
                     .'Its dates and tasks will need entering by hand.',
             );
         });

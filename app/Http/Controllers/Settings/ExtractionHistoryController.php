@@ -33,13 +33,15 @@ use Inertia\Response;
  * coordinator's. Gating it on the confirm key would put the bill in front of
  * everybody who does the reviewing.
  *
- * So it authorises `update` on the team, which is where
- * `Permissions::MANAGE_SETTINGS` lives (`TeamPolicy::update()`) — the same
- * ability S72, S76 and S72b ask. The ability is named for writing and this
- * action writes nothing, which is a wart worth naming rather than hiding: the
- * alternative available inside `TeamPolicy` is `view`, which is *any live
- * membership* and is far too wide for spend and audit. A `viewSpend` ability of
- * its own would be the better shape and is a follow-up, not a silent choice.
+ * So it authorises **`viewHistory`**, an ability of its own on
+ * `ExtractionPolicy` carrying `Permissions::MANAGE_SETTINGS`.
+ *
+ * It was `TeamPolicy::update` for a round — the right permission behind the
+ * wrong verb, on a page that writes nothing — and review was right that a
+ * docblock arguing for the wart was worse than the wart: it stopped the next
+ * reader fixing a two-line problem. `TeamPolicy::view` was never the answer in
+ * the other direction, being *any live membership*, which is far too wide for
+ * spend and audit.
  *
  * `tests/Feature/AuthorizationCoverageTest.php` enumerates the route table and
  * fails an action that never asks, which is what makes the sentence above a

@@ -97,7 +97,7 @@ it('fails a run that misses one critical date, however good the rest is', functi
         $dates[] = ['label' => "Ordinary {$i}", 'value' => '2026-04-0'.$i, 'critical' => false];
     }
 
-    $case = corpusCase($dates);
+    $case = scorecardFixture($dates);
 
     $card = new Scorecard('anthropic', 'claude-sonnet-5', 'contract-2026-08-28');
 

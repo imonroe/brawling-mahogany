@@ -206,7 +206,7 @@ const extractedField: StateTable = {
  * A different question from `extractedField` beside it, and the two are on the
  * same screen at the same time — this one is about the *attempt*, that one
  * about a *proposal*. Keeping them separate domains is what stops a
- * `Needs Review` badge and a `Reading` badge sharing a vocabulary they do not
+ * `Needs Review` badge and an `Extracting` badge sharing a vocabulary they do not
  * share a meaning with.
  *
  * `blocked` is not a kind of failure and does not wear `danger`. It means a
@@ -217,7 +217,7 @@ const extractedField: StateTable = {
  */
 const extraction: StateTable = {
     queued: { label: 'Queued', tone: 'neutral', clientLabel: null },
-    processing: { label: 'Reading', tone: 'info', clientLabel: null },
+    processing: { label: 'Extracting', tone: 'info', clientLabel: null },
     complete: { label: 'Ready to Review', tone: 'success', clientLabel: null },
     failed: { label: 'Failed', tone: 'danger', clientLabel: null },
     blocked: { label: 'Stopped', tone: 'warning', clientLabel: null },

@@ -209,20 +209,39 @@ final class PerformExtraction
             ]));
         }
 
+        /*
+         * **The bill is recorded before the answer is read**, and the order is
+         * the whole point.
+         *
+         * `ReadProposals::from()` throws on an answer this application cannot
+         * use — and that call was still charged for. Writing the cost only on
+         * the success path meant a provider that answered in prose left a row
+         * saying `cost_micros = 0` and `raw_response = null`: the money spent
+         * invisible to the cap that PRD §14.3 exists to enforce, and the raw
+         * output gone for exactly the case #118's *"what is the model getting
+         * wrong"* is asked about. That is the same argument `AnthropicProvider`
+         * makes when it refuses a 200 with no usage block, and it was not being
+         * kept one method along.
+         *
+         * So: provenance and cost first, outcome second.
+         */
+        $extraction->forceFill([
+            'provider' => $result->provider,
+            'model' => $result->model,
+            'model_version' => $result->modelVersion,
+            'prompt_version' => $this->prompts->for($extraction->kind)->version(),
+            'raw_response' => $result->raw,
+            'cost_micros' => $result->costMicros,
+            'input_tokens' => $result->inputTokens,
+            'output_tokens' => $result->outputTokens,
+            'latency_ms' => $result->latencyMs,
+        ])->save();
+
         $proposals = $this->reader->from($result->raw, $extraction->kind);
 
-        DB::transaction(function () use ($extraction, $result, $proposals): void {
+        DB::transaction(function () use ($extraction, $proposals): void {
             $extraction->forceFill([
                 'state' => ExtractionState::Complete->value,
-                'provider' => $result->provider,
-                'model' => $result->model,
-                'model_version' => $result->modelVersion,
-                'prompt_version' => $this->prompts->for($extraction->kind)->version(),
-                'raw_response' => $result->raw,
-                'cost_micros' => $result->costMicros,
-                'input_tokens' => $result->inputTokens,
-                'output_tokens' => $result->outputTokens,
-                'latency_ms' => $result->latencyMs,
                 'completed_at' => now(),
                 'error' => null,
                 'error_code' => null,

@@ -58,14 +58,29 @@ final class SpendLedger
         $platformSpent = $this->platformSpentThisMonth();
         $platformCap = (int) config('extraction.caps.platform_monthly_micros');
 
-        if ($platformCap > 0 && $platformSpent >= $platformCap) {
+        /*
+         * **Zero is a ceiling of zero, not the absence of one**, and the
+         * difference is the whole reason the column exists.
+         *
+         * The first version read `$cap > 0 && $spent >= $cap`, so a cap of 0
+         * allowed everything — while the migration on `teams` describes that
+         * column as what an operator sets *"for the one team that needs
+         * stopping now"*. Setting it to zero would have removed their ceiling.
+         * `SpendDecision::percentUsed()` already read 0 as "fully spent", so
+         * the two halves disagreed about the same number.
+         *
+         * A **negative** cap is the absence of one, and nothing in the product
+         * writes it: the CHECK constraint on `teams` refuses it, so it can only
+         * come from configuration somebody set deliberately.
+         */
+        if ($platformCap >= 0 && $platformSpent >= $platformCap) {
             return SpendDecision::platformCapReached($platformSpent, $platformCap);
         }
 
         $teamSpent = $this->teamSpentThisMonth($team);
         $teamCap = $this->capFor($team);
 
-        if ($teamCap > 0 && $teamSpent >= $teamCap) {
+        if ($teamCap >= 0 && $teamSpent >= $teamCap) {
             return SpendDecision::teamCapReached($teamSpent, $teamCap);
         }
 
@@ -100,7 +115,13 @@ final class SpendLedger
     }
 
     /**
-     * Across every team, so `withoutTeamScope()` is the right tool here.
+     * Across every team, so the unscoped read is the right tool here.
+     *
+     * (The method is named without its parentheses on purpose:
+     * `UnscopedQueryConventionTest`'s pattern matches the name followed by an
+     * opening bracket, so a docblock that spelled it in full would be counted
+     * as a second call — and an allowlist entry of two would then let a real
+     * second one in without anything noticing.)
      *
      * This is `UnscopedQueryConventionTest`'s second sanctioned category — *"a
      * context with no tenant"*. A platform ceiling is a fact about the
@@ -122,6 +143,8 @@ final class SpendLedger
 
     private function shouldWarn(int $spent, int $cap): bool
     {
+        // A negative cap is the absence of one, so there is nothing to warn
+        // about. Zero never reaches here — `decide()` has already refused.
         if ($cap <= 0) {
             return false;
         }

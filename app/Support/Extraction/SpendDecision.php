@@ -58,7 +58,18 @@ final readonly class SpendDecision
 
     public function percentUsed(): int
     {
-        if ($this->capMicros <= 0) {
+        /*
+         * A cap of zero is fully spent whatever was spent against it, and a
+         * **negative** cap is the absence of a ceiling — which is nought per
+         * cent of nothing rather than a bar that is full. `SpendLedger::decide()`
+         * makes the same distinction; a screen reading 100% over "no limit"
+         * would be the two halves disagreeing again.
+         */
+        if ($this->capMicros < 0) {
+            return 0;
+        }
+
+        if ($this->capMicros === 0) {
             return 100;
         }
 

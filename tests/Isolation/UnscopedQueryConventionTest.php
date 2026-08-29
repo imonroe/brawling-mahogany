@@ -60,6 +60,19 @@ const SANCTIONED_UNSCOPED_QUERIES = [
         'reason' => 'The definition itself.',
     ],
 
+    'Support/Extraction/SpendLedger.php' => [
+        'count' => 1,
+        'reason' => 'Kind 2 — a context with no tenant, and the one figure in the product '.
+            'that is deliberately not about a tenant at all. `platformSpentThisMonth()` '.
+            'answers "what has this installation spent on reading documents this month", '.
+            'which is the ceiling PRD §14.3 asks for so a defect — a retry loop, a runaway '.
+            'import — cannot spend the company\'s money overnight. Asking it inside one '.
+            'team\'s scope would answer a different question, and one that cannot stop '.
+            'anything: every team would be under the platform cap because every team is '.
+            'only part of it. The per-team figure beside it (`teamSpentThisMonth`) is '.
+            'ordinary scoped Eloquent, which is the pairing that makes this one legible.',
+    ],
+
     'Models/Person.php' => [
         // Three, down from four: `identityIsEditableBy()` went with the shared
         // identity columns it guarded (#140).
