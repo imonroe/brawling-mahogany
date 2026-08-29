@@ -428,7 +428,7 @@ it('keeps counting characters correctly across a candidate it refused', function
      * be missed if the count had not advanced.
      */
     $result = redacted(
-        "Account Number: 111111222222\n\nPrice: $612,000.00 — paid at Closing\n\nAccount Number: 333333444444"
+        "Account Number: 111111222222\n\nPrice: $612,000.00 — paid at Closing\n\nAccount Number: 333333444444",
     );
 
     expect($result->text)->not->toContain('111111222222')
