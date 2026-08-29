@@ -252,7 +252,6 @@ it('warns before it stops', function (): void {
  * third.
  */
 
-
 it('does not count a row that never called anything', function (): void {
     /*
      * A `blocked` row is a refusal rather than a call: nothing was sent and
