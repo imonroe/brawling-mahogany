@@ -138,7 +138,7 @@ return new class extends Migration
          * §14.3 exists to enforce.
          */
         DB::statement(
-            'ALTER TABLE extractions ADD CONSTRAINT extractions_cost_not_negative_check CHECK (cost_micros >= 0)'
+            'ALTER TABLE extractions ADD CONSTRAINT extractions_cost_not_negative_check CHECK (cost_micros >= 0)',
         );
 
         /*
@@ -158,7 +158,7 @@ return new class extends Migration
          */
         DB::statement(
             'CREATE UNIQUE INDEX extractions_one_running ON extractions (team_id, document_id) '
-            ."WHERE state IN ('queued', 'processing') AND deleted_at IS NULL"
+            ."WHERE state IN ('queued', 'processing') AND deleted_at IS NULL",
         );
     }
 

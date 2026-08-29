@@ -134,6 +134,7 @@ final class Redactor
      * Conclusive on its own — the symbols exist nowhere else — so this needs
      * no label and takes the whole run between and around them rather than
      * trying to work out which digits are which.
+     *
      * @param  array<string, int>  $counts
      */
     private function maskMicrLines(string $text, array &$counts): string
@@ -172,6 +173,7 @@ final class Redactor
      * parcel number in an American contract is punctuated that way. A bare
      * `123456789` is not, and only becomes one beside the words, which is what
      * the `government_id` label rule covers.
+     *
      * @param  array<string, int>  $counts
      */
     private function maskSocialSecurityNumbers(string $text, array &$counts): string
@@ -229,6 +231,7 @@ final class Redactor
      * The residual risk is a genuine 13- or 14-digit card written without
      * grouping, which is a card format effectively out of use — and one the
      * labelled `account_number` rule still catches when it is captioned.
+     *
      * @param  array<string, int>  $counts
      */
     private function maskCardNumbers(string $text, array &$counts): string

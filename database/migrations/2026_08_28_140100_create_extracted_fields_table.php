@@ -142,7 +142,7 @@ return new class extends Migration
 
         DB::statement(
             'ALTER TABLE extracted_fields ADD CONSTRAINT extracted_fields_confidence_range_check '
-            .'CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))'
+            .'CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))',
         );
 
         /*
@@ -173,7 +173,7 @@ return new class extends Migration
          */
         DB::statement(
             'ALTER TABLE extracted_fields ADD CONSTRAINT extracted_fields_reviewed_completely_check '
-            ."CHECK (review_state = 'pending' OR reviewed_at IS NOT NULL)"
+            ."CHECK (review_state = 'pending' OR reviewed_at IS NOT NULL)",
         );
     }
 

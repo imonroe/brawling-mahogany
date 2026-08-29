@@ -40,7 +40,7 @@ return new class extends Migration
 
         DB::statement(
             'ALTER TABLE teams ADD CONSTRAINT teams_extraction_cap_not_negative_check '
-            .'CHECK (extraction_monthly_cap_micros IS NULL OR extraction_monthly_cap_micros >= 0)'
+            .'CHECK (extraction_monthly_cap_micros IS NULL OR extraction_monthly_cap_micros >= 0)',
         );
     }
 
