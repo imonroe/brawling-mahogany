@@ -643,7 +643,35 @@ it('ends the row on a failure it has no name for, rather than leaving it claimed
 
     $job = (new RunDocumentExtraction($extraction->getKey()))->forTeam($this->team->getKey());
 
-    expect(fn () => $job->handle(app(PerformExtraction::class)))->toThrow(Throwable::class);
+    /*
+     * A `try`/`catch` rather than `toThrow(Throwable::class)`, and the reason
+     * is a trap worth recording: Pest's `toThrow()` branches on
+     * **`class_exists()`**, and `Throwable` is an *interface*. So the class
+     * string is not recognised as a class and falls through to the
+     * message-matching branch — the assertion silently becomes *"does the
+     * exception message contain the word Throwable"*, which the `TypeError`
+     * here does not.
+     *
+     * That fails loudly, which is the lucky direction. The unlucky one is an
+     * exception whose message happens to contain the interface's name, where
+     * the same mistake passes and asserts nothing about the type at all.
+     *
+     * Naming `TypeError` instead would pass, and would pin this case to the
+     * one exception that reaches it today — where what is being asserted is
+     * that **anything** unrecognised ends the row.
+     */
+    $threw = false;
+
+    try {
+        $job->handle(app(PerformExtraction::class));
+    } catch (Throwable) {
+        $threw = true;
+    }
+
+    expect($threw)->toBeTrue(
+        'The failure must still reach the queue, Horizon and the log with its stack intact — '
+        .'swallowing it would trade a stranded row for a silent one.',
+    );
 
     $extraction->refresh();
 
