@@ -72,6 +72,35 @@ concrete:
   explicit that contracts contain exactly the personal financial information
   Emily is worried about, and iterating a prompt against real ones is not free.
 
+## It cannot see a redaction defect at all
+
+Worth stating separately from the accuracy caveats above, because it is a
+different kind of blindness and it has now cost three review rounds.
+
+`RedactorCorpusTest` runs the real redactor over these twenty documents, which
+sounds like coverage and is not. Every fixture is **pure ASCII**, and every
+identifier in them is **unique**. Those two properties happen to make the
+corpus incapable of distinguishing correct offset handling from two separate
+bugs that shipped:
+
+- A `strpos` cursor that finds the first occurrence of the matched *text*
+  rather than the position the regex matched. Needs the same digits twice.
+- A byte offset handed to `mb_substr`, which measures in characters. Needs a
+  multi-byte character earlier in the document — a curly apostrophe, an em
+  dash, a section sign, all of which a real contract is full of.
+
+Against all twenty fixtures both versions report *identical rules fired*. The
+corpus was cited as verification for one of them, in a commit message, and the
+check could not have failed.
+
+So: **a redaction change is not verified by running the corpus.** It is
+verified by a fixture in `tests/Unit/Extraction/RedactorTest.php` built for the
+specific failure, and by running that fixture against the commit that has the
+defect. Adding non-ASCII punctuation and repeated identifiers to these
+contracts would make them more realistic and is worth doing — but it would not
+change this rule, because the next redaction defect will have a shape nobody
+put in a fixture either.
+
 ## One more thing to distrust
 
 The ground truth was written beside the text, by the same hand, in the same
