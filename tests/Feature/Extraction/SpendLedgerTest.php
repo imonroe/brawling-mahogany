@@ -236,28 +236,22 @@ it('warns before it stops', function (): void {
         ->and($decision->percentUsed())->toBe(80);
 });
 
-it('adds up what one deal has cost', function (): void {
-    /*
-     * PRD §12.3's *"under $2 per deal"*, which is a number somebody has to be
-     * able to produce. One row per **attempt** is what makes it a `SUM` rather
-     * than a guess — a retry after an outage is a second row, and both of them
-     * were billed.
-     *
-     * The second deal is the control: a total that counted every deal in the
-     * team would pass this test with one deal in it.
-     */
-    $this->travelTo('2026-09-10 12:00:00');
+/*
+ * There is deliberately no test here for a per-deal total on `SpendLedger`.
+ *
+ * One existed, against a `dealSpend()` method that review found had no caller
+ * anywhere in the application — and PRD §12.3's *"under $2 per deal"* is
+ * already produced by `App\Queries\ExtractionHistory`, which computes the
+ * **distribution** across every deal in one statement rather than one deal at a
+ * time. Two implementations of one figure is how the number on a screen and the
+ * number in a report start to disagree, so the ledger keeps the two totals it
+ * has a caller for (a team's month, and the platform's) and S68 owns this one.
+ *
+ * Recorded rather than silently dropped, because the metric is real and the
+ * next person to want it should find out where it lives instead of adding a
+ * third.
+ */
 
-    $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
-    $other = Deal::factory()->create(['team_id' => $this->team->getKey()]);
-
-    billedExtraction($this->team, 120_000, $deal);
-    billedExtraction($this->team, 35_000, $deal);
-    billedExtraction($this->team, 400_000, $other);
-
-    expect($this->ledger->dealSpend($deal->getKey()))->toBe(155_000)
-        ->and($this->ledger->dealSpend($other->getKey()))->toBe(400_000);
-});
 
 it('does not count a row that never called anything', function (): void {
     /*

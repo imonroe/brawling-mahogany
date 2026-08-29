@@ -94,6 +94,13 @@ it('keeps the extracted source enums out of every other writer', function (): vo
     $allowed = [
         'Enums/KeyDateSource.php',
         'Enums/TaskSource.php',
+        /*
+         * `KeyDate::isPending()` reads the case rather than writing it, and
+         * reading is the point: it is the predicate six screens use to keep an
+         * unconfirmed extracted date out of a deadline count. A guard that
+         * refused it would be refusing the invariant's own reader.
+         */
+        'Models/KeyDate.php',
         'Support/Dates/SaveKeyDate.php',
         'Support/Deals/DealTasks.php',
     ];

@@ -6,6 +6,7 @@ use App\Enums\ExtractedFieldReviewState;
 use App\Models\Deal;
 use App\Models\ExtractedField;
 use App\Models\Extraction;
+use App\Models\TeamMembership;
 use App\Support\Tenancy\TeamContext;
 use Inertia\Testing\AssertableInertia;
 
@@ -27,6 +28,25 @@ beforeEach(function (): void {
 
     [$this->team, $this->member] = $this->teamWithMember();
     [$this->otherTeam, $this->stranger] = $this->teamWithMember();
+
+    /*
+     * The owner is found on the team `teamWithMember()` already provisioned,
+     * rather than made with `teamWithOwner()`.
+     *
+     * `SendSafetyTest` does it this way and it is the pattern that works:
+     * `ProvisionTeam` attaches an owner when the team is created, so asking
+     * for the holder of the `team_owner` role gets the person the roles were
+     * actually granted to. Building a second owner on top of that is how this
+     * file spent a CI round watching its own owner meet a 403.
+     */
+    $this->owner = app(TeamContext::class)->runFor(
+        $this->team,
+        fn (): TeamMembership => TeamMembership::query()
+            ->whereHas('roles', fn ($query) => $query->where('roles.key', 'team_owner'))
+            ->sole(),
+    )->person;
+
+    $this->enrollTwoFactor($this->owner);
 });
 
 function extractionOn(Deal $deal, int $costMicros = 40_000): Extraction
@@ -51,9 +71,7 @@ it('refuses a member who cannot manage settings', function (): void {
 });
 
 it('lets an owner in', function (): void {
-    [$team, $owner] = $this->teamWithOwner();
-    $this->enrollTwoFactor($owner);
-    $this->actingAsPerson($owner, $team);
+    $this->actingAsPerson($this->owner, $this->team);
 
     $this->get('/settings/extractions')
         ->assertOk()
@@ -73,12 +91,9 @@ it('counts only the asking team’s extractions', function (): void {
      * which is the kind that goes unnoticed. ADR 0002 makes the count as much
      * the tenant boundary as the list.
      */
-    [$team, $owner] = $this->teamWithOwner();
-    $this->enrollTwoFactor($owner);
-
     $mine = app(TeamContext::class)->runFor(
-        $team,
-        fn (): Deal => Deal::factory()->create(['team_id' => $team->getKey()]),
+        $this->team,
+        fn (): Deal => Deal::factory()->create(['team_id' => $this->team->getKey()]),
     );
 
     $theirs = app(TeamContext::class)->runFor(
@@ -86,14 +101,14 @@ it('counts only the asking team’s extractions', function (): void {
         fn (): Deal => Deal::factory()->create(['team_id' => $this->otherTeam->getKey()]),
     );
 
-    app(TeamContext::class)->runFor($team, fn (): Extraction => extractionOn($mine, 40_000));
+    app(TeamContext::class)->runFor($this->team, fn (): Extraction => extractionOn($mine, 40_000));
 
     app(TeamContext::class)->runFor(
         $this->otherTeam,
         fn (): Extraction => extractionOn($theirs, 9_000_000),
     );
 
-    $this->actingAsPerson($owner, $team);
+    $this->actingAsPerson($this->owner, $this->team);
 
     $this->get('/settings/extractions')
         ->assertOk()
@@ -122,9 +137,7 @@ it('never reports a critical date as missed, because it cannot see one', functio
      * PRD §12.3 gives that metric **zero tolerance**. The screen names the
      * command that measures it instead.
      */
-    [$team, $owner] = $this->teamWithOwner();
-    $this->enrollTwoFactor($owner);
-    $this->actingAsPerson($owner, $team);
+    $this->actingAsPerson($this->owner, $this->team);
 
     $this->get('/settings/extractions')
         ->assertOk()
@@ -138,26 +151,23 @@ it('never reports a critical date as missed, because it cannot see one', functio
 });
 
 it('shows what the human changed, which is F10.4’s valuable column', function (): void {
-    [$team, $owner] = $this->teamWithOwner();
-    $this->enrollTwoFactor($owner);
-
-    app(TeamContext::class)->runFor($team, function () use ($team, $owner): void {
-        $deal = Deal::factory()->create(['team_id' => $team->getKey()]);
+    app(TeamContext::class)->runFor($this->team, function (): void {
+        $deal = Deal::factory()->create(['team_id' => $this->team->getKey()]);
         $extraction = extractionOn($deal);
 
         ExtractedField::factory()->keyDate()->create([
-            'team_id' => $team->getKey(),
+            'team_id' => $this->team->getKey(),
             'extraction_id' => $extraction->getKey(),
             'label' => 'Inspection Objection Deadline',
             'proposed_value' => '2026-03-08',
             'final_value' => '2026-03-28',
             'review_state' => ExtractedFieldReviewState::Edited->value,
-            'reviewed_by' => $owner->getKey(),
+            'reviewed_by' => $this->owner->getKey(),
             'reviewed_at' => now(),
         ]);
     });
 
-    $this->actingAsPerson($owner, $team);
+    $this->actingAsPerson($this->owner, $this->team);
 
     $this->get('/settings/extractions')
         ->assertOk()

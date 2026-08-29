@@ -51,7 +51,16 @@ class ExtractionPolicy
      */
     public function viewHistory(Person $person, Team $team): bool
     {
-        return $this->belongsToCurrentTeam($team)
+        /*
+         * `getKey()`, not `belongsToCurrentTeam()`.
+         *
+         * That helper reads `team_id` off the model — which a **team** does not
+         * have, so it returned false for every caller and the screen was a 403
+         * for its own owner. `TeamPolicy` makes the same comparison for the
+         * same reason (`isCurrent()`); this is the one ability in this file
+         * whose subject is the tenant rather than something inside it.
+         */
+        return $this->currentTeam()?->getKey() === $team->getKey()
             && $this->allows($person, Permissions::MANAGE_SETTINGS);
     }
 
