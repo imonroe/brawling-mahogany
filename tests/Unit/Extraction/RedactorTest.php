@@ -318,3 +318,50 @@ it('hands back a document that reports its own length and emptiness', function (
         ->and(redacted('Closing Date 2026-03-28')->isEmpty())->toBeFalse()
         ->and(redacted('Closing Date 2026-03-28')->length())->toBe(23);
 });
+
+it('finds the label beside the number it actually matched, not beside an earlier copy of the same digits', function (): void {
+    /*
+     * The regression test for the one defect in this class that failed **open**,
+     * and the reason it is written as a case rather than a line in an existing
+     * one: nothing else in this file, and nothing in the corpus, can see it.
+     *
+     * `replace()` was written for a round with a `strpos($subject, $match,
+     * $cursor)` cursor instead of `PREG_OFFSET_CAPTURE`, to get around PHPStan's
+     * stub for `preg_replace_callback` not modelling the flags argument. `strpos`
+     * finds the first occurrence of the matched **text**, which is not where the
+     * regex matched: the same digits can appear earlier glued to letters, where
+     * `\b` refuses to match but a plain substring search does not care. The label
+     * window is then measured around the *wrong* offset, finds no caption, and
+     * the captioned number goes to the provider intact.
+     *
+     * So the fixture puts the digits twice — once inside `REF112233445566X`,
+     * where they are unreachable to the pattern, and once under an *Account
+     * Number* caption, which is the occurrence that must go. Every other fixture
+     * in this file and every identifier in the corpus (#14) is unique, which is
+     * exactly why a green suite and a green corpus run both missed it.
+     *
+     * The second assertion is the one that fails against the cursor: the
+     * *reference* is what survives (the pattern cannot match it) and the
+     * *account number* is what must not.
+     */
+    $document = "Escrow file REF112233445566X is the internal reference.\n"
+        ."Account Number  . . . . .  112233445566\n"
+        .'Closing Date . . . . . . . March 28, 2026';
+
+    $result = redacted($document);
+
+    expect($result->text)->toContain('REF112233445566X')
+        ->and($result->text)->toContain('[redacted: account number]')
+        ->and($result->report->counts['account_number'] ?? 0)->toBe(1)
+        ->and($result->text)->toContain('March 28, 2026');
+
+    /*
+     * And the general form of it, stated separately so a later narrowing of the
+     * fixture above cannot quietly take this with it: two captioned copies of
+     * one identifier are two redactions, not one redaction and one leak.
+     */
+    $twice = redacted("Account Number: 998877665544\n\nAccount Number: 998877665544");
+
+    expect($twice->text)->not->toContain('998877665544')
+        ->and($twice->report->counts['account_number'] ?? 0)->toBe(2);
+});

@@ -410,60 +410,33 @@ final class Redactor
      */
     private function replace(string $pattern, string $subject, string $rule, array &$counts, callable $decide): string
     {
-        $taken = 0;
-
         /*
-         * The offset is tracked here rather than taken from `PREG_OFFSET_CAPTURE`.
+         * ## The offset has to be the **match's** offset, and nothing else will do
          *
-         * The flag is the obvious tool and it cost three rounds of CI to give
-         * up on: PHPStan's stub for `preg_replace_callback` does not model the
-         * flags argument, so it types `$matches[0]` as a plain string. A
-         * destructure of it is an error, a `@var` correcting it is *"not a
-         * subtype of the native type"*, a `@param` on the closure does not
-         * override the stub, and a cast turns it into a one-element array whose
-         * index 1 is then "not found". Every one of those is the analyser being
-         * *right about what it was told* and the code insisting otherwise.
+         * This method has now been written three ways and only two of them are
+         * correct. Recording why, because the wrong one looked fine and shipped:
          *
-         * A cursor needs no annotation at all, because it is true. Matches are
-         * non-overlapping and delivered left to right, so searching forward
-         * from the end of the previous one finds this one — and finds the right
-         * occurrence when the same text appears twice, which is the case a
-         * plain `strpos` from zero would get wrong.
+         * A `strpos($subject, $match, $cursor)` cursor was tried to get around
+         * PHPStan's stub for `preg_replace_callback`, which does not model the
+         * flags argument. It finds the first occurrence of the matched *text*,
+         * which is not the same thing as where the regex matched — the same
+         * digits can appear earlier inside a longer run the pattern could not
+         * match there (glued to letters, so `\b` fails). The label window then
+         * looks in the wrong place, finds no caption, and the number **is not
+         * redacted**. That fails *open*, which is the one direction this class
+         * must never fail in, and no test in the tree could see it because
+         * every corpus identifier happens to be unique.
+         *
+         * So the offset comes from `PREG_OFFSET_CAPTURE` and the string is
+         * rebuilt by hand. `preg_match_all` gives the same information without
+         * a callback, which means no closure for the analyser to mis-type, and
+         * the splice below is plain `substr` arithmetic. A guardrail is not
+         * worth trading for a green analyser; if the types are still awkward
+         * the annotation is the thing to argue with, never the behaviour.
          */
-        $cursor = 0;
+        $found = preg_match_all($pattern, $subject, $matches, PREG_OFFSET_CAPTURE);
 
-        $result = preg_replace_callback(
-            $pattern,
-            function (array $matches) use ($subject, $rule, $decide, &$taken, &$cursor): string {
-                $match = (string) $matches[0];
-
-                $found = strpos($subject, $match, $cursor);
-                $offset = $found === false ? $cursor : $found;
-                $cursor = $offset + strlen($match);
-
-                if (! $decide($match, $subject, $offset)) {
-                    return $match;
-                }
-
-                $taken++;
-
-                /*
-                 * The surrounding whitespace is preserved rather than
-                 * swallowed: a placeholder that eats the newline before it
-                 * joins two table rows together, and the model then reads a
-                 * date from the wrong line.
-                 */
-                $leading = $this->edgeWhitespace($match, true);
-                $trailing = $this->edgeWhitespace($match, false);
-
-                return $leading.'[redacted: '.str_replace('_', ' ', $rule).']'.$trailing;
-            },
-            $subject,
-            -1,
-            $count,
-        );
-
-        if (! is_string($result)) {
+        if ($found === false) {
             /*
              * A backtrack limit or a bad UTF-8 sequence. Failing open would
              * hand the provider the unredacted text, which is the one outcome
@@ -473,9 +446,42 @@ final class Redactor
             throw RedactionFailed::onRule($rule);
         }
 
-        $counts[$rule] = ($counts[$rule] ?? 0) + $taken;
+        $counts[$rule] ??= 0;
 
-        return $result;
+        if ($found === 0) {
+            return $subject;
+        }
+
+        $result = '';
+        $consumed = 0;
+
+        foreach ($matches[0] as $capture) {
+            $match = (string) $capture[0];
+            $offset = (int) $capture[1];
+
+            // Everything between the previous match and this one, untouched.
+            $result .= substr($subject, $consumed, $offset - $consumed);
+            $consumed = $offset + strlen($match);
+
+            if (! $decide($match, $subject, $offset)) {
+                $result .= $match;
+
+                continue;
+            }
+
+            $counts[$rule]++;
+
+            /*
+             * The surrounding whitespace is preserved rather than swallowed: a
+             * placeholder that eats the newline before it joins two table rows
+             * together, and the model then reads a date from the wrong line.
+             */
+            $result .= $this->edgeWhitespace($match, true)
+                .'[redacted: '.str_replace('_', ' ', $rule).']'
+                .$this->edgeWhitespace($match, false);
+        }
+
+        return $result.substr($subject, $consumed);
     }
 
     private function edgeWhitespace(string $match, bool $leading): string
