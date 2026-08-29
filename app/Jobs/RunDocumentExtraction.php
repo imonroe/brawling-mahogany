@@ -48,7 +48,35 @@ class RunDocumentExtraction implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 4;
 
-    public function __construct(public readonly string $extractionId) {}
+    /**
+     * Longer than the provider call it wraps, which it was not.
+     *
+     * Horizon's supervisor runs workers at `timeout` **60**, and
+     * `config('extraction.anthropic.timeout')` is **180** — *"generous, because
+     * this runs in a queue worker rather than in front of somebody"*. So every
+     * read that took over a minute was killed by the worker two minutes before
+     * the provider gave up, and the generosity in that config value bought
+     * nothing at all. Worse than nothing: the money is spent by then, and a
+     * SIGALRM at the sixtieth second leaves a row `processing` with no outcome.
+     *
+     * `Worker::timeoutForJob()` prefers a job's own value over the worker's, so
+     * this is the number that applies. It is derived rather than written down,
+     * because the two drifting apart is exactly the defect above — and the
+     * margin is for the work either side of the call (redaction on the way out,
+     * `ReadProposals` on the way back), which the provider's own timeout does
+     * not cover.
+     *
+     * `tests/Unit/Extraction/ExtractionTimeoutsTest.php` holds the three
+     * numbers in order, including `queue.connections.redis.retry_after` — a
+     * `retry_after` below this timeout hands the same row to a second worker
+     * while the first is still reading it.
+     */
+    public int $timeout;
+
+    public function __construct(public readonly string $extractionId)
+    {
+        $this->timeout = (int) config('extraction.anthropic.timeout', 180) + 60;
+    }
 
     public function uniqueId(): string
     {

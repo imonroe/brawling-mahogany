@@ -249,6 +249,17 @@ const SANCTIONED_UNSCOPED_QUERIES = [
             'which rows exist.',
     ],
 
+    'Console/Commands/ReapStrandedExtractions.php' => [
+        'count' => 1,
+        'reason' => 'A context with no tenant, the same shape as the sweep above it: which '.
+            'extractions have stopped moving is a question across every team at once, and '.
+            'a scheduled run has no session to ask it in. Nothing is read from the row but '.
+            'its id, its state and its team, and each one is then handled inside runFor() '.
+            'on its own team so the failure write and the notification land under the right '.
+            'tenant. The re-dispatch carries the team id through forTeam(), where RunsForTeam '.
+            'throws rather than running unscoped.',
+    ],
+
     'Console/Commands/DispatchDueAutomations.php' => [
         'count' => 3,
         'reason' => 'A context with no tenant, and the sweep shape PurgeSoftDeletedRecords '.

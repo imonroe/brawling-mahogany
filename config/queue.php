@@ -70,7 +70,25 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            /*
+             * Above the longest job timeout in the application, which is
+             * `RunDocumentExtraction`'s — the provider's own 180 seconds plus
+             * its margin (#115).
+             *
+             * Laravel's rule is that `retry_after` must exceed every job's
+             * timeout, or Redis makes the message visible again while the
+             * worker is still holding it and a second worker picks it up. At
+             * the previous **90** an extraction was handed out again while the
+             * first read was still in flight. `PerformExtraction::claim()`
+             * happens to catch that one — a conditional `UPDATE … WHERE state
+             * = 'queued'` — so it cost a wasted worker rather than a second
+             * charge, which is the layer working, not the setting being right.
+             *
+             * `tests/Unit/Extraction/ExtractionTimeoutsTest.php` holds the
+             * ordering, because this file and the job are edited by different
+             * people for different reasons.
+             */
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 300),
             'block_for' => null,
             'after_commit' => false,
         ],
