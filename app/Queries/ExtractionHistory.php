@@ -10,6 +10,7 @@ use App\Models\ExtractedField;
 use App\Models\Extraction;
 use App\Models\Team;
 use App\Support\Extraction\Money;
+use App\Support\Extraction\SpendDecision;
 use App\Support\Extraction\SpendLedger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -153,8 +154,7 @@ final class ExtractionHistory
         /*
          * **A negative cap is the absence of a ceiling; zero is a ceiling of
          * zero.** `SpendLedger::decide()` draws the line there and
-         * `SpendDecision::percentUsed()` agrees with it — nought per cent for
-         * a negative cap, a hundred for zero — so this screen has to as well.
+         * `SpendDecision::percentOf()` below is where it is stated once.
          *
          * It read `$cap > 0` for a round, which put a stopped team in the one
          * presentation that says the opposite of what has happened: no ceiling
@@ -169,16 +169,14 @@ final class ExtractionHistory
             'monthToDate' => Money::words($spent),
             'cap' => $capped ? Money::words($cap) : null,
             /*
-             * `percent()` returns null on a zero denominator, which is the
-             * wrong answer for a zero ceiling: everything spent against it is
-             * over it. The bar reads full, as `SpendDecision::percentUsed()`
-             * already says it should.
+             * `SpendDecision::percentOf()` is the one statement of this rule —
+             * null for no ceiling, 100 for a ceiling of zero, and unclamped
+             * above it, since a run can finish over the line and both screens
+             * clamp the *bar* rather than the figure. This was a local `match`
+             * for a round and S65 had a third copy using a different rounding
+             * mode.
              */
-            'percent' => match (true) {
-                ! $capped => null,
-                $cap === 0 => 100,
-                default => $this->percent($spent, $cap),
-            },
+            'percent' => SpendDecision::percentOf($spent, $cap),
             /*
              * The same threshold `SpendLedger::shouldWarn()` uses, read from
              * the same config key. Two numbers here would mean the screen going
@@ -582,11 +580,6 @@ final class ExtractionHistory
     private function rate(int $part, int $whole): ?float
     {
         return $whole === 0 ? null : round($part * 100 / $whole, 1);
-    }
-
-    private function percent(int $part, int $whole): ?int
-    {
-        return $whole === 0 ? null : (int) round($part * 100 / $whole);
     }
 
     private function reviewUrl(?Extraction $extraction): ?string

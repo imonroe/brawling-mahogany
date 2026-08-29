@@ -85,19 +85,28 @@ it('derives the queue’s window too, so the ordering survives a raised timeout'
     $provider = (int) config('extraction.anthropic.timeout');
 
     /*
-     * The **equality** is the assertion, not an inequality: a literal that
-     * happened to sit above today's job timeout would satisfy `>` and go back
-     * to being wrong the moment somebody raised `EXTRACTION_TIMEOUT`. Only
-     * `retry_after` being a function of the same value survives that, and only
-     * an equality can tell the two apart.
+     * **`>=`, not `==`, and the difference is a configuration this repository
+     * documents.** `.env.example` tells the reader they may set
+     * `REDIS_QUEUE_RETRY_AFTER` *"only to widen the margin"* — so an equality
+     * here is red for anybody who takes that advice. Worse, `compose.yaml`'s
+     * `env_file: .env` puts a developer's whole `.env` into the environment
+     * `make check` runs in, so it would be green in CI and red on one machine:
+     * exactly the trap CLAUDE.md records from `ProductNameSeparationTest`.
      *
-     * There is deliberately no case here that raises the env var and re-reads:
+     * `>=` is still a real claim rather than a weakened one, because the
+     * floor it compares against is **computed from the provider timeout**: a
+     * literal `300` in `config/queue.php` fails this the moment
+     * `EXTRACTION_TIMEOUT` goes past 180, which is the defect this file was
+     * written for. What it no longer does is refuse an operator who widened
+     * the margin deliberately.
+     *
+     * There is deliberately no case that raises the env var and re-reads:
      * `config/queue.php` is evaluated once at boot, so such a case would be
      * arithmetic on its own local variables — a test that passes with the
      * derivation deleted.
      */
     expect((int) config('queue.connections.redis.retry_after'))
-        ->toBe($provider + 120)
+        ->toBeGreaterThanOrEqual($provider + 120)
         ->and((new RunDocumentExtraction('extraction-1'))->timeout)->toBe($provider + 60);
 });
 

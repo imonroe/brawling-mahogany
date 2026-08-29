@@ -436,3 +436,81 @@ it('keeps counting characters correctly across a candidate it refused', function
         ->and($result->report->counts['account_number'] ?? 0)->toBe(2)
         ->and($result->text)->toContain('$612,000.00');
 });
+
+it('reads a caption however the page wrapped or spaced it', function (string $label, string $caption): void {
+    /*
+     * Round 4's B1, and the fourth open-failing defect in this class with the
+     * same sentence attached: *the label is not found, so the number is not
+     * redacted.*
+     *
+     * `preg_quote` does not escape a space, so every multi-word label — ten of
+     * the seventeen — compiled to a pattern containing a literal U+0020. All
+     * four separators below are things a document reader routinely produces,
+     * and none of them was reachable.
+     *
+     * The fixture is a wire instruction because that is the document
+     * `LABEL_WINDOW`'s docblock argues the whole rule exists for, and because
+     * of what it showed: the **routing number was masked and the account
+     * number beside it was not**, in the same six lines, since `routing`
+     * happens to be a single word. Both are asserted here for that reason —
+     * the one that always worked is the control that makes the other mean
+     * something.
+     *
+     * Nothing in the corpus can see this. I ran the fix over all twenty
+     * fixtures and the counts are byte-identical, because every multi-word
+     * caption in them is written with exactly one space. That is the blindness
+     * `tests/Corpus/LIMITATIONS.md` now warns about, confirmed a second time.
+     */
+    $document = "WIRE INSTRUCTIONS\n\n"
+        ."Beneficiary Bank: Clear Creek Valley Bank, Arvada, Colorado\n"
+        ."Routing Number (ABA): 123456789\n"
+        ."Beneficiary Name: Ralston Creek Title and Escrow LLC, Trust Account\n"
+        .$caption." 0004567891\n"
+        ."Reference: File 2026-08814, Robb Court\n";
+
+    $result = redacted($document);
+
+    expect($result->text)->not->toContain('0004567891', "the {$label} caption did not claim its number")
+        ->and($result->text)->not->toContain('123456789')
+        ->and($result->report->counts['account_number'] ?? 0)->toBeGreaterThan(0)
+        ->and($result->report->counts['routing_number'] ?? 0)->toBe(1);
+})->with([
+    ['single space', 'Account Number:'],
+    // A wrapped caption. Corpus fixture 0017 wraps `Routing\nNumber` exactly
+    // this way, which is where LABEL_WINDOW's own worked example came from.
+    ['wrapped', "Account\nNumber:"],
+    // A right-aligned column, and the dot leaders a contract prints with it.
+    ['columnar', 'Account   Number  . . . .'],
+    // What a DOCX table cell boundary becomes.
+    ['tabbed', "Account\tNumber:"],
+    // A Word non-breaking space. `\s` does not match U+00A0 under /u, which is
+    // why the separator pattern carries `\p{Zs}` as well.
+    ['non-breaking space', "Account\u{00A0}Number:"],
+]);
+
+it('does not let its own placeholder act as a caption', function (): void {
+    /*
+     * `redact()` runs six rules in sequence, each over the **output** of the
+     * last — so the text `hasLabelNear()` reads is the original document only
+     * for the first rule. `[redacted: social security number]` contains
+     * `social security`, which is a `government_id` label, so an unlabelled SSN
+     * manufactured a caption where the document had none and the next digit run
+     * in the window was masked as a government id.
+     *
+     * This is #114's **other** direction — *"a redactor that masks a purchase
+     * price or a deadline has broken the feature"* — and the value destroyed is
+     * a purchase price, which is one of the two things F10.1 exists to read.
+     *
+     * The control is the same document with the SSN removed: the price survives
+     * there either way, so a test with only the first half would pass against a
+     * redactor that had simply stopped matching prices for some other reason.
+     */
+    $withSsn = redacted("Ref 123-45-6789.\nPrice 1250000 at closing.\n");
+    $withoutSsn = redacted("Ref.\nPrice 1250000 at closing.\n");
+
+    expect($withSsn->text)->toContain('1250000')
+        ->and($withSsn->text)->not->toContain('123-45-6789')
+        ->and($withSsn->report->counts['social_security_number'] ?? 0)->toBe(1)
+        ->and($withSsn->report->counts['government_id'] ?? 0)->toBe(0)
+        ->and($withoutSsn->text)->toContain('1250000');
+});

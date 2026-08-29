@@ -49,7 +49,8 @@ use Illuminate\Console\Command;
  *
  * The report afterwards prints the figure back in words. That is a **check,
  * not a guard** — the save happens first, so a mistyped `--dollars=500` is
- * already a ceiling by the time anybody reads it back. The docblock claimed the other ordering for a round. It is still worth
+ * already a ceiling by the time anybody reads it back. The docblock claimed the other ordering for
+ * a round. It is still worth
  * having: the mistake is visible immediately and one more invocation corrects
  * it, which for an operator-only command beats a prompt that a runbook step or
  * a `&&` chain would have to answer.

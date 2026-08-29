@@ -18,6 +18,7 @@ use App\Support\Documents\RefusedDocument;
 use App\Support\Documents\UnsupportedDocument;
 use App\Support\Extraction\Money;
 use App\Support\Extraction\ProviderManager;
+use App\Support\Extraction\SpendDecision;
 use App\Support\Extraction\SpendLedger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -334,8 +335,16 @@ class DealDocumentController extends Controller
         $decision = $ledger->decide($deal->team);
         $available = $providers->isAvailable();
 
-        $teamSpent = $ledger->teamSpentThisMonth($deal->team);
-        $teamCap = $ledger->capFor($deal->team);
+        /*
+         * Off the decision rather than out of the ledger a second time.
+         *
+         * `decide()` computes both on every path now, so asking again was an
+         * extra aggregate on every load of this page — a **fixed** cost, which
+         * is the kind no query-count budget can see (CLAUDE.md's own note about
+         * `DealsIndexBudgetTest`).
+         */
+        $teamSpent = $decision->teamSpentMicros;
+        $teamCap = $decision->teamCapMicros;
 
         return [
             'available' => $available,
@@ -403,12 +412,21 @@ class DealDocumentController extends Controller
                  * **negative dollar amount** as the cap and a bar against it.
                  */
                 'cap' => $teamCap >= 0 ? Money::words($teamCap) : null,
-                'percent' => match (true) {
-                    $teamCap < 0 => null,
-                    $teamCap === 0 => 100,
-                    default => (int) min(100, round($teamSpent * 100 / $teamCap)),
-                },
-                'warn' => $decision->shouldWarn,
+                /*
+                 * `SpendDecision::percentOf()` rather than a third statement of
+                 * the rule. This was an inline `match` using `round()` where
+                 * `percentUsed()` uses `floor()`, so S65 and S68 could differ by
+                 * a point about one team on one day.
+                 */
+                'percent' => SpendDecision::percentOf($teamSpent, $teamCap),
+                /*
+                 * The **team's** warn, not the decision's. `shouldWarn` is
+                 * about whether to warn *instead of stopping*, so it is false
+                 * on every refusal — and this panel drew a team at exactly its
+                 * ceiling with a full bar in the untroubled colour while S68
+                 * drew the same team amber.
+                 */
+                'warn' => $decision->teamShouldWarn,
                 /*
                  * UTC, and the screen says so. Every other date in this product
                  * is in the team's timezone; a spend cap cannot be, because a

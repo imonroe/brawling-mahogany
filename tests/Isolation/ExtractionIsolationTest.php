@@ -371,12 +371,27 @@ it('never shows one team another team’s spend, even when the platform is what 
             $extract = $page->toArray()['props']['extract'];
 
             /*
-             * Team A's own figures. The fixture above spent $10 in team B and
-             * team A has spent nothing but the cost of its own fixture
-             * extraction, so the leak is visible as a two-figure difference
-             * rather than as a subtle one.
+             * **The team's own figure, asserted as a value.**
+             *
+             * This was `not->toContain('10.00')` for a round, and round 4 was
+             * right that it could not fail on the one datum the case is named
+             * for. `extractionFixtureFor()` builds its extraction with
+             * `complete()`, which costs 45,000 micros — so under the defect
+             * `used` is the platform total of 10,045,000, rendered `$10.05`,
+             * and a substring test for `10.00` is satisfied by it.
+             *
+             * The case would still have gone red on `cap` and `percent`. That
+             * is not much comfort: those two are a config value and a
+             * derivative of it, and `used` is the **only one of the three that
+             * is another tenant's data at all**. A later change that composed
+             * the other two from the ledger and left `used` on the decision
+             * would have met a green suite and a leaked spend figure.
+             *
+             * So it asserts the value. `$0.05` is team A's own fixture
+             * extraction and nothing else, which is what makes it checkable by
+             * hand rather than merely different.
              */
-            expect($extract['spend']['used'])->not->toContain('10.00')
+            expect($extract['spend']['used'])->toBe('$0.05')
                 ->and($extract['spend']['cap'])->toBe('$50.00')
                 ->and($extract['spend']['percent'])->toBeLessThan(100);
 

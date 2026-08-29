@@ -332,6 +332,29 @@ final class Redactor
         $before = mb_strtolower(mb_substr($subject, $start, $offset - $start));
         $after = mb_strtolower(mb_substr($subject, $offset + $length, self::LABEL_WINDOW));
 
+        /*
+         * **A placeholder this class wrote is not a caption the document
+         * wrote**, and until it was stripped it could act as one.
+         *
+         * `redact()` runs six rules in sequence, each over the *output* of the
+         * last, so `$subject` is the original document only for the first.
+         * `[redacted: social security number]` contains `social security`,
+         * which is a `government_id` label — so an unlabelled SSN manufactured
+         * a caption where the document had none, and the next digit run in the
+         * window was masked as a government id. Reproduced on
+         * `"Ref 123-45-6789.\nPrice 1250000 at closing."`, where the **purchase
+         * price** is destroyed; delete the SSN and the same price survives.
+         *
+         * That is #114's other failure direction, the one this class's own
+         * docblock calls out — *"a redactor that masks a purchase price or a
+         * deadline has broken the feature"* — caused by the redactor's own
+         * output. It is one pair today only because of the order the rules
+         * happen to run in, which is not a property worth depending on, so the
+         * whole class of contamination is removed rather than the one instance.
+         */
+        $before = self::withoutPlaceholders($before);
+        $after = self::withoutPlaceholders($after);
+
         // Keep only the side of a paragraph break the candidate is on.
         $before = (string) preg_replace('/^.*\R\s*\R/su', '', $before);
         $after = (string) preg_replace('/\R\s*\R.*$/su', '', $after);
@@ -346,15 +369,49 @@ final class Redactor
     }
 
     /**
+     * The window with this class's own substitutions taken out of it.
+     *
+     * A single space, not an empty string: removing the run entirely would
+     * join the words either side of it and could manufacture a different
+     * caption from two halves that were never adjacent.
+     */
+    private static function withoutPlaceholders(string $window): string
+    {
+        return (string) preg_replace('/\[redacted:[^\]]*\]/u', ' ', $window);
+    }
+
+    /**
      * A whole-word match, tolerant of a label that ends in punctuation.
      *
      * `\b` after `account #` would never fire, because `#` is not a word
      * character and there is no boundary between it and a space. So the
      * trailing boundary is only asserted when the label ends in one.
+     *
+     * ## The separator is whitespace, not a space
+     *
+     * `preg_quote` does not escape a space, so `'account number'` compiled to a
+     * pattern containing a literal U+0020 — and **ten of the seventeen labels
+     * are multi-word**. Every one of them was defeated by whitespace a document
+     * reader routinely produces: a wrapped caption (`Account\nNumber`), a
+     * right-aligned column (`Account   Number`), a DOCX table cell boundary
+     * (`Account\tNumber`), a Word non-breaking space (U+00A0, which nothing
+     * between `ReadableText` and here normalises).
+     *
+     * The failure was sharpest on the document this rule exists for. In one
+     * wire block the **routing number was masked and the account number beside
+     * it was not**, because `routing` happens to be a single word — and
+     * {@see self::LABEL_WINDOW} argues at length for staying wide enough to
+     * cross exactly the wrapped caption the matcher then could not read.
+     *
+     * `\p{Zs}` is in there beside `\s` for the non-breaking space, which `\s`
+     * does not cover under `/u`. The paragraph-break narrowing in
+     * {@see self::hasLabelNear()} already stops a run of whitespace reaching
+     * across a blank line, so this widens the separator without widening the
+     * block a caption may claim.
      */
     private function contains(string $haystack, string $label): bool
     {
-        $pattern = '/\b'.preg_quote($label, '/');
+        $pattern = '/\b'.str_replace(' ', '[\s\p{Zs}]+', preg_quote($label, '/'));
 
         if (preg_match('/[a-z0-9]$/', $label) === 1) {
             $pattern .= '\b';

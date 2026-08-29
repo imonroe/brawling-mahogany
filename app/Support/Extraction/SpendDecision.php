@@ -31,6 +31,12 @@ namespace App\Support\Extraction;
  */
 final readonly class SpendDecision
 {
+    /**
+     * @param  int  $spentMicros  what the ceiling that decided has had spent against it
+     * @param  int  $capMicros  that ceiling
+     * @param  int  $teamSpentMicros  what **this team** has spent, whichever ceiling decided
+     * @param  int  $teamCapMicros  this team's own ceiling, likewise
+     */
     private function __construct(
         public bool $allowed,
         public ?string $reasonCode,
@@ -38,13 +44,25 @@ final readonly class SpendDecision
         public int $spentMicros,
         public int $capMicros,
         public bool $shouldWarn,
+        public int $teamSpentMicros,
+        public int $teamCapMicros,
+        public bool $teamShouldWarn,
     ) {}
 
+    /**
+     * Allowed, which is only ever decided by the team's own ceiling — so the
+     * two pairs are the same pair here.
+     */
     public static function allowed(int $spentMicros, int $capMicros, bool $shouldWarn): self
     {
-        return new self(true, null, null, $spentMicros, $capMicros, $shouldWarn);
+        return new self(
+            true, null, null,
+            $spentMicros, $capMicros, $shouldWarn,
+            $spentMicros, $capMicros, $shouldWarn,
+        );
     }
 
+    /** Likewise: the ceiling that decided *is* the team's. */
     public static function teamCapReached(int $spentMicros, int $capMicros): self
     {
         return new self(
@@ -55,11 +73,37 @@ final readonly class SpendDecision
             $spentMicros,
             $capMicros,
             false,
+            $spentMicros,
+            $capMicros,
+            /*
+             * A team at or over its own ceiling is past the warning threshold
+             * by definition, and a screen drawing its bar from this should say
+             * so rather than drawing it in the untroubled colour. `shouldWarn`
+             * above stays false because it is about *whether to warn instead of
+             * stopping*, and this one has stopped.
+             */
+            true,
         );
     }
 
-    public static function platformCapReached(int $spentMicros, int $capMicros): self
-    {
+    /**
+     * The one case where the two pairs differ, and the reason both exist.
+     *
+     * The refusal is about the **platform**, so `spentMicros`/`capMicros` are
+     * the installation's — that is what the sentence and the logs are about.
+     * A screen showing *this team's* spend must not draw those: every team's
+     * Extract dialog rendered the cross-tenant total as its own for a round
+     * (ADR 0002, *"the count is scoped even when the row is not"*), which is
+     * why the team's own pair travels alongside rather than being fetched
+     * again by whoever needs it.
+     */
+    public static function platformCapReached(
+        int $spentMicros,
+        int $capMicros,
+        int $teamSpentMicros,
+        int $teamCapMicros,
+        bool $teamShouldWarn,
+    ): self {
         return new self(
             false,
             'platform_spend_cap_reached',
@@ -68,26 +112,60 @@ final readonly class SpendDecision
             $spentMicros,
             $capMicros,
             false,
+            $teamSpentMicros,
+            $teamCapMicros,
+            $teamShouldWarn,
         );
     }
 
-    public function percentUsed(): int
+    /**
+     * How much of a ceiling a spend has used, in whole per cent.
+     *
+     * **The one statement of this rule.** It was three by round 4:
+     * `percentUsed()` below, `ExtractionHistory::spend()`'s own `match`, and an
+     * inline copy in `DealDocumentController::extractProps()` — which used
+     * `round()` where this uses `floor()`, so the two screens could disagree
+     * by a point about the same team on the same day. CLAUDE.md already
+     * records that exact shape from this slice: *"a badge that counts a
+     * different set from the list beneath it comes from a second place stating
+     * the rule."*
+     *
+     * `null` means *there is no ceiling*, which is a different answer from a
+     * number and has to stay tellable apart by a screen deciding whether to
+     * draw a bar at all. Zero is a ceiling of zero and is therefore fully
+     * spent, whatever was spent against it.
+     *
+     * Deliberately **not clamped**. A run can finish over the line, and
+     * `ExtractDocumentDialog`'s own comment calls that *"a real state"* — so
+     * the figure is the truth and clamping is the bar's business, which is
+     * where both screens already do it.
+     */
+    public static function percentOf(int $spentMicros, int $capMicros): ?int
     {
-        /*
-         * A cap of zero is fully spent whatever was spent against it, and a
-         * **negative** cap is the absence of a ceiling — which is nought per
-         * cent of nothing rather than a bar that is full. `SpendLedger::decide()`
-         * makes the same distinction; a screen reading 100% over "no limit"
-         * would be the two halves disagreeing again.
-         */
-        if ($this->capMicros < 0) {
-            return 0;
+        if ($capMicros < 0) {
+            return null;
         }
 
-        if ($this->capMicros === 0) {
+        if ($capMicros === 0) {
             return 100;
         }
 
-        return (int) min(100, floor($this->spentMicros / $this->capMicros * 100));
+        return (int) floor($spentMicros / $capMicros * 100);
+    }
+
+    /**
+     * The same question about whichever ceiling did the deciding.
+     *
+     * Kept as an instance method because `SpendLedgerTest` asks it of a
+     * decision and that is the natural reading — but it is one line over
+     * `percentOf()` now rather than a second copy of the rule.
+     *
+     * The `int` return is preserved: a decision always names a ceiling, and a
+     * negative one reads as nought per cent of nothing rather than as *no
+     * ceiling*, which is the distinction only a screen needs.
+     */
+    public function percentUsed(): int
+    {
+        return (int) min(100, self::percentOf($this->spentMicros, $this->capMicros) ?? 0);
     }
 }

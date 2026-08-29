@@ -55,6 +55,21 @@ final class SpendLedger
      */
     public function decide(Team $team): SpendDecision
     {
+        /*
+         * The team's figures first, on every path.
+         *
+         * They used to be computed only after the platform question, so a
+         * platform-cap refusal carried the installation's numbers and nothing
+         * else — and `DealDocumentController` drew those on S65 as the team's
+         * own. `SpendDecision` now carries both pairs, which is what lets a
+         * screen show the team its own spend while the refusal talks about the
+         * platform, and what stops the caller fetching the same aggregate a
+         * second time to get it.
+         */
+        $teamSpent = $this->teamSpentThisMonth($team);
+        $teamCap = $this->capFor($team);
+        $teamWarn = $this->shouldWarn($teamSpent, $teamCap);
+
         $platformSpent = $this->platformSpentThisMonth();
         $platformCap = (int) config('extraction.caps.platform_monthly_micros');
 
@@ -74,17 +89,20 @@ final class SpendLedger
          * come from configuration somebody set deliberately.
          */
         if ($platformCap >= 0 && $platformSpent >= $platformCap) {
-            return SpendDecision::platformCapReached($platformSpent, $platformCap);
+            return SpendDecision::platformCapReached(
+                $platformSpent,
+                $platformCap,
+                $teamSpent,
+                $teamCap,
+                $teamWarn,
+            );
         }
-
-        $teamSpent = $this->teamSpentThisMonth($team);
-        $teamCap = $this->capFor($team);
 
         if ($teamCap >= 0 && $teamSpent >= $teamCap) {
             return SpendDecision::teamCapReached($teamSpent, $teamCap);
         }
 
-        return SpendDecision::allowed($teamSpent, $teamCap, $this->shouldWarn($teamSpent, $teamCap));
+        return SpendDecision::allowed($teamSpent, $teamCap, $teamWarn);
     }
 
     /**

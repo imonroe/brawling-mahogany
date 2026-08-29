@@ -312,7 +312,7 @@ function submit(): void {
                             type="radio"
                             :value="kind.value"
                             class="mt-0.5 accent-primary"
-                            :disabled="!available"
+                            :disabled="!canExtract"
                         />
                         <span class="flex flex-col gap-0.5">
                             <span class="text-13 font-semibold">{{
