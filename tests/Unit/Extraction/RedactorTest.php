@@ -409,7 +409,7 @@ it('does not lose a number to punctuation earlier in the document', function ():
     foreach (['punctuated' => $punctuated, 'ascii' => $ascii] as $label => $document) {
         $result = redacted($document);
 
-        expect($result->text)->not->toContain('4512338907', "the {$label} document leaked its account number")
+        expect($result->text)->not->toContain('4512338907')
             ->and($result->report->counts['account_number'] ?? 0)->toBe(1)
             // And the date the feature exists to read is still there.
             ->and($result->text)->toContain('March 26, 2026');
@@ -470,7 +470,7 @@ it('reads a caption however the page wrapped or spaced it', function (string $la
 
     $result = redacted($document);
 
-    expect($result->text)->not->toContain('0004567891', "the {$label} caption did not claim its number")
+    expect($result->text)->not->toContain('0004567891')
         ->and($result->text)->not->toContain('123456789')
         ->and($result->report->counts['account_number'] ?? 0)->toBeGreaterThan(0)
         ->and($result->report->counts['routing_number'] ?? 0)->toBe(1);
@@ -519,8 +519,20 @@ it('does not let its own placeholder act as a caption, at any distance', functio
     $before = redacted("Ref 123-45-6789. {$padding} Price 1250000 at closing.");
     $after = redacted("Price 1250000 at closing. {$padding} Ref 123-45-6789.");
 
-    expect($before->text)->toContain('1250000', "the amount was destroyed at gap {$gap}")
-        ->and($after->text)->toContain('1250000', "the amount was destroyed at gap {$gap}, after")
+    /*
+     * No custom message on `toContain`: **it is variadic**, and a second
+     * string is a second *needle*, not an explanation. Passing one here
+     * asserted that the document also contained the sentence "the amount was
+     * destroyed at gap 0", which no document does — eleven red cases over
+     * correct code.
+     *
+     * That direction is the lucky one. `not->toContain($x, $message)` asserts
+     * the text contains **neither**, which is strictly stronger and passes
+     * quietly, so the same mistake there is invisible. Both are corrected
+     * below; the dataset label already says which gap failed.
+     */
+    expect($before->text)->toContain('1250000')
+        ->and($after->text)->toContain('1250000')
         // …while the identifier the document really does carry is still gone.
         ->and($before->text)->not->toContain('123-45-6789')
         ->and($after->text)->not->toContain('123-45-6789')
@@ -570,7 +582,7 @@ it('reads a caption written with an abbreviation’s stop or a typographic apost
      */
     $result = redacted($document);
 
-    expect($result->text)->not->toContain($secret, "the {$label} caption did not claim its number");
+    expect($result->text)->not->toContain($secret);
 })->with([
     ['plain abbreviation', 'Acct No.: 0004567891', '0004567891'],
     ['abbreviation with a stop', 'Acct. No.: 0004567891', '0004567891'],
