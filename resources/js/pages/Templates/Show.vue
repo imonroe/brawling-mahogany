@@ -204,7 +204,20 @@ function reorder(url: string, ids: string[], index: number, by: number): void {
         return;
     }
 
-    router.patch(url, { ids: moved }, { preserveScroll: true });
+    router.patch(
+        url,
+        { ids: moved },
+        {
+            preserveScroll: true,
+            /*
+             * The server refuses a reorder that does not name the whole set,
+             * which is what a page drawn before a colleague added a row sends.
+             * Reloading is the fix a person would make by hand: the list comes
+             * back current and the next move works.
+             */
+            onError: () => router.reload({ only: ['template'] }),
+        },
+    );
 }
 
 function moveStage(index: number, by: number): void {

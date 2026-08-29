@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 /**
@@ -323,7 +324,21 @@ class StageTemplateController extends Controller
              * order nobody chose. A reorder is one intention, which is a
              * reason to refuse half of one rather than only to filter it.
              */
-            abort_unless(count($known) === $rows->count(), 422);
+            if (count($known) !== $rows->count()) {
+                /*
+                 * A validation failure, not a bare `abort(422)`.
+                 *
+                 * Inertia turns a plain 422 into an error modal over the page;
+                 * a validation response it folds into `errors` and leaves the
+                 * screen alone. The ordinary way to reach this is a list the
+                 * page drew before a colleague added a row, which is a stale
+                 * page rather than a broken request — so the screen reloads
+                 * and the next move works.
+                 */
+                throw ValidationException::withMessages([
+                    'ids' => __('This list has changed since the page was drawn. It has been refreshed — try the move again.'),
+                ]);
+            }
 
             $position = 0;
 

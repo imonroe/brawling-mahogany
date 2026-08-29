@@ -177,6 +177,11 @@ it('refuses a reorder that does not name this stage’s whole set', function ():
      * rows holding the numbers it just handed out, and `orderBy('sort_order')`
      * then returns an order nobody chose. A reorder is one intention, so half
      * of one is refused rather than half-applied.
+     *
+     * Refused as a **validation** failure rather than a bare 422: Inertia
+     * turns a plain 422 into an error modal over the page, and the ordinary
+     * way to reach this is a list the page drew before somebody else added a
+     * row — a stale page, not a broken request.
      */
     $template = authoredTemplate();
     $stage = soleStage($template);
@@ -198,7 +203,7 @@ it('refuses a reorder that does not name this stage’s whole set', function ():
 
     $this->patch("/templates/{$template->getKey()}/stages/{$stage->getKey()}/tasks", [
         'ids' => [$theirs->getKey()],
-    ])->assertStatus(422);
+    ])->assertSessionHasErrors('ids');
 
     // Neither row moved: not the one from another stage, and — the half a
     // filter alone would have got wrong — not this stage's own either.
@@ -363,4 +368,87 @@ it('sends the editor everything it can now change', function (): void {
             ->where('template.stages.0.tasks.0.dueOffsetDays', -3)
             ->where('template.stages.0.tasks.0.isRequired', true)
             ->etc());
+});
+
+it('lets a team correct a gate whose type the picker cannot offer', function (): void {
+    /*
+     * A pack file may carry any type the registry knows, so a team can end up
+     * holding a `document_present` gate S43 could never have composed. Both
+     * halves of this were wrong before the review:
+     *
+     *  - the Edit button opened a form whose Save was refused, for a
+     *    `gate_type` nobody had touched;
+     *  - and the only way past that — changing the type — went through a
+     *    `forceFill(['config' => null])` that ran unconditionally, so saving a
+     *    corrected **label** emptied the configuration the gate runs on.
+     */
+    $template = authoredTemplate();
+    $stage = soleStage($template);
+
+    $gate = app(TeamContext::class)->runFor($this->team, fn (): GateTemplate => GateTemplate::factory()->create([
+        'stage_template_id' => $stage->getKey(),
+        'gate_type' => 'document_present',
+        'label' => 'Inspection report is on file',
+        'config' => ['category' => 'inspection_report'],
+    ]));
+
+    $this->patch(
+        "/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates/{$gate->getKey()}",
+        ['gate_type' => 'document_present', 'label' => 'Inspection report received', 'is_blocking' => true],
+    )->assertRedirect();
+
+    $gate->refresh();
+
+    expect($gate->label)->toBe('Inspection report received')
+        // The configuration survived a save that did not change the type.
+        ->and($gate->config)->toBe(['category' => 'inspection_report']);
+});
+
+it('does not let one gate’s type unlock it for another', function (): void {
+    /*
+     * The widened rule is per-row — it admits the type **this** gate already
+     * is, and nothing else. Worth its own test rather than a comment: the
+     * alternative reading of that fix is a picker-wide hole.
+     */
+    $template = authoredTemplate();
+    $stage = soleStage($template);
+
+    app(TeamContext::class)->runFor($this->team, fn (): GateTemplate => GateTemplate::factory()->create([
+        'stage_template_id' => $stage->getKey(),
+        'gate_type' => 'document_present',
+        'label' => 'Inspection report is on file',
+    ]));
+
+    $ordinary = app(TeamContext::class)->runFor($this->team, fn (): GateTemplate => GateTemplate::factory()->create([
+        'stage_template_id' => $stage->getKey(),
+        'gate_type' => 'manual_confirmation',
+        'label' => 'Seller signed',
+        'sort_order' => 1,
+    ]));
+
+    $this->patch(
+        "/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates/{$ordinary->getKey()}",
+        ['gate_type' => 'document_present', 'label' => 'Seller signed'],
+    )->assertSessionHasErrors('gate_type');
+
+    expect($ordinary->refresh()->gate_type)->toBe('manual_confirmation');
+});
+
+it('drops a configuration the new type cannot read, and only then', function (): void {
+    $template = authoredTemplate();
+    $stage = soleStage($template);
+
+    $gate = app(TeamContext::class)->runFor($this->team, fn (): GateTemplate => GateTemplate::factory()->create([
+        'stage_template_id' => $stage->getKey(),
+        'gate_type' => 'document_present',
+        'label' => 'Inspection report is on file',
+        'config' => ['category' => 'inspection_report'],
+    ]));
+
+    $this->patch(
+        "/templates/{$template->getKey()}/stages/{$stage->getKey()}/gates/{$gate->getKey()}",
+        ['gate_type' => 'manual_confirmation', 'label' => 'Inspection report received'],
+    )->assertRedirect();
+
+    expect($gate->refresh()->config)->toBeNull();
 });

@@ -602,23 +602,201 @@ it('holds a message template to the rules the Messages screen holds one to', fun
         'fromIdentity' => null,
     ];
 
+    /*
+     * The control first. Without it every case below could be passing on some
+     * other error in the document entirely, and the test's name — which is the
+     * thing that stops anybody looking again — would be the only claim it made.
+     */
+    $document['messageTemplates'] = [$stanza];
+    app(ImportPack::class)->intoTeam($document, $this->team);
+
     foreach ([
-        'an unknown recipient rule' => ['recipientRule' => ['type' => 'not-a-real-rule']],
+        // Each case names the **key** the refusal must land on, so a refusal
+        // for some other reason fails the test rather than satisfying it.
+        'messageTemplates.0.recipientRule.type' => ['recipientRule' => ['type' => 'not-a-real-rule']],
         // The address `email:rfc` accepts and `Symfony\Component\Mime\Address`
         // throws on — CLAUDE.md's own example, and the rule written for it was
         // sitting one directory away, unused.
-        'an address the mail parser will reject' => ['fromIdentity' => 'emily(work)@bosart.test'],
+        'messageTemplates.0.fromIdentity' => ['fromIdentity' => 'emily(work)@bosart.test'],
         // The dropped brace `MergeFields::strayBraceRuns()` exists for.
-        'a merge field with a dropped brace' => ['bodyText' => 'Hello {{ client_first_name }.'],
-        'a subject carrying a line break' => ['subject' => "You are\nunder contract"],
+        'messageTemplates.0.bodyText' => ['bodyText' => 'Hello {{ client_first_name }.'],
+        'messageTemplates.0.subject' => ['subject' => "You are\nunder contract"],
         // PRD §7.12: a channel with no transport can never leave the building.
-        'a channel nothing sends' => ['channel' => 'sms'],
-    ] as $case => $broken) {
+        'messageTemplates.0.channel' => ['channel' => 'sms'],
+        // A push template addressed to a client — F12.2 keeps push internal.
+        'messageTemplates.0.recipientRule.type ' => [
+            'channel' => 'push',
+            'subject' => null,
+            'bodyHtml' => null,
+            'recipientRule' => ['type' => 'primary_contact'],
+        ],
+    ] as $key => $broken) {
         $document['messageTemplates'] = [[...$stanza, ...$broken]];
 
-        expect(fn () => app(ImportPack::class)->intoTeam($document, $this->team))
-            ->toThrow(ValidationException::class, message: "accepted {$case}");
+        try {
+            app(ImportPack::class)->intoTeam($document, $this->team);
+
+            expect(false)->toBeTrue(); // Reached only when nothing was refused.
+        } catch (ValidationException $e) {
+            expect(array_keys($e->errors()))->toContain(trim($key));
+        }
     }
+});
+
+it('refuses two message templates in one file that fold to the same name', function (): void {
+    /*
+     * Not a duplicate row — a **wrong-words send**. The second stanza found the
+     * first one's row through `liveTemplateNamed()`, so the automation the file
+     * bound to the second sent the first one's subject and body to a client.
+     * And the note printed about it said the *team* already had that template,
+     * which was false and points the reader away from looking.
+     */
+    $document = PackFile::encodePack(seededPack());
+    $document['workflows'][0]['stages'][0]['automations'] = [];
+
+    $stanza = [
+        'key' => 'a',
+        'name' => 'Under contract',
+        'channel' => 'email',
+        'subject' => 'You are under contract',
+        'bodyHtml' => null,
+        'bodyText' => 'Hi there',
+        'recipientRule' => ['type' => 'primary_contact'],
+        'fromIdentity' => null,
+    ];
+
+    $document['messageTemplates'] = [
+        $stanza,
+        [...$stanza, 'key' => 'b', 'name' => 'under CONTRACT', 'bodyText' => 'Something else entirely'],
+    ];
+
+    try {
+        app(ImportPack::class)->intoTeam($document, $this->team);
+
+        expect(false)->toBeTrue();
+    } catch (ValidationException $e) {
+        expect(array_keys($e->errors()))->toContain('messageTemplates.1.name');
+    }
+});
+
+it('refuses an explicit null where the column has a default and forbids one', function (): void {
+    /*
+     * `PackFile::write()` keys on `array_key_exists`, so omitting a key takes
+     * the default and writing `null` writes null — and eight rules said
+     * `nullable` over a NOT NULL column. The result was a 23502 from Postgres
+     * in the middle of a deploy, from a seeder whose docblock promises a
+     * failure somebody can read.
+     */
+    $original = PackFile::encodePack(seededPack());
+
+    foreach ([
+        'workflows.0.stages.0.isMilestone' => ['stages', 'isMilestone'],
+        'workflows.0.stages.0.gates.0.isBlocking' => ['gates', 'isBlocking'],
+        'workflows.0.stages.0.tasks.0.isRequired' => ['tasks', 'isRequired'],
+    ] as $key => [$collection, $field]) {
+        $document = $original;
+
+        if ($collection === 'stages') {
+            $document['workflows'][0]['stages'][0][$field] = null;
+        } else {
+            $document['workflows'][0]['stages'][0][$collection][0][$field] = null;
+        }
+
+        try {
+            app(ImportPack::class)->asPack($document);
+
+            expect(false)->toBeTrue();
+        } catch (ValidationException $e) {
+            expect(array_keys($e->errors()))->toContain($key);
+        }
+    }
+
+    // And omitting the key entirely still takes the column's own default,
+    // which is the other half of the pair and the ordinary case.
+    $document = $original;
+    unset($document['workflows'][0]['stages'][0]['tasks'][0]['isRequired']);
+
+    app(ImportPack::class)->asPack($document);
+
+    app(TeamContext::class)->runWithoutScope(function (): void {
+        expect(TaskTemplate::query()
+            ->where('title', 'Confirm loan application completed with lender')
+            ->sole()
+            ->is_required)->toBeFalse();
+    });
+});
+
+it('carries a message template’s every field out and back', function (): void {
+    /*
+     * The round trip above cannot reach this half: a pack's automations may
+     * never name a message template, so `messageTemplates` is `[]` in the one
+     * test that compares whole documents. Which left the stanza with the most
+     * fields — and the only one whose contents reach a client — with no
+     * losslessness guard at all: deleting `bodyHtml` from `MESSAGE_FIELDS` kept
+     * the suite green.
+     *
+     * So this goes through a **team**, where the words are allowed, and
+     * compares the stanza it gets back against the stanza it sent.
+     */
+    $document = PackFile::encodePack(seededPack());
+    $document['workflows'][0]['stages'][0]['automations'] = [];
+
+    $stanza = [
+        'key' => 'under-contract',
+        'name' => 'What to expect now that you are under contract',
+        'channel' => 'email',
+        'subject' => 'You are under contract',
+        'bodyHtml' => '<p>Congratulations, {{ client_first_name }}.</p>',
+        'bodyText' => 'Congratulations, {{ client_first_name }}.',
+        'recipientRule' => ['type' => 'participant_role', 'participantRole' => 'buyer'],
+        'fromIdentity' => 'emily@bosart.test',
+    ];
+
+    $document['messageTemplates'] = [$stanza];
+    $document['workflows'][0]['stages'][1]['automations'] = [[
+        'trigger' => 'stage_completion',
+        'actionType' => 'send_email',
+        'config' => [],
+        'isActive' => true,
+        'executionMode' => 'approval',
+        'messageTemplate' => 'under-contract',
+    ]];
+
+    app(ImportPack::class)->intoTeam($document, $this->team);
+
+    $exported = app(TeamContext::class)->runFor($this->team, fn (): array => PackFile::encodeTemplate(
+        WorkflowTemplate::query()
+            ->where('team_id', $this->team->getKey())
+            ->where('name', 'Buyer Under Contract')
+            ->sole(),
+    ));
+
+    /*
+     * Whole stanza against whole stanza, for the reason the round trip above
+     * gives: a list of fields goes on passing when a column is added to one
+     * half of `PackFile` and not the other.
+     *
+     * Two things are deliberately **not** preserved, and both are the format
+     * working rather than losing something:
+     *
+     *  - the `key` is derived from the name on the way out, because it is a
+     *    label for a cross-reference within one file and not a stored value;
+     *  - `recipientRule`'s keys come back sorted, because jsonb does not
+     *    preserve key order and `PackFile::read()` fixes one so two exports of
+     *    the same rows are identical.
+     */
+    expect($exported['messageTemplates'])->toBe([[
+        ...$stanza,
+        'key' => 'what-to-expect-now-that-you-are-under-contract',
+        'recipientRule' => ['participantRole' => 'buyer', 'type' => 'participant_role'],
+    ]]);
+
+    // And the automation still names **the same template** on the way back
+    // out — under the key the export derives, which is the point of the key
+    // being derived: it re-joins the two halves of the file whatever the file
+    // that came in called it.
+    expect($exported['workflows'][0]['stages'][1]['automations'][0]['messageTemplate'])
+        ->toBe($exported['messageTemplates'][0]['key']);
 });
 
 it('reuses a message template the team already has rather than colliding', function (): void {

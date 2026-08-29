@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\Team;
 use App\Models\TemplatePack;
 use App\Models\WorkflowTemplate;
+use App\Support\Audit\AuditLogger;
 use App\Support\Templates\PackFile;
 use App\Support\Tenancy\TeamContext;
 use Illuminate\Console\Command;
@@ -45,7 +47,13 @@ class ExportTemplatePack extends Command
 
     protected $description = 'Write a template pack, or one workflow template, out as a pack file.';
 
-    public function handle(TeamContext $teams): int
+    /** Whose data was read, for the audit entry. Null for a pack: it is nobody's. */
+    private ?string $exportedTeamId = null;
+
+    /** What was asked for, in the words the operator typed. */
+    private string $exportedTarget = '';
+
+    public function handle(TeamContext $teams, AuditLogger $audit): int
     {
         $pack = $this->option('pack');
         $template = $this->option('template');
@@ -63,6 +71,24 @@ class ExportTemplatePack extends Command
         if ($document === null) {
             return self::FAILURE;
         }
+
+        /*
+         * Audited on the **read**, before either output branch.
+         *
+         * `packs:import` was audited and this was not, which is the wrong way
+         * round: `fromTemplate()` deliberately reads the whole install rather
+         * than one team, and what it emits includes a team's message-template
+         * subjects and bodies. Recorded whether it goes to a file or to
+         * standard output, because the reading is what happened.
+         */
+        $audit->record(
+            action: 'templates.exported',
+            auditable: null,
+            teamId: $this->exportedTeamId,
+            actorPersonId: null,
+            reason: 'Written out as a pack file from the console by a server operator.',
+            after: ['target' => $this->exportedTarget],
+        );
 
         try {
             $json = json_encode(
@@ -120,6 +146,8 @@ class ExportTemplatePack extends Command
          * scope nothing. Wrapped anyway, because \"finds no keys\" is a fact
          * about today's data and this is a fact about the caller.
          */
+        $this->exportedTarget = 'pack:'.$pack->slug;
+
         return $teams->runFor(null, fn (): array => PackFile::encodePack($pack));
     }
 
@@ -177,6 +205,26 @@ class ExportTemplatePack extends Command
          * do\"*. Every test built its fixture inside `runFor`, so the suite
          * never ran this line the way an operator does.
          */
-        return $teams->runFor($template->team, fn (): array => PackFile::encodeTemplate($template));
+        /*
+         * `withTrashed()`, not `$template->team`.
+         *
+         * A soft-deleted team's rows are still here — `workflow_templates`
+         * cascades on a **hard** delete only — so a template inside PRD §9's
+         * 30-day window is exportable, and the relation returns null for it.
+         * `runFor(null)` then resolves no team and the eager load throws all
+         * over again. This is the same defect the round above fixed, one
+         * condition along, and CLAUDE.md already names it: *"A soft-deleted
+         * tenant must not decide a fact that is not the tenant's.
+         * `Team::query()->find()` returns null inside the 30-day purge window
+         * … `withTrashed()`."*
+         */
+        $team = $template->team_id === null
+            ? null
+            : Team::query()->withTrashed()->find($template->team_id);
+
+        $this->exportedTeamId = $template->team_id;
+        $this->exportedTarget = 'template:'.$template->getKey();
+
+        return $teams->runFor($team, fn (): array => PackFile::encodeTemplate($template));
     }
 }

@@ -21,7 +21,14 @@ screen is honest; a plausible wrong one is not.
    completions a client should hear about.
 3. `php artisan packs:export --template=<id> --output=database/packs/<slug>.json`
    takes back what they produced.
-4. Read the diff, edit the `pack` stanza, commit.
+4. Read the diff, edit the `pack` stanza, **take out anything a pack may not
+   carry**, and commit.
+
+Step 4's second half is not a formality: an export writes whatever the team's
+template holds, including an automation that sends an email and an
+`action_completed` gate, and `packs:import --as-pack` refuses both. The export
+does not warn — it is a faithful copy of a team's template, and only the pack
+direction has those limits. The two bullets below say which.
 
 `packs:export --pack=<slug>` exports a whole pack rather than one workflow.
 
@@ -98,16 +105,19 @@ One file is one pack, and a pack holds one or more workflow templates.
 - **A shipped pack cannot carry an automation that sends words.**
   `message_templates` is team-scoped and `action_definitions` is not, so a
   CHECK constraint refuses a shared row that names a team's private template.
-  A pack may carry a *create task* or *prompt somebody* automation. Any action
-  that needs a message template — email, push, an internal notification — is
-  refused at import, **whether or not the file names one**: a `send_email` with
-  a null template satisfies the constraint and would ship a permanently
-  incomplete automation to every install. Importing the same file
-  `--team=<slug>` carries the words fine.
-- **An `action_completed` gate is refused, in both directions.** Its
-  configuration is an `actionDefinitionId` — an id from whichever database
-  wrote the file — and every import rebuilds the automations with new ids. Add
-  that gate on the templates screen after importing.
+  A pack may carry any action that supplies its own words — *create a task*,
+  *prompt somebody to do it*, *create a calendar event*. Any action that needs
+  a message template — email, push, an internal notification — is refused at
+  import, **whether or not the file names one**: a `send_email` with a null
+  template satisfies the constraint and would ship a permanently incomplete
+  automation to every install. Importing the same file `--team=<slug>` carries
+  the words fine.
+- **An `action_completed` gate is refused on the way *in*.** Its configuration
+  is an `actionDefinitionId` — an id from whichever database wrote the file —
+  and every import rebuilds the automations with new ids, so the gate would
+  arrive pointing at nothing. An export writes one out happily, because it is a
+  faithful copy of what a team has; take it out of the file, and add the gate on
+  the templates screen after importing.
 - **A message template stanza is held to the same rules the Messages screen
   uses**: merge fields are checked, a subject may not contain a line break, the
   recipient rule has to be one the channel can carry, and `fromIdentity` has to
@@ -115,7 +125,9 @@ One file is one pack, and a pack holds one or more workflow templates.
 - **Importing into a team reuses a message template of the same name on the
   same channel** rather than creating a second one, because the database keeps
   a unique index over that pair. The import says when it did, because the words
-  that will send are then the ones already in the team.
+  that will send are then the ones already in the team. Two stanzas in one file
+  whose names fold together are refused for the same reason — one of them would
+  silently become the other.
 - **`isRequired` is what makes a task gate an advance.** It feeds the
   `required_tasks_complete` gate. Absent means `false`, which is the column's
   own default and the safe one: a stage where every task blocks is a stage

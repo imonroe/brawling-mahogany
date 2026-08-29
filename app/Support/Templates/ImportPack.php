@@ -121,6 +121,15 @@ final class ImportPack
                 $names[] = $template->name;
             }
 
+            if ($this->rawMessages($document) !== []) {
+                // Narrowing a list in silence is not the same as narrowing it.
+                // Only a hand-written file reaches this — an export of a pack
+                // can never carry one, because a pack's automations cannot
+                // name one.
+                $notes[] = 'This file carries message templates, and a pack cannot: they belong to a team. '
+                    .'They were left out. Import into a team instead if you want the words.';
+            }
+
             foreach ($this->orphaned($pack, $names) as $left) {
                 $notes[] = "The pack still holds “{$left}”, which this file does not describe. "
                     .'It was left alone — a running deal points at it. Deactivate it on the templates screen if it is finished with.';
@@ -517,6 +526,22 @@ final class ImportPack
     {
         $stage = 'workflows.*.stages.*';
 
+        /*
+         * ## Where `nullable` is and is not
+         *
+         * `PackFile::write()` keys on `array_key_exists`, so a key the file
+         * **omits** gets the documented default and a key the file sets to
+         * `null` writes null. That makes `nullable` a claim about the column:
+         * it belongs on `description`, `ownerRole`, `dueOffsetDays` and the
+         * other genuinely nullable ones, and it must not appear over a NOT
+         * NULL column with a default — `isRequired`, `isBlocking`,
+         * `isMilestone`, `isActive`, `sortOrder`, `version` — where an
+         * explicit `null` was a 23502 from Postgres in the middle of a deploy.
+         *
+         * Dropping it gives exactly the right pair, because a non-implicit
+         * rule is skipped for an absent key: omit it and the default stands,
+         * write `null` and it is refused with a sentence.
+         */
         return [
             /*
              * Refused rather than assumed, because the fields a later format
@@ -530,9 +555,9 @@ final class ImportPack
             'pack.slug' => ['required', 'string', 'max:255', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/'],
             'pack.name' => ['required', 'string', 'max:255'],
             'pack.description' => ['nullable', 'string', 'max:2000'],
-            'pack.isInstalledByDefault' => ['nullable', 'boolean'],
+            'pack.isInstalledByDefault' => ['boolean'],
             'pack.priceTier' => ['nullable', 'string', 'max:255'],
-            'pack.sortOrder' => ['nullable', 'integer', 'between:0,65535'],
+            'pack.sortOrder' => ['integer', 'between:0,65535'],
 
             /*
              * Only the file's own concerns here — a key that identifies the
@@ -561,18 +586,18 @@ final class ImportPack
             // Bounded, like `pack.sortOrder` beside it: the column is an
             // `unsignedInteger`, and an out-of-range value is a driver error
             // in the middle of a deploy rather than a sentence.
-            'workflows.*.version' => ['nullable', 'integer', 'between:1,4294967295'],
-            'workflows.*.isActive' => ['nullable', 'boolean'],
+            'workflows.*.version' => ['integer', 'between:1,4294967295'],
+            'workflows.*.isActive' => ['boolean'],
             'workflows.*.dealTypes' => ['nullable', 'array'],
             'workflows.*.dealTypes.*.name' => ['required', 'string', 'max:255'],
-            'workflows.*.dealTypes.*.isDefault' => ['nullable', 'boolean'],
+            'workflows.*.dealTypes.*.isDefault' => ['boolean'],
 
             'workflows.*.stages' => ['nullable', 'array'],
             $stage.'.name' => ['required', 'string', 'max:120'],
             $stage.'.description' => ['nullable', 'string', 'max:2000'],
             $stage.'.expectedDurationDays' => ['nullable', 'integer', 'between:0,365'],
             $stage.'.ownerRole' => ['nullable', 'string', 'max:120'],
-            $stage.'.isMilestone' => ['nullable', 'boolean'],
+            $stage.'.isMilestone' => ['boolean'],
             $stage.'.clientFacingLabel' => ['nullable', 'string', 'max:160'],
 
             $stage.'.gates' => ['nullable', 'array'],
@@ -586,7 +611,7 @@ final class ImportPack
              */
             $stage.'.gates.*.gateType' => ['required', Rule::in(GateRegistry::types())],
             $stage.'.gates.*.label' => ['required', 'string', 'max:120'],
-            $stage.'.gates.*.isBlocking' => ['nullable', 'boolean'],
+            $stage.'.gates.*.isBlocking' => ['boolean'],
             $stage.'.gates.*.config' => ['nullable', 'array'],
 
             $stage.'.tasks' => ['nullable', 'array'],
@@ -594,13 +619,13 @@ final class ImportPack
             $stage.'.tasks.*.description' => ['nullable', 'string', 'max:2000'],
             $stage.'.tasks.*.ownerRole' => ['nullable', 'string', 'max:120'],
             $stage.'.tasks.*.dueOffsetDays' => ['nullable', 'integer', 'between:-365,365'],
-            $stage.'.tasks.*.isRequired' => ['nullable', 'boolean'],
+            $stage.'.tasks.*.isRequired' => ['boolean'],
 
             $stage.'.automations' => ['nullable', 'array'],
             $stage.'.automations.*.trigger' => ['required', Rule::in(array_column(AutomationTrigger::cases(), 'value'))],
             $stage.'.automations.*.actionType' => ['required', Rule::in(array_column(AutomationActionType::cases(), 'value'))],
             $stage.'.automations.*.executionMode' => ['nullable', Rule::in(['automatic', 'approval', 'manual'])],
-            $stage.'.automations.*.isActive' => ['nullable', 'boolean'],
+            $stage.'.automations.*.isActive' => ['boolean'],
             $stage.'.automations.*.config' => ['nullable', 'array'],
             // Named, not numbered — the file's own key for a message template
             // it also carries. A dangling key is refused rather than nulled:
@@ -708,12 +733,41 @@ final class ImportPack
      */
     private function checkMessageTemplates(mixed $validator, array $document): void
     {
+        $seen = [];
+
         foreach ($this->rawMessages($document) as $index => $stanza) {
             if (! is_array($stanza)) {
                 continue;
             }
 
             $columns = PackFile::messageColumns($stanza);
+
+            /*
+             * Two stanzas whose names fold together are one template.
+             *
+             * `distinct` on `key` does not catch it, and the consequence was
+             * not a duplicate row — it was a **wrong-words send**: the second
+             * stanza found the first one's row through `liveTemplateNamed()`,
+             * so the automation the file bound to the second sent the first
+             * one's subject and body. And the note printed about it said the
+             * *team* already had the template, which was false and points the
+             * reader away from looking.
+             *
+             * Folded the way the unique index folds, so this refuses exactly
+             * what the database would have collapsed.
+             */
+            $fingerprint = mb_strtolower(trim((string) $columns['name'])).'|'.(string) $columns['channel'];
+
+            if (isset($seen[$fingerprint])) {
+                $validator->errors()->add("messageTemplates.{$index}.name", __(
+                    'Two message templates in this file have the same name on the same channel '
+                    .'(the first is :first). A team may only hold one, so one of them would '
+                    .'silently become the other.',
+                    ['first' => (string) $seen[$fingerprint]],
+                ));
+            }
+
+            $seen[$fingerprint] = $index;
             $channel = MessageChannel::tryFrom((string) ($columns['channel'] ?? ''));
 
             $inner = Validator::make(
