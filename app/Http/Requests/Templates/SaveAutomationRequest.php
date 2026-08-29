@@ -139,22 +139,15 @@ class SaveAutomationRequest extends FormRequest
     /**
      * The three-way choice, narrowed to what this action can actually offer.
      *
-     * *Approval* only means something for an action that **sends** — F5.7 is
-     * about releasing a queued message, and there is no meaningful sense in
-     * which a created task is approved. *Manual* is the only mode a manual
-     * prompt has, by definition.
+     * The answer moved onto {@see AutomationActionType::executionModes()} when
+     * `ImportPack` became a third caller — a pack file could otherwise ship a
+     * pairing this form refuses.
      *
      * @return list<string>
      */
     private function modesFor(?AutomationActionType $action): array
     {
-        if ($action?->isManual() === true) {
-            return ['manual'];
-        }
-
-        return $action?->needsMessageTemplate() === true
-            ? ['automatic', 'approval', 'manual']
-            : ['automatic', 'manual'];
+        return $action?->executionModes() ?? ['automatic', 'approval', 'manual'];
     }
 
     /**

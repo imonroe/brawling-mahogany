@@ -137,7 +137,11 @@ Three things on that path are worth naming.
 
 **The seeded template packs (#87) are blocked on input we do not have.** Emily's consolidated task list, including a buyer-side list that does not yet exist, is the direct input. Build the pack *mechanism* against a placeholder; do not invent the content to unblock the schedule.
 
-That is now the state of it: the mechanism landed with #84–#86 — packs are listed, previewed, and copied, and the copy is deep — and what is missing is a pack with real stages in it. **A seeded pack whose content somebody invented is worse than an empty templates screen**, because it teaches a process nobody follows and gets copied before anyone notices, so #87 stays open on #11 rather than being closed with a plausible placeholder.
+That is now the state of it, and the mechanism is finished in both directions. #84–#86 listed, previewed and deep-copied a pack; #87's plumbing added the half that was missing. **The editor could not take the content even once it arrived** — `stage_templates.owner_role` and `task_templates.owner_role` had a reader and no writer at all, and a task's `description`, `is_required` and `due_offset_days` could be set once on creation and never corrected. Those are exactly the four columns #11 lists as missing from #154's checklist, which is why that markup pass was being gathered in a GitHub comment: changing one flag meant deleting the task and adding it back, at the end of the list, ninety times.
+
+So the loop now runs end to end: `packs:import <file> --team=<slug>` seeds a draft, somebody who does the job marks it up on S41, `packs:export` takes back what they produced, and `TemplatePackSeeder` reads `database/packs/*.json` on every deploy. What is missing is a file in that directory.
+
+**A seeded pack whose content somebody invented is worse than an empty templates screen**, because it teaches a process nobody follows and gets copied before anyone notices, so #87 stays open on #11 rather than being closed with a plausible placeholder.
 
 Two decisions sit on this path rather than beside it:
 
