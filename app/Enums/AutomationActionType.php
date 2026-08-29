@@ -64,6 +64,37 @@ enum AutomationActionType: string implements HasLabel
         return $this->availableFrom() === null;
     }
 
+    /**
+     * The execution modes this action can actually offer (F5.4, F5.7).
+     *
+     * On the enum because it is a fact about the action and nothing else, and
+     * because it now has three readers: `SaveAutomationRequest`, S44's picker,
+     * and — since #87 — `ImportPack`. It lived on the request, so the importer
+     * validated `executionMode` against the bare three-way list and a pack
+     * file could ship a `manual_prompt` marked *automatic*: `RaiseAutomations`
+     * queues it, `ExecuteAction` refuses it (*"a manual action is marked done
+     * by a person, not carried out by the queue"*), and
+     * `automations:alert-on-failures` emails the team — for every deal, on
+     * every install.
+     *
+     * *Approval* only means something for an action that **sends**: F5.7 is
+     * about releasing a queued message, and there is no meaningful sense in
+     * which a created task is approved. *Manual* is the only mode a manual
+     * prompt has, by definition.
+     *
+     * @return list<string>
+     */
+    public function executionModes(): array
+    {
+        if ($this->isManual()) {
+            return ['manual'];
+        }
+
+        return $this->needsMessageTemplate()
+            ? ['automatic', 'approval', 'manual']
+            : ['automatic', 'manual'];
+    }
+
     /** Whether this action sends words somebody wrote, from a template. */
     public function needsMessageTemplate(): bool
     {

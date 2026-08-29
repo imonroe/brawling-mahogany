@@ -1,0 +1,695 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support\Templates;
+
+use App\Models\ActionDefinition;
+use App\Models\GateTemplate;
+use App\Models\MessageTemplate;
+use App\Models\StageTemplate;
+use App\Models\TaskTemplate;
+use App\Models\TemplatePack;
+use App\Models\WorkflowTemplate;
+use BackedEnum;
+use Illuminate\Support\Str;
+
+/**
+ * A template pack as a file, in both directions (#87 · #11).
+ *
+ * ## Why this exists at all
+ *
+ * #87 is the seeded Listing and Buyer packs, and it is blocked on #11 — the
+ * per-task metadata `task_templates` needs that only a working agent can
+ * supply: who owns a task, when it is due, whether it actually gates an
+ * advance, and which stage completions are worth telling a client about.
+ *
+ * That metadata is a **markup pass over a list that already exists**, and the
+ * cheapest place to do it is the running product rather than a GitHub comment.
+ * Which needs a loop: seed a draft pack → somebody marks it up on S41 → export
+ * what they produced → that file is the pack that ships. This class is the two
+ * ends of that loop, and it is one class so the two ends cannot disagree.
+ *
+ * ## One definition, both directions
+ *
+ * Every field appears exactly once, in a `*_FIELDS` map read by `encode` and
+ * by `decode` alike. A separate reader and writer is the shape `KeyDateGraph`
+ * warns about one module over — *"the preview and the save are the same
+ * function or they are two answers"* — and a format whose two halves drift is
+ * one that loses a column silently, which is the failure this loop cannot
+ * survive: the whole point is that what Emily typed is what ships.
+ *
+ * ## `sort_order` is array position, and is in no map
+ *
+ * A file carrying both an order and an ordering number is a file where the two
+ * can disagree, and somebody hand-editing it has to keep them in step. The
+ * array is the order. `encode` reads rows already ordered by `sort_order` (the
+ * relations order themselves); `decode` hands back position, and the importer
+ * numbers from zero.
+ *
+ * `template_packs.sort_order` is the exception and stays explicit, because it
+ * orders packs **against each other** and there is no array holding them.
+ *
+ * ## Identifiers do not travel, and one gate type is refused because of it
+ *
+ * No ULID is *emitted* by this class. An id is meaningful in the database that
+ * generated it and nowhere else, and a file carrying one invites an importer
+ * to honour it. The one cross-reference a pack needs — an automation naming
+ * the message template it sends — travels as a `key`: a slug of the template's
+ * name, stable across installs and editable by a person.
+ *
+ * A **configuration** is opaque JSON, and two of them hold an id. They are
+ * handled differently, and the difference is what a pack has a use for:
+ *
+ *  - `action_completed`'s gate configuration is an `actionDefinitionId`, and
+ *    `ImportPack` **refuses** that gate type. Every import rebuilds the
+ *    automations with fresh ULIDs, so it would arrive pointing at nothing and
+ *    stay a blocking gate only an override could pass.
+ *  - a `gate_cleared` automation's `gateTemplateId` is **translated** to the
+ *    gate's label and back, by `encodeConfig()`. *"When Survey received
+ *    clears, create a task"* is an ordinary thing for a process to say, the
+ *    gate is on the automation's own stage, and a label re-resolves — the same
+ *    move `messageTemplate` makes with its key.
+ *
+ * @phpstan-type PackDocument array<string, mixed>
+ */
+final class PackFile
+{
+    /**
+     * The format's own version, written into every file.
+     *
+     * Checked on the way in rather than assumed. A file from a later format
+     * read by an earlier importer is the case worth refusing loudly: the
+     * fields it does not recognise are exactly the ones it would drop.
+     */
+    public const VERSION = 1;
+
+    /** @var array<string, string> */
+    private const PACK_FIELDS = [
+        'name' => 'name',
+        'description' => 'description',
+        'isInstalledByDefault' => 'is_installed_by_default',
+        'priceTier' => 'price_tier',
+        'sortOrder' => 'sort_order',
+    ];
+
+    /** @var array<string, string> */
+    private const WORKFLOW_FIELDS = [
+        'name' => 'name',
+        'description' => 'description',
+        'version' => 'version',
+        'isActive' => 'is_active',
+    ];
+
+    /** @var array<string, string> */
+    private const STAGE_FIELDS = [
+        'name' => 'name',
+        'description' => 'description',
+        'expectedDurationDays' => 'expected_duration_days',
+        'ownerRole' => 'owner_role',
+        'isMilestone' => 'is_milestone',
+        'clientFacingLabel' => 'client_facing_label',
+    ];
+
+    /** @var array<string, string> */
+    private const GATE_FIELDS = [
+        'gateType' => 'gate_type',
+        'label' => 'label',
+        'isBlocking' => 'is_blocking',
+        'config' => 'config',
+    ];
+
+    /** @var array<string, string> */
+    private const TASK_FIELDS = [
+        'title' => 'title',
+        'description' => 'description',
+        'ownerRole' => 'owner_role',
+        'dueOffsetDays' => 'due_offset_days',
+        'isRequired' => 'is_required',
+    ];
+
+    /** @var array<string, string> */
+    private const MESSAGE_FIELDS = [
+        'name' => 'name',
+        'channel' => 'channel',
+        'subject' => 'subject',
+        'bodyHtml' => 'body_html',
+        'bodyText' => 'body_text',
+        'recipientRule' => 'recipient_rule',
+        'fromIdentity' => 'from_identity',
+    ];
+
+    /**
+     * The automation fields that map straight across.
+     *
+     * `is_manual` and `requires_approval` are deliberately absent: they are one
+     * answer the table refuses to hold as two, so the file carries
+     * `executionMode` and {@see self::executionModeColumns()} expands it. A
+     * file that could say `isManual` and `requiresApproval` independently could
+     * say both, and the CHECK constraint would refuse it on the way in — which
+     * is a database error where a format error belongs.
+     *
+     * @var array<string, string>
+     */
+    private const AUTOMATION_FIELDS = [
+        'trigger' => 'trigger',
+        'actionType' => 'action_type',
+        'isActive' => 'is_active',
+    ];
+
+    /**
+     * A whole pack, as a document ready to be written to disk.
+     *
+     * @return PackDocument
+     */
+    public static function encodePack(TemplatePack $pack): array
+    {
+        $pack->loadMissing([
+            'workflowTemplates.stageTemplates.gateTemplates',
+            'workflowTemplates.stageTemplates.taskTemplates',
+            'workflowTemplates.stageTemplates.actionDefinitions.messageTemplate',
+            'workflowTemplates.dealTypes',
+        ]);
+
+        return self::document(
+            pack: ['slug' => $pack->slug] + self::read($pack, self::PACK_FIELDS),
+            /*
+             * Sorted by name, because `workflowTemplates` carries no ordering
+             * of its own and a workflow template has no `sort_order` to give
+             * it one. Whatever order the heap returns is not a diff anybody
+             * wants to read twice.
+             */
+            /*
+             * The pack's **own** rows only — `isSystem()` is `team_id === null`,
+             * the same predicate `packTemplate()` and `orphaned()` write in
+             * SQL; in PHP here because the relation is already loaded. Two of the three readers of
+             * this relation had the filter and this one did not — and it is
+             * the one that *emits*, so a team-owned row filed under a pack
+             * would have written that team's message subjects and bodies into
+             * a file bound for `database/packs/`.
+             *
+             * Nothing writes such a row today, which is why this is the
+             * asymmetry rather than the bug. `orphaned()`'s own note says why
+             * that is not a reason to leave it: *"an asymmetry that rests on
+             * another class's behaviour is one that decays."*
+             */
+            templates: array_values(
+                $pack->workflowTemplates
+                    ->filter(fn (WorkflowTemplate $each): bool => $each->isSystem())
+                    ->sortBy('name')
+                    ->values()
+                    ->all(),
+            ),
+        );
+    }
+
+    /**
+     * One workflow template, as a one-workflow pack document.
+     *
+     * There is one format rather than two, and this is why: a team's own
+     * template is what somebody just finished authoring on S41, and it becomes
+     * pack content by being *put in a pack*. A second, template-shaped format
+     * would need its own parser, its own tests and its own drift.
+     *
+     * The pack stanza is derived from the template's own name so the file is
+     * importable as it stands. It is meant to be edited — a slug is a
+     * catalogue identity and nobody's first template name is one.
+     *
+     * @return PackDocument
+     */
+    public static function encodeTemplate(WorkflowTemplate $template): array
+    {
+        $template->loadMissing([
+            'stageTemplates.gateTemplates',
+            'stageTemplates.taskTemplates',
+            'stageTemplates.actionDefinitions.messageTemplate',
+            'dealTypes',
+            'templatePack',
+        ]);
+
+        $pack = $template->templatePack;
+
+        return self::document(
+            pack: $pack instanceof TemplatePack
+                ? ['slug' => $pack->slug] + self::read($pack, self::PACK_FIELDS)
+                : [
+                    'slug' => Str::slug($template->name),
+                    'name' => $template->name,
+                    'description' => $template->description,
+                    'isInstalledByDefault' => false,
+                    'priceTier' => null,
+                    'sortOrder' => 0,
+                ],
+            templates: [$template],
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $pack
+     * @param  list<WorkflowTemplate>  $templates
+     * @return PackDocument
+     */
+    private static function document(array $pack, array $templates): array
+    {
+        /*
+         * Gathered across every workflow in the pack, because one "Inspection
+         * scheduled" template legitimately serves automations on several of
+         * them (PRD §7.12) — so the message templates are a sibling of
+         * `workflows` rather than nested inside one, and the key is what
+         * re-joins them on the way back in.
+         */
+        $messages = [];
+
+        foreach ($templates as $template) {
+            foreach ($template->stageTemplates as $stage) {
+                foreach ($stage->actionDefinitions as $automation) {
+                    $message = $automation->messageTemplate;
+
+                    if ($message instanceof MessageTemplate) {
+                        $messages[$message->getKey()] = $message;
+                    }
+                }
+            }
+        }
+
+        $keys = self::keysFor($messages);
+
+        return [
+            'formatVersion' => self::VERSION,
+            'pack' => $pack,
+            'messageTemplates' => array_values(array_map(
+                fn (MessageTemplate $message): array => ['key' => $keys[$message->getKey()]]
+                    + self::encodeMessage($message),
+                $messages,
+            )),
+            'workflows' => array_map(
+                fn (WorkflowTemplate $template): array => self::encodeWorkflow($template, $keys),
+                $templates,
+            ),
+        ];
+    }
+
+    /**
+     * A stable, human-readable key per message template, unique within a file.
+     *
+     * Slugged from the name, because that is the half a person recognises when
+     * they open the file to change which template an automation sends. Two
+     * templates whose names slug the same get a numbered suffix rather than
+     * silently sharing a key — a collision here would re-point one
+     * automation's words at the other's on the way back in.
+     *
+     * @param  array<string, MessageTemplate>  $messages
+     * @return array<string, string>
+     */
+    private static function keysFor(array $messages): array
+    {
+        $keys = [];
+        $taken = [];
+
+        foreach ($messages as $id => $message) {
+            $base = Str::slug($message->name);
+            $base = $base === '' ? 'message' : $base;
+
+            $key = $base;
+            $suffix = 2;
+
+            while (isset($taken[$key])) {
+                $key = $base.'-'.$suffix++;
+            }
+
+            $taken[$key] = true;
+            $keys[$id] = $key;
+        }
+
+        return $keys;
+    }
+
+    /**
+     * @param  array<string, string>  $keys  message template id => file key
+     * @return array<string, mixed>
+     */
+    private static function encodeWorkflow(WorkflowTemplate $template, array $keys): array
+    {
+        return self::read($template, self::WORKFLOW_FIELDS) + [
+            /*
+             * By name, not by id, and system deal types are the reason it
+             * works: PRD §2.2 fixes the three every install has, and
+             * `DealTypeSeeder` treats the name as the identity. A pack naming
+             * one a team has not got is a pack that leaves the association
+             * off, which the importer reports rather than swallows.
+             */
+            // Sorted for the same reason, and by the same key the importer
+            // matches on.
+            'dealTypes' => $template->dealTypes
+                ->sortBy('name')
+                ->map(fn ($type): array => [
+                    'name' => $type->name,
+                    'isDefault' => (bool) ($type->pivot->is_default ?? false),
+                ])
+                ->values()
+                ->all(),
+            'stages' => $template->stageTemplates
+                ->map(fn (StageTemplate $stage): array => self::encodeStage($stage, $keys))
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $keys
+     * @return array<string, mixed>
+     */
+    private static function encodeStage(StageTemplate $stage, array $keys): array
+    {
+        return self::read($stage, self::STAGE_FIELDS) + [
+            'gates' => $stage->gateTemplates
+                ->map(fn (GateTemplate $gate): array => self::read($gate, self::GATE_FIELDS))
+                ->values()
+                ->all(),
+            'tasks' => $stage->taskTemplates
+                ->map(fn (TaskTemplate $task): array => self::read($task, self::TASK_FIELDS))
+                ->values()
+                ->all(),
+            'automations' => $stage->actionDefinitions
+                ->map(fn (ActionDefinition $automation): array => self::encodeAutomation(
+                    $automation,
+                    $keys,
+                    $stage->gateTemplates,
+                ))
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $keys
+     * @param  \Illuminate\Support\Collection<int, GateTemplate>  $gates
+     * @return array<string, mixed>
+     */
+    private static function encodeAutomation(
+        ActionDefinition $automation,
+        array $keys,
+        $gates,
+    ): array {
+        $message = $automation->message_template_id;
+
+        return self::read($automation, self::AUTOMATION_FIELDS) + [
+            // Not in the field map, because it is the one value this format
+            // rewrites rather than copies — see `encodeConfig()`.
+            'config' => self::sortedOrNull(self::encodeConfig($automation, $gates)),
+            /*
+             * `executionMode()` is the model's own answer to *"how is a human
+             * put in the loop"*, and asking it here rather than reading the two
+             * booleans means the file cannot describe the state the table
+             * refuses to hold.
+             */
+            'executionMode' => $automation->executionMode(),
+            'messageTemplate' => $message === null ? null : ($keys[$message] ?? null),
+        ];
+    }
+
+    /**
+     * `config`, with the one id in it turned into the label it names.
+     *
+     * A `gate_cleared` automation stores `config.gateTemplateId` — a
+     * `gate_templates` ULID, read by `InstantiateWorkflow::gateSortOrder()`.
+     * That is the **second** identifier in this format, and it is worse than
+     * `action_completed`'s because a pack has a good reason to carry one:
+     * *"when Survey received clears, create a task"* is an ordinary thing for a
+     * process to say.
+     *
+     * So it is translated rather than refused. The gate is on the automation's
+     * own stage (`SaveAutomationRequest` allows no other), so it is in the same
+     * stanza, and a label re-resolves on the way in — which is the same move
+     * `messageTemplate` makes with its key, for the same reason.
+     *
+     * A row whose id resolves to nothing yields a null label, which the
+     * importer refuses: an automation that was already pointing at nothing
+     * should not import as one.
+     *
+     * @param  \Illuminate\Support\Collection<int, GateTemplate>  $gates
+     * @return array<string, mixed>|null
+     */
+    private static function encodeConfig(ActionDefinition $automation, $gates): ?array
+    {
+        $config = $automation->config;
+
+        if ($config === null || ! array_key_exists('gateTemplateId', $config)) {
+            return $config;
+        }
+
+        $named = $gates->first(
+            fn (GateTemplate $gate): bool => (string) $gate->getKey() === (string) $config['gateTemplateId'],
+        );
+
+        unset($config['gateTemplateId']);
+
+        $config['gateLabel'] = $named instanceof GateTemplate ? $named->label : null;
+
+        return $config;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function encodeMessage(MessageTemplate $message): array
+    {
+        return self::read($message, self::MESSAGE_FIELDS);
+    }
+
+    /**
+     * Read a row's columns out under their file names.
+     *
+     * The **only** encoder, which is what makes the `*_FIELDS` maps true in
+     * both directions rather than only in the docblock. `encodeMessage` and
+     * `encodeAutomation` used to restate their lists by hand, so a field added
+     * to `MESSAGE_FIELDS` would have been written by the importer and never
+     * emitted by the exporter — the silent column loss this class exists to
+     * prevent, in the two stanzas with the most fields.
+     *
+     * Two normalisations, because a file is compared and committed:
+     *
+     *  - **An enum becomes its value.** `trigger` and `action_type` hydrate as
+     *    enums, and a `json_encode` of one is an implementation detail leaking
+     *    into a format.
+     *  - **A `config` object gets its keys sorted.** jsonb does not preserve
+     *    key order, so a two-key configuration comes back from Postgres in
+     *    whatever order it likes — which made a re-export a spurious diff, and
+     *    made the round-trip test's `toBe` (order-sensitive) pass only because
+     *    every configuration in its fixture happened to have one key.
+     *
+     * @param  array<string, string>  $fields  file key => column
+     * @return array<string, mixed>
+     */
+    private static function read(object $row, array $fields): array
+    {
+        $out = [];
+
+        foreach ($fields as $key => $column) {
+            /** @var mixed $value */
+            $value = $row->{$column};
+
+            $out[$key] = match (true) {
+                $value instanceof BackedEnum => $value->value,
+                is_array($value) => self::sorted($value),
+                default => $value,
+            };
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<array-key, mixed>|null  $value
+     * @return array<array-key, mixed>|null
+     */
+    private static function sortedOrNull(?array $value): ?array
+    {
+        return $value === null ? null : self::sorted($value);
+    }
+
+    /**
+     * A nested array with every level's string keys in a fixed order.
+     *
+     * Applied on the way **out** only. The importer stores what the file says
+     * and Postgres reorders it on its own; sorting here is what makes two
+     * exports of the same rows byte-identical, which is the whole basis of
+     * *"a re-export after a one-word change is a one-line diff"*.
+     *
+     * A list keeps its order — that is data, not key order.
+     *
+     * @param  array<array-key, mixed>  $value
+     * @return array<array-key, mixed>
+     */
+    private static function sorted(array $value): array
+    {
+        $out = [];
+
+        foreach ($value as $key => $each) {
+            $out[$key] = is_array($each) ? self::sorted($each) : $each;
+        }
+
+        if (! array_is_list($out)) {
+            ksort($out);
+        }
+
+        return $out;
+    }
+
+    /**
+     * The columns a row of this kind takes from a file stanza.
+     *
+     * The same maps, read the other way. Every key the format knows about is
+     * written, present in the stanza or not, so a column keeps its database
+     * default only where the format has no opinion — and a hand-written file
+     * that omits `isRequired` gets `false`, which is the value
+     * `task_templates` documents as its default and the one a pack must not
+     * guess differently.
+     *
+     * @param  array<string, mixed>  $stanza
+     * @return array<string, mixed>
+     */
+    public static function packColumns(array $stanza): array
+    {
+        return self::write($stanza, self::PACK_FIELDS, [
+            'description' => null,
+            'isInstalledByDefault' => false,
+            'priceTier' => null,
+            'sortOrder' => 0,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stanza
+     * @return array<string, mixed>
+     */
+    public static function workflowColumns(array $stanza): array
+    {
+        return self::write($stanza, self::WORKFLOW_FIELDS, [
+            'description' => null,
+            'version' => 1,
+            'isActive' => true,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stanza
+     * @return array<string, mixed>
+     */
+    public static function stageColumns(array $stanza): array
+    {
+        return self::write($stanza, self::STAGE_FIELDS, [
+            'description' => null,
+            'expectedDurationDays' => null,
+            'ownerRole' => null,
+            'isMilestone' => false,
+            'clientFacingLabel' => null,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stanza
+     * @return array<string, mixed>
+     */
+    public static function gateColumns(array $stanza): array
+    {
+        return self::write($stanza, self::GATE_FIELDS, [
+            'isBlocking' => true,
+            'config' => null,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stanza
+     * @return array<string, mixed>
+     */
+    public static function taskColumns(array $stanza): array
+    {
+        return self::write($stanza, self::TASK_FIELDS, [
+            'description' => null,
+            'ownerRole' => null,
+            'dueOffsetDays' => null,
+            'isRequired' => false,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stanza
+     * @return array<string, mixed>
+     */
+    public static function messageColumns(array $stanza): array
+    {
+        return self::write($stanza, self::MESSAGE_FIELDS, [
+            'subject' => null,
+            'bodyHtml' => null,
+            'fromIdentity' => null,
+        ]);
+    }
+
+    /**
+     * A message template column name, back under the key the file uses for it.
+     *
+     * So a refusal from `MessageTemplateRules::fieldRules()` — which speaks in
+     * columns — can be reported against the stanza somebody actually wrote.
+     * A nested path keeps its tail: `recipient_rule.type` is
+     * `recipientRule.type`.
+     */
+    public static function messageFileKey(string $column): string
+    {
+        [$head, $tail] = array_pad(explode('.', $column, 2), 2, null);
+
+        $key = array_search($head, self::MESSAGE_FIELDS, strict: true);
+        $key = is_string($key) ? $key : (string) $head;
+
+        return $tail === null ? $key : $key.'.'.$tail;
+    }
+
+    /**
+     * @param  array<string, mixed>  $stanza
+     * @return array<string, mixed>
+     */
+    public static function automationColumns(array $stanza): array
+    {
+        return self::write($stanza, self::AUTOMATION_FIELDS, [
+            'isActive' => true,
+        ]) + self::executionModeColumns($stanza['executionMode'] ?? 'automatic');
+    }
+
+    /**
+     * One answer back into the two columns that hold it.
+     *
+     * The inverse of {@see ActionDefinition::executionMode()}, and the reason
+     * the file has no `isManual`: `action_definitions` carries a CHECK that
+     * refuses both at once, so a format able to state them independently is a
+     * format able to state a row the database will reject.
+     *
+     * @return array{is_manual: bool, requires_approval: bool}
+     */
+    public static function executionModeColumns(mixed $mode): array
+    {
+        return match ($mode) {
+            'manual' => ['is_manual' => true, 'requires_approval' => false],
+            'approval' => ['is_manual' => false, 'requires_approval' => true],
+            default => ['is_manual' => false, 'requires_approval' => false],
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $stanza
+     * @param  array<string, string>  $fields  file key => column
+     * @param  array<string, mixed>  $defaults  file key => value when absent
+     * @return array<string, mixed>
+     */
+    private static function write(array $stanza, array $fields, array $defaults = []): array
+    {
+        $out = [];
+
+        foreach ($fields as $key => $column) {
+            $out[$column] = array_key_exists($key, $stanza)
+                ? $stanza[$key]
+                : ($defaults[$key] ?? null);
+        }
+
+        return $out;
+    }
+}

@@ -911,12 +911,34 @@ Route::middleware(['auth', 'verified', 'two-factor', 'team'])->group(function ()
             ->name('templates.stages.update');
         Route::delete('templates/{template}/stages/{stageTemplate}', [StageTemplateController::class, 'destroy'])
             ->name('templates.stages.destroy');
+        /*
+         * Gates and tasks are editable in place, and reorderable, as of #87.
+         *
+         * They were add-and-remove only, which is why #11's markup pass —
+         * `is_required`, `owner_role`, `due_offset_days`, the four columns a
+         * seeded pack needs and #154's raw checklist does not supply — was
+         * gathered in a GitHub comment rather than in the product. Changing
+         * one flag on one of ninety tasks meant deleting the task, and a
+         * re-added task goes to the end of the list.
+         *
+         * The collection PATCH is declared **before** the member PATCH, the
+         * same ordering `templates/messages` needs one block up:
+         * `tasks/{taskTemplate}` declared first would swallow a reorder.
+         */
         Route::post('templates/{template}/stages/{stageTemplate}/gates', [StageTemplateController::class, 'addGate'])
             ->name('templates.stages.gates.store');
+        Route::patch('templates/{template}/stages/{stageTemplate}/gates', [StageTemplateController::class, 'reorderGates'])
+            ->name('templates.stages.gates.reorder');
+        Route::patch('templates/{template}/stages/{stageTemplate}/gates/{gateTemplate}', [StageTemplateController::class, 'updateGate'])
+            ->name('templates.stages.gates.update');
         Route::delete('templates/{template}/stages/{stageTemplate}/gates/{gateTemplate}', [StageTemplateController::class, 'removeGate'])
             ->name('templates.stages.gates.destroy');
         Route::post('templates/{template}/stages/{stageTemplate}/tasks', [StageTemplateController::class, 'addTask'])
             ->name('templates.stages.tasks.store');
+        Route::patch('templates/{template}/stages/{stageTemplate}/tasks', [StageTemplateController::class, 'reorderTasks'])
+            ->name('templates.stages.tasks.reorder');
+        Route::patch('templates/{template}/stages/{stageTemplate}/tasks/{taskTemplate}', [StageTemplateController::class, 'updateTask'])
+            ->name('templates.stages.tasks.update');
         Route::delete('templates/{template}/stages/{stageTemplate}/tasks/{taskTemplate}', [StageTemplateController::class, 'removeTask'])
             ->name('templates.stages.tasks.destroy');
 

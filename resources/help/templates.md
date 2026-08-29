@@ -27,20 +27,33 @@ deal needs fixing, fix the deal.
 
 ## Building one
 
-**Templates → New template**, then add stages in order. A stage takes a name,
-and that is all the editor asks for today. A stage also carries a description,
-an expected duration and a milestone label — the fields the client-facing view
-will read — but nothing on any screen can set them yet, so a stage you build
-here has a name and its contents.
+**Templates → New template**, then add stages in order. Every stage, gate and
+task can be edited afterwards — press **Edit** on any row — so a first pass
+can be rough and a second pass can be careful. That matters more than it
+sounds: writing your process down is mostly correcting it.
 
-Reorder with the move controls. There is no drag-and-drop, deliberately: a
-reorder is sent as one whole intention, so two people rearranging at once
-cannot produce an order neither of them chose.
+Reorder with the move controls, at every level. There is no drag-and-drop,
+deliberately: a reorder is sent as one whole intention, so two people
+rearranging at once cannot produce an order neither of them chose.
+
+A **stage** carries:
+
+- A **name**, which only your team sees.
+- Who owns it, as a **role** rather than a person — "Transaction coordinator",
+  not "Heather". A template outlives any one person's job, and a pack shipped
+  between teams cannot name anybody.
+- How long you expect it to take, which sets the planned dates on a deal.
+- Whether finishing it is a **milestone**, and the sentence the client reads
+  when it is. A milestone with no sentence written is left off the client's
+  status page entirely rather than shown under its internal name — so if you
+  want a client to see a stage, give it wording.
 
 Under each stage, add:
 
-**Tasks** — the things to do. Mark the ones that must be finished before the
-stage can end as required.
+**Tasks** — the things to do. Each one can carry a note, a role that owns it,
+and a due date counted in days from the stage's start (negative for before it).
+Mark a task **required** and it becomes something the stage cannot end without:
+that is the flag with a consequence, so it is off unless you turn it on.
 
 **Gates** — the conditions that must clear before the stage can end. The
 button says **Add gate**, and the word changes on purpose: here you are
@@ -48,11 +61,14 @@ configuring a condition, and on a deal the same thing is shown as a
 _requirement_, because "2 requirements not met" is what somebody looking at a
 stuck deal wants to read.
 
-Two kinds can be built today: _manual confirmation_, which somebody ticks, and
+Two gates on one stage cannot share a label — an automation that waits on one
+names it by that label, and two with one name cannot be told apart.
+
+Three kinds can be built today: _manual confirmation_, which somebody ticks;
 _required tasks complete_, which clears itself when the required tasks are
-done. The other kinds need configuration the editor cannot yet ask for, so
-they are not offered — a gate built without its configuration is one nothing
-can ever clear.
+done; and _date reached_, which waits for a date you name. The other kinds need
+configuration the editor cannot yet ask for, so they are not offered — a gate
+built without its configuration is one nothing can ever clear.
 
 ## Packs
 
@@ -65,6 +81,11 @@ the pack itself is untouched for everybody else.
 The packs built from real listing and buyer checklists are being prepared and
 are not in the app yet. Until then, build your own, or ask whoever set your
 team up.
+
+If somebody has sent you a process as a file, whoever runs your server can load
+it for you — it arrives as an ordinary template of yours, editable like any
+other. They can send yours back out the same way, which is how a process you
+work out here becomes a pack everybody gets.
 
 ## Who can do this
 
@@ -86,7 +107,9 @@ deal.
 should happen when the stage starts or completes: send a message, create a
 task, or prompt somebody to do it by hand.
 
-**Nothing sends yet.** You can write both and neither will reach anybody until
-the review queue and the safety rails around sending are built. The
-[Automated messages](/help/automation) article explains what is coming and why
-it is arriving as one piece rather than in parts.
+**These do send now**, and the rails around them are on by default: a new
+team's messages wait for somebody to approve them for the first thirty days,
+and until your team's sending is switched out of test mode every automated
+message goes to the team owner rather than to a client. The
+[Automated messages](/help/automation) article covers the approval queue, the
+test mode, and how to switch either one.

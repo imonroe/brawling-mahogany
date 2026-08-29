@@ -43,15 +43,43 @@ trait MessageTemplateRules
         $channel = $this->chosenChannel();
 
         return [
+            ...self::fieldRules($channel),
+
             'name' => ['required', 'string', 'max:120', $this->uniqueWithinTeam($ignoring)],
 
+            // The shared list plus the one check only an edit can make.
+            'channel' => [
+                ...self::fieldRules($channel)['channel'],
+                $this->channelTheAutomationsCanUse($ignoring),
+            ],
+        ];
+    }
+
+    /**
+     * The rules that are about the **fields**, and not about the request.
+     *
+     * Static and channel-in, because S46 is no longer the only way a message
+     * template gets written: `ImportPack` writes one out of a pack file (#87),
+     * and a second list of rules there would be the drift this codebase keeps
+     * naming — *"a rule written into one caller is a rule the next caller is
+     * written without"*. The importer converts its camelCase stanza to these
+     * column names and validates against exactly this.
+     *
+     * What stays on the instance is what genuinely needs a request: the
+     * per-team name uniqueness, and the check that a channel change does not
+     * strand the automations already standing on the template being edited.
+     *
+     * @return array<string, mixed>
+     */
+    public static function fieldRules(?MessageChannel $channel): array
+    {
+        return [
             'channel' => [
                 'required',
                 // The **selectable** list, not every case: `sms` is a value
                 // PRD §7.12 names and nothing sends, and a template on a
                 // channel with no transport can never leave the building.
                 Rule::in(array_keys(MessageChannel::selectableOptions())),
-                $this->channelTheAutomationsCanUse($ignoring),
             ],
 
             'subject' => $channel?->hasSubject() === true
@@ -91,9 +119,15 @@ trait MessageTemplateRules
                 'required',
                 Rule::in(array_keys(RecipientRuleType::optionsFor($channel ?? MessageChannel::Email))),
             ],
+            /*
+             * The same pair, said without a closure over the request, because
+             * these rules are now read by an importer as well as by a form.
+             * `required_if` / `exclude_unless` name the sibling field, which
+             * is what the closures were reading anyway.
+             */
             'recipient_rule.participantRole' => [
-                Rule::requiredIf(fn (): bool => $this->input('recipient_rule.type') === RecipientRuleType::ParticipantRole->value),
-                Rule::excludeIf(fn (): bool => $this->input('recipient_rule.type') !== RecipientRuleType::ParticipantRole->value),
+                'required_if:recipient_rule.type,'.RecipientRuleType::ParticipantRole->value,
+                'exclude_unless:recipient_rule.type,'.RecipientRuleType::ParticipantRole->value,
                 Rule::enum(ParticipantRole::class),
             ],
 
