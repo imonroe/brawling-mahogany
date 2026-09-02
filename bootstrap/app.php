@@ -49,34 +49,15 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
         /*
-         * Who is allowed to tell us the request was HTTPS.
-         *
-         * The documented topology terminates TLS in the app's own Caddy with
-         * nothing in front (docs/Deployment.md §3), and there `TRUSTED_PROXIES`
-         * is empty and we trust nobody — which is the safe default and why this
-         * reads from the environment rather than hard-coding a network.
-         *
-         * Put a reverse proxy in front and the request reaches the container
-         * over plain HTTP on port 80 while the browser is on HTTPS. Trusting
-         * no proxy, Laravel believes the scheme is `http`, so every `asset()`
-         * URL it writes is `http://` — which a browser on an `https://` page
-         * blocks as mixed content, and the app renders as a blank screen with
-         * no JS. `X-Forwarded-Proto` is the answer, but only from a sender we
-         * have said is allowed to make that claim.
-         *
-         * Deliberately not `*`. Docker publishes the app's port through its own
-         * iptables DNAT rules, which bypass ufw — so the container answers from
-         * outside the proxy too, and a wildcard would let anyone reach it
-         * directly with a forged `X-Forwarded-For` and defeat the per-IP
-         * throttling on `ThrottlePasswordResetRequests`. Name the proxy's
-         * network, not everything.
+         * Trusted proxies are configured in `config/app.php` and applied by
+         * `AppServiceProvider::boot()`, deliberately not here: this closure
+         * runs on `afterResolving(HttpKernel::class)`, before the
+         * `LoadEnvironmentVariables` and `LoadConfiguration` bootstrappers, so
+         * `.env` is unread and `config` is unbound. The argument is in
+         * `config/app.php` and `tests/Unit/TrustedProxiesTest.php`; repeating
+         * it here is how three rounds of review found three wrong versions of
+         * it in three files.
          */
-        $trustedProxies = array_values(array_filter(array_map(
-            trim(...),
-            explode(',', (string) env('TRUSTED_PROXIES', '')),
-        ), fn (string $proxy): bool => $proxy !== ''));
-
-        $middleware->trustProxies(at: $trustedProxies ?: null);
 
         /*
          * Order matters, and this is the order.

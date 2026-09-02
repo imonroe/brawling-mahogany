@@ -107,6 +107,49 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | Who may claim, via the `X-Forwarded-*` headers, what the request really
+    | was — the scheme, the host, the port and the client address. Empty is
+    | correct for the documented topology (Deployment §3), where Caddy
+    | terminates TLS inside the app's own container with nothing in front of
+    | it, so nobody is entitled to make that claim.
+    |
+    | Set it only when a reverse proxy terminates TLS instead. Otherwise
+    | Laravel reads the scheme as `http`, writes `http://` asset URLs into an
+    | `https://` page, and the browser blocks them as mixed content. Give the
+    | proxy's address or network, comma-separated.
+    |
+    | Anything meaning "anybody" — `*`, `**`, `REMOTE_ADDR`, or any entry whose
+    | prefix length is zero (`0.0.0.0/0`, `::/0`, and `10.0.0.0/0`, which is a
+    | one-character typo of a sound value) — is **refused at boot** rather than
+    | accepted: it would let anyone reaching the container directly (Docker
+    | publishes the app's port through its own iptables DNAT rules, which
+    | bypass ufw) forge `X-Forwarded-For` and defeat the per-IP throttle on
+    | password reset. Refused rather than ignored, because parsing `*` into
+    | this array produces a list matching nothing while `REMOTE_ADDR` produces
+    | one that trusts the caller — one looks like it worked and the other
+    | quietly is the thing the rule forbids.
+    |
+    | Changing this value needs `php artisan config:cache` re-run wherever the
+    | config is cached, which is every deployed environment (Deployment §3).
+    |
+    | Read by App\Providers\AppServiceProvider, not by bootstrap/app.php: the
+    | `withMiddleware` callback runs on `afterResolving(HttpKernel::class)`,
+    | before the `LoadEnvironmentVariables` and `LoadConfiguration`
+    | bootstrappers, so nothing there can read either a config value or a
+    | `.env` one.
+    |
+    */
+
+    'trusted_proxies' => array_values(array_filter(
+        array_map(trim(...), explode(',', (string) env('TRUSTED_PROXIES', ''))),
+        static fn (string $proxy): bool => $proxy !== '',
+    )),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

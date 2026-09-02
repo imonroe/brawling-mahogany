@@ -15,6 +15,7 @@ use App\Support\Notifications\Notify;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Auth;
@@ -79,6 +80,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureTrustedProxies();
         $this->configureMailGuardrail();
         $this->configureClientSurfaceLimits();
 
@@ -108,6 +110,106 @@ class AppServiceProvider extends ServiceProvider
         // PRD §9: a queue failure is alerted on within 15 minutes. The rule is
         // configured in Sentry; the report it fires on is this listener.
         Event::listen(JobFailed::class, ReportFailedJob::class);
+    }
+
+    /**
+     * Who may claim, via the `X-Forwarded-*` headers, what the request really was.
+     *
+     * The list is `config/app.php`'s, which is where the argument for the
+     * value lives. What belongs here is why applying it is not in
+     * `bootstrap/app.php` beside every other middleware decision:
+     * `withMiddleware()`'s callback runs on `afterResolving(HttpKernel::class)`,
+     * and **both** `LoadEnvironmentVariables` and `LoadConfiguration` are
+     * bootstrappers that run later, inside `$kernel->handle()`. So at that
+     * point `.env` has not been read at all and `config` is not even bound —
+     * `env()` answers only from the real process environment, and `config()`
+     * throws `Target class [config] does not exist`.
+     *
+     * `TrustProxies::at()` writes a static the middleware resolves per
+     * request, and provider boot runs inside `handle()` ahead of the
+     * middleware pipeline, so this is in force by the time it is read.
+     *
+     * Empty means trust nobody, which is both the documented topology
+     * (Deployment §3) and the safe direction to fail: an untrusted forwarded
+     * header is ignored rather than believed.
+     */
+    protected function configureTrustedProxies(): void
+    {
+        $proxies = config('app.trusted_proxies');
+
+        if (! is_array($proxies) || $proxies === []) {
+            return;
+        }
+
+        /*
+         * Anything meaning "trust whoever connected" is refused, and the check
+         * is a predicate rather than a list of spellings because two rounds of
+         * review got past a list.
+         *
+         * Round 1 refused `*`. `TrustProxies::setTrustedProxyIpAddresses()`
+         * tests `$trustedIps === '*'` against the **string**, so
+         * `TRUSTED_PROXIES=*` parsed to `['*']` here missed that branch and
+         * reached Symfony as a literal address matching nothing — the value
+         * four documents forbid was inert, which is worse than either
+         * alternative: it looks set and does nothing.
+         *
+         * Round 2 added `REMOTE_ADDR` (that same method maps it to the
+         * connecting address) and the literal strings `0.0.0.0/0` and `::/0`.
+         * Round 3 got past that too, and the hole is a one-character typo of
+         * the runbook's own example: `IpUtils::checkIp4()` short-circuits on
+         * the **prefix length**, not the base address —
+         * `if ('0' === $netmask) return filter_var($address, …) !== false;` —
+         * so *any* valid address with `/0` matches every request.
+         * `10.0.0.0/8` mistyped as `10.0.0.0/0` silently turns "trust the
+         * private network" into "trust the internet", with a working site and
+         * no error anywhere.
+         *
+         * So a zero prefix length is refused however it is spelled — one rule
+         * covering a family that three explicit strings did not, though it
+         * takes more lines than they did.
+         *
+         * ## What this does not catch, stated rather than implied
+         *
+         * A determined operator can still cover the address space with
+         * `0.0.0.0/1,128.0.0.0/1`, and no per-entry check finds that without
+         * real range-union arithmetic. This refusal is against **accidents and
+         * the obvious spellings** — the typo above, and the thing somebody
+         * reaches for when `*` throws — not against somebody who has decided
+         * to trust everybody and is willing to work at it. Deployment §3 names
+         * the deliberate path for a topology that genuinely needs one.
+         *
+         * `configureMailGuardrail()`'s shape one method along, and for the same
+         * reason: the cheap failure gets the loud check. It throws in every
+         * context, console and queue included — a box configured this way
+         * should not run a scheduler either.
+         */
+        $refused = array_filter($proxies, static function (string $proxy): bool {
+            $value = trim($proxy);
+
+            if (in_array(strtoupper($value), ['*', '**', 'REMOTE_ADDR'], true)) {
+                return true;
+            }
+
+            if (! str_contains($value, '/')) {
+                return false;
+            }
+
+            [, $prefix] = explode('/', $value, 2);
+
+            return is_numeric($prefix) && (int) $prefix === 0;
+        });
+
+        if ($refused !== []) {
+            throw new RuntimeException(sprintf(
+                'TRUSTED_PROXIES may not mean "anybody" (refused: %s). Name the proxy\'s address or '.
+                'network, with a prefix length above zero — Docker publishes the app\'s port around '.
+                'ufw, so the container answers from outside the proxy and anyone reaching it directly '.
+                'could forge X-Forwarded-For. See docs/Deployment.md §3.',
+                implode(', ', $refused),
+            ));
+        }
+
+        TrustProxies::at($proxies);
     }
 
     /**

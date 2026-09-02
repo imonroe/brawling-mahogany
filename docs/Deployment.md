@@ -177,6 +177,80 @@ Requirements from PRD §9:
   to undo.
 - Renewal is automatic. The uptime check catches the case where it is not.
 
+### `TRUSTED_PROXIES`, and why it is empty here
+
+Because Caddy terminates TLS **inside the app's own container**, nothing sits
+in front of it and nobody is entitled to tell the application what scheme the
+request arrived on. `TRUSTED_PROXIES` is therefore empty in the topology above,
+and empty means trust nobody.
+
+Put a reverse proxy in front — a load balancer, another Caddy, a CDN — and the
+request reaches the container over plain HTTP on port 80 while the browser is
+on HTTPS. Trusting no proxy, Laravel reads the scheme as `http` and writes
+`http://` asset URLs into an `https://` page, which the browser blocks as mixed
+content: the app renders as a blank screen with no JavaScript.
+`X-Forwarded-Proto` is the answer, but only from a sender that has been named:
+
+```dotenv
+# The proxy's address or network. Comma-separated.
+# The prefix length must be above zero — see the refusal below.
+TRUSTED_PROXIES=10.0.0.0/8
+```
+
+**Anything meaning "anybody" is refused at boot.** `*`, `**`, `REMOTE_ADDR`,
+and **any entry with a prefix length of zero** — `0.0.0.0/0`, `::/0`, and also
+`10.0.0.0/0`, which is the example above with one character mistyped — all throw
+rather than starting, in every context, console and scheduler included. Docker
+publishes the app's port through its own iptables DNAT rules, which bypass ufw,
+so the container answers from outside the proxy too, and anyone reaching it
+directly could forge `X-Forwarded-For` and defeat the per-IP throttling on
+password reset.
+
+The zero-prefix case is the one worth knowing about: Symfony's `IpUtils`
+short-circuits on the prefix length rather than the base address, so *any*
+address written with `/0` matches every request. `10.0.0.0/8` and `10.0.0.0/0`
+differ by one character and by the entire internet, and without the refusal the
+second produces a working site and no error.
+
+`REMOTE_ADDR` is refused for the opposite reason — it is mapped to the
+connecting address, so it quietly trusts whoever reached the container. **If a
+future topology genuinely needs it** (a load balancer on an address you cannot
+know in advance — Fly, ECS, Cloudflare), that is a deliberate change to
+`AppServiceProvider::configureTrustedProxies()` with the reasoning recorded,
+not a value to smuggle past the check. The refusal is aimed at accidents and at
+the obvious spellings; somebody determined can still write
+`0.0.0.0/1,128.0.0.0/1`, and no per-entry check catches that.
+
+> [!warning] Changing this value needs the config cache rebuilt
+> **Every deployed environment caches the config**, so editing `.env` and
+> restarting is not enough — the old value stays in force with nothing said.
+> Staging caches it in the deploy workflow (`deploy-staging.yml`); production
+> caches it in `docker/entrypoint.sh`, which runs `config:cache` when
+> `APP_ENV=production`. (`scripts/update-staging.sh` also caches, but despite
+> its name it updates a local development checkout.) After changing the value:
+>
+> ```sh
+> docker compose -f compose.yaml exec -T app php artisan config:cache
+> ```
+>
+> **If the new value is refused, that command clears the cache before it
+> rebuilds it** — `config:cache` calls `config:clear` first — so a rejected
+> value leaves no cache at all and the box crash-loops on the next restart.
+> The way out is to fix `.env` and run it again; nothing is lost but the
+> minutes. Read the exception, which names the entry it refused.
+>
+> This block is here because an earlier draft said the opposite — that staging
+> does not cache, so a restart would do. It was wrong in the one way this
+> section is about: a value read from somewhere it is not actually read from.
+
+The value is read in `config/app.php` and applied by `AppServiceProvider`, not
+in `bootstrap/app.php` where the rest of the middleware is configured. That
+file's `withMiddleware` callback runs on `afterResolving(HttpKernel::class)`,
+and both `LoadEnvironmentVariables` and `LoadConfiguration` are bootstrappers
+that run later — so at that point `.env` has not been read at all and `config`
+is not bound. It shipped that way once and CI said so;
+`tests/Unit/TrustedProxiesTest.php` is what keeps it from coming back.
+
 ### Changing `APP_UID` or `APP_GID`
 
 The containers run as `APP_UID`:`APP_GID` from `.env` — the same mechanism in
