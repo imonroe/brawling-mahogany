@@ -177,6 +177,37 @@ Requirements from PRD §9:
   to undo.
 - Renewal is automatic. The uptime check catches the case where it is not.
 
+### `TRUSTED_PROXIES`, and why it is empty here
+
+Because Caddy terminates TLS **inside the app's own container**, nothing sits
+in front of it and nobody is entitled to tell the application what scheme the
+request arrived on. `TRUSTED_PROXIES` is therefore empty in the topology above,
+and empty means trust nobody.
+
+Put a reverse proxy in front — a load balancer, another Caddy, a CDN — and the
+request reaches the container over plain HTTP on port 80 while the browser is
+on HTTPS. Trusting no proxy, Laravel reads the scheme as `http` and writes
+`http://` asset URLs into an `https://` page, which the browser blocks as mixed
+content: the app renders as a blank screen with no JavaScript.
+`X-Forwarded-Proto` is the answer, but only from a sender that has been named:
+
+```dotenv
+# The proxy's address or network. Comma-separated. Never `*`.
+TRUSTED_PROXIES=10.0.0.0/8
+```
+
+**Never `*`.** Docker publishes the app's port through its own iptables DNAT
+rules, which bypass ufw, so the container answers from outside the proxy too. A
+wildcard lets anyone reach it directly with a forged `X-Forwarded-For` and
+defeat the per-IP throttling on password reset.
+
+The value is read in `config/app.php` and applied by `AppServiceProvider`, not
+in `bootstrap/app.php` where the rest of the middleware is configured — that
+file's `withMiddleware` callback runs before `LoadConfiguration`, so neither
+`config()` nor a `env()` under a cached config answers there. It shipped that
+way once and CI said so; `tests/Unit/TrustedProxiesTest.php` is what keeps it
+from coming back.
+
 ### Changing `APP_UID` or `APP_GID`
 
 The containers run as `APP_UID`:`APP_GID` from `.env` — the same mechanism in

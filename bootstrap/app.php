@@ -49,34 +49,24 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
         /*
-         * Who is allowed to tell us the request was HTTPS.
+         * Who is allowed to tell us the request was HTTPS is decided in
+         * `config/app.php` and applied by `AppServiceProvider::boot()`, not
+         * here — and the reason is that this closure cannot read it.
          *
-         * The documented topology terminates TLS in the app's own Caddy with
-         * nothing in front (docs/Deployment.md §3), and there `TRUSTED_PROXIES`
-         * is empty and we trust nobody — which is the safe default and why this
-         * reads from the environment rather than hard-coding a network.
+         * `withMiddleware()` registers its callback on
+         * `afterResolving(HttpKernel::class)`, which fires when
+         * `Application::handleRequest()` resolves the kernel — *before*
+         * `$kernel->handle()` runs `LoadConfiguration`. So `config()` is empty
+         * at this point, and `env()` answers only from the process
+         * environment, returning null wherever `config:cache` has run and the
+         * variable reaches the box through a `.env` file alone
+         * (`docker/entrypoint.sh` caches on every container start). Reading it
+         * here is the defect larastan's `noEnvCallsOutsideOfConfig` names.
          *
-         * Put a reverse proxy in front and the request reaches the container
-         * over plain HTTP on port 80 while the browser is on HTTPS. Trusting
-         * no proxy, Laravel believes the scheme is `http`, so every `asset()`
-         * URL it writes is `http://` — which a browser on an `https://` page
-         * blocks as mixed content, and the app renders as a blank screen with
-         * no JS. `X-Forwarded-Proto` is the answer, but only from a sender we
-         * have said is allowed to make that claim.
-         *
-         * Deliberately not `*`. Docker publishes the app's port through its own
-         * iptables DNAT rules, which bypass ufw — so the container answers from
-         * outside the proxy too, and a wildcard would let anyone reach it
-         * directly with a forged `X-Forwarded-For` and defeat the per-IP
-         * throttling on `ThrottlePasswordResetRequests`. Name the proxy's
-         * network, not everything.
+         * `TrustProxies::at()` sets a static that is resolved per request, so
+         * a provider's `boot()` — which runs inside `handle()`, before the
+         * middleware pipeline — is early enough and can read the config.
          */
-        $trustedProxies = array_values(array_filter(array_map(
-            trim(...),
-            explode(',', (string) env('TRUSTED_PROXIES', '')),
-        ), fn (string $proxy): bool => $proxy !== ''));
-
-        $middleware->trustProxies(at: $trustedProxies ?: null);
 
         /*
          * Order matters, and this is the order.

@@ -15,6 +15,7 @@ use App\Support\Notifications\Notify;
 use App\Support\Tenancy\TeamContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Auth;
@@ -79,6 +80,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureTrustedProxies();
         $this->configureMailGuardrail();
         $this->configureClientSurfaceLimits();
 
@@ -108,6 +110,37 @@ class AppServiceProvider extends ServiceProvider
         // PRD §9: a queue failure is alerted on within 15 minutes. The rule is
         // configured in Sentry; the report it fires on is this listener.
         Event::listen(JobFailed::class, ReportFailedJob::class);
+    }
+
+    /**
+     * Who may claim, via `X-Forwarded-Proto`, that the request was HTTPS.
+     *
+     * The list is `config/app.php`'s, which is where the comment explaining
+     * the choice lives. What belongs here is why the application of it does
+     * not sit in `bootstrap/app.php` beside every other middleware decision:
+     * `withMiddleware()`'s callback runs on
+     * `afterResolving(HttpKernel::class)`, before `LoadConfiguration`, so
+     * nothing there can read a config value and `env()` there answers only
+     * from the process environment — null on any box where `config:cache` has
+     * run and the variable arrives in a `.env` file.
+     *
+     * `TrustProxies::at()` writes a static the middleware resolves per
+     * request, and provider boot runs inside `$kernel->handle()` ahead of the
+     * middleware pipeline, so this is in force by the time it is read.
+     *
+     * Empty means trust nobody, which is both the documented topology
+     * (Deployment §3) and the safe direction to fail: an untrusted forwarded
+     * header is ignored rather than believed.
+     */
+    protected function configureTrustedProxies(): void
+    {
+        $proxies = config('app.trusted_proxies');
+
+        if (! is_array($proxies) || $proxies === []) {
+            return;
+        }
+
+        TrustProxies::at($proxies);
     }
 
     /**

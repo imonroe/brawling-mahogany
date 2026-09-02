@@ -56,6 +56,7 @@ the container which uses them transparently."*
 | `VAPID_*` | generated locally | unset | real | real |
 | `HORIZON_AUTHORIZED_EMAILS` | developer's address | unset | ops addresses | ops addresses |
 | `BUG_REPORT_ENABLED` / `BUG_REPORT_URL` | unset — no button | unset | real n8n form | real n8n form |
+| `TRUSTED_PROXIES` | unset — trust nobody | unset | unset, unless something terminates TLS in front of Caddy | same, and never `*` |
 
 ### The extraction driver defaults to refusing, and that is the control
 

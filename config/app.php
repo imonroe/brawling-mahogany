@@ -107,6 +107,36 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | Who may claim, via `X-Forwarded-Proto`, that the request arrived over
+    | HTTPS. Empty is correct for the documented topology (Deployment §3),
+    | where Caddy terminates TLS inside the app's own container with nothing
+    | in front of it, so nobody is trusted to make that claim.
+    |
+    | Set it only when a reverse proxy terminates TLS instead. Otherwise
+    | Laravel reads the scheme as `http`, writes `http://` asset URLs into an
+    | `https://` page, and the browser blocks them as mixed content. Give the
+    | proxy's address or network (comma-separated), never `*`: Docker
+    | publishes the app's port around ufw, so the container answers from
+    | outside the proxy too, and a wildcard lets anyone forge
+    | `X-Forwarded-For` and defeat the per-IP throttle on password reset.
+    |
+    | This is read by App\Providers\AppServiceProvider, and it lives here
+    | rather than in bootstrap/app.php because the `withMiddleware` callback
+    | runs on `afterResolving(HttpKernel::class)` — before `LoadConfiguration`
+    | — so neither `config()` nor a cached-config `env()` can be read there.
+    |
+    */
+
+    'trusted_proxies' => array_values(array_filter(
+        array_map(trim(...), explode(',', (string) env('TRUSTED_PROXIES', ''))),
+        static fn (string $proxy): bool => $proxy !== '',
+    )),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
