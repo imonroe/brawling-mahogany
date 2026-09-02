@@ -56,12 +56,14 @@ return Application::configure(basePath: dirname(__DIR__))
          * `withMiddleware()` registers its callback on
          * `afterResolving(HttpKernel::class)`, which fires when
          * `Application::handleRequest()` resolves the kernel — *before*
-         * `$kernel->handle()` runs `LoadConfiguration`. So `config()` is empty
-         * at this point, and `env()` answers only from the process
-         * environment, returning null wherever `config:cache` has run and the
-         * variable reaches the box through a `.env` file alone
-         * (`docker/entrypoint.sh` caches on every container start). Reading it
-         * here is the defect larastan's `noEnvCallsOutsideOfConfig` names.
+         * `$kernel->handle()` runs its bootstrappers. Both
+         * `LoadEnvironmentVariables` and `LoadConfiguration` are bootstrappers
+         * (`Foundation\Http\Kernel::$bootstrappers`), so at this point `.env`
+         * has not been read at all and `config` is not bound: `env()` answers
+         * only from the real process environment, and `config()` throws
+         * `Target class [config] does not exist`. Config caching does not come
+         * into it either way. Reading either here is the defect larastan's
+         * `noEnvCallsOutsideOfConfig` names.
          *
          * `TrustProxies::at()` sets a static that is resolved per request, so
          * a provider's `boot()` — which runs inside `handle()`, before the

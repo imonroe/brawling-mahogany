@@ -196,17 +196,31 @@ content: the app renders as a blank screen with no JavaScript.
 TRUSTED_PROXIES=10.0.0.0/8
 ```
 
-**Never `*`.** Docker publishes the app's port through its own iptables DNAT
-rules, which bypass ufw, so the container answers from outside the proxy too. A
-wildcard lets anyone reach it directly with a forged `X-Forwarded-For` and
-defeat the per-IP throttling on password reset.
+**A wildcard is refused at boot.** `TRUSTED_PROXIES=*` (or `**`) throws rather
+than starting, because Docker publishes the app's port through its own iptables
+DNAT rules, which bypass ufw — so the container answers from outside the proxy
+too, and a wildcard lets anyone reach it directly with a forged
+`X-Forwarded-For` and defeat the per-IP throttling on password reset.
+
+It is *refused* rather than merely discouraged because ignoring it is what
+would otherwise happen silently: Laravel tests the wildcard against the string
+`'*'`, and a value parsed into a list arrives as `['*']`, which misses that
+branch and reaches Symfony as a literal address matching nothing. The setting
+would look set and do nothing. Name a network.
+
+Changing the value on a box where `APP_ENV=production` needs
+`php artisan config:cache` re-run, because `docker/entrypoint.sh` caches the
+config there; staging runs `APP_ENV=staging` and does not cache, so a restart
+is enough.
 
 The value is read in `config/app.php` and applied by `AppServiceProvider`, not
-in `bootstrap/app.php` where the rest of the middleware is configured — that
-file's `withMiddleware` callback runs before `LoadConfiguration`, so neither
-`config()` nor a `env()` under a cached config answers there. It shipped that
-way once and CI said so; `tests/Unit/TrustedProxiesTest.php` is what keeps it
-from coming back.
+in `bootstrap/app.php` where the rest of the middleware is configured. That
+file's `withMiddleware` callback runs on `afterResolving(HttpKernel::class)`,
+and both `LoadEnvironmentVariables` and `LoadConfiguration` are bootstrappers
+that run later — so at that point `.env` has not been read at all and `config`
+is not bound. Config caching does not come into it. It shipped that way once
+and CI said so; `tests/Unit/TrustedProxiesTest.php` is what keeps it from
+coming back.
 
 ### Changing `APP_UID` or `APP_GID`
 

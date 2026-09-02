@@ -113,19 +113,20 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * Who may claim, via `X-Forwarded-Proto`, that the request was HTTPS.
+     * Who may claim, via the `X-Forwarded-*` headers, what the request really was.
      *
-     * The list is `config/app.php`'s, which is where the comment explaining
-     * the choice lives. What belongs here is why the application of it does
-     * not sit in `bootstrap/app.php` beside every other middleware decision:
-     * `withMiddleware()`'s callback runs on
-     * `afterResolving(HttpKernel::class)`, before `LoadConfiguration`, so
-     * nothing there can read a config value and `env()` there answers only
-     * from the process environment — null on any box where `config:cache` has
-     * run and the variable arrives in a `.env` file.
+     * The list is `config/app.php`'s, which is where the argument for the
+     * value lives. What belongs here is why applying it is not in
+     * `bootstrap/app.php` beside every other middleware decision:
+     * `withMiddleware()`'s callback runs on `afterResolving(HttpKernel::class)`,
+     * and **both** `LoadEnvironmentVariables` and `LoadConfiguration` are
+     * bootstrappers that run later, inside `$kernel->handle()`. So at that
+     * point `.env` has not been read at all and `config` is not even bound —
+     * `env()` answers only from the real process environment, and `config()`
+     * throws `Target class [config] does not exist`.
      *
      * `TrustProxies::at()` writes a static the middleware resolves per
-     * request, and provider boot runs inside `$kernel->handle()` ahead of the
+     * request, and provider boot runs inside `handle()` ahead of the
      * middleware pipeline, so this is in force by the time it is read.
      *
      * Empty means trust nobody, which is both the documented topology
@@ -138,6 +139,38 @@ class AppServiceProvider extends ServiceProvider
 
         if (! is_array($proxies) || $proxies === []) {
             return;
+        }
+
+        /*
+         * A wildcard is refused rather than passed on, because passing it on
+         * does nothing and looks like it does something.
+         *
+         * `TrustProxies::setTrustedProxyIpAddresses()` tests `$trustedIps ===
+         * '*'` against the **string**. `TRUSTED_PROXIES=*` parses to `['*']`
+         * here, which misses that branch and reaches
+         * `setTrustedProxyIpAddressesToSpecificIps()`, where `*` is handed to
+         * Symfony as a literal address and matches nothing — so the setting
+         * three documents describe as dangerous is in fact inert, which is the
+         * worse half of the trade: somebody sets it, believes their proxy is
+         * trusted, and ships a site rendering `http://` assets into an
+         * `https://` page with no error anywhere.
+         *
+         * Refusing at boot is `configureMailGuardrail()`'s shape one method
+         * along, and for the same reason: the cheap failure gets the loud
+         * check. Naming a network is the only supported answer, and the
+         * documentation says so.
+         */
+        $wildcards = array_values(array_filter(
+            $proxies,
+            static fn (string $proxy): bool => in_array($proxy, ['*', '**'], true),
+        ));
+
+        if ($wildcards !== []) {
+            throw new RuntimeException(
+                'TRUSTED_PROXIES may not be a wildcard. Name the proxy\'s address or network instead — '.
+                'a wildcard lets anyone reaching the container directly forge X-Forwarded-For. '.
+                'See docs/Deployment.md §3.',
+            );
         }
 
         TrustProxies::at($proxies);

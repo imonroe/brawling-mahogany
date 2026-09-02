@@ -110,23 +110,30 @@ return [
     | Trusted Proxies
     |--------------------------------------------------------------------------
     |
-    | Who may claim, via `X-Forwarded-Proto`, that the request arrived over
-    | HTTPS. Empty is correct for the documented topology (Deployment §3),
-    | where Caddy terminates TLS inside the app's own container with nothing
-    | in front of it, so nobody is trusted to make that claim.
+    | Who may claim, via the `X-Forwarded-*` headers, what the request really
+    | was — the scheme, the host, the port and the client address. Empty is
+    | correct for the documented topology (Deployment §3), where Caddy
+    | terminates TLS inside the app's own container with nothing in front of
+    | it, so nobody is entitled to make that claim.
     |
     | Set it only when a reverse proxy terminates TLS instead. Otherwise
     | Laravel reads the scheme as `http`, writes `http://` asset URLs into an
     | `https://` page, and the browser blocks them as mixed content. Give the
-    | proxy's address or network (comma-separated), never `*`: Docker
-    | publishes the app's port around ufw, so the container answers from
-    | outside the proxy too, and a wildcard lets anyone forge
-    | `X-Forwarded-For` and defeat the per-IP throttle on password reset.
+    | proxy's address or network, comma-separated.
     |
-    | This is read by App\Providers\AppServiceProvider, and it lives here
-    | rather than in bootstrap/app.php because the `withMiddleware` callback
-    | runs on `afterResolving(HttpKernel::class)` — before `LoadConfiguration`
-    | — so neither `config()` nor a cached-config `env()` can be read there.
+    | A wildcard (`*` or `**`) is **refused at boot** by AppServiceProvider
+    | rather than accepted: a wildcard would let anyone reaching the container
+    | directly — Docker publishes the app's port through its own iptables DNAT
+    | rules, which bypass ufw — forge `X-Forwarded-For` and defeat the per-IP
+    | throttle on password reset. It is refused rather than ignored because
+    | parsing one into this array silently produces a list that matches
+    | nothing, which looks like it worked.
+    |
+    | Read by App\Providers\AppServiceProvider, not by bootstrap/app.php: the
+    | `withMiddleware` callback runs on `afterResolving(HttpKernel::class)`,
+    | before the `LoadEnvironmentVariables` and `LoadConfiguration`
+    | bootstrappers, so nothing there can read either a config value or a
+    | `.env` one.
     |
     */
 
