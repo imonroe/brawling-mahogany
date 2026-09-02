@@ -142,50 +142,69 @@ class AppServiceProvider extends ServiceProvider
         }
 
         /*
-         * Anything meaning "trust whoever connected" is refused, and the list
-         * is broader than the wildcard for a reason review had to find twice.
+         * Anything meaning "trust whoever connected" is refused, and the check
+         * is a predicate rather than a list of spellings because two rounds of
+         * review got past a list.
          *
-         * `TrustProxies::setTrustedProxyIpAddresses()` tests `$trustedIps ===
-         * '*'` against the **string**. `TRUSTED_PROXIES=*` parses to `['*']`
-         * here, misses that branch, and reaches
-         * `setTrustedProxyIpAddressesToSpecificIps()` where `*` is handed to
-         * Symfony as a literal address matching nothing — so the value the
-         * documentation forbids was in fact inert, which is the worse half of
-         * the trade: somebody sets it, believes their proxy is trusted, and
-         * ships a site rendering `http://` assets into an `https://` page with
+         * Round 1 refused `*`. `TrustProxies::setTrustedProxyIpAddresses()`
+         * tests `$trustedIps === '*'` against the **string**, so
+         * `TRUSTED_PROXIES=*` parsed to `['*']` here missed that branch and
+         * reached Symfony as a literal address matching nothing — the value
+         * four documents forbid was inert, which is worse than either
+         * alternative: it looks set and does nothing.
+         *
+         * Round 2 added `REMOTE_ADDR` (that same method maps it to the
+         * connecting address) and the literal strings `0.0.0.0/0` and `::/0`.
+         * Round 3 got past that too, and the hole is a one-character typo of
+         * the runbook's own example: `IpUtils::checkIp4()` short-circuits on
+         * the **prefix length**, not the base address —
+         * `if ('0' === $netmask) return filter_var($address, …) !== false;` —
+         * so *any* valid address with `/0` matches every request.
+         * `10.0.0.0/8` mistyped as `10.0.0.0/0` silently turns "trust the
+         * private network" into "trust the internet", with a working site and
          * no error anywhere.
          *
-         * Refusing only `*` made the check a **spelling test**, which is what
-         * round 2 caught. `REMOTE_ADDR` is mapped by that same method to the
-         * connecting address, and `0.0.0.0/0`/`::/0` are what the framework
-         * itself expands `*` into — all three measure identically to the
-         * wildcard (`isSecure` true, `ip` taken from `X-Forwarded-For`), and
-         * `REMOTE_ADDR` is precisely what somebody tries next when `*` throws.
-         * The rule the documentation states is *name a network*, so every
-         * spelling of "anybody" is refused rather than the one.
+         * So a zero prefix length is refused however it is spelled, which is
+         * shorter than the list it replaces as well as complete against that
+         * whole family.
          *
-         * This is `configureMailGuardrail()`'s shape one method along, and for
-         * the same reason: the cheap failure gets the loud check. It throws in
-         * every context, console and queue included — a box configured this
-         * way should not run a scheduler either, and a refusal that only
-         * covered HTTP would let the misconfiguration sit unnoticed until a
-         * request arrived.
+         * ## What this does not catch, stated rather than implied
+         *
+         * A determined operator can still cover the address space with
+         * `0.0.0.0/1,128.0.0.0/1`, and no per-entry check finds that without
+         * real range-union arithmetic. This refusal is against **accidents and
+         * the obvious spellings** — the typo above, and the thing somebody
+         * reaches for when `*` throws — not against somebody who has decided
+         * to trust everybody and is willing to work at it. Deployment §3 names
+         * the deliberate path for a topology that genuinely needs one.
+         *
+         * `configureMailGuardrail()`'s shape one method along, and for the same
+         * reason: the cheap failure gets the loud check. It throws in every
+         * context, console and queue included — a box configured this way
+         * should not run a scheduler either.
          */
-        $refused = array_filter(
-            $proxies,
-            static fn (string $proxy): bool => in_array(
-                strtoupper(trim($proxy)),
-                ['*', '**', 'REMOTE_ADDR', '0.0.0.0/0', '::/0'],
-                true,
-            ),
-        );
+        $refused = array_filter($proxies, static function (string $proxy): bool {
+            $value = trim($proxy);
+
+            if (in_array(strtoupper($value), ['*', '**', 'REMOTE_ADDR'], true)) {
+                return true;
+            }
+
+            if (! str_contains($value, '/')) {
+                return false;
+            }
+
+            [, $prefix] = explode('/', $value, 2);
+
+            return is_numeric($prefix) && (int) $prefix === 0;
+        });
 
         if ($refused !== []) {
             throw new RuntimeException(sprintf(
                 'TRUSTED_PROXIES may not mean "anybody" (refused: %s). Name the proxy\'s address or '.
-                'network instead — Docker publishes the app\'s port around ufw, so the container '.
-                'answers from outside the proxy and anyone reaching it directly could forge '.
-                'X-Forwarded-For. See docs/Deployment.md §3.',
+                'network, with a prefix length above zero — Docker publishes the app\'s port around '.
+                'ufw, so the container answers from outside the proxy and anyone reaching it directly '.
+                'could forge X-Forwarded-For. See docs/Deployment.md §3.',
                 implode(', ', $refused),
             ));
         }

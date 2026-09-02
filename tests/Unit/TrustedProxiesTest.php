@@ -60,8 +60,10 @@ afterEach(function (): void {
  * than no test"*.
  *
  * `boot()` directly rather than `register(force: true)`: re-registering drops
- * already-resolved singletons and adds a second `JobFailed` listener, none of
- * which this is about.
+ * already-resolved singletons, which this is not about. (An earlier version of
+ * this paragraph also claimed it avoided a duplicate `JobFailed` listener —
+ * measured, `boot()` adds one too, 4 listeners to 5. The singleton half is the
+ * whole reason.)
  *
  * And not the environment plus `refreshApplication()`, which would cover the
  * config expression in the same pass. Whether a `$_SERVER` value set mid-run
@@ -182,11 +184,51 @@ it('reads a comma-separated list, trimmed, with the blanks dropped', function ()
 it('refuses every spelling of anybody, not just the wildcard', function (string $value): void {
     expect(fn () => bootWithTrustedProxies([$value]))
         ->toThrow(RuntimeException::class, 'may not mean "anybody"');
-})->with(['*', '**', 'REMOTE_ADDR', '0.0.0.0/0', '::/0']);
+})->with([
+    '*',
+    '**',
+    'REMOTE_ADDR',
+    // Case matters because `strtoupper()` is what makes it not matter, and
+    // removing that call otherwise leaves the suite green.
+    'remote_addr',
+    '0.0.0.0/0',
+    '::/0',
+    /*
+     * The round-3 blocker, and the reason this is a predicate rather than a
+     * list. `IpUtils::checkIp4()` short-circuits on the prefix length and not
+     * the base address, so every one of these matches every request — and the
+     * first is the runbook's own `10.0.0.0/8` example with one character
+     * mistyped.
+     */
+    '10.0.0.0/0',
+    '0.0.0.0/00',
+    '192.0.2.10/0',
+    '::0/0',
+]);
 
 it('refuses one bad entry in an otherwise sound list', function (): void {
     expect(fn () => bootWithTrustedProxies(['10.0.0.0/8', 'REMOTE_ADDR']))
         ->toThrow(RuntimeException::class, 'REMOTE_ADDR');
+});
+
+/*
+ * Refusing has to mean *never applied*, and until this existed that was held
+ * by the order of two statements and nothing else: moving `TrustProxies::at()`
+ * above the refusal left all twelve cases green while the refused list was in
+ * force for the life of the process. A throw is not a rollback.
+ */
+it('applies nothing when it refuses', function (): void {
+    TrustProxies::flushState();
+
+    try {
+        bootWithTrustedProxies(['10.0.0.0/0']);
+    } catch (RuntimeException) {
+        // The refusal is the subject of the test above; this one is about what
+        // is left behind by it.
+    }
+
+    expect(schemeSeenBy(forwardedRequest('198.51.100.7')))
+        ->toBeFalse('a refused list was applied before the refusal threw — the throw is not a rollback');
 });
 
 /*
@@ -198,8 +240,16 @@ it('refuses one bad entry in an otherwise sound list', function (): void {
 it('has the middleware in the global stack', function (): void {
     $kernel = app(HttpKernel::class);
 
-    expect((new ReflectionProperty($kernel, 'middleware'))->getValue($kernel))
-        ->toContain(TrustProxies::class);
+    /*
+     * `in_array` inside the expectation rather than `toContain`, because
+     * `toContain` is variadic — a custom message there becomes a second needle
+     * and the assertion starts looking for it. This repository learned that in
+     * 672fee9 and it was worth relearning here.
+     */
+    $middleware = (new ReflectionProperty($kernel, 'middleware'))->getValue($kernel);
+
+    expect(is_array($middleware) && in_array(TrustProxies::class, $middleware, true))
+        ->toBeTrue('TrustProxies left the global stack — every other case here describes a request that no longer happens');
 });
 
 /*
@@ -231,6 +281,15 @@ it('reads no environment or config value in bootstrap/app.php', function (): voi
      * Tokenised rather than grepped: the explanation of *why* this rule exists
      * is a comment in that file naming both functions, and a substring search
      * would match the argument for the rule as a breach of it.
+     *
+     * It covers the **whole file**, which over-reaches: `withExceptions()`'s
+     * `respond()` callback and `withRouting()`'s `then:` closure run later,
+     * when config is bound, so a `config()` call in either would be legitimate
+     * and this would still fail. That is deliberate for now — every call in
+     * this file today is in the early closure, and the cost of the over-reach
+     * is one failing test telling somebody to narrow this guard, against the
+     * cost of missing the case it exists for. Narrow it to the
+     * `withMiddleware` callback when a real need appears, not before.
      */
     $tokens = array_values(array_filter(
         token_get_all((string) $source),

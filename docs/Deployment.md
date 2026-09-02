@@ -192,41 +192,56 @@ content: the app renders as a blank screen with no JavaScript.
 `X-Forwarded-Proto` is the answer, but only from a sender that has been named:
 
 ```dotenv
-# The proxy's address or network. Comma-separated. Never `*`.
+# The proxy's address or network. Comma-separated.
+# The prefix length must be above zero — see the refusal below.
 TRUSTED_PROXIES=10.0.0.0/8
 ```
 
 **Anything meaning "anybody" is refused at boot.** `*`, `**`, `REMOTE_ADDR`,
-`0.0.0.0/0` and `::/0` all throw rather than starting, in every context —
-console and scheduler included. Docker publishes the app's port through its own
-iptables DNAT rules, which bypass ufw, so the container answers from outside the
-proxy too, and anyone reaching it directly could forge `X-Forwarded-For` and
-defeat the per-IP throttling on password reset.
+and **any entry with a prefix length of zero** — `0.0.0.0/0`, `::/0`, and also
+`10.0.0.0/0`, which is the example above with one character mistyped — all throw
+rather than starting, in every context, console and scheduler included. Docker
+publishes the app's port through its own iptables DNAT rules, which bypass ufw,
+so the container answers from outside the proxy too, and anyone reaching it
+directly could forge `X-Forwarded-For` and defeat the per-IP throttling on
+password reset.
 
-They are *refused* rather than merely discouraged because ignoring them is what
-would otherwise happen silently. Laravel tests the wildcard against the string
-`'*'`, and a value parsed into a list arrives as `['*']`, which misses that
-branch and reaches Symfony as a literal address matching nothing — the setting
-would look set and do nothing. `REMOTE_ADDR` has the opposite failure: it is
-mapped to the connecting address and quietly trusts whoever reached the
-container. Name a network.
+The zero-prefix case is the one worth knowing about: Symfony's `IpUtils`
+short-circuits on the prefix length rather than the base address, so *any*
+address written with `/0` matches every request. `10.0.0.0/8` and `10.0.0.0/0`
+differ by one character and by the entire internet, and without the refusal the
+second produces a working site and no error.
+
+`REMOTE_ADDR` is refused for the opposite reason — it is mapped to the
+connecting address, so it quietly trusts whoever reached the container. **If a
+future topology genuinely needs it** (a load balancer on an address you cannot
+know in advance — Fly, ECS, Cloudflare), that is a deliberate change to
+`AppServiceProvider::configureTrustedProxies()` with the reasoning recorded,
+not a value to smuggle past the check. The refusal is aimed at accidents and at
+the obvious spellings; somebody determined can still write
+`0.0.0.0/1,128.0.0.0/1`, and no per-entry check catches that.
 
 > [!warning] Changing this value needs the config cache rebuilt
 > **Every deployed environment caches the config**, so editing `.env` and
 > restarting is not enough — the old value stays in force with nothing said.
-> Staging caches it in the deploy workflow (`deploy-staging.yml`) and in
-> `scripts/update-staging.sh`; production caches it there *and* in
-> `docker/entrypoint.sh`, which runs `config:cache` when `APP_ENV=production`.
-> After changing it, run:
+> Staging caches it in the deploy workflow (`deploy-staging.yml`); production
+> caches it in `docker/entrypoint.sh`, which runs `config:cache` when
+> `APP_ENV=production`. (`scripts/update-staging.sh` also caches, but despite
+> its name it updates a local development checkout.) After changing the value:
 >
 > ```sh
 > docker compose -f compose.yaml exec -T app php artisan config:cache
 > ```
 >
-> This paragraph is here because an earlier draft of it said the opposite —
-> that staging does not cache, so a restart would do. It was wrong in the one
-> way this section is about: a value read from somewhere it is not actually
-> read from.
+> **If the new value is refused, that command clears the cache before it
+> rebuilds it** — `config:cache` calls `config:clear` first — so a rejected
+> value leaves no cache at all and the box crash-loops on the next restart.
+> The way out is to fix `.env` and run it again; nothing is lost but the
+> minutes. Read the exception, which names the entry it refused.
+>
+> This block is here because an earlier draft said the opposite — that staging
+> does not cache, so a restart would do. It was wrong in the one way this
+> section is about: a value read from somewhere it is not actually read from.
 
 The value is read in `config/app.php` and applied by `AppServiceProvider`, not
 in `bootstrap/app.php` where the rest of the middleware is configured. That

@@ -121,8 +121,9 @@ return [
     | `https://` page, and the browser blocks them as mixed content. Give the
     | proxy's address or network, comma-separated.
     |
-    | Anything meaning "anybody" — `*`, `**`, `REMOTE_ADDR`, `0.0.0.0/0`,
-    | `::/0` — is **refused at boot** by AppServiceProvider rather than
+    | Anything meaning "anybody" — `*`, `**`, `REMOTE_ADDR`, or any entry whose
+    | prefix length is zero (`0.0.0.0/0`, `::/0`, and `10.0.0.0/0`, which is a
+    | one-character typo of a sound value) — is **refused at boot** rather than
     | accepted: it would let anyone reaching the container directly (Docker
     | publishes the app's port through its own iptables DNAT rules, which
     | bypass ufw) forge `X-Forwarded-For` and defeat the per-IP throttle on

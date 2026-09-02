@@ -49,25 +49,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
         /*
-         * Who is allowed to tell us the request was HTTPS is decided in
-         * `config/app.php` and applied by `AppServiceProvider::boot()`, not
-         * here — and the reason is that this closure cannot read it.
-         *
-         * `withMiddleware()` registers its callback on
-         * `afterResolving(HttpKernel::class)`, which fires when
-         * `Application::handleRequest()` resolves the kernel — *before*
-         * `$kernel->handle()` runs its bootstrappers. Both
-         * `LoadEnvironmentVariables` and `LoadConfiguration` are bootstrappers
-         * (`Foundation\Http\Kernel::$bootstrappers`), so at this point `.env`
-         * has not been read at all and `config` is not bound: `env()` answers
-         * only from the real process environment, and `config()` throws
-         * `Target class [config] does not exist`. Config caching does not come
-         * into it either way. Reading either here is the defect larastan's
-         * `noEnvCallsOutsideOfConfig` names.
-         *
-         * `TrustProxies::at()` sets a static that is resolved per request, so
-         * a provider's `boot()` — which runs inside `handle()`, before the
-         * middleware pipeline — is early enough and can read the config.
+         * Trusted proxies are configured in `config/app.php` and applied by
+         * `AppServiceProvider::boot()`, deliberately not here: this closure
+         * runs on `afterResolving(HttpKernel::class)`, before the
+         * `LoadEnvironmentVariables` and `LoadConfiguration` bootstrappers, so
+         * `.env` is unread and `config` is unbound. The argument is in
+         * `config/app.php` and `tests/Unit/TrustedProxiesTest.php`; repeating
+         * it here is how three rounds of review found three wrong versions of
+         * it in three files.
          */
 
         /*
