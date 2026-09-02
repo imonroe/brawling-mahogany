@@ -164,9 +164,9 @@ class AppServiceProvider extends ServiceProvider
          * private network" into "trust the internet", with a working site and
          * no error anywhere.
          *
-         * So a zero prefix length is refused however it is spelled, which is
-         * shorter than the list it replaces as well as complete against that
-         * whole family.
+         * So a zero prefix length is refused however it is spelled — one rule
+         * covering a family that three explicit strings did not, though it
+         * takes more lines than they did.
          *
          * ## What this does not catch, stated rather than implied
          *
