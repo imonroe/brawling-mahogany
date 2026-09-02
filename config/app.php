@@ -121,13 +121,18 @@ return [
     | `https://` page, and the browser blocks them as mixed content. Give the
     | proxy's address or network, comma-separated.
     |
-    | A wildcard (`*` or `**`) is **refused at boot** by AppServiceProvider
-    | rather than accepted: a wildcard would let anyone reaching the container
-    | directly — Docker publishes the app's port through its own iptables DNAT
-    | rules, which bypass ufw — forge `X-Forwarded-For` and defeat the per-IP
-    | throttle on password reset. It is refused rather than ignored because
-    | parsing one into this array silently produces a list that matches
-    | nothing, which looks like it worked.
+    | Anything meaning "anybody" — `*`, `**`, `REMOTE_ADDR`, `0.0.0.0/0`,
+    | `::/0` — is **refused at boot** by AppServiceProvider rather than
+    | accepted: it would let anyone reaching the container directly (Docker
+    | publishes the app's port through its own iptables DNAT rules, which
+    | bypass ufw) forge `X-Forwarded-For` and defeat the per-IP throttle on
+    | password reset. Refused rather than ignored, because parsing `*` into
+    | this array produces a list matching nothing while `REMOTE_ADDR` produces
+    | one that trusts the caller — one looks like it worked and the other
+    | quietly is the thing the rule forbids.
+    |
+    | Changing this value needs `php artisan config:cache` re-run wherever the
+    | config is cached, which is every deployed environment (Deployment §3).
     |
     | Read by App\Providers\AppServiceProvider, not by bootstrap/app.php: the
     | `withMiddleware` callback runs on `afterResolving(HttpKernel::class)`,

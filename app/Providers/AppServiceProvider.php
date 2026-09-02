@@ -142,35 +142,52 @@ class AppServiceProvider extends ServiceProvider
         }
 
         /*
-         * A wildcard is refused rather than passed on, because passing it on
-         * does nothing and looks like it does something.
+         * Anything meaning "trust whoever connected" is refused, and the list
+         * is broader than the wildcard for a reason review had to find twice.
          *
          * `TrustProxies::setTrustedProxyIpAddresses()` tests `$trustedIps ===
          * '*'` against the **string**. `TRUSTED_PROXIES=*` parses to `['*']`
-         * here, which misses that branch and reaches
-         * `setTrustedProxyIpAddressesToSpecificIps()`, where `*` is handed to
-         * Symfony as a literal address and matches nothing — so the setting
-         * three documents describe as dangerous is in fact inert, which is the
-         * worse half of the trade: somebody sets it, believes their proxy is
-         * trusted, and ships a site rendering `http://` assets into an
-         * `https://` page with no error anywhere.
+         * here, misses that branch, and reaches
+         * `setTrustedProxyIpAddressesToSpecificIps()` where `*` is handed to
+         * Symfony as a literal address matching nothing — so the value the
+         * documentation forbids was in fact inert, which is the worse half of
+         * the trade: somebody sets it, believes their proxy is trusted, and
+         * ships a site rendering `http://` assets into an `https://` page with
+         * no error anywhere.
          *
-         * Refusing at boot is `configureMailGuardrail()`'s shape one method
-         * along, and for the same reason: the cheap failure gets the loud
-         * check. Naming a network is the only supported answer, and the
-         * documentation says so.
+         * Refusing only `*` made the check a **spelling test**, which is what
+         * round 2 caught. `REMOTE_ADDR` is mapped by that same method to the
+         * connecting address, and `0.0.0.0/0`/`::/0` are what the framework
+         * itself expands `*` into — all three measure identically to the
+         * wildcard (`isSecure` true, `ip` taken from `X-Forwarded-For`), and
+         * `REMOTE_ADDR` is precisely what somebody tries next when `*` throws.
+         * The rule the documentation states is *name a network*, so every
+         * spelling of "anybody" is refused rather than the one.
+         *
+         * This is `configureMailGuardrail()`'s shape one method along, and for
+         * the same reason: the cheap failure gets the loud check. It throws in
+         * every context, console and queue included — a box configured this
+         * way should not run a scheduler either, and a refusal that only
+         * covered HTTP would let the misconfiguration sit unnoticed until a
+         * request arrived.
          */
-        $wildcards = array_values(array_filter(
+        $refused = array_filter(
             $proxies,
-            static fn (string $proxy): bool => in_array($proxy, ['*', '**'], true),
-        ));
+            static fn (string $proxy): bool => in_array(
+                strtoupper(trim($proxy)),
+                ['*', '**', 'REMOTE_ADDR', '0.0.0.0/0', '::/0'],
+                true,
+            ),
+        );
 
-        if ($wildcards !== []) {
-            throw new RuntimeException(
-                'TRUSTED_PROXIES may not be a wildcard. Name the proxy\'s address or network instead — '.
-                'a wildcard lets anyone reaching the container directly forge X-Forwarded-For. '.
-                'See docs/Deployment.md §3.',
-            );
+        if ($refused !== []) {
+            throw new RuntimeException(sprintf(
+                'TRUSTED_PROXIES may not mean "anybody" (refused: %s). Name the proxy\'s address or '.
+                'network instead — Docker publishes the app\'s port around ufw, so the container '.
+                'answers from outside the proxy and anyone reaching it directly could forge '.
+                'X-Forwarded-For. See docs/Deployment.md §3.',
+                implode(', ', $refused),
+            ));
         }
 
         TrustProxies::at($proxies);

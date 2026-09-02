@@ -41,26 +41,39 @@ use Illuminate\Http\Request;
  * that is a provider boot rather than a whole-application refresh.
  */
 afterEach(function (): void {
+    /*
+     * `flushState()` is the framework's own and is what clears the static
+     * these tests set. Symfony's `Request` statics are left alone: the
+     * middleware sets them per request, and writing a guessed "default" back
+     * would be a fake restore rather than a real one.
+     */
     TrustProxies::flushState();
-    Request::setTrustedProxies([], Request::HEADER_X_FORWARDED_FOR);
 });
 
 /**
- * Apply the configured list the way a booting application applies it.
+ * Apply the configured list by running the real `AppServiceProvider::boot()`.
  *
- * `register(force: true)` re-registers the provider and, because the
- * application is already booted, boots it immediately — so this runs the real
- * `AppServiceProvider::boot()`. Delete `$this->configureTrustedProxies();`
- * from it and these fail, which is the whole point: the first version of this
- * file reflection-invoked the private method, and review showed the wiring
- * could be deleted with every test still green.
+ * Delete `$this->configureTrustedProxies();` from it and these fail, which is
+ * the whole point: the first version of this file reflection-invoked the
+ * method, and review showed the wiring could be deleted with every test still
+ * green — CLAUDE.md's *"a test named for a promise it does not assert is worse
+ * than no test"*.
  *
- * Why not set the environment and call `refreshApplication()` instead, which
- * would cover the config expression in the same pass: `LoadEnvironmentVariables`
- * runs on every boot and **overwrites** `$_SERVER` from `.env`, which ships
- * `TRUSTED_PROXIES=` empty in `.env.example` and is copied to `.env` by CI. So
- * a value set mid-run does not survive the refresh — measured. The parsing is
- * covered separately below, against a fresh read of the file.
+ * `boot()` directly rather than `register(force: true)`: re-registering drops
+ * already-resolved singletons and adds a second `JobFailed` listener, none of
+ * which this is about.
+ *
+ * And not the environment plus `refreshApplication()`, which would cover the
+ * config expression in the same pass. Whether a `$_SERVER` value set mid-run
+ * survives another boot depends on whether the variable is already externally
+ * defined — phpdotenv's writer is immutable, so `.env` loses to a real process
+ * variable and wins over one that only appeared mid-run. That makes the answer
+ * differ between CI (`.env` copied from `.env.example`) and `make check` in the
+ * container (`env_file: .env` puts it in the real environment), which is
+ * CLAUDE.md's *"a pin that cannot pin"* — a test resting on it would be green
+ * in one and red in the other. The parsing is covered separately, against a
+ * fresh read of the file, where `env()` reads `$_SERVER` live and no boot
+ * intervenes.
  */
 function bootWithTrustedProxies(array $proxies): void
 {
@@ -68,7 +81,7 @@ function bootWithTrustedProxies(array $proxies): void
 
     TrustProxies::flushState();
 
-    app()->register(new AppServiceProvider(app()), force: true);
+    (new AppServiceProvider(app()))->boot();
 }
 
 function forwardedRequest(string $from): Request
@@ -90,7 +103,8 @@ function schemeSeenBy(Request $request): bool
 it('believes a forwarded scheme from a configured proxy', function (): void {
     bootWithTrustedProxies(['192.0.2.10']);
 
-    expect(schemeSeenBy(forwardedRequest('192.0.2.10')))->toBeTrue();
+    expect(schemeSeenBy(forwardedRequest('192.0.2.10')))
+        ->toBeTrue('a forwarded scheme from the configured proxy was not believed — is boot() still applying the list?');
 });
 
 /*
@@ -103,7 +117,8 @@ it('believes a forwarded scheme from a configured proxy', function (): void {
 it('ignores a forwarded scheme from anybody else', function (): void {
     bootWithTrustedProxies(['192.0.2.10']);
 
-    expect(schemeSeenBy(forwardedRequest('198.51.100.7')))->toBeFalse();
+    expect(schemeSeenBy(forwardedRequest('198.51.100.7')))
+        ->toBeFalse('a forwarded scheme was believed from an address that is not a configured proxy');
 });
 
 /*
@@ -115,7 +130,8 @@ it('ignores a forwarded scheme from anybody else', function (): void {
 it('trusts nobody when nothing is configured', function (): void {
     bootWithTrustedProxies([]);
 
-    expect(schemeSeenBy(forwardedRequest('192.0.2.10')))->toBeFalse();
+    expect(schemeSeenBy(forwardedRequest('192.0.2.10')))
+        ->toBeFalse('an empty list trusted somebody — the safe direction is to trust nobody');
 });
 
 it('reads a comma-separated list, trimmed, with the blanks dropped', function (): void {
@@ -149,22 +165,28 @@ it('reads a comma-separated list, trimmed, with the blanks dropped', function ()
 });
 
 /*
- * A wildcard is refused rather than ignored, and the reason is that ignoring it
- * is what the framework already does by accident.
+ * Every spelling of "anybody" is refused, not just the wildcard.
  *
  * `TrustProxies::setTrustedProxyIpAddresses()` compares `$trustedIps === '*'`
- * against the **string**. Parsed into `['*']` it misses that branch entirely
- * and `*` reaches Symfony as a literal address, matching nothing — measured:
- * `isSecure` false, `ip` the peer's. So the value three documents call
- * dangerous does nothing at all, and somebody who sets it believes their proxy
- * is trusted while the site renders `http://` assets into an `https://` page.
+ * against the **string**. Parsed into `['*']` it misses that branch and `*`
+ * reaches Symfony as a literal address matching nothing — measured: `isSecure`
+ * false, `ip` the peer's. So the value three documents called dangerous did
+ * nothing at all, and somebody who set it believed their proxy was trusted.
+ *
+ * Refusing only `*` then made the check a spelling test, which is what round 2
+ * of review caught. `REMOTE_ADDR` and `0.0.0.0/0`/`::/0` measure identically to
+ * a working wildcard — `isSecure` true, `ip` taken from `X-Forwarded-For` —
+ * and `REMOTE_ADDR` is what somebody reaches for once `*` throws. Each is a
+ * case here because each was reachable when only `*` was named.
  */
-it('refuses a wildcard rather than silently ignoring it', function (): void {
-    expect(fn () => bootWithTrustedProxies(['*']))
-        ->toThrow(RuntimeException::class, 'may not be a wildcard');
+it('refuses every spelling of anybody, not just the wildcard', function (string $value): void {
+    expect(fn () => bootWithTrustedProxies([$value]))
+        ->toThrow(RuntimeException::class, 'may not mean "anybody"');
+})->with(['*', '**', 'REMOTE_ADDR', '0.0.0.0/0', '::/0']);
 
-    expect(fn () => bootWithTrustedProxies(['10.0.0.0/8', '**']))
-        ->toThrow(RuntimeException::class, 'may not be a wildcard');
+it('refuses one bad entry in an otherwise sound list', function (): void {
+    expect(fn () => bootWithTrustedProxies(['10.0.0.0/8', 'REMOTE_ADDR']))
+        ->toThrow(RuntimeException::class, 'REMOTE_ADDR');
 });
 
 /*
@@ -181,20 +203,24 @@ it('has the middleware in the global stack', function (): void {
 });
 
 /*
- * The guard on the file itself.
+ * The guard on the file itself, and a narrower claim than it has carried twice.
  *
- * Its first justification was wrong and worth recording as such: it claimed
- * that swapping `env()` for `config()` in that closure "passes every check in
- * this repository and silently trusts nobody, forever". It does not — review
- * tried it, and `config` is unbound that early, so it throws `Target class
- * [config] does not exist` on every request and takes the whole suite with it.
+ * Round 1 of it said swapping `env()` for `config()` in that closure "passes
+ * every check in this repository and silently trusts nobody, forever". False:
+ * `config` is unbound that early, so it throws.
  *
- * What this is actually worth is smaller and still worth keeping. PHPStan's
- * larastan rule covers `env()` and would have to stay enabled to go on doing
- * it; and when the `config()` half does happen, the failure everybody sees is
- * an unbound container alias with no hint of which file caused it, at app
- * construction, in every test at once. This names the file, the function and
- * the line.
+ * Round 2 of it then said this test would "name the file, the function and the
+ * line" for that case. Also false, and review proved it: the application is
+ * constructed before any test body runs, so a `config()` call there errors
+ * every test in the file at `Container.php:1145` and this assertion never
+ * executes at all.
+ *
+ * So the honest scope is one case: a bare `env()` there boots fine and returns
+ * null, the suite runs, and *this* is what says which line did it. That is
+ * worth the twenty lines only because larastan's `noEnvCallsOutsideOfConfig`
+ * has to stay switched on to keep covering it, and a `phpstan.neon` edit is
+ * one line. Two wrong justifications for one guard is itself the lesson: state
+ * what a test demonstrates, not what it feels like it protects.
  */
 it('reads no environment or config value in bootstrap/app.php', function (): void {
     $source = file_get_contents(base_path('bootstrap/app.php'));
@@ -215,11 +241,24 @@ it('reads no environment or config value in bootstrap/app.php', function (): voi
     $called = [];
 
     foreach ($tokens as $index => $token) {
-        if (! is_array($token) || $token[0] !== T_STRING) {
+        if (! is_array($token)) {
             continue;
         }
 
-        if (! in_array(strtolower($token[1]), ['env', 'config'], true)) {
+        /*
+         * `\env(...)` is one token, not two. PHP 8 lexes a leading separator
+         * into `T_NAME_FULLY_QUALIFIED` rather than `T_NS_SEPARATOR` followed
+         * by `T_STRING`, so a guard watching only `T_STRING` misses it — which
+         * is what round 2 of review demonstrated by inserting exactly that and
+         * leaving the file green.
+         */
+        if (! in_array($token[0], [T_STRING, T_NAME_FULLY_QUALIFIED], true)) {
+            continue;
+        }
+
+        $name = strtolower(ltrim($token[1], '\\'));
+
+        if (! in_array($name, ['env', 'config'], true)) {
             continue;
         }
 
@@ -228,9 +267,8 @@ it('reads no environment or config value in bootstrap/app.php', function (): voi
         }
 
         /*
-         * `\env(...)` is the same call with a leading separator, and reading
-         * the token before is what tells the two apart from `Foo::env(`, which
-         * is somebody else's method and not this rule's business.
+         * `Foo::env(` and `$x->env(` are somebody else's method and not this
+         * rule's business. A fully qualified name cannot be either.
          */
         $previous = $tokens[$index - 1] ?? null;
 

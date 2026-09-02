@@ -196,31 +196,45 @@ content: the app renders as a blank screen with no JavaScript.
 TRUSTED_PROXIES=10.0.0.0/8
 ```
 
-**A wildcard is refused at boot.** `TRUSTED_PROXIES=*` (or `**`) throws rather
-than starting, because Docker publishes the app's port through its own iptables
-DNAT rules, which bypass ufw — so the container answers from outside the proxy
-too, and a wildcard lets anyone reach it directly with a forged
-`X-Forwarded-For` and defeat the per-IP throttling on password reset.
+**Anything meaning "anybody" is refused at boot.** `*`, `**`, `REMOTE_ADDR`,
+`0.0.0.0/0` and `::/0` all throw rather than starting, in every context —
+console and scheduler included. Docker publishes the app's port through its own
+iptables DNAT rules, which bypass ufw, so the container answers from outside the
+proxy too, and anyone reaching it directly could forge `X-Forwarded-For` and
+defeat the per-IP throttling on password reset.
 
-It is *refused* rather than merely discouraged because ignoring it is what
-would otherwise happen silently: Laravel tests the wildcard against the string
+They are *refused* rather than merely discouraged because ignoring them is what
+would otherwise happen silently. Laravel tests the wildcard against the string
 `'*'`, and a value parsed into a list arrives as `['*']`, which misses that
-branch and reaches Symfony as a literal address matching nothing. The setting
-would look set and do nothing. Name a network.
+branch and reaches Symfony as a literal address matching nothing — the setting
+would look set and do nothing. `REMOTE_ADDR` has the opposite failure: it is
+mapped to the connecting address and quietly trusts whoever reached the
+container. Name a network.
 
-Changing the value on a box where `APP_ENV=production` needs
-`php artisan config:cache` re-run, because `docker/entrypoint.sh` caches the
-config there; staging runs `APP_ENV=staging` and does not cache, so a restart
-is enough.
+> [!warning] Changing this value needs the config cache rebuilt
+> **Every deployed environment caches the config**, so editing `.env` and
+> restarting is not enough — the old value stays in force with nothing said.
+> Staging caches it in the deploy workflow (`deploy-staging.yml`) and in
+> `scripts/update-staging.sh`; production caches it there *and* in
+> `docker/entrypoint.sh`, which runs `config:cache` when `APP_ENV=production`.
+> After changing it, run:
+>
+> ```sh
+> docker compose -f compose.yaml exec -T app php artisan config:cache
+> ```
+>
+> This paragraph is here because an earlier draft of it said the opposite —
+> that staging does not cache, so a restart would do. It was wrong in the one
+> way this section is about: a value read from somewhere it is not actually
+> read from.
 
 The value is read in `config/app.php` and applied by `AppServiceProvider`, not
 in `bootstrap/app.php` where the rest of the middleware is configured. That
 file's `withMiddleware` callback runs on `afterResolving(HttpKernel::class)`,
 and both `LoadEnvironmentVariables` and `LoadConfiguration` are bootstrappers
 that run later — so at that point `.env` has not been read at all and `config`
-is not bound. Config caching does not come into it. It shipped that way once
-and CI said so; `tests/Unit/TrustedProxiesTest.php` is what keeps it from
-coming back.
+is not bound. It shipped that way once and CI said so;
+`tests/Unit/TrustedProxiesTest.php` is what keeps it from coming back.
 
 ### Changing `APP_UID` or `APP_GID`
 
